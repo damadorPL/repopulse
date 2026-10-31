@@ -1,0 +1,158 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Prisma 7: connection URL lives in prisma.config.ts (CLI) and the PrismaPg adapter (runtime).
+}
+
+enum PollStatus {
+  IDLE
+  POLLING
+  ERROR
+}
+
+enum SemverType {
+  MAJOR
+  MINOR
+  PATCH
+  PRERELEASE
+  OTHER
+}
+
+enum TrackMode {
+  RELEASES
+  TAGS_AND_COMMITS
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL_INSTANT
+  EMAIL_DIGEST
+  DISCORD_WEBHOOK
+  SLACK_WEBHOOK
+  NTFY_WEBHOOK
+  GOTIFY_WEBHOOK
+  CUSTOM_WEBHOOK
+}
+
+model User {
+  id                         String              @id @default(cuid())
+  email                      String              @unique
+  name                       String?
+  avatarUrl                  String?
+  githubId                   String              @unique
+  githubAccessTokenEncrypted String?
+  createdAt                  DateTime            @default(now())
+  updatedAt                  DateTime            @updatedAt
+  subscriptions              UserSubscription[]
+  tags                       Tag[]
+  releaseStates              UserReleaseState[]
+  notificationRules          NotificationRule[]
+}
+
+model Repository {
+  id            String             @id @default(cuid())
+  githubRepoId  Int                @unique
+  owner         String
+  name          String
+  fullName      String             @unique
+  description   String?
+  avatarUrl     String?
+  htmlUrl       String
+  starsCount    Int                @default(0)
+  lastPolledAt  DateTime?
+  lastEtag      String?
+  pollStatus    PollStatus         @default(IDLE)
+  errorCount    Int                @default(0)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  releases      Release[]
+  subscriptions UserSubscription[]
+
+  @@index([lastPolledAt, pollStatus])
+}
+
+model Release {
+  id              String             @id @default(cuid())
+  repositoryId    String
+  githubReleaseId BigInt
+  tagName         String
+  title           String
+  bodyMarkdown    String             @db.Text
+  htmlUrl         String
+  isPrerelease    Boolean            @default(false)
+  isDraft         Boolean            @default(false)
+  semverType      SemverType         @default(OTHER)
+  publishedAt     DateTime
+  discoveredAt    DateTime           @default(now())
+  repository      Repository         @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  userStates      UserReleaseState[]
+
+  @@unique([repositoryId, githubReleaseId])
+  @@index([repositoryId, publishedAt(sort: Desc)])
+}
+
+model UserSubscription {
+  id                 String            @id @default(cuid())
+  userId             String
+  repositoryId       String
+  includePrereleases Boolean           @default(false)
+  trackMode          TrackMode         @default(RELEASES)
+  createdAt          DateTime          @default(now())
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repository         Repository        @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  tags               SubscriptionTag[]
+
+  @@unique([userId, repositoryId])
+}
+
+model Tag {
+  id                String             @id @default(cuid())
+  userId            String
+  name              String
+  slug              String
+  colorHex          String             @default("#3B82F6")
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptions     SubscriptionTag[]
+  notificationRules NotificationRule[]
+
+  @@unique([userId, slug])
+}
+
+model SubscriptionTag {
+  subscriptionId String
+  tagId          String
+  subscription   UserSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  tag            Tag              @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([subscriptionId, tagId])
+}
+
+model UserReleaseState {
+  userId    String
+  releaseId String
+  isRead    Boolean   @default(false)
+  readAt    DateTime?
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  release   Release   @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+
+  @@id([userId, releaseId])
+  @@index([userId, isRead])
+}
+
+model NotificationRule {
+  id                String              @id @default(cuid())
+  userId            String
+  tagId             String?
+  channel           NotificationChannel
+  destinationUrl    String?
+  onlyMajorReleases Boolean             @default(false)
+  enabled           Boolean             @default(true)
+  createdAt         DateTime            @default(now())
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tag               Tag?                @relation(fields: [tagId], references: [id], onDelete: SetNull)
+}

@@ -1,0 +1,113 @@
+# RepoPulse production stack for Coolify (Docker Compose build pack).
+# Deploys web + worker + one-off migrator + PostgreSQL + Redis atomically from this repo.
+# Local test: cp .env.example .env && docker compose -f docker-compose.coolify.yml up --build
+
+x-database-url: &database-url postgresql://${POSTGRES_USER:-repopulse}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-repopulse}
+x-redis-url: &redis-url redis://:${REDIS_PASSWORD}@redis:6379
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-repopulse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-repopulse}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-repopulse} -d ${POSTGRES_DB:-repopulse}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # CRITICAL: maxmemory-policy noeviction is required for BullMQ stability
+    command: redis-server --appendonly yes --maxmemory-policy noeviction --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  migrator:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+      target: migrator
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: *database-url
+      REDIS_URL: *redis-url
+      AUTH_SECRET: ${AUTH_SECRET}
+      AUTH_GITHUB_ID: ${AUTH_GITHUB_ID}
+      AUTH_GITHUB_SECRET: ${AUTH_GITHUB_SECRET}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
+      # Coolify automatically injects SERVICE_FQDN_WEB for domain routing
+      NEXTAUTH_URL: ${SERVICE_FQDN_WEB}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+      target: runner
+    restart: unless-stopped
+    # Give in-flight jobs time to finish on Coolify rollouts (SIGTERM -> graceful close).
+    stop_grace_period: 30s
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: *database-url
+      REDIS_URL: *redis-url
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
+      POLL_INTERVAL_CRON: ${POLL_INTERVAL_CRON:-*/30 * * * *}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      APP_BASE_URL: ${SERVICE_FQDN_WEB}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  postgres_data:
+  redis_data:

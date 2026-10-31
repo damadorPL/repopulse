@@ -1,0 +1,70 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "ui": "stream",
+  "globalEnv": [
+    "NODE_ENV"
+  ],
+  "tasks": {
+    "db:generate": {
+      "inputs": [
+        "prisma/schema.prisma",
+        "prisma.config.ts"
+      ],
+      "outputs": [],
+      "cache": false
+    },
+    "db:migrate:deploy": {
+      "cache": false,
+      "env": [
+        "DATABASE_URL"
+      ]
+    },
+    "build": {
+      "dependsOn": [
+        "db:generate",
+        "^db:generate",
+        "^build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!.env*",
+        "!**/*.test.ts"
+      ],
+      "outputs": [
+        "dist/**",
+        ".next/**",
+        "!.next/cache/**"
+      ]
+    },
+    "dev": {
+      "dependsOn": [
+        "db:generate",
+        "^db:generate",
+        "^build"
+      ],
+      "persistent": true,
+      "cache": false
+    },
+    "lint": {
+      "dependsOn": [
+        "db:generate",
+        "^db:generate"
+      ]
+    },
+    "typecheck": {
+      "dependsOn": [
+        "^db:generate",
+        "db:generate"
+      ]
+    },
+    "test": {
+      "dependsOn": [
+        "^db:generate",
+        "db:generate"
+      ],
+      "env": [
+        "TOKEN_ENCRYPTION_KEY"
+      ]
+    }
+  }
+}

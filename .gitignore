@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.next/
+.turbo/
+out/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.DS_Store
+next-env.d.ts
+
+# Prisma 7 generated client (run `pnpm db:generate`)
+packages/db/src/generated/

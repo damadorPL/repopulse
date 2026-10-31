@@ -1,0 +1,21 @@
+{
+  "name": "@repopulse/worker",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@repopulse/db": "workspace:*"
+  },
+  "devDependencies": {
+    "@repopulse/tsconfig": "workspace:*",
+    "@types/node": "26.6.6",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  }
+}
