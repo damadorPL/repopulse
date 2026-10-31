@@ -2,27 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { decryptToken, prisma, type User as DbUser } from "@repopulse/db";
-import {
-  GitHubRateLimitError,
-  GitHubRepositoryNotFoundError,
-  INITIAL_RELEASES_LIMIT,
-  InvalidRepositoryInputError,
-  parseRepoInput,
-  validateAndFetchRepo,
-} from "@repopulse/github";
-import { getCurrentUserOrThrow, UnauthorizedError } from "@/lib/auth";
+import { prisma } from "@repopulse/db";
+import { INITIAL_RELEASES_LIMIT, parseRepoInput, validateAndFetchRepo } from "@repopulse/github";
+import { getCurrentUserOrThrow } from "@/lib/auth";
+import { fail, getGitHubToken, invalidInput, toActionError, type ActionResult } from "@/server/action-result";
 
-export type ActionErrorCode =
-  | "UNAUTHORIZED"
-  | "INVALID_INPUT"
-  | "NOT_FOUND"
-  | "RATE_LIMITED"
-  | "INTERNAL";
-
-export type ActionResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; error: { code: ActionErrorCode; message: string } };
+export type { ActionErrorCode, ActionResult } from "@/server/action-result";
 
 export interface AddRepositoryResult {
   subscriptionId: string;
@@ -41,35 +26,6 @@ const removeSubscriptionInput = z.object({
   subscriptionId: z.string().min(1).max(64),
 });
 
-function fail(code: ActionErrorCode, message: string): ActionResult<never> {
-  return { ok: false, error: { code, message } };
-}
-
-/**
- * Server Actions run as separate requests, so thrown errors would be redacted in
- * production. Map known errors to serializable results instead.
- */
-function toActionError(error: unknown, action: string): ActionResult<never> {
-  if (error instanceof UnauthorizedError) return fail("UNAUTHORIZED", error.message);
-  if (error instanceof InvalidRepositoryInputError) return fail("INVALID_INPUT", error.message);
-  if (error instanceof GitHubRepositoryNotFoundError) return fail("NOT_FOUND", error.message);
-  if (error instanceof GitHubRateLimitError) return fail("RATE_LIMITED", error.message);
-  console.error(`[${action}] unexpected error`, error);
-  return fail("INTERNAL", "Something went wrong. Please try again.");
-}
-
-/** Returns the user's GitHub token, or undefined (unauthenticated, 60 req/h) if it can't be decrypted. */
-function getGitHubToken(user: DbUser): string | undefined {
-  if (!user.githubAccessTokenEncrypted) return undefined;
-  try {
-    return decryptToken(user.githubAccessTokenEncrypted);
-  } catch (error) {
-    // e.g. TOKEN_ENCRYPTION_KEY rotated — the next sign-in re-encrypts with the new key.
-    console.warn(`[addRepositoryAction] could not decrypt GitHub token for user ${user.id}`, error);
-    return undefined;
-  }
-}
-
 export async function addRepositoryAction(input: {
   repoUrlOrSlug: string;
   includePrereleases: boolean;
@@ -80,7 +36,7 @@ export async function addRepositoryAction(input: {
 
     const parsed = addRepositoryInput.safeParse(input);
     if (!parsed.success) {
-      return fail("INVALID_INPUT", parsed.error.issues[0]?.message ?? "Invalid input");
+      return invalidInput(parsed.error);
     }
     const { repoUrlOrSlug, includePrereleases, tagIds } = parsed.data;
     const { owner, name } = parseRepoInput(repoUrlOrSlug);
@@ -94,7 +50,7 @@ export async function addRepositoryAction(input: {
     // Fetch from GitHub before opening the transaction so no DB connection is held during network I/O.
     const fetched =
       !existing || existing._count.releases === 0
-        ? await validateAndFetchRepo(owner, name, getGitHubToken(user))
+        ? await validateAndFetchRepo(owner, name, getGitHubToken(user, "addRepositoryAction"))
         : null;
 
     const result = await prisma.$transaction(async (tx) => {
@@ -180,7 +136,7 @@ export async function addRepositoryAction(input: {
       };
     });
 
-    revalidatePath("/");
+    revalidatePath("/", "layout");
     return { ok: true, data: result };
   } catch (error) {
     return toActionError(error, "addRepositoryAction");
@@ -195,7 +151,7 @@ export async function removeSubscriptionAction(input: {
 
     const parsed = removeSubscriptionInput.safeParse(input);
     if (!parsed.success) {
-      return fail("INVALID_INPUT", parsed.error.issues[0]?.message ?? "Invalid input");
+      return invalidInput(parsed.error);
     }
     const { subscriptionId } = parsed.data;
 
@@ -216,7 +172,7 @@ export async function removeSubscriptionAction(input: {
       prisma.userSubscription.delete({ where: { id: subscription.id } }),
     ]);
 
-    revalidatePath("/");
+    revalidatePath("/", "layout");
     return { ok: true, data: { subscriptionId: subscription.id } };
   } catch (error) {
     return toActionError(error, "removeSubscriptionAction");

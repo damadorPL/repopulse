@@ -13,6 +13,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The root `.env` is loaded automatically outside production by `next.config.ts`, `prisma.config.ts` (Prisma 7 no longer
   loads `.env` files) and the worker `dev` script (`--env-file-if-exists`).
 
+## [0.3.0] — 2026-10-31 — Slice 03: Dashboard panel UI, tags & Markdown changelog reader
+
+Details: [`slice_03_implementation_summary.md`](./slice_03_implementation_summary.md)
+
+### Added
+- **Dashboard UI** (`apps/web`, Tailwind CSS v4, shadcn/ui on `radix-ui`, light/dark):
+  - The sidebar has All Releases (with an unread badge), Unread Only and Tracked Repositories, plus tags with color dots and unread counts.
+  - The top bar has a debounced search, an unread bell with a per-repository breakdown, Add Repo and an account menu.
+  - On mobile, the sidebar moves into a sheet.
+- **Unified release feed** (`/`):
+  - Each card shows the repository avatar, a SemVer badge (Major/Minor/Patch/Pre-release), tag pills, a relative time and an unread dot.
+  - Filters for All/Unread, SemVer type, tag, repository and search. Sort by newest or oldest.
+  - Keyset "Load more" and "Mark all as read".
+  - All filter state lives in the URL.
+- **Changelog reader:**
+  - Slide-over drawer (`?release=`) with sanitized GitHub Flavored Markdown: tables, task lists, `<details>`, highlighted code.
+  - Releases are marked read automatically when opened.
+  - Buttons for View on GitHub, Mark as unread and Sync repo now.
+- **Tags/categories:** create, rename, recolor and delete them in a modal; assign them to repositories on the `/repositories` page.
+- **Server Actions:**
+  - `createTagAction`, `updateTagAction`, `deleteTagAction`, `assignTagsAction`
+  - `toggleReleaseReadAction`, `markAllReadAction`
+  - `loadMoreReleasesAction`
+  - `triggerManualRepoSyncAction`: polls inline with `If-None-Match` and a 5-minute cooldown per repository. Slice 04 switches it to a BullMQ job.
+- **Feed queries** (`server/queries/feed.ts`): a single visibility rule that respects `includePrereleases`, shared by the feed, the reader and every
+  unread counter.
+- 58 Vitest tests for apps/web, including XSS sanitization of release notes.
+
+### Changed
+- The Slice 02 temporary home page is replaced by the `(dashboard)` route group.
+- Action result helpers moved to `server/action-result.ts`, and repository actions now revalidate the whole dashboard layout.
+
+### Security
+- Release notes pass through `rehype-raw` → `rehype-sanitize` (GitHub allow-list) → `rehype-highlight` on the server. Scripts, event handlers,
+  `javascript:`/`data:` URLs, iframes, styles and forms are stripped, and the raw body is never sent to the client.
+- Every action is scoped to the signed-in user: tags, subscriptions and read state can only belong to the current user.
+
 ## [0.2.0] — 2026-10-31 — Slice 02: GitHub OAuth & shared GitHub ingestion package
 
 Details: [`slice_02_implementation_summary.md`](./slice_02_implementation_summary.md)
