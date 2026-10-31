@@ -12,7 +12,10 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "db:generate": "turbo run db:generate",
-    "db:migrate:deploy": "turbo run db:migrate:deploy"
+    "db:migrate:deploy": "turbo run db:migrate:deploy",
+    "env:setup": "node scripts/setup-env.mjs",
+    "services:up": "docker compose -f docker-compose.dev.yml up -d --wait",
+    "services:down": "docker compose -f docker-compose.dev.yml down"
   },
   "devDependencies": {
     "turbo": "2.11.10",

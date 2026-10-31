@@ -1,8 +1,16 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { NextConfig } from "next";
 
 const monorepoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "../..");
+
+// Local dev: share the monorepo-root .env (Next only reads apps/web/.env* itself).
+// Variables already set in the environment win. Never loaded in production.
+const rootEnvFile = path.join(monorepoRoot, ".env");
+if (process.env.NODE_ENV !== "production" && existsSync(rootEnvFile)) {
+  process.loadEnvFile(rootEnvFile);
+}
 
 const nextConfig: NextConfig = {
   output: "standalone",

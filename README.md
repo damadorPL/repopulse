@@ -16,17 +16,22 @@ Requires Node.js 24+ (Docker images use Node 26 LTS) and pnpm (version pinned in
 
 ```sh
 pnpm install
-pnpm db:generate          # prisma generate
-pnpm typecheck
-pnpm test                 # crypto round-trip / tamper tests
-pnpm build
+pnpm env:setup            # once: writes a git-ignored .env with generated secrets
+                          # then fill in AUTH_GITHUB_ID / AUTH_GITHUB_SECRET (see below)
+pnpm services:up          # Postgres + Redis on localhost (docker-compose.dev.yml)
+pnpm db:migrate:deploy    # apply migrations
+pnpm dev                  # http://localhost:3000
+pnpm typecheck && pnpm test && pnpm build
 ```
+
+The single root `.env` is loaded automatically in non-production runs by `apps/web/next.config.ts`,
+`packages/db/prisma.config.ts` and the worker's `dev` script. Variables already set in the shell
+take precedence. `pnpm services:down` stops the dev services (`docker compose -f docker-compose.dev.yml down -v`
+also wipes their data).
 
 The database layer uses **Prisma 7**: the client is generated into `packages/db/src/generated`
 (git-ignored; `pnpm db:generate` recreates it) and connects through the `@prisma/adapter-pg`
-driver adapter. CLI settings live in `packages/db/prisma.config.ts`. Prisma 7 does **not** load
-`.env` files, so export `DATABASE_URL` in your shell before running migrations, e.g.
-`DATABASE_URL=postgresql://… pnpm --filter @repopulse/db db:migrate:dev`.
+driver adapter. CLI settings live in `packages/db/prisma.config.ts`.
 
 ### GitHub sign-in
 

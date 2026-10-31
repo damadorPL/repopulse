@@ -3,6 +3,16 @@
 All notable changes to RepoPulse are documented here, one entry per implementation slice.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+- Local development environment:
+  - `pnpm env:setup` (`scripts/setup-env.mjs`) writes a git-ignored root `.env` with freshly generated
+    Postgres and Redis passwords, `AUTH_SECRET` and `TOKEN_ENCRYPTION_KEY`. It refuses to overwrite an existing `.env` unless run with `--force`.
+  - `docker-compose.dev.yml` (`pnpm services:up` / `services:down`): Postgres 16 and Redis 7 bound to `127.0.0.1`.
+- The root `.env` is loaded automatically outside production by `next.config.ts`, `prisma.config.ts` (Prisma 7 no longer
+  loads `.env` files) and the worker `dev` script (`--env-file-if-exists`).
+
 ## [0.2.0] — 2026-10-31 — Slice 02: GitHub OAuth & shared GitHub ingestion package
 
 Details: [`slice_02_implementation_summary.md`](./slice_02_implementation_summary.md)
