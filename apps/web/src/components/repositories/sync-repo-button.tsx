@@ -3,11 +3,12 @@
 import { useTransition, type ComponentProps } from "react";
 import { RefreshCwIcon } from "lucide-react";
 import { toast } from "sonner";
+import { syncToastId } from "@/components/realtime/sse-listener";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { triggerManualRepoSyncAction } from "@/server/actions/sync";
 
-function formatWait(seconds: number): string {
+export function formatWait(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
   return minutes > 0 ? `${minutes}m ${rest.toString().padStart(2, "0")}s` : `${rest}s`;
@@ -33,11 +34,11 @@ export function SyncRepoButton({
         toast.info(`${data.fullName} was synced recently`, {
           description: `Manual syncs are limited to one every 5 minutes. Try again in ${formatWait(data.retryAfterSeconds)}.`,
         });
-      } else if (data.status === "NOT_MODIFIED" || data.newReleases === 0) {
-        toast.success(`${data.fullName} is up to date`);
-      } else {
-        toast.success(`${data.newReleases} new release${data.newReleases === 1 ? "" : "s"} in ${data.fullName}`);
+        return;
       }
+      // The worker reports the outcome over SSE (SseListener), replacing this toast by id.
+      // Loading toasts never expire on their own, so cap it in case no worker picks the job up.
+      toast.loading(`Syncing ${data.fullName}…`, { id: syncToastId(repositoryId), duration: 60_000 });
     });
   }
 

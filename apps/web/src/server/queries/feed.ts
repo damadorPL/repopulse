@@ -1,5 +1,5 @@
 import { cache } from "react";
-import { prisma, type Prisma, type SemverType } from "@repopulse/db";
+import { prisma, type BackfillStatus, type Prisma, type SemverType } from "@repopulse/db";
 import { FEED_PAGE_SIZE, type FeedFilters } from "@/lib/feed-filters";
 
 /**
@@ -343,8 +343,19 @@ export interface TrackedRepository {
     lastPolledAt: Date | null;
     pollStatus: "IDLE" | "POLLING" | "ERROR";
     releaseCount: number;
+    history: RepositoryHistory;
   };
   latestRelease: { id: string; tagName: string; semverType: SemverType; publishedAt: Date } | null;
+}
+
+/** Release-history backfill state of a repository (Slice 04b). */
+export interface RepositoryHistory {
+  status: BackfillStatus;
+  /** GitHub has older releases that "Load older releases" could import. */
+  hasMore: boolean;
+  target: number;
+  /** Publication date of the oldest stored release. */
+  oldestAt: Date | null;
 }
 
 /** Subscriptions for the "Tracked Repositories" page, alphabetical. */
@@ -368,6 +379,9 @@ export async function getTrackedRepositories(userId: string): Promise<TrackedRep
           starsCount: true,
           lastPolledAt: true,
           pollStatus: true,
+          backfillStatus: true,
+          backfillNextPage: true,
+          backfillTarget: true,
           _count: { select: { releases: { where: { isDraft: false } } } },
           // A few recent releases so the latest one matching the pre-release setting can be picked.
           releases: {
@@ -381,15 +395,31 @@ export async function getTrackedRepositories(userId: string): Promise<TrackedRep
     },
   });
 
+  const oldest = await prisma.release.groupBy({
+    by: ["repositoryId"],
+    where: { repositoryId: { in: rows.map((row) => row.repository.id) }, isDraft: false },
+    _min: { publishedAt: true },
+  });
+  const oldestByRepo = new Map(oldest.map((r) => [r.repositoryId, r._min.publishedAt]));
+
   return rows
-    .map(({ repository: { _count, releases, ...repository }, ...row }) => {
+    .map(({ repository: { _count, releases, backfillStatus, backfillNextPage, backfillTarget, ...repository }, ...row }) => {
       const latest = releases.find((r) => row.includePrereleases || !r.isPrerelease);
       return {
         subscriptionId: row.id,
         includePrereleases: row.includePrereleases,
         subscribedAt: row.createdAt,
         tags: row.tags.map((t) => t.tag).sort(byName),
-        repository: { ...repository, releaseCount: _count.releases },
+        repository: {
+          ...repository,
+          releaseCount: _count.releases,
+          history: {
+            status: backfillStatus,
+            hasMore: backfillNextPage !== null,
+            target: backfillTarget,
+            oldestAt: oldestByRepo.get(repository.id) ?? null,
+          },
+        },
         latestRelease: latest
           ? { id: latest.id, tagName: latest.tagName, semverType: latest.semverType, publishedAt: latest.publishedAt }
           : null,

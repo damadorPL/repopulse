@@ -6,7 +6,9 @@ import { RepoAvatar } from "@/components/feed/repo-avatar";
 import { SemverBadge } from "@/components/feed/semver-badge";
 import { TagPill } from "@/components/feed/tag-pill";
 import { AddRepoModal } from "@/components/modals/add-repo-modal";
+import { readBackfillConfig } from "@repopulse/queue";
 import { AssignTagsPopover } from "@/components/repositories/assign-tags-popover";
+import { HistoryStatus } from "@/components/repositories/history-status";
 import { RemoveSubscriptionButton } from "@/components/repositories/remove-subscription-button";
 import { SyncRepoButton } from "@/components/repositories/sync-repo-button";
 import { Button } from "@/components/ui/button";
@@ -23,6 +25,7 @@ export default async function RepositoriesPage() {
   const [repositories, dashboard] = await Promise.all([getTrackedRepositories(user.id), getDashboardData(user.id)]);
   const unreadByRepo = new Map(dashboard.unreadByRepository.map((r) => [r.repositoryId, r.unreadCount]));
   const allTags = dashboard.tags.map(({ id, name, slug, colorHex }) => ({ id, name, slug, colorHex }));
+  const { hardCap } = readBackfillConfig();
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
@@ -121,6 +124,12 @@ export default async function RepositoriesPage() {
                       <dd>Last sync failed</dd>
                     </div>
                   ) : null}
+                  <HistoryStatus
+                    repositoryId={repo.id}
+                    history={repo.history}
+                    releaseCount={repo.releaseCount}
+                    canLoadOlder={repo.history.status === "DONE" && repo.history.hasMore && repo.history.target < hardCap}
+                  />
                   {entry.includePrereleases ? (
                     <div>
                       <dt className="sr-only">Pre-releases</dt>

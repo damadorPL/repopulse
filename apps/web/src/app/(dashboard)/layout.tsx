@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { TopNavbar } from "@/components/layout/top-navbar";
+import { SseListener } from "@/components/realtime/sse-listener";
 import { getDashboardData } from "@/server/queries/feed";
 import { requireUser } from "@/server/session";
 
@@ -14,6 +15,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
 
   return (
     <div className="flex min-h-dvh">
+      <SseListener />
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 border-r border-sidebar-border bg-sidebar md:block">{sidebar}</aside>
       <div className="flex min-w-0 flex-1 flex-col">
         <TopNavbar

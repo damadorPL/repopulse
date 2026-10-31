@@ -2,10 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { prisma } from "@repopulse/db";
+import { prisma, type BackfillStatus } from "@repopulse/db";
 import { INITIAL_RELEASES_LIMIT, parseRepoInput, validateAndFetchRepo } from "@repopulse/github";
+import { RELEASE_BACKFILL_PRIORITY } from "@repopulse/queue";
 import { getCurrentUserOrThrow } from "@/lib/auth";
 import { fail, getGitHubToken, invalidInput, toActionError, type ActionResult } from "@/server/action-result";
+import { enqueueReleaseBackfill } from "@/server/backfill-queue";
+import { isRealtimeConfigured } from "@/server/realtime";
 
 export type { ActionErrorCode, ActionResult } from "@/server/action-result";
 
@@ -21,6 +24,26 @@ const addRepositoryInput = z.object({
   includePrereleases: z.boolean().default(false),
   tagIds: z.array(z.string().min(1).max(64)).max(50).default([]),
 });
+
+/**
+ * Queues the background import of older releases. Best effort: the repository is already added,
+ * and a repository left at `NONE` is picked up by the worker's scheduler sweep. `ERROR` is retried
+ * here too, because an add is a natural moment to try again. History is shared, so a second user
+ * adding a repository whose history is `DONE` queues nothing.
+ */
+async function queueHistoryBackfill(repositoryId: string, status: BackfillStatus): Promise<void> {
+  if ((status !== "NONE" && status !== "ERROR") || !isRealtimeConfigured()) return;
+  try {
+    await enqueueReleaseBackfill({ repositoryId, trigger: "add" }, RELEASE_BACKFILL_PRIORITY.automatic);
+    // Only from the state we saw: a job that already started has moved the row on.
+    await prisma.repository.updateMany({
+      where: { id: repositoryId, backfillStatus: status },
+      data: { backfillStatus: "QUEUED" },
+    });
+  } catch (error) {
+    console.warn(`[addRepositoryAction] could not queue the history backfill of ${repositoryId}`, error);
+  }
+}
 
 const removeSubscriptionInput = z.object({
   subscriptionId: z.string().min(1).max(64),
@@ -44,7 +67,7 @@ export async function addRepositoryAction(input: {
     // GitHub slugs are case-insensitive ("CoolLabsIO/Coolify" === "coollabsio/coolify").
     const existing = await prisma.repository.findFirst({
       where: { fullName: { equals: `${owner}/${name}`, mode: "insensitive" } },
-      select: { id: true, fullName: true, _count: { select: { releases: true } } },
+      select: { id: true, fullName: true, backfillStatus: true, _count: { select: { releases: true } } },
     });
 
     // Fetch from GitHub before opening the transaction so no DB connection is held during network I/O.
@@ -53,8 +76,8 @@ export async function addRepositoryAction(input: {
         ? await validateAndFetchRepo(owner, name, getGitHubToken(user, "addRepositoryAction"))
         : null;
 
-    const result = await prisma.$transaction(async (tx) => {
-      let repository: { id: string; fullName: string };
+    const { result, backfillStatus } = await prisma.$transaction(async (tx) => {
+      let repository: { id: string; fullName: string; backfillStatus: BackfillStatus };
 
       if (fetched) {
         const { repository: repo, releases, etag } = fetched;
@@ -74,7 +97,7 @@ export async function addRepositoryAction(input: {
           where: { githubRepoId: repo.githubRepoId },
           create: { githubRepoId: repo.githubRepoId, ...fields },
           update: fields,
-          select: { id: true, fullName: true },
+          select: { id: true, fullName: true, backfillStatus: true },
         });
         if (releases.length > 0) {
           await tx.release.createMany({
@@ -83,7 +106,7 @@ export async function addRepositoryAction(input: {
           });
         }
       } else {
-        repository = { id: existing!.id, fullName: existing!.fullName };
+        repository = { id: existing!.id, fullName: existing!.fullName, backfillStatus: existing!.backfillStatus };
       }
 
       const subscription = await tx.userSubscription.upsert({
@@ -129,12 +152,18 @@ export async function addRepositoryAction(input: {
       const releasesCount = await tx.release.count({ where: { repositoryId: repository.id } });
 
       return {
-        subscriptionId: subscription.id,
-        repositoryId: repository.id,
-        fullName: repository.fullName,
-        releasesCount,
+        result: {
+          subscriptionId: subscription.id,
+          repositoryId: repository.id,
+          fullName: repository.fullName,
+          releasesCount,
+        },
+        backfillStatus: repository.backfillStatus,
       };
     });
+
+    // After the commit, so the worker never runs against a repository that is not there yet.
+    await queueHistoryBackfill(result.repositoryId, backfillStatus);
 
     revalidatePath("/", "layout");
     return { ok: true, data: result };

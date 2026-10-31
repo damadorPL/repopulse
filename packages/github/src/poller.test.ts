@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { createOctokit, GITHUB_USER_AGENT } from "./client.js";
 import {
+  fetchReleasesPage,
   GitHubRateLimitError,
   GitHubRepositoryNotFoundError,
+  hasNextLink,
   pollRepoReleases,
   validateAndFetchRepo,
 } from "./poller.js";
@@ -157,5 +159,95 @@ describe("pollRepoReleases", () => {
     expect(result.rateLimitRemaining).toBe(4999);
     expect(result.releases).toHaveLength(1);
     expect(result.releases[0]).toMatchObject({ githubReleaseId: 10n, tagName: "v3.0.0", semverType: "MAJOR" });
+  });
+
+  it("passes the abort signal through to fetch", async () => {
+    const controller = new AbortController();
+    const fetch = mockFetch((_url, init) => {
+      expect(init.signal).toBe(controller.signal);
+      return json([]);
+    });
+
+    await pollRepoReleases({ owner: "acme", name: "widget", signal: controller.signal, octokit: createOctokit({ fetch }) });
+
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+});
+
+const LINK_NEXT =
+  '<https://api.github.com/repositories/42/releases?per_page=100&page=3>; rel="next", ' +
+  '<https://api.github.com/repositories/42/releases?per_page=100&page=9>; rel="last", ' +
+  '<https://api.github.com/repositories/42/releases?per_page=100&page=1>; rel="first"';
+const LINK_LAST_PAGE =
+  '<https://api.github.com/repositories/42/releases?per_page=100&page=1>; rel="first", ' +
+  '<https://api.github.com/repositories/42/releases?per_page=100&page=8>; rel="prev"';
+
+describe("hasNextLink", () => {
+  it("detects rel=next among other relations", () => {
+    expect(hasNextLink(LINK_NEXT)).toBe(true);
+    expect(hasNextLink('<https://x?page=2>; rel="next last"')).toBe(true);
+    expect(hasNextLink("<https://x?page=2>; rel=next")).toBe(true);
+  });
+
+  it("is false on the last page or without a header", () => {
+    expect(hasNextLink(LINK_LAST_PAGE)).toBe(false);
+    expect(hasNextLink('<https://x?page=2>; rel="nextish"')).toBe(false);
+    expect(hasNextLink(undefined)).toBe(false);
+    expect(hasNextLink("")).toBe(false);
+  });
+});
+
+describe("fetchReleasesPage", () => {
+  it("requests the given page with 100 per page and no If-None-Match", async () => {
+    const fetch = mockFetch((url, init) => {
+      expect(url.pathname).toBe("/repos/acme/widget/releases");
+      expect(url.searchParams.get("page")).toBe("2");
+      expect(url.searchParams.get("per_page")).toBe("100");
+      expect(headerOf(init, "if-none-match")).toBeUndefined();
+      return json([release(5, "v1.5.0"), release(4, "v1.4.0", { draft: true }), release(3, "v1.3.0")], {
+        headers: { link: LINK_NEXT, "x-ratelimit-remaining": "4321", "x-ratelimit-reset": "1798761600" },
+      });
+    });
+
+    const result = await fetchReleasesPage({ owner: "acme", name: "widget", page: 2, octokit: createOctokit({ fetch }) });
+
+    expect(result.hasNextPage).toBe(true);
+    expect(result.rateLimitRemaining).toBe(4321);
+    expect(result.rateLimitResetAt).toEqual(new Date(1798761600 * 1000));
+    // Drafts are filtered out.
+    expect(result.releases.map((r) => r.githubReleaseId)).toEqual([5n, 3n]);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("reports the last page from the Link header, not the page length", async () => {
+    const fetch = mockFetch(() => json([release(1, "v1.0.0")], { headers: { link: LINK_LAST_PAGE } }));
+    const result = await fetchReleasesPage({ owner: "acme", name: "widget", page: 9, perPage: 1, octokit: createOctokit({ fetch }) });
+    expect(result.hasNextPage).toBe(false);
+    expect(result.releases).toHaveLength(1);
+  });
+
+  it("returns hasNextPage false when there is no Link header", async () => {
+    const fetch = mockFetch(() => json([]));
+    const result = await fetchReleasesPage({ owner: "acme", name: "widget", page: 1, octokit: createOctokit({ fetch }) });
+    expect(result).toMatchObject({ releases: [], hasNextPage: false });
+  });
+
+  it("throws GitHubRepositoryNotFoundError on 404", async () => {
+    const fetch = mockFetch(() => json({ message: "Not Found" }, { status: 404 }));
+    await expect(
+      fetchReleasesPage({ owner: "acme", name: "missing", page: 1, octokit: createOctokit({ fetch }) }),
+    ).rejects.toBeInstanceOf(GitHubRepositoryNotFoundError);
+  });
+
+  it.each([
+    [403, { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1798761600" }],
+    [429, { "x-ratelimit-reset": "1798761600" }],
+  ])("throws GitHubRateLimitError on %i with an exhausted quota", async (status, headers) => {
+    const fetch = mockFetch(() => json({ message: "API rate limit exceeded" }, { status, headers }));
+    const error = await fetchReleasesPage({ owner: "acme", name: "widget", page: 3, octokit: createOctokit({ fetch }) }).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(GitHubRateLimitError);
+    expect((error as GitHubRateLimitError).resetAt).toEqual(new Date(1798761600 * 1000));
   });
 });

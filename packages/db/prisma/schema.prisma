@@ -28,6 +28,16 @@ enum TrackMode {
   TAGS_AND_COMMITS
 }
 
+/// Progress of the background import of older releases (Slice 04b).
+enum BackfillStatus {
+  NONE
+  QUEUED
+  RUNNING
+  DONE
+  PARTIAL
+  ERROR
+}
+
 enum NotificationChannel {
   IN_APP
   EMAIL_INSTANT
@@ -40,14 +50,14 @@ enum NotificationChannel {
 }
 
 model User {
-  id                         String              @id @default(cuid())
-  email                      String              @unique
+  id                         String             @id @default(cuid())
+  email                      String             @unique
   name                       String?
   avatarUrl                  String?
-  githubId                   String              @unique
+  githubId                   String             @unique
   githubAccessTokenEncrypted String?
-  createdAt                  DateTime            @default(now())
-  updatedAt                  DateTime            @updatedAt
+  createdAt                  DateTime           @default(now())
+  updatedAt                  DateTime           @updatedAt
   subscriptions              UserSubscription[]
   tags                       Tag[]
   releaseStates              UserReleaseState[]
@@ -55,25 +65,35 @@ model User {
 }
 
 model Repository {
-  id            String             @id @default(cuid())
-  githubRepoId  Int                @unique
-  owner         String
-  name          String
-  fullName      String             @unique
-  description   String?
-  avatarUrl     String?
-  htmlUrl       String
-  starsCount    Int                @default(0)
-  lastPolledAt  DateTime?
-  lastEtag      String?
-  pollStatus    PollStatus         @default(IDLE)
-  errorCount    Int                @default(0)
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
-  releases      Release[]
-  subscriptions UserSubscription[]
+  id                  String             @id @default(cuid())
+  githubRepoId        Int                @unique
+  owner               String
+  name                String
+  fullName            String             @unique
+  description         String?
+  avatarUrl           String?
+  htmlUrl             String
+  starsCount          Int                @default(0)
+  lastPolledAt        DateTime?
+  lastEtag            String?
+  pollStatus          PollStatus         @default(IDLE)
+  errorCount          Int                @default(0)
+  /// Release history backfill (Slice 04b).
+  backfillStatus      BackfillStatus     @default(NONE)
+  /// Next GitHub releases page (100 per page) to fetch; `null` before the first run and once the history is complete.
+  backfillNextPage    Int?
+  /// How many releases the repository should hold in total.
+  backfillTarget      Int                @default(100)
+  backfilledAt        DateTime?
+  /// Last "Load older releases" request; drives its 5-minute cooldown claim.
+  backfillRequestedAt DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  releases            Release[]
+  subscriptions       UserSubscription[]
 
   @@index([lastPolledAt, pollStatus])
+  @@index([backfillStatus])
 }
 
 model Release {

@@ -27,6 +27,8 @@ export interface GitHubRelease {
 export const RELEASES_PAGE_SIZE = 20;
 /** Number of releases ingested when a repository is first added. */
 export const INITIAL_RELEASES_LIMIT = 10;
+/** Page size of the history backfill (GitHub's maximum). */
+export const BACKFILL_PAGE_SIZE = 100;
 
 /** Matches the `Release` Prisma model (minus `id`, `repositoryId`, `discoveredAt`). */
 export interface MappedRelease {
@@ -64,6 +66,15 @@ export interface ValidateAndFetchRepoResult {
 export type PollRepoReleasesResult =
   | { status: "NOT_MODIFIED"; etag: string | null; releases: []; rateLimitRemaining: number | null }
   | { status: "UPDATED"; etag: string | null; releases: MappedRelease[]; rateLimitRemaining: number | null };
+
+export interface FetchReleasesPageResult {
+  /** Published releases on this page, newest first (drafts removed). */
+  releases: MappedRelease[];
+  /** From the `Link` header (`rel="next"`), not the page length: drafts can shorten a full page. */
+  hasNextPage: boolean;
+  rateLimitRemaining: number | null;
+  rateLimitResetAt: Date | null;
+}
 
 export class GitHubRepositoryNotFoundError extends Error {
   readonly fullName: string;
@@ -110,6 +121,17 @@ export function mapRelease(release: GitHubRelease): MappedRelease {
  */
 function mapPublishedReleases(releases: GitHubRelease[]): MappedRelease[] {
   return releases.filter((r) => !r.draft).map(mapRelease);
+}
+
+/** Whether an RFC 8288 `Link` header contains a `rel="next"` link. */
+export function hasNextLink(link: ResponseHeaders[string]): boolean {
+  const value = Array.isArray(link) ? link.join(",") : link;
+  if (typeof value !== "string") return false;
+  return value.split(",").some((part) => {
+    // `rel` may hold several space-separated relation types: rel="next last".
+    const rel = /;\s*rel\s*=\s*"?([^";]*)"?/i.exec(part)?.[1];
+    return rel?.toLowerCase().split(/\s+/).includes("next") ?? false;
+  });
 }
 
 function etagOf(headers: ResponseHeaders): string | null {
@@ -180,6 +202,8 @@ export async function pollRepoReleases(params: {
   lastEtag?: string | null;
   accessToken?: string | null;
   octokit?: Octokit;
+  /** Aborts the HTTP request (worker shutdown, job timeout). */
+  signal?: AbortSignal;
 }): Promise<PollRepoReleasesResult> {
   const { owner, name, lastEtag } = params;
   const octokit = params.octokit ?? createOctokit({ accessToken: params.accessToken });
@@ -190,6 +214,7 @@ export async function pollRepoReleases(params: {
       repo: name,
       per_page: RELEASES_PAGE_SIZE,
       headers: lastEtag ? { "If-None-Match": lastEtag } : {},
+      ...(params.signal ? { request: { signal: params.signal } } : {}),
     });
     return {
       status: "UPDATED",
@@ -206,6 +231,43 @@ export async function pollRepoReleases(params: {
         rateLimitRemaining: getRateLimitInfo(error.response?.headers).remaining,
       };
     }
+    rethrowGitHubError(error, owner, name);
+  }
+}
+
+/**
+ * Fetches one page of a repository's releases for the history backfill. Never conditional: ETags
+ * are per URL, and the stored `lastEtag` belongs to the poll URL (`per_page=20`) only.
+ */
+export async function fetchReleasesPage(params: {
+  owner: string;
+  name: string;
+  /** 1-based GitHub page number. */
+  page: number;
+  perPage?: number;
+  accessToken?: string | null;
+  octokit?: Octokit;
+  signal?: AbortSignal;
+}): Promise<FetchReleasesPageResult> {
+  const { owner, name, page, perPage = BACKFILL_PAGE_SIZE } = params;
+  const octokit = params.octokit ?? createOctokit({ accessToken: params.accessToken });
+
+  try {
+    const response = await octokit.request("GET /repos/{owner}/{repo}/releases", {
+      owner,
+      repo: name,
+      page,
+      per_page: perPage,
+      ...(params.signal ? { request: { signal: params.signal } } : {}),
+    });
+    const rateLimit = getRateLimitInfo(response.headers);
+    return {
+      releases: mapPublishedReleases(response.data),
+      hasNextPage: hasNextLink(response.headers.link),
+      rateLimitRemaining: rateLimit.remaining,
+      rateLimitResetAt: rateLimit.resetAt,
+    };
+  } catch (error) {
     rethrowGitHubError(error, owner, name);
   }
 }

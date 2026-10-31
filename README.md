@@ -5,9 +5,10 @@ Self-hostable GitHub release & changelog tracker — Turborepo + pnpm monorepo d
 | Workspace | Description |
 | --- | --- |
 | `apps/web` | Next.js (App Router) UI + API, GitHub sign-in (Auth.js v5), `GET /api/health` |
-| `apps/worker` | Long-running Node worker (BullMQ in a later slice), `GET :3001/health` |
+| `apps/worker` | BullMQ worker: cron scheduler, ETag-aware repository poller, release-history backfill, notification hand-off, `GET :3001/health` |
 | `packages/db` | Prisma schema, migrations, singleton client, AES-256-GCM token crypto |
 | `packages/github` | Octokit wrapper, repo-input parser, SemVer classifier, ETag-aware release polling |
+| `packages/queue` | Shared BullMQ queue names, job payloads, Redis connection factory and the SSE event contract |
 | `packages/tsconfig` | Shared TypeScript configs |
 
 ## Local development
@@ -23,6 +24,9 @@ pnpm db:migrate:deploy    # apply migrations
 pnpm dev                  # http://localhost:3000
 pnpm typecheck && pnpm test && pnpm build
 ```
+
+After pulling a slice that introduces new settings, run `pnpm env:sync`. It adds any missing keys to `.env.example`
+and `.env` and leaves existing values untouched (`pnpm env:sync --check` only reports what's missing).
 
 The single root `.env` is loaded automatically in non-production runs by `apps/web/next.config.ts`,
 `packages/db/prisma.config.ts` and the worker's `dev` script. Variables already set in the shell

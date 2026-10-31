@@ -14,6 +14,7 @@ export type ActionErrorCode =
   | "NOT_FOUND"
   | "CONFLICT"
   | "RATE_LIMITED"
+  | "UNAVAILABLE"
   | "INTERNAL";
 
 export type ActionResult<T> =

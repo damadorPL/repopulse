@@ -21,6 +21,9 @@ const nextConfig: NextConfig = {
   // generated client is compiled into @repopulse/db/dist, and the wasm query
   // compiler ships as base64 JS inside @prisma/client/runtime (traced normally).
   poweredByHeader: false,
+  // Loaded with Node's require at runtime instead of bundled: BullMQ lazily require()s optional
+  // backends (`pg`, `@valkey/valkey-glide`) that a bundler would try, and fail, to resolve.
+  serverExternalPackages: ["bullmq", "ioredis"],
 };
 
 export default nextConfig;

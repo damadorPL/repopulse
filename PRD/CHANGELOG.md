@@ -6,12 +6,53 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Slice 04b: release history backfill.** Details: [`slice_04b_implementation_summary.md`](./slice_04b_implementation_summary.md)
+  - Migration `20261031120000_release_backfill`: enum `BackfillStatus`, plus `Repository.backfillStatus`, `backfillNextPage`, `backfillTarget`,
+    `backfilledAt` and `backfillRequestedAt`.
+  - `fetchReleasesPage()` in `@repopulse/github`: 100 per page, never conditional, with `Link`-header paging.
+  - `release-backfill` queue and worker (concurrency 2, jobId `backfill-{repositoryId}`). It imports older releases as read history,
+    without `UserReleaseState` rows and without notifications, and it never imports a release newer than the newest one stored.
+    It resumes from `backfillNextPage` and pauses itself until the rate-limit reset when the quota falls below `RELEASE_BACKFILL_MIN_QUOTA`.
+  - Triggers:
+    - after `addRepositoryAction`
+    - a `repo-scheduler` sweep, for repositories added before this slice
+    - "Load older releases" (`requestDeepBackfillAction`): +200 up to `RELEASE_BACKFILL_HARD_CAP`, with an atomic 5-minute cooldown claim
+  - `/repositories` shows the history status on every card. A new `HISTORY_BACKFILLED` event refreshes the page quietly.
+  - New settings `RELEASE_BACKFILL_DEFAULT_TARGET`, `RELEASE_BACKFILL_MAX_AGE_DAYS`, `RELEASE_BACKFILL_HARD_CAP` and `RELEASE_BACKFILL_MIN_QUOTA`.
+    Add them to existing env files with `pnpm env:sync`.
 - Local development environment:
   - `pnpm env:setup` (`scripts/setup-env.mjs`) writes a git-ignored root `.env` with freshly generated
     Postgres and Redis passwords, `AUTH_SECRET` and `TOKEN_ENCRYPTION_KEY`. It refuses to overwrite an existing `.env` unless run with `--force`.
   - `docker-compose.dev.yml` (`pnpm services:up` / `services:down`): Postgres 16 and Redis 7 bound to `127.0.0.1`.
 - The root `.env` is loaded automatically outside production by `next.config.ts`, `prisma.config.ts` (Prisma 7 no longer
   loads `.env` files) and the worker `dev` script (`--env-file-if-exists`).
+
+## [0.4.0] — 2026-10-31 — Slice 04: BullMQ worker, ETag polling & live SSE updates
+
+Details: [`slice_04_implementation_summary.md`](./slice_04_implementation_summary.md)
+
+### Added
+- **`@repopulse/queue`** workspace package: queue and job names, job payload types, jobId helpers, default job options, the Redis connection
+  factory and the `RealtimeEvent` contract (`NEW_RELEASE`, `SYNC_STARTED`, `SYNC_COMPLETED`, `SYNC_FAILED`) on `user:{userId}:events`.
+- **Background worker** (`apps/worker`, `bullmq@6.3.16`, `ioredis@6.0.0`):
+  - `repo-scheduler` runs a repeatable scan on `POLL_INTERVAL_CRON` (default `*/30 * * * *`) plus one at startup. Each repository with
+    subscribers is polled at most once per 25 minutes, however many users track it.
+  - `repo-poll` (concurrency 5, exponential backoff) makes conditional `If-None-Match` requests using a subscriber's decrypted token, falling back past
+    revoked tokens. New releases are stored and fanned out to subscribers as unread, honoring `includePrereleases`.
+  - Rate-limit responses pause the queue until `X-RateLimit-Reset`. Repeated 404s flag the repository `ERROR` after 5.
+  - `notification-dispatch` (concurrency 10) receives one job per matching notification rule and release; delivery ships in Slice 05.
+  - Graceful SIGTERM/SIGINT shutdown drains active jobs, then closes Redis and the database and exits with code 0.
+- **Live updates** (`apps/web`):
+  - `GET /api/events/stream` is a Server-Sent Events endpoint backed by Redis Pub/Sub.
+  - `SseListener` shows toasts for new releases and sync results and refreshes the dashboard without a reload.
+
+### Changed
+- "Sync now" (`triggerManualRepoSyncAction`) enqueues a priority `repo-poll` job instead of polling inline. It returns `QUEUED` or `COOLDOWN`, and the
+  result arrives over SSE. A new `UNAVAILABLE` error code covers Redis being unreachable.
+- `pollRepoReleases()` accepts an `AbortSignal`.
+- `pnpm env:sync` (`scripts/sync-env.mjs`) adds settings introduced by later slices to existing `.env.example` and `.env` files without
+  touching existing values. The optional `REPO_POLL_CONCURRENCY` and `NOTIFICATION_CONCURRENCY` settings are added to the `env:setup` template and passed to the worker in
+  `docker-compose.coolify.yml`.
 
 ## [0.3.0] — 2026-10-31 — Slice 03: Dashboard panel UI, tags & Markdown changelog reader
 

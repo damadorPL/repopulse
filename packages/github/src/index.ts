@@ -16,14 +16,18 @@ export {
   type SemverType,
 } from "./parser.js";
 export {
+  fetchReleasesPage,
+  hasNextLink,
   mapRelease,
   pollRepoReleases,
   validateAndFetchRepo,
   GitHubRateLimitError,
   GitHubRepositoryNotFoundError,
+  BACKFILL_PAGE_SIZE,
   INITIAL_RELEASES_LIMIT,
   RELEASES_PAGE_SIZE,
   type FetchedRepository,
+  type FetchReleasesPageResult,
   type GitHubRelease,
   type MappedRelease,
   type PollRepoReleasesResult,
