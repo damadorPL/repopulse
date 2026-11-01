@@ -75,7 +75,8 @@ export function AddNotificationRuleForm({
         <p className="mt-0.5 text-sm text-muted-foreground">Choose where alerts go and which repositories trigger them.</p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      {/* items-start: the Repositories column can carry a hint, which would otherwise stretch the Channel column. */}
+      <div className="grid items-start gap-4 sm:grid-cols-2">
         <div className="grid gap-2">
           <Label htmlFor="rule-channel">Channel</Label>
           <Select
