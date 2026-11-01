@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-11-01 — Dependency updates
+
+**Upgrade notes**
+
+- No migrations or environment changes. Redeploy to pick up the new images.
+
+### Changed
+- Updated dependencies to their latest stable releases (versions stay pinned exactly):
+  - `bullmq` 6.3.16 → 6.5.3 (`@repopulse/queue`, web, worker)
+  - `nodemailer` 10.1.2 → 10.3.1 (`@repopulse/notifications`)
+  - `lucide-react` 1.58.0 → 1.66.0 (web)
+  - `postcss` 8.5.30 → 8.5.32 (web, dev)
+- Prisma stays on 7.10.1: npm's `latest` tag for `prisma` points to the `8.0.0-rc.29` release candidate, and
+  `@prisma/client` / `@prisma/adapter-pg` are still on 7.10.1.
+
 ## [0.5.0] — 2026-11-01 — Slice 05: notifications, tag tracking, history backfill, super admin & invites
 
 **Upgrade notes**
