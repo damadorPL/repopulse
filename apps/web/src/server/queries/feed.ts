@@ -1,5 +1,5 @@
 import { cache } from "react";
-import { prisma, type BackfillStatus, type Prisma, type SemverType } from "@repopulse/db";
+import { prisma, type BackfillStatus, type Prisma, type ReleaseSource, type SemverType, type TrackMode } from "@repopulse/db";
 import { FEED_PAGE_SIZE, type FeedFilters } from "@/lib/feed-filters";
 
 /**
@@ -30,6 +30,8 @@ export interface FeedRepository {
 
 export interface FeedItem {
   id: string;
+  /** `TAG`: a Git tag without a GitHub Release ("Releases + tags" subscriptions). */
+  source: ReleaseSource;
   tagName: string;
   title: string;
   htmlUrl: string;
@@ -65,8 +67,9 @@ export interface GetReleaseFeedParams extends Partial<FeedFilters> {
 
 /**
  * Releases the user can see: non-draft releases of repositories they subscribe to, minus
- * pre-releases for subscriptions with `includePrereleases = false`. `subscriptionFilter`
- * narrows the subscription (e.g. by tag).
+ * pre-releases for subscriptions with `includePrereleases = false`, and minus tag rows unless the
+ * subscription tracks "Releases + tags" (`TAGS_AND_COMMITS`). `subscriptionFilter` narrows the
+ * subscription (e.g. by tag).
  */
 export function visibleReleasesWhere(
   userId: string,
@@ -75,7 +78,10 @@ export function visibleReleasesWhere(
   return {
     isDraft: false,
     repository: { subscriptions: { some: { ...subscriptionFilter, userId } } },
-    OR: [{ isPrerelease: false }, { repository: { subscriptions: { some: { userId, includePrereleases: true } } } }],
+    AND: [
+      { OR: [{ isPrerelease: false }, { repository: { subscriptions: { some: { userId, includePrereleases: true } } } }] },
+      { OR: [{ source: "RELEASE" }, { repository: { subscriptions: { some: { userId, trackMode: "TAGS_AND_COMMITS" } } } }] },
+    ],
   };
 }
 
@@ -116,6 +122,7 @@ export function buildFeedWhere(userId: string, filters: Partial<FeedFilters>): P
 function feedItemSelect(userId: string) {
   return {
     id: true,
+    source: true,
     tagName: true,
     title: true,
     htmlUrl: true,
@@ -151,6 +158,7 @@ function toFeedItem(row: FeedRow): FeedItem {
   const subscription = subscriptions[0];
   return {
     id: row.id,
+    source: row.source,
     tagName: row.tagName,
     title: row.title,
     htmlUrl: row.htmlUrl,
@@ -335,6 +343,7 @@ export const getDashboardData = cache(async (userId: string): Promise<DashboardD
 export interface TrackedRepository {
   subscriptionId: string;
   includePrereleases: boolean;
+  trackMode: TrackMode;
   subscribedAt: Date;
   tags: TagPill[];
   repository: FeedRepository & {
@@ -365,6 +374,7 @@ export async function getTrackedRepositories(userId: string): Promise<TrackedRep
     select: {
       id: true,
       includePrereleases: true,
+      trackMode: true,
       createdAt: true,
       tags: { select: { tag: { select: { id: true, name: true, slug: true, colorHex: true } } } },
       repository: {
@@ -382,13 +392,14 @@ export async function getTrackedRepositories(userId: string): Promise<TrackedRep
           backfillStatus: true,
           backfillNextPage: true,
           backfillTarget: true,
-          _count: { select: { releases: { where: { isDraft: false } } } },
-          // A few recent releases so the latest one matching the pre-release setting can be picked.
+          // GitHub Releases only: this is the release history count of the backfill status line.
+          _count: { select: { releases: { where: { isDraft: false, source: "RELEASE" } } } },
+          // A few recent rows so the latest one matching the subscription settings can be picked.
           releases: {
             where: { isDraft: false },
             orderBy: [{ publishedAt: "desc" }, { id: "desc" }],
-            take: 10,
-            select: { id: true, tagName: true, semverType: true, publishedAt: true, isPrerelease: true },
+            take: 20,
+            select: { id: true, tagName: true, semverType: true, publishedAt: true, isPrerelease: true, source: true },
           },
         },
       },
@@ -397,17 +408,21 @@ export async function getTrackedRepositories(userId: string): Promise<TrackedRep
 
   const oldest = await prisma.release.groupBy({
     by: ["repositoryId"],
-    where: { repositoryId: { in: rows.map((row) => row.repository.id) }, isDraft: false },
+    where: { repositoryId: { in: rows.map((row) => row.repository.id) }, isDraft: false, source: "RELEASE" },
     _min: { publishedAt: true },
   });
   const oldestByRepo = new Map(oldest.map((r) => [r.repositoryId, r._min.publishedAt]));
 
   return rows
     .map(({ repository: { _count, releases, backfillStatus, backfillNextPage, backfillTarget, ...repository }, ...row }) => {
-      const latest = releases.find((r) => row.includePrereleases || !r.isPrerelease);
+      const latest = releases.find(
+        (r) =>
+          (row.includePrereleases || !r.isPrerelease) && (r.source === "RELEASE" || row.trackMode === "TAGS_AND_COMMITS"),
+      );
       return {
         subscriptionId: row.id,
         includePrereleases: row.includePrereleases,
+        trackMode: row.trackMode,
         subscribedAt: row.createdAt,
         tags: row.tags.map((t) => t.tag).sort(byName),
         repository: {

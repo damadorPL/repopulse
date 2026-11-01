@@ -7,13 +7,24 @@ const { buildFeedWhere, visibleReleasesWhere } = await import("./feed");
 const USER = "user_1";
 
 describe("visibleReleasesWhere", () => {
-  it("scopes to the user's subscriptions, skips drafts and honors includePrereleases", () => {
+  it("scopes to the user's subscriptions, skips drafts and honors includePrereleases and trackMode", () => {
     expect(visibleReleasesWhere(USER)).toEqual({
       isDraft: false,
       repository: { subscriptions: { some: { userId: USER } } },
-      OR: [
-        { isPrerelease: false },
-        { repository: { subscriptions: { some: { userId: USER, includePrereleases: true } } } },
+      AND: [
+        {
+          OR: [
+            { isPrerelease: false },
+            { repository: { subscriptions: { some: { userId: USER, includePrereleases: true } } } },
+          ],
+        },
+        // Tag rows only for "Releases + tags" subscriptions.
+        {
+          OR: [
+            { source: "RELEASE" },
+            { repository: { subscriptions: { some: { userId: USER, trackMode: "TAGS_AND_COMMITS" } } } },
+          ],
+        },
       ],
     });
   });

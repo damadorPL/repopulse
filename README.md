@@ -5,9 +5,9 @@ Self-hostable GitHub release & changelog tracker — Turborepo + pnpm monorepo d
 | Workspace | Description |
 | --- | --- |
 | `apps/web` | Next.js (App Router) UI + API, GitHub sign-in (Auth.js v5), `GET /api/health` |
-| `apps/worker` | BullMQ worker: cron scheduler, ETag-aware repository poller, release-history backfill, notification hand-off, `GET :3001/health` |
+| `apps/worker` | BullMQ worker: cron scheduler, ETag-aware repository poller (releases + optional Git tags), release-history backfill, notification hand-off, `GET :3001/health` |
 | `packages/db` | Prisma schema, migrations, singleton client, AES-256-GCM token crypto |
-| `packages/github` | Octokit wrapper, repo-input parser, SemVer classifier, ETag-aware release polling |
+| `packages/github` | Octokit wrapper, repo-input parser, SemVer classifier, ETag-aware release polling, GraphQL tag reader + commit compare |
 | `packages/queue` | Shared BullMQ queue names, job payloads, Redis connection factory and the SSE event contract |
 | `packages/tsconfig` | Shared TypeScript configs |
 

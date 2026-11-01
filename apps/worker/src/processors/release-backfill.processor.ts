@@ -170,8 +170,13 @@ export async function processReleaseBackfill(
       // Re-read every page: "Load older releases" may raise the target while this job runs.
       const [current, storedCount, newest] = await Promise.all([
         prisma.repository.findUnique({ where: { id: repositoryId }, select: { backfillTarget: true } }),
-        prisma.release.count({ where: { repositoryId } }),
-        prisma.release.findFirst({ where: { repositoryId }, orderBy: { publishedAt: "desc" }, select: { publishedAt: true } }),
+        // GitHub Releases only: tag rows ("Releases + tags") are not release history.
+        prisma.release.count({ where: { repositoryId, source: "RELEASE" } }),
+        prisma.release.findFirst({
+          where: { repositoryId, source: "RELEASE" },
+          orderBy: { publishedAt: "desc" },
+          select: { publishedAt: true },
+        }),
       ]);
       // Nothing stored means GitHub had no releases when the repository was added; anything
       // published since is new and arrives through repo-poll.
@@ -196,7 +201,7 @@ export async function processReleaseBackfill(
         page,
         releases: result.releases,
         hasNextPage: result.hasNextPage,
-        storedIds: new Set(stored.map((r) => r.githubReleaseId)),
+        storedIds: new Set(stored.flatMap((r) => (r.githubReleaseId === null ? [] : [r.githubReleaseId]))),
         storedCount,
         target,
         hardCap: config.hardCap,
@@ -205,9 +210,22 @@ export async function processReleaseBackfill(
       });
 
       if (plan.insert.length > 0) {
+        // A release whose tag is stored as a tag row promotes it in place (quietly: this is history).
+        const tagRows = await prisma.release.findMany({
+          where: { repositoryId, source: "TAG", tagName: { in: plan.insert.map((r) => r.tagName) } },
+          select: { id: true, tagName: true },
+        });
+        const tagRowByName = new Map(tagRows.map((r) => [r.tagName, r.id]));
+        for (const release of plan.insert.filter((r) => tagRowByName.has(r.tagName))) {
+          await prisma.release.update({
+            where: { id: tagRowByName.get(release.tagName)! },
+            data: { ...release, source: "RELEASE", tagSha: null },
+          });
+          added += 1;
+        }
         // Idempotent through the (repositoryId, githubReleaseId) unique key. No UserReleaseState rows.
         const { count } = await prisma.release.createMany({
-          data: plan.insert.map((release) => ({ ...release, repositoryId })),
+          data: plan.insert.filter((r) => !tagRowByName.has(r.tagName)).map((release) => ({ ...release, repositoryId })),
           skipDuplicates: true,
         });
         added += count;

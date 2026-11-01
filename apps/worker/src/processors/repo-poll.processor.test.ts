@@ -12,7 +12,7 @@ vi.mock("@repopulse/db", () => ({
 
 const { MAX_ERROR_COUNT, processRepoPoll } = await import("./repo-poll.processor");
 
-const REPO = { id: "repo1", owner: "acme", name: "widget", fullName: "acme/widget", lastEtag: '"old"' };
+const REPO = { id: "repo1", owner: "acme", name: "widget", fullName: "acme/widget", htmlUrl: "https://github.com/acme/widget", lastEtag: '"old"' };
 
 /** Minimal stand-in for the Prisma calls made by the processor (no transaction path). */
 function fakePrisma(options: { errorCount?: number; subscribers?: number; tokens?: Array<[string, string]> } = {}) {
@@ -20,7 +20,7 @@ function fakePrisma(options: { errorCount?: number; subscribers?: number; tokens
   const updates: Array<Record<string, unknown>> = [];
   const prisma = {
     repository: {
-      findUnique: vi.fn(async () => ({ ...REPO, _count: { subscriptions: options.subscribers ?? 1 } })),
+      findUnique: vi.fn(async () => ({ ...REPO, _count: { subscriptions: options.subscribers ?? 1 }, subscriptions: [] })),
       update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         updates.push(data);
         const inc = data.errorCount as { increment?: number } | number | undefined;
@@ -134,5 +134,93 @@ describe("processRepoPoll", () => {
     await expect(processRepoPoll(job({ requestedByUserId: "u1" }, 2), d)).rejects.toThrow("socket hang up");
     expect(last.repo.errorCount).toBe(1);
     expect(d.redis.publish).toHaveBeenCalledWith("user:u1:events", expect.stringContaining('"reason":"ERROR"'));
+  });
+});
+
+describe("processRepoPoll release → tag promotion", () => {
+  /** Transaction-capable fake: a stored tag row `v2.0.0` and two subscribers, one per tracking mode. */
+  function promotionDb() {
+    const updatedRows: Array<{ id: string; data: Record<string, unknown> }> = [];
+    const states: Array<{ userId: string; releaseId: string }> = [];
+    const stored = (id: string, tagName: string, publishedAt: string) => ({
+      id,
+      tagName,
+      isPrerelease: false,
+      semverType: "MAJOR" as const,
+      publishedAt: new Date(publishedAt),
+    });
+    const prisma = {
+      repository: {
+        findUnique: vi.fn(async () => ({ ...REPO, _count: { subscriptions: 2 }, subscriptions: [] })),
+        update: vi.fn(async () => ({})),
+      },
+      release: {
+        findFirst: vi.fn(async () => ({ publishedAt: new Date("2026-10-01T00:00:00Z") })),
+        findMany: vi.fn(async ({ where }: { where: { githubReleaseId?: unknown; tagName?: { in: string[] } } }) =>
+          where.githubReleaseId ? [] : [{ id: "tagrow", tagName: "v2.0.0", source: "TAG" }],
+        ),
+        createManyAndReturn: vi.fn(async ({ data }: { data: Array<{ tagName: string; publishedAt: Date }> }) =>
+          data.map((r) => stored(`new-${r.tagName}`, r.tagName, r.publishedAt.toISOString())),
+        ),
+        update: vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+          updatedRows.push({ id: where.id, data });
+          return stored(where.id, "v2.0.0", "2026-10-30T00:00:00Z");
+        }),
+      },
+      userSubscription: {
+        findMany: vi.fn(async (args: { select: Record<string, unknown> }) =>
+          "trackMode" in args.select
+            ? [
+                { userId: "tagger", includePrereleases: false, trackMode: "TAGS_AND_COMMITS", tags: [], user: { notificationRules: [] } },
+                { userId: "releaser", includePrereleases: false, trackMode: "RELEASES", tags: [], user: { notificationRules: [] } },
+              ]
+            : [],
+        ),
+      },
+      userReleaseState: {
+        createMany: vi.fn(async ({ data }: { data: typeof states }) => {
+          states.push(...data);
+          return { count: data.length };
+        }),
+      },
+      $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
+    };
+    return { prisma, updatedRows, states };
+  }
+
+  const mapped = (id: number, tagName: string, publishedAt: string) => ({
+    githubReleaseId: BigInt(id),
+    tagName,
+    title: tagName,
+    bodyMarkdown: "notes",
+    htmlUrl: `https://github.com/acme/widget/releases/tag/${tagName}`,
+    isPrerelease: false,
+    isDraft: false,
+    semverType: "MAJOR" as const,
+    publishedAt: new Date(publishedAt),
+  });
+
+  it("promotes the tag row in place and fans the release out to release-mode subscribers only", async () => {
+    const db = promotionDb();
+    const poll = vi.fn(async () => ({
+      status: "UPDATED" as const,
+      etag: '"new"',
+      releases: [mapped(200, "v2.0.0", "2026-10-30T00:00:00Z"), mapped(201, "v2.1.0", "2026-10-31T00:00:00Z")],
+      rateLimitRemaining: 4000,
+    }));
+
+    const outcome = await processRepoPoll(job(), deps(db.prisma, poll as never));
+
+    expect(outcome).toMatchObject({ status: "UPDATED", stored: 1, promoted: 1, fresh: 2 });
+    expect(db.updatedRows).toEqual([{ id: "tagrow", data: expect.objectContaining({ source: "RELEASE", githubReleaseId: 200n, tagSha: null }) }]);
+    // v2.1.0 is new for everyone; the promoted v2.0.0 only for the release-mode subscriber.
+    expect(db.states).toEqual(
+      expect.arrayContaining([
+        { userId: "tagger", releaseId: "new-v2.1.0", isRead: false },
+        { userId: "releaser", releaseId: "new-v2.1.0", isRead: false },
+        { userId: "releaser", releaseId: "tagrow", isRead: false },
+      ]),
+    );
+    expect(db.states).toHaveLength(3);
   });
 });

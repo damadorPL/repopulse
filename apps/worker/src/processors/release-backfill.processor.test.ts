@@ -33,7 +33,15 @@ function rel(id: number): MappedRelease {
 const range = (from: number, to: number) => Array.from({ length: from - to + 1 }, (_, i) => from - i);
 
 /** In-memory stand-in for the Prisma calls the processor makes. Any other call throws. */
-function fakeDb(options: { stored: number[]; nextPage?: number | null; target?: number; backfilledAt?: Date | null; subscribers?: string[] }) {
+function fakeDb(options: {
+  stored: number[];
+  nextPage?: number | null;
+  target?: number;
+  backfilledAt?: Date | null;
+  subscribers?: string[];
+  /** Tag rows ("Releases + tags") by tag name. */
+  tagRows?: string[];
+}) {
   const repo = {
     id: "repo1",
     owner: "acme",
@@ -46,6 +54,8 @@ function fakeDb(options: { stored: number[]; nextPage?: number | null; target?: 
   };
   const releases = new Map(options.stored.map((id) => [BigInt(id), rel(id)]));
   const subscribers = options.subscribers ?? ["u1", "u2"];
+  const tagRows = new Set(options.tagRows ?? []);
+  const promoted: string[] = [];
   const statuses: string[] = [];
 
   const prisma = {
@@ -63,9 +73,19 @@ function fakeDb(options: { stored: number[]; nextPage?: number | null; target?: 
         const newest = [...releases.values()].sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime())[0];
         return newest ? { publishedAt: newest.publishedAt } : null;
       }),
-      findMany: vi.fn(async ({ where }: { where: { githubReleaseId: { in: bigint[] } } }) =>
-        where.githubReleaseId.in.filter((id) => releases.has(id)).map((githubReleaseId) => ({ githubReleaseId })),
-      ),
+      findMany: vi.fn(async ({ where }: { where: { githubReleaseId?: { in: bigint[] }; source?: string; tagName?: { in: string[] } } }) => {
+        if (where.githubReleaseId) {
+          return where.githubReleaseId.in.filter((id) => releases.has(id)).map((githubReleaseId) => ({ githubReleaseId }));
+        }
+        return where.tagName!.in.filter((name) => tagRows.has(name)).map((tagName) => ({ id: `tag-${tagName}`, tagName }));
+      }),
+      update: vi.fn(async ({ where, data }: { where: { id: string }; data: MappedRelease & { source: string } }) => {
+        const name = where.id.replace(/^tag-/, "");
+        tagRows.delete(name);
+        promoted.push(name);
+        releases.set(data.githubReleaseId, data);
+        return data;
+      }),
       createMany: vi.fn(async ({ data }: { data: MappedRelease[] }) => {
         let count = 0;
         for (const row of data) {
@@ -80,7 +100,7 @@ function fakeDb(options: { stored: number[]; nextPage?: number | null; target?: 
       findMany: vi.fn(async () => subscribers.map((userId) => ({ userId, user: { githubAccessTokenEncrypted: `t-${userId}` } }))),
     },
   };
-  return { prisma, repo, releases, statuses };
+  return { prisma, repo, releases, statuses, promoted };
 }
 
 /** A GitHub repository with releases `total`..1, served newest first, 100 per page. */
@@ -214,6 +234,14 @@ describe("processReleaseBackfill", () => {
     const last = fakeDb({ stored: range(50, 41) });
     await expect(processReleaseBackfill(job(2), "token", deps(last, fakeGitHub(50, { error })))).rejects.toThrow(error);
     expect(last.repo.backfillStatus).toBe("ERROR");
+  });
+
+  it("promotes a stored tag row instead of adding a second entry", async () => {
+    const db = fakeDb({ stored: range(50, 46), tagRows: ["v45", "v10"] });
+    const outcome = await processReleaseBackfill(job(), "token", deps(db, fakeGitHub(50)));
+    expect(db.promoted.sort()).toEqual(["v10", "v45"]);
+    expect(outcome).toMatchObject({ reason: "COMPLETE", added: 45 });
+    expect(db.releases.size).toBe(50);
   });
 
   it("falls back past a rejected (401) token", async () => {

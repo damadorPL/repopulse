@@ -29,6 +29,7 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
   const [open, setOpen] = useState(false);
   const [repo, setRepo] = useState("");
   const [includePrereleases, setIncludePrereleases] = useState(false);
+  const [trackTags, setTrackTags] = useState(false);
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -36,6 +37,7 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
   function reset() {
     setRepo("");
     setIncludePrereleases(false);
+    setTrackTags(false);
     setTagIds([]);
     setError(null);
   }
@@ -48,7 +50,12 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
     event.preventDefault();
     setError(null);
     startTransition(async () => {
-      const result = await addRepositoryAction({ repoUrlOrSlug: repo, includePrereleases, tagIds });
+      const result = await addRepositoryAction({
+        repoUrlOrSlug: repo,
+        includePrereleases,
+        trackMode: trackTags ? "TAGS_AND_COMMITS" : "RELEASES",
+        tagIds,
+      });
       if (!result.ok) {
         if (result.error.code === "UNAUTHORIZED") router.push("/login");
         setError(result.error.message);
@@ -56,7 +63,9 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
       }
       const { fullName, repositoryId, releasesCount } = result.data;
       toast.success(`Now tracking ${fullName}`, {
-        description: `${releasesCount} release${releasesCount === 1 ? "" : "s"} imported.`,
+        description:
+          `${releasesCount} release${releasesCount === 1 ? "" : "s"} imported.` +
+          (trackTags ? " Git tags without a release are imported in the background." : ""),
         action: { label: "View", onClick: () => router.push(feedHref({ repositoryId })) },
       });
       setOpen(false);
@@ -107,6 +116,14 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
           <Label className="font-normal">
             <Checkbox checked={includePrereleases} onCheckedChange={(v) => setIncludePrereleases(v === true)} />
             Include pre-releases (alpha, beta, rc)
+          </Label>
+
+          <Label className="items-start font-normal">
+            <Checkbox className="mt-0.5" checked={trackTags} onCheckedChange={(v) => setTrackTags(v === true)} />
+            <span className="grid gap-0.5">
+              Also track Git tags without a GitHub release
+              <span className="text-xs text-muted-foreground">For projects that only push tags. Their notes list the commits since the previous tag.</span>
+            </span>
           </Label>
 
           {tags.length > 0 ? (

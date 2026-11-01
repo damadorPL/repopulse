@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Slice 04c: tag tracking ("Releases + tags").** Details: [`slice_04c_implementation_summary.md`](./slice_04c_implementation_summary.md)
+  - Migration `20261101090000_tag_tracking`: enum `ReleaseSource`, plus `Release.source` / `tagSha`. `githubReleaseId` is now optional,
+    with a new unique key `(repositoryId, source, tagName)`. Also adds `Repository.lastTagsPolledAt`.
+  - Each subscription chooses `RELEASES` or `TAGS_AND_COMMITS`: in the Add dialog, or with the "Tags" toggle on each repository card.
+  - The `repo-poll` job also reads the newest 20 tags (GraphQL) while any subscriber tracks tags. Each tag without a GitHub Release is
+    stored with "commits since the previous tag" (compare API) as its notes. New tags fan out only to tag-mode subscribers.
+    The tag step is best effort and never breaks release polling.
+  - When a tag later gets a GitHub Release, its row is promoted in place: one entry, no second notification for tag-mode users.
+  - The feed and reader show a "Tag" badge on tag entries.
 - **Slice 04b: release history backfill.** Details: [`slice_04b_implementation_summary.md`](./slice_04b_implementation_summary.md)
   - Migration `20261031120000_release_backfill`: enum `BackfillStatus`, plus `Repository.backfillStatus`, `backfillNextPage`, `backfillTarget`,
     `backfilledAt` and `backfillRequestedAt`.

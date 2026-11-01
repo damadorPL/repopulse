@@ -11,6 +11,7 @@ import { AssignTagsPopover } from "@/components/repositories/assign-tags-popover
 import { HistoryStatus } from "@/components/repositories/history-status";
 import { RemoveSubscriptionButton } from "@/components/repositories/remove-subscription-button";
 import { SyncRepoButton } from "@/components/repositories/sync-repo-button";
+import { TrackModeToggle } from "@/components/repositories/track-mode-toggle";
 import { Button } from "@/components/ui/button";
 import { feedHref } from "@/lib/feed-filters";
 import { getDashboardData, getTrackedRepositories } from "@/server/queries/feed";
@@ -130,6 +131,7 @@ export default async function RepositoriesPage() {
                     releaseCount={repo.releaseCount}
                     canLoadOlder={repo.history.status === "DONE" && repo.history.hasMore && repo.history.target < hardCap}
                   />
+                  <TrackModeToggle subscriptionId={entry.subscriptionId} fullName={repo.fullName} trackMode={entry.trackMode} />
                   {entry.includePrereleases ? (
                     <div>
                       <dt className="sr-only">Pre-releases</dt>

@@ -28,6 +28,12 @@ enum TrackMode {
   TAGS_AND_COMMITS
 }
 
+/// Where a `Release` row comes from (Slice 04c): a GitHub Release, or a Git tag without one.
+enum ReleaseSource {
+  RELEASE
+  TAG
+}
+
 /// Progress of the background import of older releases (Slice 04b).
 enum BackfillStatus {
   NONE
@@ -87,6 +93,8 @@ model Repository {
   backfilledAt        DateTime?
   /// Last "Load older releases" request; drives its 5-minute cooldown claim.
   backfillRequestedAt DateTime?
+  /// Last time the tags were read (Slice 04c); `null` = never, so the first "Releases + tags" subscriber queues a poll.
+  lastTagsPolledAt    DateTime?
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
   releases            Release[]
@@ -99,7 +107,11 @@ model Repository {
 model Release {
   id              String             @id @default(cuid())
   repositoryId    String
-  githubReleaseId BigInt
+  /// `null` for tag rows (`source = TAG`).
+  githubReleaseId BigInt?
+  source          ReleaseSource      @default(RELEASE)
+  /// Tagged commit of a tag row.
+  tagSha          String?
   tagName         String
   title           String
   bodyMarkdown    String             @db.Text
@@ -113,6 +125,7 @@ model Release {
   userStates      UserReleaseState[]
 
   @@unique([repositoryId, githubReleaseId])
+  @@unique([repositoryId, source, tagName])
   @@index([repositoryId, publishedAt(sort: Desc)])
 }
 

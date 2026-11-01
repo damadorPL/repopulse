@@ -94,6 +94,27 @@ export function planFanOut(
   return plan;
 }
 
+export const EMPTY_FAN_OUT_PLAN: FanOutPlan = { states: [], deliveries: [], notifications: [] };
+
+/**
+ * Combines the plans of the release and tag steps of one poll. A user's deliveries are merged
+ * (newest first), so `SYNC_COMPLETED` and the SSE events see one list per user.
+ */
+export function mergeFanOutPlans(...plans: FanOutPlan[]): FanOutPlan {
+  const deliveries = new Map<string, StoredRelease[]>();
+  for (const plan of plans) {
+    for (const { userId, releases } of plan.deliveries) deliveries.set(userId, [...(deliveries.get(userId) ?? []), ...releases]);
+  }
+  return {
+    states: plans.flatMap((plan) => plan.states),
+    deliveries: [...deliveries].map(([userId, releases]) => ({
+      userId,
+      releases: releases.sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime()),
+    })),
+    notifications: plans.flatMap((plan) => plan.notifications),
+  };
+}
+
 const MIN_RATE_LIMIT_DELAY_MS = 5_000;
 const DEFAULT_RATE_LIMIT_DELAY_MS = 60_000;
 const MAX_RATE_LIMIT_DELAY_MS = 60 * 60_000;

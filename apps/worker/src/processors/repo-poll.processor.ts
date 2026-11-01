@@ -1,6 +1,8 @@
 import { Worker, type Job, type Queue } from "bullmq";
 import type { PrismaClient } from "@repopulse/db";
 import {
+  compareCommits,
+  fetchRecentTags,
   GitHubRateLimitError,
   GitHubRepositoryNotFoundError,
   isGitHubHttpError,
@@ -18,7 +20,15 @@ import {
 } from "@repopulse/queue";
 import { createLogger } from "../logger";
 import { tokenCandidates, type TokenCandidate } from "./github-tokens";
-import { planFanOut, rateLimitDelayMs, selectFreshReleases, type FanOutPlan } from "./fan-out";
+import {
+  EMPTY_FAN_OUT_PLAN,
+  mergeFanOutPlans,
+  planFanOut,
+  rateLimitDelayMs,
+  selectFreshReleases,
+  type FanOutPlan,
+} from "./fan-out";
+import { loadSubscribers, pollRepoTags, STORED_RELEASE_SELECT, tracksTags, type TagStepResult } from "./repo-tags";
 
 const log = createLogger("repo-poll");
 
@@ -26,10 +36,13 @@ const log = createLogger("repo-poll");
 export const MAX_ERROR_COUNT = 5;
 const GITHUB_REQUEST_TIMEOUT_MS = 30_000;
 
+/** Outcome of the tag step, present only when it ran ("Releases + tags" subscribers, Slice 04c). */
+export type TagOutcome = { tags?: { received: number; stored: number; fresh: number } };
+
 export type RepoPollOutcome =
   | { status: "SKIPPED"; reason: "REPOSITORY_GONE" | "NO_SUBSCRIBERS" }
-  | { status: "NOT_MODIFIED" }
-  | { status: "UPDATED"; received: number; stored: number; fresh: number; notifications: number }
+  | ({ status: "NOT_MODIFIED" } & TagOutcome)
+  | ({ status: "UPDATED"; received: number; stored: number; promoted: number; fresh: number; notifications: number } & TagOutcome)
   | { status: "NOT_FOUND"; errorCount: number };
 
 export interface RepoPollDeps {
@@ -38,10 +51,12 @@ export interface RepoPollDeps {
   repoPollQueue: Pick<Queue<RepoPollJobData>, "rateLimit">;
   notificationQueue: Pick<Queue<NotificationJobData>, "addBulk">;
   poll?: typeof pollRepoReleases;
+  fetchTags?: typeof fetchRecentTags;
+  compare?: typeof compareCommits;
   now?: () => Date;
 }
 
-type PollTarget = { id: string; owner: string; name: string; fullName: string; lastEtag: string | null };
+type PollTarget = { id: string; owner: string; name: string; fullName: string; htmlUrl: string; lastEtag: string | null };
 
 /** Polls with each candidate token in turn, moving on only when GitHub rejects the token (401). */
 async function pollWithFallback(
@@ -67,6 +82,10 @@ async function pollWithFallback(
 /**
  * Inserts the releases not yet in PostgreSQL and fans the genuinely new ones out as unread
  * `UserReleaseState`s, all in one transaction with the Repository bookkeeping.
+ *
+ * A release whose tag is already stored as a tag row ("Releases + tags", Slice 04c) **promotes**
+ * that row in place instead of adding a second entry: `TAGS_AND_COMMITS` subscribers keep their
+ * read state and get no second notification; only `RELEASES` subscribers receive it as new.
  */
 async function storeAndFanOut(
   prisma: PrismaClient,
@@ -74,10 +93,11 @@ async function storeAndFanOut(
   releases: MappedRelease[],
   etag: string | null,
   polledAt: Date,
-): Promise<{ stored: number; fresh: number; plan: FanOutPlan }> {
+): Promise<{ stored: number; promoted: number; fresh: number; plan: FanOutPlan }> {
   return prisma.$transaction(async (tx) => {
+    // Tag rows are dated by their commit, so only GitHub Releases define what counts as new here.
     const newestKnown = await tx.release.findFirst({
-      where: { repositoryId },
+      where: { repositoryId, source: "RELEASE" },
       orderBy: { publishedAt: "desc" },
       select: { publishedAt: true },
     });
@@ -92,44 +112,50 @@ async function storeAndFanOut(
     const known = new Set(existing.map((r) => r.githubReleaseId));
     const missing = releases.filter((r) => !known.has(r.githubReleaseId));
 
-    const created =
+    const sameTag =
       missing.length > 0
-        ? await tx.release.createManyAndReturn({
-            data: missing.map((release) => ({ ...release, repositoryId })),
-            // A concurrent addRepositoryAction may insert the same rows.
-            skipDuplicates: true,
-            select: { id: true, tagName: true, isPrerelease: true, semverType: true, publishedAt: true },
+        ? await tx.release.findMany({
+            where: { repositoryId, tagName: { in: missing.map((r) => r.tagName) } },
+            select: { id: true, tagName: true, source: true },
           })
         : [];
+    const tagRowByName = new Map(sameTag.filter((r) => r.source === "TAG").map((r) => [r.tagName, r.id]));
+    // A GitHub Release already stored under this tag name (e.g. deleted and re-created): keep the stored one.
+    const releaseTagNames = new Set(sameTag.filter((r) => r.source === "RELEASE").map((r) => r.tagName));
+    const toInsert = missing.filter((r) => !tagRowByName.has(r.tagName) && !releaseTagNames.has(r.tagName));
+    const toPromote = missing.filter((r) => tagRowByName.has(r.tagName) && !releaseTagNames.has(r.tagName));
 
-    const fresh = selectFreshReleases(created, newestKnown?.publishedAt ?? null);
-    let plan: FanOutPlan = { states: [], deliveries: [], notifications: [] };
+    const created =
+      toInsert.length > 0
+        ? await tx.release.createManyAndReturn({
+            data: toInsert.map((release) => ({ ...release, repositoryId })),
+            // A concurrent addRepositoryAction may insert the same rows.
+            skipDuplicates: true,
+            select: STORED_RELEASE_SELECT,
+          })
+        : [];
+    const promoted = [];
+    for (const release of toPromote) {
+      promoted.push(
+        await tx.release.update({
+          where: { id: tagRowByName.get(release.tagName)! },
+          data: { ...release, source: "RELEASE", tagSha: null },
+          select: STORED_RELEASE_SELECT,
+        }),
+      );
+    }
 
-    if (fresh.length > 0) {
-      const subscriptions = await tx.userSubscription.findMany({
-        where: { repositoryId },
-        select: {
-          userId: true,
-          includePrereleases: true,
-          tags: { select: { tagId: true } },
-          user: {
-            select: {
-              notificationRules: {
-                where: { enabled: true },
-                select: { id: true, tagId: true, channel: true, onlyMajorReleases: true },
-              },
-            },
-          },
-        },
-      });
-      plan = planFanOut(
-        subscriptions.map((s) => ({
-          userId: s.userId,
-          includePrereleases: s.includePrereleases,
-          tagIds: s.tags.map((t) => t.tagId),
-          rules: s.user.notificationRules,
-        })),
-        fresh,
+    const newestKnownAt = newestKnown?.publishedAt ?? null;
+    const fresh = selectFreshReleases(created, newestKnownAt);
+    const freshPromoted = selectFreshReleases(promoted, newestKnownAt);
+    let plan = EMPTY_FAN_OUT_PLAN;
+
+    if (fresh.length > 0 || freshPromoted.length > 0) {
+      const subscribers = await loadSubscribers(tx, repositoryId);
+      plan = mergeFanOutPlans(
+        planFanOut(subscribers, fresh),
+        // Tag-mode subscribers already received these as tags.
+        planFanOut(subscribers.filter((s) => !tracksTags(s)), freshPromoted),
       );
       if (plan.states.length > 0) {
         await tx.userReleaseState.createMany({
@@ -144,7 +170,7 @@ async function storeAndFanOut(
       data: { lastEtag: etag, lastPolledAt: polledAt, pollStatus: "IDLE", errorCount: 0 },
     });
 
-    return { stored: created.length, fresh: fresh.length, plan };
+    return { stored: created.length, promoted: promoted.length, fresh: fresh.length + freshPromoted.length, plan };
   });
 }
 
@@ -233,14 +259,18 @@ export async function processRepoPoll(
       owner: true,
       name: true,
       fullName: true,
+      htmlUrl: true,
       lastEtag: true,
       _count: { select: { subscriptions: true } },
+      // Any "Releases + tags" subscriber turns on the tag step.
+      subscriptions: { where: { trackMode: "TAGS_AND_COMMITS" }, select: { userId: true }, take: 1 },
     },
   });
   if (!row) return { status: "SKIPPED", reason: "REPOSITORY_GONE" };
   // The last subscriber left between enqueue and processing.
   if (row._count.subscriptions === 0) return { status: "SKIPPED", reason: "NO_SUBSCRIBERS" };
-  const repo: PollTarget = row;
+  const { _count, subscriptions: tagSubscribers, ...repo } = row satisfies PollTarget & object;
+  const withTags = tagSubscribers.length > 0;
 
   const notifyRequester = (event: RealtimeEvent) =>
     requestedByUserId ? publish(deps.redis, requestedByUserId, event) : Promise.resolve();
@@ -253,38 +283,56 @@ export async function processRepoPoll(
     const timeout = AbortSignal.timeout(GITHUB_REQUEST_TIMEOUT_MS);
     const signal = jobSignal ? AbortSignal.any([jobSignal, timeout]) : timeout;
     const candidates = await tokenCandidates(prisma, repositoryId, requestedByUserId);
+    // Tags are new when newer than every row stored before this poll (any source).
+    const newestBefore = withTags
+      ? ((await prisma.release.findFirst({ where: { repositoryId }, orderBy: { publishedAt: "desc" }, select: { publishedAt: true } }))
+          ?.publishedAt ?? null)
+      : null;
     const result = await pollWithFallback(repo, candidates, deps.poll ?? pollRepoReleases, signal);
 
+    let releaseStep: Awaited<ReturnType<typeof storeAndFanOut>> | null = null;
     if (result.status === "NOT_MODIFIED") {
       await prisma.repository.update({
         where: { id: repositoryId },
         data: { lastPolledAt: now(), pollStatus: "IDLE", errorCount: 0 },
       });
       log.info(`${repo.fullName}: HTTP 304 Not Modified${quota(result.rateLimitRemaining)}`);
-      await notifyRequester({
-        type: "SYNC_COMPLETED",
-        repositoryId,
-        repositoryName: repo.fullName,
-        result: "NOT_MODIFIED",
-        newReleases: 0,
-      });
-      return { status: "NOT_MODIFIED" };
+    } else {
+      releaseStep = await storeAndFanOut(prisma, repositoryId, result.releases, result.etag, now());
+      log.info(
+        `${repo.fullName}: HTTP 200 OK, ${result.releases.length} releases received, ${releaseStep.stored} stored, ` +
+          `${releaseStep.promoted} promoted from tags, ${releaseStep.fresh} new, ` +
+          `fanned out to ${releaseStep.plan.deliveries.length} user(s)${quota(result.rateLimitRemaining)}`,
+      );
     }
 
-    const { stored, fresh, plan } = await storeAndFanOut(prisma, repositoryId, result.releases, result.etag, now());
-    log.info(
-      `${repo.fullName}: HTTP 200 OK, ${result.releases.length} releases received, ${stored} stored, ` +
-        `${fresh} new, fanned out to ${plan.deliveries.length} user(s)${quota(result.rateLimitRemaining)}`,
-    );
+    // After the release step, so a tag whose Release arrived in this poll is not stored twice.
+    const tagStep: TagStepResult | null = withTags
+      ? await pollRepoTags({ prisma, fetchTags: deps.fetchTags, compare: deps.compare, now }, repo, candidates, newestBefore, signal)
+      : null;
+    const tags = tagStep ? { tags: { received: tagStep.received, stored: tagStep.stored, fresh: tagStep.fresh } } : {};
+
+    const plan = mergeFanOutPlans(releaseStep?.plan ?? EMPTY_FAN_OUT_PLAN, tagStep?.plan ?? EMPTY_FAN_OUT_PLAN);
     await dispatchFanOut(deps, repo, plan);
     await notifyRequester({
       type: "SYNC_COMPLETED",
       repositoryId,
       repositoryName: repo.fullName,
-      result: "UPDATED",
+      result: releaseStep || (tagStep?.stored ?? 0) > 0 ? "UPDATED" : "NOT_MODIFIED",
       newReleases: plan.deliveries.find((d) => d.userId === requestedByUserId)?.releases.length ?? 0,
     });
-    return { status: "UPDATED", received: result.releases.length, stored, fresh, notifications: plan.notifications.length };
+
+    if (!releaseStep) return { status: "NOT_MODIFIED", ...tags };
+    const { stored, promoted, fresh } = releaseStep;
+    return {
+      status: "UPDATED",
+      received: result.releases.length,
+      stored,
+      promoted,
+      fresh,
+      notifications: plan.notifications.length,
+      ...tags,
+    };
   } catch (error) {
     if (error instanceof GitHubRateLimitError) {
       const delayMs = rateLimitDelayMs(error.resetAt, now());

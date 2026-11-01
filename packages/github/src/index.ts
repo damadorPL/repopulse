@@ -33,3 +33,16 @@ export {
   type PollRepoReleasesResult,
   type ValidateAndFetchRepoResult,
 } from "./poller.js";
+export {
+  buildTagChangelog,
+  compareCommits,
+  fetchRecentTags,
+  mapGraphqlTag,
+  mapTag,
+  TAG_CHANGELOG_MAX_COMMITS,
+  TAGS_PAGE_SIZE,
+  type CompareCommit,
+  type CompareResult,
+  type GitTag,
+  type MappedTag,
+} from "./tags.js";
