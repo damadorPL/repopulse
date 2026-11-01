@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { BellIcon, BellRingIcon, LogOutIcon, MailIcon, MenuIcon, PlusIcon, SearchIcon, UsersIcon, XIcon } from "lucide-react";
+import { BellIcon, BellRingIcon, LogOutIcon, MenuIcon, PlusIcon, SearchIcon, ShieldIcon, XIcon } from "lucide-react";
 import { RepoAvatar } from "@/components/feed/repo-avatar";
 import { AddRepoModal } from "@/components/modals/add-repo-modal";
 import { ThemeSwitcher } from "@/components/theme/theme-switcher";
@@ -91,24 +91,14 @@ export function TopNavbar({
               </Button>
             </PopoverClose>
             {user.isSuperAdmin ? (
-              <>
-                <PopoverClose asChild>
-                  <Button asChild variant="ghost" size="sm" className="w-full justify-start">
-                    <Link href="/settings/access">
-                      <UsersIcon />
-                      Access &amp; invites
-                    </Link>
-                  </Button>
-                </PopoverClose>
-                <PopoverClose asChild>
-                  <Button asChild variant="ghost" size="sm" className="w-full justify-start">
-                    <Link href="/settings/email">
-                      <MailIcon />
-                      Email (SMTP)
-                    </Link>
-                  </Button>
-                </PopoverClose>
-              </>
+              <PopoverClose asChild>
+                <Button asChild variant="ghost" size="sm" className="w-full justify-start">
+                  <Link href="/admin">
+                    <ShieldIcon />
+                    Admin panel
+                  </Link>
+                </Button>
+              </PopoverClose>
             ) : null}
             <ThemeSwitcher className="-mx-2 my-1 border-y px-4 py-2" />
             <form action={signOutAction}>

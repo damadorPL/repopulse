@@ -7,9 +7,9 @@ import { getInvites, getMemberCount } from "@/server/queries/access";
 import { isPublicRegistrationOpen } from "@/server/registration";
 import { requireSuperAdmin } from "@/server/session";
 
-export const metadata: Metadata = { title: "Access · RepoPulse" };
+export const metadata: Metadata = { title: "Access · Admin · RepoPulse" };
 
-export default async function AccessSettingsPage() {
+export default async function AdminAccessPage() {
   await requireSuperAdmin();
 
   const [publicRegistration, invites, memberCount] = await Promise.all([
@@ -20,9 +20,9 @@ export default async function AccessSettingsPage() {
   const pendingCount = invites.filter((invite) => invite.status === "pending").length;
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">Access</h1>
+        <h2 className="text-lg font-semibold tracking-tight">Access</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Control who can create an account on this RepoPulse instance.{" "}
           <span className="tabular-nums">
@@ -38,9 +38,9 @@ export default async function AccessSettingsPage() {
 
       <section aria-labelledby="invites-heading" className="space-y-3">
         <div className="flex items-baseline justify-between gap-3">
-          <h2 id="invites-heading" className="font-medium">
+          <h3 id="invites-heading" className="font-medium">
             Invite links
-          </h2>
+          </h3>
           {invites.length > 0 ? (
             <p className="text-sm text-muted-foreground tabular-nums">
               {pendingCount} of {invites.length} pending

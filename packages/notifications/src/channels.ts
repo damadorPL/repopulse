@@ -58,7 +58,7 @@ export const CHANNEL_INFO: Record<DeliverableChannel, ChannelInfo> = {
     destination: "email",
     destinationLabel: "Recipient (optional)",
     placeholder: "Defaults to your GitHub email",
-    hint: "Sent through the SMTP server set up in Settings → Email. Leave empty to use the email address of your account.",
+    hint: "Sent through the SMTP server set up in Admin → Email. Leave empty to use the email address of your account.",
   },
   CUSTOM_WEBHOOK: {
     label: "Custom webhook",

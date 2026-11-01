@@ -13,7 +13,8 @@
 | Registration gate | `apps/web/src/server/registration.ts` (`admitGitHubUser`) |
 | Invite tokens | `apps/web/src/server/invite-tokens.ts`, `apps/web/src/lib/invites.ts` |
 | Invite acceptance page | `apps/web/src/app/invite/[token]/page.tsx` |
-| Access settings | `apps/web/src/app/(dashboard)/settings/access/page.tsx`, `server/actions/access.ts`, `server/queries/access.ts`, `components/access/*` |
+| Admin panel | `apps/web/src/app/(dashboard)/admin/layout.tsx` (super admin guard, tabs from `components/admin/admin-nav.tsx`), `admin/page.tsx` (overview) |
+| Access settings | `apps/web/src/app/(dashboard)/admin/access/page.tsx`, `server/actions/access.ts`, `server/queries/access.ts`, `components/access/*` |
 
 ## Rules
 
@@ -23,8 +24,8 @@
 - **MUST NOT** gate only in the UI. Hiding the sidebar link is cosmetic; the server checks are the security boundary.
 - **MUST NOT** put the GitHub token (or anything secret) in the JWT or session. Only `userId` is stored there.
 - **MUST** store only `hashInviteToken(token)` (SHA-256). The raw token is returned once by `createInviteAction`.
-- New instance-wide settings go on `InstanceSettings` and get a super-admin page under `/settings/*`, linked from the
-  **Instance** group in `app-sidebar.tsx` and the account menu in `top-navbar.tsx`
+- New instance-wide settings go on `InstanceSettings` and get a page in the admin panel (`/admin/*`), listed in
+  `ADMIN_SECTIONS` (`components/admin/admin-nav.tsx`). The sidebar and the account menu link only to `/admin`
   ([recipes.md](./recipes.md#add-an-instance-setting-super-admin)).
 
 ## Sign-in flow
@@ -53,7 +54,8 @@ never empty.
   existing account the admin, and `20261101150000_super_admin_smtp_settings` renamed `isAdmin` → `isSuperAdmin`.
 - There is no UI to transfer the role. To change it, update the column directly:
   `UPDATE "User" SET "isSuperAdmin" = (id = '<newId>');`
-- Pages owned by the super admin: `/settings/access` and `/settings/email`.
+- Pages owned by the super admin: the admin panel, `/admin` (overview), `/admin/access`, `/admin/email` and
+  `/admin/history`. The old `/settings/access` and `/settings/email` redirect there (`next.config.ts`).
 
 ## Invites
 

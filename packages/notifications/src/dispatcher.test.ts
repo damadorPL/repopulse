@@ -64,7 +64,7 @@ describe("dispatchNotification", () => {
     // SMTP_* env vars are no longer read: email is set up in the UI only.
     await expect(
       dispatchNotification(input("EMAIL_INSTANT", null), { env: { SMTP_HOST: "smtp.example.com" }, smtp: null }),
-    ).rejects.toMatchObject({ permanent: true, message: expect.stringContaining("Settings → Email") });
+    ).rejects.toMatchObject({ permanent: true, message: expect.stringContaining("Admin → Email") });
     await expect(dispatchNotification(input("IN_APP", null), { env: {} })).rejects.toMatchObject({ permanent: true });
     await expect(dispatchNotification(input("DISCORD_WEBHOOK", null), { env: {} })).rejects.toMatchObject({ permanent: true });
   });

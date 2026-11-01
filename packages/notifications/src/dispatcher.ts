@@ -13,7 +13,7 @@ export interface DispatchOptions {
   /** Defaults to `process.env` (ALLOW_INTERNAL_WEBHOOK_HOSTS, APP_BASE_URL). */
   env?: Record<string, string | undefined>;
   /**
-   * Outgoing email settings (Settings → Email, see `toSmtpConfig`). Required for email rules;
+   * Outgoing email settings (Admin → Email, see `toSmtpConfig`). Required for email rules;
    * `null`/missing = email is not set up.
    */
   smtp?: SmtpConfig | null;
@@ -52,7 +52,7 @@ export function releaseReaderUrl(appBaseUrl: string, releaseId: string): string 
 }
 
 export const SMTP_NOT_CONFIGURED_MESSAGE =
-  "Email is not set up on this RepoPulse instance. The super admin can configure SMTP in Settings → Email.";
+  "Email is not set up on this RepoPulse instance. The super admin can configure SMTP in Admin → Email.";
 
 function jsonRequest(url: string, payload: unknown): PreparedRequest {
   return { url: new URL(url), headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) };

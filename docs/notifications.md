@@ -3,7 +3,7 @@
 > **Summary:** users create rules (channel + destination + optional tag scope + "only major") in Settings →
 > Notifications. The worker's `repo-poll` fan-out queues one `notification-dispatch` job per matching (rule,
 > release), and the job calls `dispatchNotification()` from `@repopulse/notifications`. Email uses the SMTP server
-> the **super admin** saved in Settings → Email. Webhooks pass a two-layer SSRF guard.
+> the **super admin** saved in Admin → Email. Webhooks pass a two-layer SSRF guard.
 
 ## Files
 
@@ -17,7 +17,7 @@
 | Rule matching at fan-out | `apps/worker/src/processors/fan-out.ts` (`ruleMatches`) |
 | Delivery job | `apps/worker/src/processors/notification.processor.ts` |
 | Rule CRUD + Send Test | `apps/web/src/server/actions/notifications.ts`, `server/notification-destination.ts` |
-| SMTP settings (super admin) | `apps/web/src/server/actions/email-settings.ts`, `server/smtp-settings.ts`, `lib/smtp.ts`, `components/email/smtp-settings-form.tsx`, `app/(dashboard)/settings/email/page.tsx`; loader `packages/db/src/instance-settings.ts` |
+| SMTP settings (super admin) | `apps/web/src/server/actions/email-settings.ts`, `server/smtp-settings.ts`, `lib/smtp.ts`, `components/email/smtp-settings-form.tsx`, `app/(dashboard)/admin/email/page.tsx`; loader `packages/db/src/instance-settings.ts` |
 
 ## Rules
 
@@ -69,7 +69,7 @@
 - Runs at rule creation (web) **and** on every delivery (worker and Send Test).
 - The SMTP host is **not** SSRF-checked: only the super admin can set it, and relays are often internal.
 
-## SMTP settings (Settings → Email)
+## SMTP settings (Admin → Email)
 
 - Stored on `InstanceSettings`: `smtpHost` (null = email off), `smtpPort` (default 587), `smtpSecure` (`null` = auto:
   TLS on 465, otherwise STARTTLS when offered; `true` = implicit TLS; `false` = STARTTLS), `smtpUser`,
@@ -84,7 +84,7 @@
   job. If decryption fails (`TOKEN_ENCRYPTION_KEY` changed), `SmtpPasswordUnreadableError` → a permanent failure whose
   message says to re-enter the password.
 - UI: the Email channel in the rule form is disabled while `isSmtpConfigured()` is false. The super admin gets a link
-  to `/settings/email`; other members are told to ask the super admin.
+  to `/admin/email`; other members are told to ask the super admin.
 
 ## Send Test
 

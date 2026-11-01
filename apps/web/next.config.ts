@@ -29,6 +29,13 @@ const nextConfig: NextConfig = {
   // Loaded with Node's require at runtime instead of bundled: BullMQ lazily require()s optional
   // backends (`pg`, `@valkey/valkey-glide`) that a bundler would try, and fail, to resolve.
   serverExternalPackages: ["bullmq", "ioredis"],
+  // Instance settings moved from Settings to the admin panel in 0.7.1.
+  async redirects() {
+    return [
+      { source: "/settings/access", destination: "/admin/access", permanent: false },
+      { source: "/settings/email", destination: "/admin/email", permanent: false },
+    ];
+  },
 };
 
 export default nextConfig;

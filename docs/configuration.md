@@ -2,7 +2,7 @@
 
 > **Summary:** one root `.env` (git-ignored) for local development, created by `pnpm env:setup` and kept current by
 > `pnpm env:sync`. In production, Coolify passes variables to the services listed in `docker-compose.coolify.yml`.
-> SMTP is **not** configured here: the super admin sets it in Settings → Email.
+> SMTP is **not** configured here: the super admin sets it in Admin → Email.
 
 ## Rules
 
@@ -30,10 +30,10 @@
 | `POLL_INTERVAL_CRON` | worker | `*/30 * * * *` | The scheduler cron |
 | `REPO_POLL_CONCURRENCY` | worker | `5` | |
 | `NOTIFICATION_CONCURRENCY` | worker | `10` | |
-| `RELEASE_BACKFILL_DEFAULT_TARGET` | worker | `100` | Releases kept per repository after the automatic backfill |
-| `RELEASE_BACKFILL_MAX_AGE_DAYS` | worker | `365` | `0` = no age limit. Only applies to the automatic backfill |
-| `RELEASE_BACKFILL_HARD_CAP` | worker **and** web | `1000` | Must match: web uses it for "Load older releases" |
-| `RELEASE_BACKFILL_MIN_QUOTA` | worker | `500` | The backfill pauses below this many remaining GitHub requests |
+| `RELEASE_BACKFILL_DEFAULT_TARGET` | worker **and** web | `100` | Releases kept per repository after the automatic backfill. Overridable in Admin → Release history |
+| `RELEASE_BACKFILL_MAX_AGE_DAYS` | worker **and** web | `365` | `0` = no age limit. Only applies to the automatic backfill. Overridable in Admin → Release history |
+| `RELEASE_BACKFILL_HARD_CAP` | worker **and** web | `1000` | Must match: web uses it for "Load older releases". Overridable in Admin → Release history (the override applies to both) |
+| `RELEASE_BACKFILL_MIN_QUOTA` | worker **and** web | `500` | The backfill pauses below this many remaining GitHub requests. Overridable in Admin → Release history |
 | `ALLOW_INTERNAL_WEBHOOK_HOSTS` | web, worker | unset (= none) | `true`, or a comma list of hostnames allowed to resolve to private addresses |
 | `APP_BASE_URL` | web, worker | `AUTH_URL` → `NEXTAUTH_URL` → `http://localhost:3000` | Links in notifications. A bare host gets `https://` |
 | `HEALTH_PORT` | worker | `3001` | |

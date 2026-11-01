@@ -4,16 +4,16 @@ import { SmtpSettingsForm } from "@/components/email/smtp-settings-form";
 import { requireSuperAdmin } from "@/server/session";
 import { getSmtpSettingsView } from "@/server/smtp-settings";
 
-export const metadata: Metadata = { title: "Email · RepoPulse" };
+export const metadata: Metadata = { title: "Email · Admin · RepoPulse" };
 
-export default async function EmailSettingsPage() {
+export default async function AdminEmailPage() {
   const admin = await requireSuperAdmin();
   const settings = await getSmtpSettingsView();
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">Email</h1>
+        <h2 className="text-lg font-semibold tracking-tight">Email</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           The SMTP server RepoPulse sends email notifications through. Members can add email rules once it is set up.
         </p>

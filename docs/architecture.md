@@ -78,7 +78,9 @@ Details: [worker.md](./worker.md).
 ### 4. History backfill
 `release-backfill` pages through older releases (100 per page) and stores them **without** `UserReleaseState`, which
 means read: no unread counts and no notifications. It stops at `backfillTarget`, at the end of the history, or at
-`RELEASE_BACKFILL_MAX_AGE_DAYS`. "Load older releases" raises the target by 200, up to `RELEASE_BACKFILL_HARD_CAP`.
+the age limit (automatic runs only). "Load older releases" raises the target by a step (200), up to the hard cap. All
+of these come from `RELEASE_BACKFILL_*` (or defaults) with per-value overrides in Admin → Release history
+(`InstanceSettings.backfill*`), read by the worker on every backfill job and by web for "Load older releases".
 
 ### 5. Live updates
 Worker → `publishUserEvent(redis, userId, event)` on `user:{userId}:events` → `GET /api/events/stream` (one Redis

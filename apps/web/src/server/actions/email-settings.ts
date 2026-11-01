@@ -9,7 +9,7 @@ import { fail, invalidInput, ok, toActionError, type ActionResult } from "@/serv
 import { getSuperAdminOrThrow } from "@/server/session";
 import { fromSmtpSecurity, getSmtpConfig, getSmtpSettingsView, type SmtpSettingsView } from "@/server/smtp-settings";
 
-const EMAIL_SETTINGS_PATH = "/settings/email";
+const EMAIL_SETTINGS_PATH = "/admin/email";
 /** Test email cooldown, so the button can't be used to flood an inbox. */
 const TEST_COOLDOWN_MS = 10_000;
 
@@ -26,6 +26,7 @@ let lastTestAt = 0;
 
 function revalidateEmailSettings(): void {
   revalidatePath(EMAIL_SETTINGS_PATH);
+  revalidatePath("/admin");
   // The email channel in Settings → Notifications depends on these settings.
   revalidatePath("/settings/notifications");
 }

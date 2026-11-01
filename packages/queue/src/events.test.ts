@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseRealtimeEvent, serializeRealtimeEvent, userEventsChannel, type RealtimeEvent } from "./events.js";
-import { BACKFILL_DEFAULTS, readBackfillConfig } from "./backfill.js";
+import { applyBackfillOverrides, BACKFILL_DEFAULTS, readBackfillConfig } from "./backfill.js";
 import { notificationJobId, releaseBackfillJobId, repoPollJobId } from "./names.js";
 
 describe("userEventsChannel", () => {
@@ -50,7 +50,14 @@ describe("parseRealtimeEvent", () => {
 describe("readBackfillConfig", () => {
   it("uses the documented defaults", () => {
     expect(readBackfillConfig({})).toEqual(BACKFILL_DEFAULTS);
-    expect(BACKFILL_DEFAULTS).toEqual({ defaultTarget: 100, maxAgeDays: 365, hardCap: 1000, minQuota: 500 });
+    expect(BACKFILL_DEFAULTS).toEqual({
+      defaultTarget: 100,
+      maxAgeDays: 365,
+      hardCap: 1000,
+      minQuota: 500,
+      deepStep: 200,
+      deepCooldownMinutes: 5,
+    });
   });
 
   it("reads overrides and keeps the default target within the hard cap", () => {
@@ -61,11 +68,33 @@ describe("readBackfillConfig", () => {
         RELEASE_BACKFILL_HARD_CAP: "200",
         RELEASE_BACKFILL_MIN_QUOTA: " 50 ",
       }),
-    ).toEqual({ defaultTarget: 200, maxAgeDays: 0, hardCap: 200, minQuota: 50 });
+    ).toEqual({ defaultTarget: 200, maxAgeDays: 0, hardCap: 200, minQuota: 50, deepStep: 200, deepCooldownMinutes: 5 });
   });
 
   it("rejects invalid values", () => {
     expect(() => readBackfillConfig({ RELEASE_BACKFILL_HARD_CAP: "-1" })).toThrow(/RELEASE_BACKFILL_HARD_CAP/);
     expect(() => readBackfillConfig({ RELEASE_BACKFILL_MIN_QUOTA: "lots" })).toThrow(/RELEASE_BACKFILL_MIN_QUOTA/);
+  });
+});
+
+describe("applyBackfillOverrides", () => {
+  it("keeps the base values without overrides", () => {
+    expect(applyBackfillOverrides(BACKFILL_DEFAULTS, null)).toEqual(BACKFILL_DEFAULTS);
+    expect(applyBackfillOverrides(BACKFILL_DEFAULTS, { hardCap: null, deepStep: undefined })).toEqual(BACKFILL_DEFAULTS);
+  });
+
+  it("applies each override and keeps the default target within the hard cap", () => {
+    expect(applyBackfillOverrides(BACKFILL_DEFAULTS, { defaultTarget: 500, hardCap: 300, maxAgeDays: 0, deepCooldownMinutes: 0 })).toEqual({
+      ...BACKFILL_DEFAULTS,
+      defaultTarget: 300,
+      hardCap: 300,
+      maxAgeDays: 0,
+      deepCooldownMinutes: 0,
+    });
+  });
+
+  it("clamps out-of-range values from hand-edited rows", () => {
+    const config = applyBackfillOverrides(BACKFILL_DEFAULTS, { hardCap: 0, deepStep: -5, minQuota: 2.7 });
+    expect(config).toMatchObject({ hardCap: 1, defaultTarget: 1, deepStep: 1, minQuota: 2 });
   });
 });

@@ -43,11 +43,11 @@ describe("normalizeDestination", () => {
     });
   });
 
-  it("email: needs SMTP (Settings → Email), takes an optional valid address", async () => {
+  it("email: needs SMTP (Admin → Email), takes an optional valid address", async () => {
     expect(await normalizeDestination("EMAIL_INSTANT", "", opts)).toMatchObject({ ok: false, error: { code: "UNAVAILABLE" } });
     expect(await normalizeDestination("EMAIL_INSTANT", "", { ...opts, smtpConfigured: false })).toMatchObject({
       ok: false,
-      error: { message: expect.stringContaining("Settings → Email") },
+      error: { message: expect.stringContaining("Admin → Email") },
     });
     const smtp = { ...opts, smtpConfigured: true };
     expect(await normalizeDestination("EMAIL_INSTANT", "", smtp)).toEqual({ ok: true, data: null });

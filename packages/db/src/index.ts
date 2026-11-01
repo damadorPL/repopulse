@@ -31,9 +31,13 @@ export const db = prisma;
 export * from "./generated/prisma/client.js";
 export { encryptToken, decryptToken } from "./crypto.js";
 export {
+  BACKFILL_SETTINGS_SELECT,
   INSTANCE_SETTINGS_ID,
+  loadBackfillOverrides,
+  NO_BACKFILL_OVERRIDES,
   SMTP_SETTINGS_SELECT,
   SmtpPasswordUnreadableError,
   loadSmtpSettings,
+  type BackfillSettingsOverrides,
   type DecryptedSmtpSettings,
 } from "./instance-settings.js";

@@ -26,7 +26,8 @@ const createInviteInput = z.object({
 const deleteInviteInput = z.object({ inviteId: z.string().min(1).max(64) });
 
 function revalidateAccess(): void {
-  revalidatePath("/settings/access");
+  revalidatePath("/admin/access");
+  revalidatePath("/admin");
 }
 
 export async function setPublicRegistrationAction(input: { enabled: boolean }): Promise<ActionResult<{ enabled: boolean }>> {

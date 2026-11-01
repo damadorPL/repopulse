@@ -4,7 +4,7 @@ import type { PrismaClient } from "./generated/prisma/client.js";
 /** `InstanceSettings` has a single row. */
 export const INSTANCE_SETTINGS_ID = 1;
 
-/** The SMTP columns of `InstanceSettings` (Settings → Email). */
+/** The SMTP columns of `InstanceSettings` (Admin → Email). */
 export const SMTP_SETTINGS_SELECT = {
   smtpHost: true,
   smtpPort: true,
@@ -28,7 +28,7 @@ export interface DecryptedSmtpSettings {
 export class SmtpPasswordUnreadableError extends Error {
   constructor(options?: { cause?: unknown }) {
     super(
-      "The saved SMTP password can't be decrypted (was TOKEN_ENCRYPTION_KEY changed?). The super admin can re-enter it in Settings → Email.",
+      "The saved SMTP password can't be decrypted (was TOKEN_ENCRYPTION_KEY changed?). The super admin can re-enter it in Admin → Email.",
       options,
     );
     this.name = "SmtpPasswordUnreadableError";
@@ -52,4 +52,50 @@ export async function loadSmtpSettings(client: Pick<PrismaClient, "instanceSetti
     }
   }
   return { ...rest, smtpPassword };
+}
+
+/** The release history columns of `InstanceSettings` (Admin → Release history). */
+export const BACKFILL_SETTINGS_SELECT = {
+  backfillDefaultTarget: true,
+  backfillMaxAgeDays: true,
+  backfillHardCap: true,
+  backfillMinQuota: true,
+  backfillDeepStep: true,
+  backfillDeepCooldownMinutes: true,
+} as const;
+
+/**
+ * Admin overrides of the release history settings, keyed like `BackfillConfig` in `@repopulse/queue`
+ * (merge them with `applyBackfillOverrides`). `null` = keep the environment / default value.
+ */
+export interface BackfillSettingsOverrides {
+  defaultTarget: number | null;
+  maxAgeDays: number | null;
+  hardCap: number | null;
+  minQuota: number | null;
+  deepStep: number | null;
+  deepCooldownMinutes: number | null;
+}
+
+export const NO_BACKFILL_OVERRIDES: BackfillSettingsOverrides = {
+  defaultTarget: null,
+  maxAgeDays: null,
+  hardCap: null,
+  minQuota: null,
+  deepStep: null,
+  deepCooldownMinutes: null,
+};
+
+/** Reads the admin overrides; all `null` when the settings row doesn't exist yet. */
+export async function loadBackfillOverrides(client: Pick<PrismaClient, "instanceSettings">): Promise<BackfillSettingsOverrides> {
+  const row = await client.instanceSettings.findUnique({ where: { id: INSTANCE_SETTINGS_ID }, select: BACKFILL_SETTINGS_SELECT });
+  if (!row) return { ...NO_BACKFILL_OVERRIDES };
+  return {
+    defaultTarget: row.backfillDefaultTarget,
+    maxAgeDays: row.backfillMaxAgeDays,
+    hardCap: row.backfillHardCap,
+    minQuota: row.backfillMinQuota,
+    deepStep: row.backfillDeepStep,
+    deepCooldownMinutes: row.backfillDeepCooldownMinutes,
+  };
 }

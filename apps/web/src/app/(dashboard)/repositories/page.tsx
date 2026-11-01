@@ -6,7 +6,6 @@ import { RepoAvatar } from "@/components/feed/repo-avatar";
 import { SemverBadge } from "@/components/feed/semver-badge";
 import { TagPill } from "@/components/feed/tag-pill";
 import { AddRepoModal } from "@/components/modals/add-repo-modal";
-import { readBackfillConfig } from "@repopulse/queue";
 import { AssignTagsPopover } from "@/components/repositories/assign-tags-popover";
 import { HistoryStatus } from "@/components/repositories/history-status";
 import { RemoveSubscriptionButton } from "@/components/repositories/remove-subscription-button";
@@ -14,6 +13,7 @@ import { SyncRepoButton } from "@/components/repositories/sync-repo-button";
 import { TrackModeToggle } from "@/components/repositories/track-mode-toggle";
 import { Button } from "@/components/ui/button";
 import { feedHref } from "@/lib/feed-filters";
+import { getBackfillConfig } from "@/server/backfill-settings";
 import { getDashboardData, getTrackedRepositories } from "@/server/queries/feed";
 import { requireUser } from "@/server/session";
 
@@ -23,10 +23,13 @@ const compactNumber = new Intl.NumberFormat("en", { notation: "compact", maximum
 
 export default async function RepositoriesPage() {
   const user = await requireUser();
-  const [repositories, dashboard] = await Promise.all([getTrackedRepositories(user.id), getDashboardData(user.id)]);
+  const [repositories, dashboard, { hardCap }] = await Promise.all([
+    getTrackedRepositories(user.id),
+    getDashboardData(user.id),
+    getBackfillConfig(),
+  ]);
   const unreadByRepo = new Map(dashboard.unreadByRepository.map((r) => [r.repositoryId, r.unreadCount]));
   const allTags = dashboard.tags.map(({ id, name, slug, colorHex }) => ({ id, name, slug, colorHex }));
-  const { hardCap } = readBackfillConfig();
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">

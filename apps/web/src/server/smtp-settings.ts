@@ -3,7 +3,7 @@ import { defaultSmtpFrom, toSmtpConfig, type SmtpConfig } from "@repopulse/notif
 import type { SmtpSecurity } from "@/lib/smtp";
 
 /**
- * SMTP settings (Settings → Email). Not a `"use server"` module: nothing here is callable from
+ * SMTP settings (Admin → Email). Not a `"use server"` module: nothing here is callable from
  * the browser, and the decrypted password never leaves the server.
  */
 

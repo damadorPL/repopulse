@@ -31,8 +31,10 @@ Path alias: `@/*` → `apps/web/src/*` (tsconfig and `vitest.config.ts`).
 | `/` | `app/(dashboard)/page.tsx` | user. Release feed; the URL holds all filter state (`lib/feed-filters.ts` `PARAM`); `?release=<id>` opens the changelog drawer |
 | `/repositories` | `app/(dashboard)/repositories/page.tsx` | user. Subscriptions, tags, track mode, history status, sync, remove |
 | `/settings/notifications` | `app/(dashboard)/settings/notifications/page.tsx` | user. Notification rules |
-| `/settings/access` | `app/(dashboard)/settings/access/page.tsx` | **super admin**. Registration toggle, invite links |
-| `/settings/email` | `app/(dashboard)/settings/email/page.tsx` | **super admin**. SMTP settings, test email |
+| `/admin` | `app/(dashboard)/admin/page.tsx` (+ `admin/layout.tsx`: guard and tabs) | **super admin**. Admin panel overview: counts and a card per section |
+| `/admin/access` | `app/(dashboard)/admin/access/page.tsx` | **super admin**. Registration toggle, invite links (was `/settings/access`, redirected) |
+| `/admin/email` | `app/(dashboard)/admin/email/page.tsx` | **super admin**. SMTP settings, test email (was `/settings/email`, redirected) |
+| `/admin/history` | `app/(dashboard)/admin/history/page.tsx` | **super admin**. Release history import settings, re-run the automatic import for existing repositories |
 | `/login` | `app/login/page.tsx` | public. GitHub sign-in, error messages (`?error=InviteRequired`, `InviteInvalid`, …) |
 | `/invite/[token]` | `app/invite/[token]/page.tsx` | public. Accepts an invite: sets the cookie, then GitHub sign-in |
 | `GET /api/events/stream` | `app/api/events/stream/route.ts` | user. SSE relay of `user:{id}:events` (`runtime = "nodejs"`, `dynamic = "force-dynamic"`) |
@@ -50,7 +52,8 @@ File → exported actions:
 | --- | --- |
 | `repositories.ts` | `addRepositoryAction`, `updateTrackModeAction`, `removeSubscriptionAction`, `listRepositoryPathsAction` (read only: the default branch's files and folders for the path picker) |
 | `sync.ts` | `triggerManualRepoSyncAction` (→ `QUEUED` / `COOLDOWN`) |
-| `backfill.ts` | `requestDeepBackfillAction` ("Load older releases") |
+| `backfill.ts` | `requestDeepBackfillAction` ("Load older releases"; step, cooldown and hard cap from `getBackfillConfig()`) |
+| `backfill-settings.ts` | `saveBackfillSettingsAction`, `reapplyBackfillSettingsAction` (super admin; helpers in `server/backfill-settings.ts`) |
 | `feed.ts` | `loadMoreReleasesAction` |
 | `release-state.ts` | `toggleReleaseReadAction`, `markAllReadAction` |
 | `tags.ts` | `createTagAction`, `updateTagAction`, `deleteTagAction`, `assignTagsAction` |

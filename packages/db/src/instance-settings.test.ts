@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encryptToken } from "./crypto";
-import { loadSmtpSettings, SmtpPasswordUnreadableError } from "./instance-settings";
+import { loadBackfillOverrides, loadSmtpSettings, NO_BACKFILL_OVERRIDES, SmtpPasswordUnreadableError } from "./instance-settings";
 
 const row = { smtpHost: "smtp.example.com", smtpPort: 587, smtpSecure: null, smtpUser: "bot@example.com", smtpFrom: null };
 
@@ -38,5 +38,25 @@ describe("loadSmtpSettings", () => {
     await expect(loadSmtpSettings(client({ ...row, smtpPasswordEncrypted: encrypted }))).rejects.toBeInstanceOf(
       SmtpPasswordUnreadableError,
     );
+  });
+});
+
+describe("loadBackfillOverrides", () => {
+  it("returns no overrides without a settings row", async () => {
+    await expect(loadBackfillOverrides(client(null))).resolves.toEqual(NO_BACKFILL_OVERRIDES);
+  });
+
+  it("maps the columns to config keys", async () => {
+    const overrides = await loadBackfillOverrides(
+      client({
+        backfillDefaultTarget: 300,
+        backfillMaxAgeDays: 0,
+        backfillHardCap: null,
+        backfillMinQuota: null,
+        backfillDeepStep: 50,
+        backfillDeepCooldownMinutes: 1,
+      }),
+    );
+    expect(overrides).toEqual({ defaultTarget: 300, maxAgeDays: 0, hardCap: null, minQuota: null, deepStep: 50, deepCooldownMinutes: 1 });
   });
 });

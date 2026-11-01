@@ -84,7 +84,7 @@ model InstanceSettings {
   id                 Int      @id @default(1)
   /// `false` = invite-only: new accounts need an invite link (existing users can always sign in).
   publicRegistration    Boolean  @default(true)
-  /// Outgoing email (SMTP), managed by the super admin in Settings → Email. `null` host = email is off.
+  /// Outgoing email (SMTP), managed by the super admin in Admin → Email. `null` host = email is off.
   smtpHost              String?
   smtpPort              Int      @default(587)
   /// `true` = implicit TLS, `false` = STARTTLS when offered, `null` = automatic (TLS on port 465 only).
@@ -94,6 +94,16 @@ model InstanceSettings {
   smtpPasswordEncrypted String?
   /// Sender address; `null` = derived from `smtpUser`.
   smtpFrom              String?
+  /// Release history import (Admin → Release history). Each `null` = the `RELEASE_BACKFILL_*` environment variable,
+  /// or the built-in default. Read by the worker on every backfill job and by the web app ("Load older releases").
+  backfillDefaultTarget       Int?
+  backfillMaxAgeDays          Int?
+  backfillHardCap             Int?
+  backfillMinQuota            Int?
+  /// Releases added per "Load older releases" click.
+  backfillDeepStep            Int?
+  /// Minimum minutes between two "Load older releases" requests for the same repository.
+  backfillDeepCooldownMinutes Int?
   updatedAt             DateTime @updatedAt
 }
 

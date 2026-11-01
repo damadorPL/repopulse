@@ -32,9 +32,9 @@
    missing row as the default. If the worker needs it, read it per job (no restart needed) or cache it briefly.
 3. Write it with `upsert({ where: { id: INSTANCE_SETTINGS_ID }, create: { id: INSTANCE_SETTINGS_ID, ...data }, update: data })`
    in an action guarded by `getSuperAdminOrThrow()`.
-4. UI: a section on an existing super-admin page, or a new `app/(dashboard)/settings/<name>/page.tsx` starting with
-   `await requireSuperAdmin()`. Link it in the **Instance** group of `components/layout/app-sidebar.tsx` and in the
-   super-admin block of `components/layout/top-navbar.tsx`.
+4. UI: a section on an existing admin page, or a new `app/(dashboard)/admin/<name>/page.tsx` starting with
+   `await requireSuperAdmin()`. Add it to `ADMIN_SECTIONS` in `components/admin/admin-nav.tsx` (the admin panel tabs)
+   and give it a card on the overview `app/(dashboard)/admin/page.tsx`. Revalidate `/admin` too after saving.
 5. Secrets: store `encryptToken(value)` and never return it. Expose `hasX: boolean` in the view type, and keep the
    saved value when the input is empty.
 6. Document it in [auth-and-access.md](./auth-and-access.md) or the relevant feature doc.

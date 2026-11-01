@@ -59,8 +59,11 @@ services:
       AUTH_GITHUB_ID: ${AUTH_GITHUB_ID}
       AUTH_GITHUB_SECRET: ${AUTH_GITHUB_SECRET}
       TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
-      # "Load older releases" stops at this many releases per repository (must match the worker).
+      # Release history defaults (must match the worker). The admin panel shows them and can override each one.
+      RELEASE_BACKFILL_DEFAULT_TARGET: ${RELEASE_BACKFILL_DEFAULT_TARGET:-100}
+      RELEASE_BACKFILL_MAX_AGE_DAYS: ${RELEASE_BACKFILL_MAX_AGE_DAYS:-365}
       RELEASE_BACKFILL_HARD_CAP: ${RELEASE_BACKFILL_HARD_CAP:-1000}
+      RELEASE_BACKFILL_MIN_QUOTA: ${RELEASE_BACKFILL_MIN_QUOTA:-500}
       # "Send Test" in Settings → Notifications delivers from the web container (same value as the worker).
       # SMTP is not an env setting: the super admin sets it up in Settings → Email (stored encrypted in Postgres).
       ALLOW_INTERNAL_WEBHOOK_HOSTS: ${ALLOW_INTERNAL_WEBHOOK_HOSTS:-}

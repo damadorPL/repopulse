@@ -27,7 +27,7 @@ export interface SmtpConfig {
 }
 
 /**
- * The SMTP columns of `InstanceSettings` (Settings → Email), with the password already decrypted.
+ * The SMTP columns of `InstanceSettings` (Admin → Email), with the password already decrypted.
  * Structural, so this package doesn't depend on `@repopulse/db`.
  */
 export interface StoredSmtpSettings {

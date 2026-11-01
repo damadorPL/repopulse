@@ -20,16 +20,17 @@ Startup order: `postgres` and `redis` healthy → `migrator` completed successfu
 
 - `DATABASE_URL` and `REDIS_URL` are built from YAML anchors (`x-database-url`, `x-redis-url`) using
   `POSTGRES_*` / `REDIS_PASSWORD`.
-- `web`: `AUTH_*`, `TOKEN_ENCRYPTION_KEY`, `RELEASE_BACKFILL_HARD_CAP`, `ALLOW_INTERNAL_WEBHOOK_HOSTS`,
+- `web`: `AUTH_*`, `TOKEN_ENCRYPTION_KEY`, `RELEASE_BACKFILL_*`, `ALLOW_INTERNAL_WEBHOOK_HOSTS`,
   `APP_BASE_URL` and `NEXTAUTH_URL` (both `${SERVICE_URL_WEB}`).
 - `worker`: `TOKEN_ENCRYPTION_KEY`, `POLL_INTERVAL_CRON`, the concurrency settings, `RELEASE_BACKFILL_*`,
   `ALLOW_INTERNAL_WEBHOOK_HOSTS`, `APP_BASE_URL`.
-- No SMTP variables: the super admin sets SMTP in Settings → Email after the first deploy.
+- No SMTP variables: the super admin sets SMTP in Admin → Email after the first deploy.
 - Full list: [configuration.md](./configuration.md).
 
 ## Rules
 
-- **MUST** keep `web` and `worker` on the same `TOKEN_ENCRYPTION_KEY` and `RELEASE_BACKFILL_HARD_CAP`.
+- **MUST** keep `web` and `worker` on the same `TOKEN_ENCRYPTION_KEY` and `RELEASE_BACKFILL_*` values (or set the
+  release history in Admin → Release history, which overrides both).
 - **MUST** pass a new variable explicitly in each service's `environment:`. Compose does not forward variables
   implicitly.
 - **MUST** use `SERVICE_URL_WEB` (with the scheme) for URLs. `SERVICE_FQDN_WEB` is a bare host in Coolify 4.5.
@@ -50,7 +51,7 @@ Startup order: `postgres` and `redis` healthy → `migrator` completed successfu
 - `GET https://<host>/api/health` → 200.
 - Worker logs: `repo-scheduler registered with cron "…"` then `ready`. `GET :3001/health` reports `database` and
   `redis`.
-- Sign in. The first account is the super admin. Configure **Settings → Email** and click **Send test email**.
+- Sign in. The first account is the super admin. Configure **Admin → Email** and click **Send test email**.
 
 ## Local full-stack smoke test
 
@@ -63,6 +64,6 @@ docker compose -f docker-compose.coolify.yml up --build
 
 1. Deploy. The migrator applies the 0.5.0 migrations (`isAdmin` → `isSuperAdmin`, SMTP columns, and the earlier 0.5.0
    ones).
-2. If email was configured through `SMTP_*`, enter the same values in **Settings → Email**, then remove the old
+2. If email was configured through `SMTP_*`, enter the same values in **Admin → Email**, then remove the old
    variables from Coolify.
 3. Make sure `SERVICE_URL_WEB` is available (Coolify provides it) and remove any manual `SERVICE_FQDN_WEB` override.

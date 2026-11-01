@@ -23,6 +23,7 @@
 | `encryptToken(plain)` / `decryptToken(cipher)` | AES-256-GCM with `TOKEN_ENCRYPTION_KEY` (64 hex chars), format `ivHex:tagHex:cipherHex`. The key is read on every call |
 | `INSTANCE_SETTINGS_ID` | `1`, the id of the single `InstanceSettings` row |
 | `SMTP_SETTINGS_SELECT` | Prisma `select` for the SMTP columns |
+| `loadBackfillOverrides(client)`, `BACKFILL_SETTINGS_SELECT`, `NO_BACKFILL_OVERRIDES` | The admin overrides of the release history settings (`null` = keep env / default), keyed like `BackfillConfig`; merge with `applyBackfillOverrides` |
 | `loadSmtpSettings(client)` | Reads the row and decrypts the password into `DecryptedSmtpSettings`, or `null` without a row. Throws `SmtpPasswordUnreadableError` when decryption fails |
 
 Scripts: `db:generate`, `db:migrate:deploy`, `db:migrate:dev`. See [data-model.md](./data-model.md).
@@ -53,7 +54,7 @@ Scripts: `db:generate`, `db:migrate:deploy`, `db:migrate:dev`. See [data-model.m
 | `RepoPollJobData`, `ReleaseBackfillJobData`, `NotificationJobData`, `SchedulerJobData` | Payload types |
 | `REPO_POLL_JOB_OPTIONS`, `RELEASE_BACKFILL_JOB_OPTIONS`, `NOTIFICATION_JOB_OPTIONS`, `REPO_POLL_PRIORITY`, `RELEASE_BACKFILL_PRIORITY` | Shared job options, so the web and worker producers agree |
 | `repoPollJobId`, `releaseBackfillJobId`, `notificationJobId` | Deterministic jobIds |
-| `BACKFILL_DEFAULTS`, `readBackfillConfig(env)`, `DEEP_BACKFILL_STEP` (200), `DEEP_BACKFILL_COOLDOWN_MS` (5 min) | Backfill settings |
+| `BACKFILL_DEFAULTS`, `readBackfillConfig(env)`, `applyBackfillOverrides(base, overrides)`, `BACKFILL_LIMITS`, `DEEP_BACKFILL_STEP` (200), `DEEP_BACKFILL_COOLDOWN_MS` (5 min) | Backfill settings: env / defaults, then the admin overrides (clamped to `BACKFILL_LIMITS`; the default target never exceeds the hard cap). `deepStep` and `deepCooldownMinutes` have no env var |
 | `createRedisConnection(opts)` | ioredis with `maxRetriesPerRequest: null` (worker default; web overrides it) |
 | `publishUserEvent(redis, userId, event)` | Publishes to `user:{userId}:events` |
 | `@repopulse/queue/events`: `RealtimeEvent`, `userEventsChannel`, `serializeRealtimeEvent`, `parseRealtimeEvent` | Browser-safe SSE contract. `parseRealtimeEvent` validates and returns `null` for anything unknown |

@@ -16,7 +16,7 @@ import { fail, ok, type ActionResult } from "@/server/action-result";
  * - Webhook channels need an http(s) URL whose host resolves to a public address (SSRF guard,
  *   honoring `ALLOW_INTERNAL_WEBHOOK_HOSTS`). The worker checks again on every delivery.
  * - Email takes an optional recipient (empty = the account's email) and needs SMTP to be set up
- *   (Settings → Email; the caller passes `smtpConfigured`).
+ *   (Admin → Email; the caller passes `smtpConfigured`).
  */
 export async function normalizeDestination(
   channel: DeliverableChannel,

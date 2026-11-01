@@ -7,11 +7,15 @@ export {
   type SyncFailureReason,
 } from "./events.js";
 export {
+  applyBackfillOverrides,
   BACKFILL_DEFAULTS,
+  BACKFILL_LIMITS,
   DEEP_BACKFILL_COOLDOWN_MS,
   DEEP_BACKFILL_STEP,
   readBackfillConfig,
   type BackfillConfig,
+  type BackfillOverrides,
+  type BackfillSettingKey,
 } from "./backfill.js";
 export {
   DEFAULT_POLL_INTERVAL_CRON,

@@ -1,6 +1,7 @@
 import { Worker } from "bullmq";
-import { prisma } from "@repopulse/db";
+import { loadBackfillOverrides, prisma } from "@repopulse/db";
 import {
+  applyBackfillOverrides,
   QUEUE_NAMES,
   readBackfillConfig,
   type BackfillConfig,
@@ -24,6 +25,20 @@ import { createWorkerRedis } from "./redis";
  * plus the HTTP health server on :3001. SIGTERM (Coolify rollout) / SIGINT drain in-flight jobs
  * before exiting with code 0.
  */
+
+/**
+ * The environment settings with the super admin's overrides (Admin → Release history), read for
+ * every backfill job so changes apply without a restart. Falls back to the environment when the
+ * settings can't be read.
+ */
+async function currentBackfillConfig(base: BackfillConfig): Promise<BackfillConfig> {
+  try {
+    return applyBackfillOverrides(base, await loadBackfillOverrides(prisma));
+  } catch (err) {
+    log.warn(`could not read the release history settings, using the environment: ${errorMessage(err)}`);
+    return base;
+  }
+}
 
 /** Backfill stays a background trickle next to the regular polls. */
 const RELEASE_BACKFILL_CONCURRENCY = 2;
@@ -138,7 +153,8 @@ function startWorkers(connection: Redis, q: Queues, backfillConfig: BackfillConf
 
   const releaseBackfillWorker = new Worker<ReleaseBackfillJobData>(
     QUEUE_NAMES.releaseBackfill,
-    (job, token, signal) => processReleaseBackfill(job, token, { prisma, redis: connection, config: backfillConfig }, signal),
+    async (job, token, signal) =>
+      processReleaseBackfill(job, token, { prisma, redis: connection, config: await currentBackfillConfig(backfillConfig) }, signal),
     { connection, concurrency: RELEASE_BACKFILL_CONCURRENCY },
   );
 
@@ -174,9 +190,10 @@ async function main(): Promise<void> {
 
   // Fails fast on invalid RELEASE_BACKFILL_* values instead of on the first backfill job.
   const backfillConfig = readBackfillConfig();
+  const effective = await currentBackfillConfig(backfillConfig);
   log.info(
-    `history backfill: target ${backfillConfig.defaultTarget}, max age ${backfillConfig.maxAgeDays || "unlimited"} days, ` +
-      `hard cap ${backfillConfig.hardCap}, min quota ${backfillConfig.minQuota}`,
+    `history backfill: target ${effective.defaultTarget}, max age ${effective.maxAgeDays || "unlimited"} days, ` +
+      `hard cap ${effective.hardCap}, min quota ${effective.minQuota} (environment + Admin → Release history)`,
   );
 
   redis = createWorkerRedis();

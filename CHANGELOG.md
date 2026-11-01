@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-11-01 — Admin panel
+
+**Upgrade notes**
+
+- One migration (`20261101230000_backfill_settings`), applied by the migrator on deploy.
+- The `web` service now also receives `RELEASE_BACKFILL_DEFAULT_TARGET`, `RELEASE_BACKFILL_MAX_AGE_DAYS` and
+  `RELEASE_BACKFILL_MIN_QUOTA` (`docker-compose.coolify.yml`), so the admin panel shows the values the worker uses.
+- `/settings/access` and `/settings/email` moved to `/admin/access` and `/admin/email`; the old URLs redirect.
+
+### Added
+- **Admin panel** (`/admin`, super admin only): one place for every instance setting, with tabs for Overview, Access,
+  Email (SMTP) and Release history. The overview shows members, tracked repositories and pending invites, plus the
+  state of each section. The sidebar and the account menu now have a single **Admin** entry instead of the
+  "Instance" links.
+- **Release history settings** (Admin → Release history): the automatic import target and age limit, the
+  "Load older releases" step and cooldown, the hard cap per repository and the minimum GitHub quota. Each field
+  falls back to its `RELEASE_BACKFILL_*` environment variable (or the built-in default) when left empty, and
+  changes apply to the worker's next import without a restart.
+- **Re-run automatic import**: applies a raised target or age limit to repositories imported before the change.
+  Imported history stays read and sends no notifications.
+
 ## [0.7.0] — 2026-11-01 — Releases and files / folders together
 
 **Upgrade notes**

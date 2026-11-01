@@ -28,7 +28,7 @@ export function AddNotificationRuleForm({
 }: {
   tags: TagPill[];
   smtpConfigured: boolean;
-  /** The super admin gets a link to Settings → Email when SMTP isn't set up. */
+  /** The super admin gets a link to Admin → Email when SMTP isn't set up. */
   canConfigureSmtp?: boolean;
   limitReached: boolean;
 }) {
@@ -153,8 +153,8 @@ export function AddNotificationRuleForm({
           ) : canConfigureSmtp ? (
             <>
               Email needs an SMTP server.{" "}
-              <Link href="/settings/email" className="font-medium text-foreground underline underline-offset-2">
-                Set it up in Settings → Email
+              <Link href="/admin/email" className="font-medium text-foreground underline underline-offset-2">
+                Set it up in Admin → Email
               </Link>
               .
             </>

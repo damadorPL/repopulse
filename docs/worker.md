@@ -87,7 +87,9 @@ Rules:
 ## Lifecycle
 
 - Startup: health server → `prisma.$connect()` (a failure is reported by `/health`, not a crash) → requires
-  `REDIS_URL` → `readBackfillConfig()` (fails fast on bad values) → workers → schedule.
+  `REDIS_URL` → `readBackfillConfig()` (fails fast on bad values) → workers → schedule. Each backfill job then merges
+  the admin overrides (`applyBackfillOverrides(env, await loadBackfillOverrides(prisma))`, env only if that read fails),
+  so Admin → Release history changes apply without a restart.
 - `SIGTERM`/`SIGINT`: `worker.close()` drains active jobs, then queues, health server, Redis and Prisma close, exit 0.
   The force-exit timeout is 25 s, below compose's `stop_grace_period: 30s`.
 - `GET /health` → 200 `{ status: "ok", checks: { database, redis } }` or 503. It never leaks error details.

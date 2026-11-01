@@ -36,7 +36,7 @@ export interface NotificationDeps {
  * failures only. A permanent one (4xx, blocked URL, SMTP missing) throws `UnrecoverableError`,
  * which fails the job at once.
  *
- * Email rules read the SMTP settings (Settings → Email) on every job, so changes saved in the UI
+ * Email rules read the SMTP settings (Admin → Email) on every job, so changes saved in the UI
  * apply without restarting the worker.
  */
 export async function processNotification(job: Job<NotificationJobData>, deps: NotificationDeps): Promise<NotificationOutcome> {

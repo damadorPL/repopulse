@@ -68,7 +68,7 @@ export function HistoryStatus({
           break;
         case "COOLDOWN":
           toast.info(`Older releases of ${data.fullName} were requested recently`, {
-            description: `History imports are limited to one every 5 minutes. Try again in ${formatWait(data.retryAfterSeconds)}.`,
+            description: `History imports are limited to one every ${data.cooldownMinutes === 1 ? "minute" : `${data.cooldownMinutes} minutes`}. Try again in ${formatWait(data.retryAfterSeconds)}.`,
           });
           break;
         case "IN_PROGRESS":

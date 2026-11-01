@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ActivityIcon, BellRingIcon, BoxesIcon, InboxIcon, MailIcon, PlusIcon, Settings2Icon, UsersIcon } from "lucide-react";
+import { ActivityIcon, BellRingIcon, BoxesIcon, InboxIcon, PlusIcon, Settings2Icon, ShieldIcon } from "lucide-react";
 import { TagDot } from "@/components/feed/tag-pill";
 import { ManageTagsModal } from "@/components/modals/manage-tags-modal";
 import { Button } from "@/components/ui/button";
@@ -63,7 +63,7 @@ export function AppSidebar({
   tags: SidebarTag[];
   totalUnread: number;
   repositoryCount: number;
-  /** The super admin also sees the instance settings: Access (registration, invites) and Email (SMTP). */
+  /** The super admin also sees the admin panel (instance settings: access, email, release history). */
   isSuperAdmin?: boolean;
 }) {
   const pathname = usePathname();
@@ -150,15 +150,9 @@ export function AppSidebar({
           Notifications
         </NavLink>
         {isSuperAdmin ? (
-          <>
-            <h2 className="mt-3 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Instance</h2>
-            <NavLink href="/settings/access" active={pathname.startsWith("/settings/access")} icon={<UsersIcon />}>
-              Access
-            </NavLink>
-            <NavLink href="/settings/email" active={pathname.startsWith("/settings/email")} icon={<MailIcon />}>
-              Email (SMTP)
-            </NavLink>
-          </>
+          <NavLink href="/admin" active={pathname === "/admin" || pathname.startsWith("/admin/")} icon={<ShieldIcon />}>
+            Admin
+          </NavLink>
         ) : null}
         <p className="mt-3 px-2 text-[11px] text-muted-foreground tabular-nums" title="RepoPulse version">
           RepoPulse v{process.env.APP_VERSION}
