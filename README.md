@@ -12,6 +12,10 @@ Self-hostable GitHub release & changelog tracker — Turborepo + pnpm monorepo d
 | `packages/notifications` | Discord, Slack, ntfy, Gotify, SMTP email and custom-webhook formatters, `dispatchNotification()`, SSRF guard for webhook URLs |
 | `packages/tsconfig` | Shared TypeScript configs |
 
+Documentation: [`docs/`](./docs/README.md) covers architecture, data model, web app, worker, packages,
+notifications, auth, configuration, development, deployment and recipes, written for coding agents and contributors.
+[`AGENTS.md`](./AGENTS.md) is the agent entry point. Release history: [`CHANGELOG.md`](./CHANGELOG.md).
+
 ## Local development
 
 Requires Node.js 24+ (Docker images use Node 26 LTS) and pnpm (version pinned in `package.json#packageManager`).
@@ -52,20 +56,25 @@ Use the **Docker Compose** build pack with `docker-compose.coolify.yml`. Set the
 listed in `.env.example` (generate `TOKEN_ENCRYPTION_KEY` and `AUTH_SECRET` with
 `openssl rand -hex 32`).
 
-### Access & invites
+### Super admin, access & invites
 
-The first account becomes the admin (on existing installs, the oldest account). Admins get **Settings → Access**
-(`/settings/access`) to turn **public registration** off and create **invite links**. Links are single-use, expire after
-1, 7 or 30 days and can be revoked; only a SHA-256 of each token is stored, so a link is shown once. Existing members can
-always sign in.
+The first account to sign up is the **super admin** (on existing installs, the oldest account). The super admin manages
+all instance settings, under **Instance** in the sidebar:
+
+- **Settings → Access** (`/settings/access`): turn **public registration** off and create **invite links**. Links are
+  single-use, expire after 1, 7 or 30 days and can be revoked. Only a SHA-256 of each token is stored, so a link is
+  shown once. Existing members can always sign in.
+- **Settings → Email** (`/settings/email`): the SMTP server for email notifications (see below).
 
 ### Notifications
 
 Users add rules under **Settings → Notifications** (`/settings/notifications`): a channel, an optional tag scope and
 "only major releases". **Send Test** delivers a sample `v1.0.0` release right away.
 
-- **Email** needs `SMTP_HOST` (plus usually `SMTP_USER` / `SMTP_PASS`; optional `SMTP_PORT`, `SMTP_SECURE`, `SMTP_FROM`)
-  on both `web` (for Send Test) and `worker`.
+- **Email** needs an SMTP server, which the super admin sets up in **Settings → Email**: host, port, encryption,
+  optional username/password and sender. **Send test email** checks the settings. The password is stored encrypted
+  with `TOKEN_ENCRYPTION_KEY`, and the worker picks up changes without a restart. There are no `SMTP_*` environment
+  variables: after upgrading from a version that used them, enter the values in the UI again.
 - **Webhooks** to private or loopback addresses are blocked. To reach a self-hosted Gotify or ntfy on the same network,
   set `ALLOW_INTERNAL_WEBHOOK_HOSTS=true`, or a host list such as `gotify,ntfy.lan`. Link-local and cloud-metadata
   addresses (`169.254.0.0/16`) are always blocked.

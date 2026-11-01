@@ -1,12 +1,55 @@
 # Changelog
 
 All notable changes to RepoPulse are documented here, one entry per implementation slice.
-Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Implementation details of each slice are in
+[`PRD/`](./PRD/); architecture and conventions are in [`docs/`](./docs/README.md).
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-11-01 — Slice 05: notifications, tag tracking, history backfill, super admin & invites
+
+**Upgrade notes**
+
+- Run the migrations (the compose `migrator` service does this): `20261031120000_release_backfill`,
+  `20261101090000_tag_tracking`, `20261101120000_invites_registration`, `20261101150000_super_admin_smtp_settings`.
+- Email: the `SMTP_*` environment variables are gone. If you used email, re-enter the values in **Settings → Email**
+  after deploying (see Removed).
+- `SERVICE_FQDN_WEB` is replaced by `SERVICE_URL_WEB`, which includes the scheme. Coolify sets it automatically. For
+  local compose, run `pnpm env:sync`, which adds it and lists the old keys you can delete.
+
 ### Added
-- **Slice 05: notifications (Discord, Slack, ntfy, Gotify, email, custom webhooks).** Details: [`slice_05_implementation_summary.md`](./slice_05_implementation_summary.md)
+- **Super admin and instance settings.**
+  - Migration `20261101150000_super_admin_smtp_settings`: `User.isAdmin` is renamed to `User.isSuperAdmin`, and
+    `InstanceSettings` gets `smtpHost`, `smtpPort`, `smtpSecure`, `smtpUser`, `smtpPasswordEncrypted` and `smtpFrom`.
+  - The first account to sign up is the super admin; on existing installs it is the oldest account. The super admin
+    manages every instance setting, under a new **Instance** group in the sidebar and the account menu.
+  - Server actions check the role through one guard (`getSuperAdminOrThrow`) and return `FORBIDDEN` to anyone else.
+    The pages use `requireSuperAdmin`, which shows a 404 to other members.
+- **Settings → Email (SMTP)** (`/settings/email`, super admin only): the SMTP server is set up in the UI instead of
+  environment variables.
+  - Fields: host, port, encryption (automatic / implicit TLS / STARTTLS), optional username and password, and an
+    optional sender (`Name <address>`).
+  - The password is AES-256-GCM encrypted with `TOKEN_ENCRYPTION_KEY` and never sent back to the browser. Leave the
+    field empty to keep the saved password.
+  - **Send test email** delivers the sample `v1.0.0` release through the saved settings, to the super admin or another
+    address. **Turn off email** removes the settings.
+  - The worker reads the settings on every email job, so a change applies without a restart.
+  - If the saved password can't be decrypted (for example after `TOKEN_ENCRYPTION_KEY` changed), the job fails without
+    retries and says to re-enter the password.
+  - In Settings → Notifications, the Email channel stays disabled until SMTP is set up. The super admin sees a link to
+    Settings → Email; other members are told to ask the super admin.
+- **Invite-only registration.**
+  - Migration `20261101120000_invites_registration`: adds the admin flag on `User`, the single-row `InstanceSettings`
+    (`publicRegistration`) and `Invite`.
+  - **Settings → Access** (`/settings/access`, super admin only):
+    - a **public registration** toggle. When it is off, new accounts need an invite; existing members can always sign in.
+    - **invite links**: single-use, they expire after 1, 7 or 30 days and can be revoked. Only the token's SHA-256 is
+      stored, so a link is shown once.
+  - `/invite/<token>` checks the link, sets a short-lived httpOnly cookie and starts GitHub sign-in. The `signIn`
+    callback (`admitGitHubUser`) claims the invite and creates the account in one transaction, so a link can't be used
+    twice.
+  - New sign-in errors on `/login`: `InviteRequired` and `InviteInvalid`.
+- **Slice 05: notifications (Discord, Slack, ntfy, Gotify, email, custom webhooks).** Details: [`slice_05_implementation_summary.md`](./PRD/slice_05_implementation_summary.md)
   - New `@repopulse/notifications` package:
     - `dispatchNotification()` plus formatters for Discord embeds, Slack Block Kit, ntfy, Gotify, SMTP email (nodemailer
       10.1.2, HTML + text) and generic JSON webhooks.
@@ -18,9 +61,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     - add rules with a channel, a tag scope and "only major releases";
     - enable/disable, delete, and **Send Test** (a synthetic `v1.0.0 - RepoPulse Test Release`);
     - destinations are shown masked.
-  - New optional settings `SMTP_SECURE`, `SMTP_FROM`, `ALLOW_INTERNAL_WEBHOOK_HOSTS` and `APP_BASE_URL`. Add them to
-    existing env files with `pnpm env:sync`. The `web` service now also receives the SMTP settings, for Send Test.
-- **Slice 04c: tag tracking ("Releases + tags").** Details: [`slice_04c_implementation_summary.md`](./slice_04c_implementation_summary.md)
+  - Email uses the SMTP server from **Settings → Email** (see above).
+  - New optional settings `ALLOW_INTERNAL_WEBHOOK_HOSTS` and `APP_BASE_URL`, on both `web` (for Send Test) and `worker`.
+    Add them to existing env files with `pnpm env:sync`.
+- **Slice 04c: tag tracking ("Releases + tags").** Details: [`slice_04c_implementation_summary.md`](./PRD/slice_04c_implementation_summary.md)
   - Migration `20261101090000_tag_tracking`: enum `ReleaseSource`, plus `Release.source` / `tagSha`. `githubReleaseId` is now optional,
     with a new unique key `(repositoryId, source, tagName)`. Also adds `Repository.lastTagsPolledAt`.
   - Each subscription chooses `RELEASES` or `TAGS_AND_COMMITS`: in the Add dialog, or with the "Tags" toggle on each repository card.
@@ -29,7 +73,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     The tag step is best effort and never breaks release polling.
   - When a tag later gets a GitHub Release, its row is promoted in place: one entry, no second notification for tag-mode users.
   - The feed and reader show a "Tag" badge on tag entries.
-- **Slice 04b: release history backfill.** Details: [`slice_04b_implementation_summary.md`](./slice_04b_implementation_summary.md)
+- **Slice 04b: release history backfill.** Details: [`slice_04b_implementation_summary.md`](./PRD/slice_04b_implementation_summary.md)
   - Migration `20261031120000_release_backfill`: enum `BackfillStatus`, plus `Repository.backfillStatus`, `backfillNextPage`, `backfillTarget`,
     `backfilledAt` and `backfillRequestedAt`.
   - `fetchReleasesPage()` in `@repopulse/github`: 100 per page, never conditional, with `Link`-header paging.
@@ -50,9 +94,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The root `.env` is loaded automatically outside production by `next.config.ts`, `prisma.config.ts` (Prisma 7 no longer
   loads `.env` files) and the worker `dev` script (`--env-file-if-exists`).
 
+### Changed
+- `@repopulse/notifications` no longer reads `SMTP_*` from the environment. `dispatchNotification()` takes the SMTP
+  settings as an option (`smtp`), built with `toSmtpConfig()`. `readSmtpConfig()` and `isSmtpConfigured()` are replaced
+  by `toSmtpConfig()`, `defaultSmtpFrom()` and the `StoredSmtpSettings` type.
+- `@repopulse/db` exports `loadSmtpSettings()` (it decrypts the password), `SmtpPasswordUnreadableError`,
+  `SMTP_SETTINGS_SELECT` and `INSTANCE_SETTINGS_ID`.
+- When the SMTP settings change, the cached nodemailer transport is closed and a new one is created.
+- `pnpm env:sync` now also lists settings that are no longer used (the old `SMTP_*` keys and `SERVICE_FQDN_WEB`). It
+  only reports them and never deletes anything.
+
+### Removed
+- The `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_SECURE` and `SMTP_FROM` environment variables. They are
+  gone from `.env.example`, `pnpm env:setup` and both services in `docker-compose.coolify.yml`. **Upgrading:** if you
+  used email, re-enter the values in Settings → Email after deploying. Until then, email rules fail and are not retried.
+
+### Fixed
+- Deploy: `docker-compose.coolify.yml` sets `NEXTAUTH_URL` and `APP_BASE_URL` from `SERVICE_URL_WEB` instead of
+  `SERVICE_FQDN_WEB`. Coolify 4.5 gives `SERVICE_FQDN_WEB` as a bare host without the scheme, which broke the
+  sign-in callback URL and the links in notifications. `.env.example` and `pnpm env:setup` use `SERVICE_URL_WEB` too, and
+  `pnpm env:sync` adds it to existing env files.
+- The icons in select items stay on the same line as their labels.
+- In the add-rule form, the Channel and Repositories fields are aligned to the top.
+
+### Security
+- Webhook destinations pass the SSRF guard twice: when a rule is created, and again inside the socket's DNS lookup on
+  every delivery, so DNS rebinding can't slip past it. Private and loopback addresses need `ALLOW_INTERNAL_WEBHOOK_HOSTS`.
+  Link-local and cloud metadata addresses are always blocked.
+- Webhook URLs carry secrets, so they are masked everywhere they are shown or logged.
+- The SMTP password is AES-256-GCM encrypted at rest and never sent to the browser. Invite tokens are stored only as
+  SHA-256 hashes.
+- Instance settings (registration, invites, SMTP) are super admin only, checked on the server in every action and page.
+- "Send Test" and "Send test email" have a 10-second cooldown, so they can't be used to flood a channel or an inbox.
+
 ## [0.4.0] — 2026-10-31 — Slice 04: BullMQ worker, ETag polling & live SSE updates
 
-Details: [`slice_04_implementation_summary.md`](./slice_04_implementation_summary.md)
+Details: [`slice_04_implementation_summary.md`](./PRD/slice_04_implementation_summary.md)
 
 ### Added
 - **`@repopulse/queue`** workspace package: queue and job names, job payload types, jobId helpers, default job options, the Redis connection
@@ -79,7 +156,7 @@ Details: [`slice_04_implementation_summary.md`](./slice_04_implementation_summar
 
 ## [0.3.0] — 2026-10-31 — Slice 03: Dashboard panel UI, tags & Markdown changelog reader
 
-Details: [`slice_03_implementation_summary.md`](./slice_03_implementation_summary.md)
+Details: [`slice_03_implementation_summary.md`](./PRD/slice_03_implementation_summary.md)
 
 ### Added
 - **Dashboard UI** (`apps/web`, Tailwind CSS v4, shadcn/ui on `radix-ui`, light/dark):
@@ -116,7 +193,7 @@ Details: [`slice_03_implementation_summary.md`](./slice_03_implementation_summar
 
 ## [0.2.0] — 2026-10-31 — Slice 02: GitHub OAuth & shared GitHub ingestion package
 
-Details: [`slice_02_implementation_summary.md`](./slice_02_implementation_summary.md)
+Details: [`slice_02_implementation_summary.md`](./PRD/slice_02_implementation_summary.md)
 
 ### Added
 - **`@repopulse/github`** workspace package (ESM, `@octokit/rest@22.0.1`, `semver@7.8.5`):
