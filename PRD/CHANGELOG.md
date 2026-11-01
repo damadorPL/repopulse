@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Slice 05: notifications (Discord, Slack, ntfy, Gotify, email, custom webhooks).** Details: [`slice_05_implementation_summary.md`](./slice_05_implementation_summary.md)
+  - New `@repopulse/notifications` package:
+    - `dispatchNotification()` plus formatters for Discord embeds, Slack Block Kit, ntfy, Gotify, SMTP email (nodemailer
+      10.1.2, HTML + text) and generic JSON webhooks.
+    - SSRF guard: private and loopback addresses are blocked unless `ALLOW_INTERNAL_WEBHOOK_HOSTS` allows them. Cloud
+      metadata addresses are always blocked. The address is checked again at connect time.
+  - The `notification-dispatch` worker now delivers. It re-checks the rule (enabled, major-only, subscription, tag scope)
+    and retries transient failures (3 attempts, exponential from 5 s). Permanent failures fail the job at once.
+  - New page **Settings → Notifications** (`/settings/notifications`):
+    - add rules with a channel, a tag scope and "only major releases";
+    - enable/disable, delete, and **Send Test** (a synthetic `v1.0.0 - RepoPulse Test Release`);
+    - destinations are shown masked.
+  - New optional settings `SMTP_SECURE`, `SMTP_FROM`, `ALLOW_INTERNAL_WEBHOOK_HOSTS` and `APP_BASE_URL`. Add them to
+    existing env files with `pnpm env:sync`. The `web` service now also receives the SMTP settings, for Send Test.
 - **Slice 04c: tag tracking ("Releases + tags").** Details: [`slice_04c_implementation_summary.md`](./slice_04c_implementation_summary.md)
   - Migration `20261101090000_tag_tracking`: enum `ReleaseSource`, plus `Release.source` / `tagSha`. `githubReleaseId` is now optional,
     with a new unique key `(repositoryId, source, tagName)`. Also adds `Repository.lastTagsPolledAt`.

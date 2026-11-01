@@ -60,6 +60,21 @@ describe("ruleMatches", () => {
     expect(ruleMatches(rule("r", { onlyMajorReleases: true }), [], minor)).toBe(false);
     expect(ruleMatches(rule("r", { onlyMajorReleases: true }), [], major)).toBe(true);
   });
+
+  it("never queues EMAIL_DIGEST rules (no digest sender yet)", () => {
+    expect(ruleMatches(rule("r", { channel: "EMAIL_DIGEST" }), [], major)).toBe(false);
+  });
+
+  it("Slice 05 acceptance: a Critical + major-only rule fires for v2.0.0 and skips v2.0.1", () => {
+    const critical = subscriber("u1", { tagIds: ["critical"], rules: [rule("r1", { tagId: "critical", onlyMajorReleases: true })] });
+    const v200 = release("v2.0.0", 5, { tagName: "v2.0.0", semverType: "MAJOR" });
+    const v201 = release("v2.0.1", 6, { tagName: "v2.0.1", semverType: "PATCH" });
+
+    expect(planFanOut([critical], [v200]).notifications).toEqual([{ ruleId: "r1", releaseId: "v2.0.0", userId: "u1" }]);
+    expect(planFanOut([critical], [v201]).notifications).toEqual([]);
+    // Untagged subscriptions never match a tag-scoped rule.
+    expect(planFanOut([{ ...critical, tagIds: [] }], [v200]).notifications).toEqual([]);
+  });
 });
 
 describe("planFanOut", () => {

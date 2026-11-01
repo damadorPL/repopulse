@@ -15,6 +15,8 @@ export type ActionErrorCode =
   | "CONFLICT"
   | "RATE_LIMITED"
   | "UNAVAILABLE"
+  /** A notification channel refused or did not answer ("Send Test"). */
+  | "DELIVERY_FAILED"
   | "INTERNAL";
 
 export type ActionResult<T> =

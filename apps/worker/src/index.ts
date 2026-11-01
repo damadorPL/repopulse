@@ -132,7 +132,7 @@ function startWorkers(connection: Redis, q: Queues, backfillConfig: BackfillConf
 
   const notificationWorker = new Worker<NotificationJobData>(
     QUEUE_NAMES.notification,
-    (job) => processNotification(job, { prisma }),
+    (job, _token, signal) => processNotification(job, { prisma, ...(signal ? { signal } : {}) }),
     { connection, concurrency: positiveInt("NOTIFICATION_CONCURRENCY", 10) },
   );
 

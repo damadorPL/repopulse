@@ -18,7 +18,7 @@ export interface Queues {
   schedulerQueue: Queue<SchedulerJobData>;
   /** `repo-poll`: one job per repository check (jobId `poll-{repositoryId}`). */
   repoPollQueue: Queue<RepoPollJobData>;
-  /** `notification-dispatch`: one job per (rule, release); delivered in Slice 05. */
+  /** `notification-dispatch`: one job per (rule, release), delivered by `@repopulse/notifications`. */
   notificationQueue: Queue<NotificationJobData>;
   /** `release-backfill`: one history import per repository (jobId `backfill-{repositoryId}`). */
   releaseBackfillQueue: Queue<ReleaseBackfillJobData>;

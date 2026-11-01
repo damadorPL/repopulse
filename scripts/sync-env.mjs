@@ -40,6 +40,33 @@ const ADDITIONS = [
   { key: "RELEASE_BACKFILL_MAX_AGE_DAYS", after: "RELEASE_BACKFILL_DEFAULT_TARGET", lines: ["# RELEASE_BACKFILL_MAX_AGE_DAYS=365"] },
   { key: "RELEASE_BACKFILL_HARD_CAP", after: "RELEASE_BACKFILL_MAX_AGE_DAYS", lines: ["# RELEASE_BACKFILL_HARD_CAP=1000"] },
   { key: "RELEASE_BACKFILL_MIN_QUOTA", after: "RELEASE_BACKFILL_HARD_CAP", lines: ["# RELEASE_BACKFILL_MIN_QUOTA=500"] },
+  // Slice 05: notifications.
+  {
+    key: "SMTP_SECURE",
+    after: "SMTP_PASS",
+    lines: [
+      "# Optional: implicit TLS (default: on for port 465 only, STARTTLS otherwise) and the sender (default: SMTP_USER).",
+      "# SMTP_SECURE=false",
+    ],
+  },
+  { key: "SMTP_FROM", after: "SMTP_SECURE", lines: ["# SMTP_FROM=RepoPulse <releases@example.com>"] },
+  {
+    key: "ALLOW_INTERNAL_WEBHOOK_HOSTS",
+    after: "SMTP_FROM",
+    lines: [
+      "",
+      "# ─── Notifications (web + worker) ─────────────────────────────────────────",
+      "# Webhooks to private or loopback addresses are blocked (SSRF guard). To reach a self-hosted",
+      "# Gotify/ntfy on the same network, allow every internal host (true) or list them (gotify,ntfy.lan).",
+      "# Link-local and cloud metadata addresses (169.254.0.0/16) stay blocked either way.",
+      "# ALLOW_INTERNAL_WEBHOOK_HOSTS=false",
+    ],
+  },
+  {
+    key: "APP_BASE_URL",
+    after: "ALLOW_INTERNAL_WEBHOOK_HOSTS",
+    lines: ["# Public URL for links in notifications (default: AUTH_URL / NEXTAUTH_URL).", "# APP_BASE_URL=https://repopulse.example.com"],
+  },
 ];
 
 const args = process.argv.slice(2);

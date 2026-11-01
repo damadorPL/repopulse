@@ -5,10 +5,11 @@ Self-hostable GitHub release & changelog tracker — Turborepo + pnpm monorepo d
 | Workspace | Description |
 | --- | --- |
 | `apps/web` | Next.js (App Router) UI + API, GitHub sign-in (Auth.js v5), `GET /api/health` |
-| `apps/worker` | BullMQ worker: cron scheduler, ETag-aware repository poller (releases + optional Git tags), release-history backfill, notification hand-off, `GET :3001/health` |
+| `apps/worker` | BullMQ worker: cron scheduler, ETag-aware repository poller (releases + optional Git tags), release-history backfill, notification delivery, `GET :3001/health` |
 | `packages/db` | Prisma schema, migrations, singleton client, AES-256-GCM token crypto |
 | `packages/github` | Octokit wrapper, repo-input parser, SemVer classifier, ETag-aware release polling, GraphQL tag reader + commit compare |
 | `packages/queue` | Shared BullMQ queue names, job payloads, Redis connection factory and the SSE event contract |
+| `packages/notifications` | Discord, Slack, ntfy, Gotify, SMTP email and custom-webhook formatters, `dispatchNotification()`, SSRF guard for webhook URLs |
 | `packages/tsconfig` | Shared TypeScript configs |
 
 ## Local development
@@ -50,6 +51,18 @@ and never placed in the session cookie.
 Use the **Docker Compose** build pack with `docker-compose.coolify.yml`. Set the variables
 listed in `.env.example` (generate `TOKEN_ENCRYPTION_KEY` and `AUTH_SECRET` with
 `openssl rand -hex 32`).
+
+### Notifications
+
+Users add rules under **Settings → Notifications** (`/settings/notifications`): a channel, an optional tag scope and
+"only major releases". **Send Test** delivers a sample `v1.0.0` release right away.
+
+- **Email** needs `SMTP_HOST` (plus usually `SMTP_USER` / `SMTP_PASS`; optional `SMTP_PORT`, `SMTP_SECURE`, `SMTP_FROM`)
+  on both `web` (for Send Test) and `worker`.
+- **Webhooks** to private or loopback addresses are blocked. To reach a self-hosted Gotify or ntfy on the same network,
+  set `ALLOW_INTERNAL_WEBHOOK_HOSTS=true`, or a host list such as `gotify,ntfy.lan`. Link-local and cloud-metadata
+  addresses (`169.254.0.0/16`) are always blocked.
+- Links in notifications use `APP_BASE_URL` (compose sets it from `SERVICE_FQDN_WEB`), falling back to `AUTH_URL`.
 
 Startup order: `postgres` + `redis` healthy → `migrator` runs `prisma migrate deploy` and exits 0 →
 `web` and `worker` start.

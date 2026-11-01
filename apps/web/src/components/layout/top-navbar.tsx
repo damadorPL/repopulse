@@ -3,12 +3,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { BellIcon, LogOutIcon, MenuIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
+import { BellIcon, BellRingIcon, LogOutIcon, MenuIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
 import { RepoAvatar } from "@/components/feed/repo-avatar";
 import { AddRepoModal } from "@/components/modals/add-repo-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { feedHref, MAX_SEARCH_LENGTH, parseFeedFilters, PARAM } from "@/lib/feed-filters";
 import { signOutAction } from "@/server/actions/auth";
@@ -80,6 +80,14 @@ export function TopNavbar({
               <p className="truncate text-sm font-medium">{user.name ?? "Signed in"}</p>
               <p className="truncate text-xs text-muted-foreground">{user.email}</p>
             </div>
+            <PopoverClose asChild>
+              <Button asChild variant="ghost" size="sm" className="w-full justify-start">
+                <Link href="/settings/notifications">
+                  <BellRingIcon />
+                  Notification settings
+                </Link>
+              </Button>
+            </PopoverClose>
             <form action={signOutAction}>
               <Button type="submit" variant="ghost" size="sm" className="w-full justify-start">
                 <LogOutIcon />

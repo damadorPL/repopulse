@@ -181,6 +181,9 @@ importers:
       '@repopulse/github':
         specifier: workspace:*
         version: link:../../packages/github
+      '@repopulse/notifications':
+        specifier: workspace:*
+        version: link:../../packages/notifications
       '@repopulse/queue':
         specifier: workspace:*
         version: link:../../packages/queue
@@ -284,6 +287,9 @@ importers:
       '@repopulse/github':
         specifier: workspace:*
         version: link:../../packages/github
+      '@repopulse/notifications':
+        specifier: workspace:*
+        version: link:../../packages/notifications
       '@repopulse/queue':
         specifier: workspace:*
         version: link:../../packages/queue
@@ -353,6 +359,25 @@ importers:
       '@types/semver':
         specifier: 7.8.0
         version: 7.8.0
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: 5.0.5
+        version: 5.0.5(@types/node@26.6.6)(vite@7.3.7(@types/node@26.6.6)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.15))
+
+  packages/notifications:
+    dependencies:
+      nodemailer:
+        specifier: 10.1.2
+        version: 10.1.2
+    devDependencies:
+      '@repopulse/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      '@types/node':
+        specifier: 26.6.6
+        version: 26.6.6
       typescript:
         specifier: 7.0.2
         version: 7.0.2
@@ -3022,6 +3047,10 @@ packages:
   node-gyp-build-optional-packages@5.2.2:
     resolution: {integrity: sha512-s+w+rBWnpTMwSFbaE0UXsRlg7hU4FjekKU4eyAih5T8nJuNZT1nNsskXpxmeqSK9UzkBl6UgRlnKc8hz8IEqOw==}
     hasBin: true
+
+  nodemailer@10.1.2:
+    resolution: {integrity: sha512-rnQn9Rzh8RAwcp42MVsIvxbsv6YZ2a2/av+uyJ/LPU1+2QSlrRgFsWWZTKenyRUqkIl8urOI0c4+CEcmFdsvQw==}
+    engines: {node: '>=20.0.0'}
 
   oauth4webapi@3.8.8:
     resolution: {integrity: sha512-8N28E+a/oxfXWBgOMt+ZP/JUf/XR+IFbvkAEPP3gznXOMv9BpAAwiIj0TFNz3tGTPc0ZQ8zmWBNgN1nAys0gng==}
@@ -6209,6 +6238,8 @@ snapshots:
     dependencies:
       detect-libc: 2.1.2
     optional: true
+
+  nodemailer@10.1.2: {}
 
   oauth4webapi@3.8.8: {}
 

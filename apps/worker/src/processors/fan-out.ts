@@ -54,10 +54,11 @@ export function selectFreshReleases(created: StoredRelease[], newestKnownAt: Dat
 
 /**
  * Whether a notification rule fires for a release on a subscription with `tagIds`.
- * In-app delivery is the unread state + SSE event itself, so `IN_APP` rules never queue a job.
+ * In-app delivery is the unread state + SSE event itself, so `IN_APP` rules never queue a job;
+ * neither do `EMAIL_DIGEST` rules, which have no sender yet.
  */
 export function ruleMatches(rule: FanOutRule, tagIds: readonly string[], release: StoredRelease): boolean {
-  if (rule.channel === "IN_APP") return false;
+  if (rule.channel === "IN_APP" || rule.channel === "EMAIL_DIGEST") return false;
   if (rule.tagId !== null && !tagIds.includes(rule.tagId)) return false;
   if (rule.onlyMajorReleases && release.semverType !== "MAJOR") return false;
   return true;

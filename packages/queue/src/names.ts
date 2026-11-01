@@ -35,7 +35,7 @@ export interface ReleaseBackfillJobData {
   trigger: "add" | "sweep" | "deep" | "retry";
 }
 
-/** Slice 05 consumes these jobs; the shape is fixed by its spec. */
+/** One delivery of one notification rule for one release (consumed by the worker's notification processor). */
 export interface NotificationJobData {
   ruleId: string;
   releaseId: string;
@@ -90,9 +90,13 @@ export const RELEASE_BACKFILL_JOB_OPTIONS = {
   removeOnFail: true,
 } satisfies JobsOptions;
 
+/**
+ * Slice 05: 3 attempts, exponential backoff from 5 s (5 s, 10 s), so a webhook timeout or a 5xx is
+ * retried quickly. Permanent failures (4xx, blocked URL, SMTP not configured) skip the retries.
+ */
 export const NOTIFICATION_JOB_OPTIONS = {
-  attempts: 5,
-  backoff: { type: "exponential", delay: 60_000 },
+  attempts: 3,
+  backoff: { type: "exponential", delay: 5_000 },
   // Retained for a week so the deterministic jobId deduplicates repeat fan-outs.
   removeOnComplete: { age: 7 * 24 * 3600, count: 5000 },
   removeOnFail: { age: 7 * 24 * 3600 },

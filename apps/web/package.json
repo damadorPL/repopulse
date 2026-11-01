@@ -12,6 +12,7 @@
   "dependencies": {
     "@repopulse/db": "workspace:*",
     "@repopulse/github": "workspace:*",
+    "@repopulse/notifications": "workspace:*",
     "@repopulse/queue": "workspace:*",
     "bullmq": "6.3.16",
     "class-variance-authority": "0.7.1",

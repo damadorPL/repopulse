@@ -83,6 +83,17 @@ SMTP_HOST=
 SMTP_PORT=587
 SMTP_USER=
 SMTP_PASS=
+# Optional: implicit TLS (default: on for port 465 only, STARTTLS otherwise) and the sender (default: SMTP_USER).
+# SMTP_SECURE=false
+# SMTP_FROM=RepoPulse <releases@example.com>
+
+# ─── Notifications (web + worker) ─────────────────────────────────────────
+# Webhooks to private or loopback addresses are blocked (SSRF guard). To reach a self-hosted
+# Gotify/ntfy on the same network, allow every internal host (true) or list them (gotify,ntfy.lan).
+# Link-local and cloud metadata addresses (169.254.0.0/16) stay blocked either way.
+# ALLOW_INTERNAL_WEBHOOK_HOSTS=false
+# Public URL for links in notifications (default: AUTH_URL / NEXTAUTH_URL).
+# APP_BASE_URL=https://repopulse.example.com
 `;
 
 writeFileSync(target, env, { mode: 0o600 });

@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ActivityIcon, BoxesIcon, InboxIcon, PlusIcon, Settings2Icon } from "lucide-react";
+import { ActivityIcon, BellRingIcon, BoxesIcon, InboxIcon, PlusIcon, Settings2Icon } from "lucide-react";
 import { TagDot } from "@/components/feed/tag-pill";
 import { ManageTagsModal } from "@/components/modals/manage-tags-modal";
 import { Button } from "@/components/ui/button";
@@ -135,6 +135,17 @@ export function AppSidebar({
             New Tag
           </button>
         </ManageTagsModal>
+      </div>
+
+      <div className="mt-auto grid gap-1">
+        <h2 className="px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Settings</h2>
+        <NavLink
+          href="/settings/notifications"
+          active={pathname.startsWith("/settings/notifications")}
+          icon={<BellRingIcon />}
+        >
+          Notifications
+        </NavLink>
       </div>
     </nav>
   );
