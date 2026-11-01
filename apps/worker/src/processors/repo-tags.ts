@@ -28,7 +28,9 @@ export const STORED_RELEASE_SELECT = {
 
 export type SubscriberWithMode = FanOutSubscriber & {
   trackMode: TrackMode;
-  /** Watched paths in `PATHS` mode (Slice 06); empty otherwise. */
+  /** "Files / folders" is on (Slice 06), independently of `trackMode`. */
+  trackPaths: boolean;
+  /** Watched paths; only meaningful while `trackPaths` is on. */
   watchedPaths: string[];
 };
 
@@ -42,6 +44,7 @@ export async function loadSubscribers(tx: Tx, repositoryId: string): Promise<Sub
       userId: true,
       includePrereleases: true,
       trackMode: true,
+      trackPaths: true,
       watchedPaths: true,
       tags: { select: { tagId: true } },
       user: {
@@ -58,6 +61,7 @@ export async function loadSubscribers(tx: Tx, repositoryId: string): Promise<Sub
     userId: s.userId,
     includePrereleases: s.includePrereleases,
     trackMode: s.trackMode,
+    trackPaths: s.trackPaths,
     watchedPaths: s.watchedPaths ?? [],
     tagIds: s.tags.map((t) => t.tagId),
     rules: s.user.notificationRules,
@@ -68,9 +72,9 @@ export function tracksTags(subscriber: SubscriberWithMode): boolean {
   return subscriber.trackMode === "TAGS_AND_COMMITS";
 }
 
-/** GitHub Releases are shown in "Releases only" and "Releases + tags", never in "Files / folders". */
+/** GitHub Releases are shown in "Releases only" and "Releases + tags", not to a paths-only (`NONE`) subscription. */
 export function tracksReleases(subscriber: SubscriberWithMode): boolean {
-  return subscriber.trackMode !== "PATHS";
+  return subscriber.trackMode !== "NONE";
 }
 
 export interface TagPollTarget {

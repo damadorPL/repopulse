@@ -2,7 +2,7 @@
 
 import { useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { LoaderCircleIcon } from "lucide-react";
+import { CheckIcon, LoaderCircleIcon } from "lucide-react";
 import { toast } from "sonner";
 import { TagDot } from "@/components/feed/tag-pill";
 import { isExpandedCombobox, WatchedPathsPicker } from "@/components/repositories/watched-paths-picker";
@@ -20,11 +20,23 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { feedHref } from "@/lib/feed-filters";
-import { TRACK_MODE_OPTIONS, type TrackModeValue } from "@/lib/track-modes";
+import { NOTHING_TRACKED_MESSAGE, PATHS_OPTION, TRACK_MODE_OPTIONS, tracksSomething, type TrackModeValue } from "@/lib/track-modes";
 import { cn } from "@/lib/utils";
 import { validateWatchedPaths } from "@/lib/watched-paths";
 import { addRepositoryAction } from "@/server/actions/repositories";
 import type { TagPill } from "@/server/queries/feed";
+
+type TrackingChoice = Exclude<TrackModeValue, "NONE"> | "PATHS";
+
+/** The tracking choices of the dialog: one release mode at most, plus "Files / folders". */
+const TRACKING_CHOICES: ReadonlyArray<{ key: TrackingChoice; label: string; hint: string }> = [
+  ...TRACK_MODE_OPTIONS.flatMap((option) => (option.value === "NONE" ? [] : [{ key: option.value, label: option.label, hint: option.hint }])),
+  { key: "PATHS", label: PATHS_OPTION.label, hint: PATHS_OPTION.hint },
+];
+
+function plural(count: number, word: string): string {
+  return `${count} ${word}${count === 1 ? "" : "s"}`;
+}
 
 /** "Add repository" dialog; `children` is the trigger element. */
 export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: ReactNode }) {
@@ -33,22 +45,36 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
   const [repo, setRepo] = useState("");
   const [includePrereleases, setIncludePrereleases] = useState(false);
   const [trackMode, setTrackMode] = useState<TrackModeValue>("RELEASES");
+  const [tracksPaths, setTracksPaths] = useState(false);
   const [paths, setPaths] = useState<string[]>([]);
   const [pathsDraft, setPathsDraft] = useState("");
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pathsError, setPathsError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const tracksPaths = trackMode === "PATHS";
+  const tracksReleases = trackMode !== "NONE";
+  const tracksAnything = tracksSomething(trackMode, tracksPaths);
 
   function reset() {
     setRepo("");
     setIncludePrereleases(false);
     setTrackMode("RELEASES");
+    setTracksPaths(false);
     setPaths([]);
     setPathsDraft("");
     setTagIds([]);
     setError(null);
+    setPathsError(null);
+  }
+
+  function isChosen(key: TrackingChoice): boolean {
+    return key === "PATHS" ? tracksPaths : trackMode === key;
+  }
+
+  /** "Releases only" and "Releases + tags" exclude each other; "Files / folders" combines with either. */
+  function choose(key: TrackingChoice, checked: boolean) {
+    if (key === "PATHS") setTracksPaths(checked);
+    else setTrackMode(checked ? key : "NONE");
     setPathsError(null);
   }
 
@@ -60,6 +86,7 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
     event.preventDefault();
     setError(null);
     setPathsError(null);
+    if (!tracksAnything) return;
     let watchedPaths: string[] = [];
     if (tracksPaths) {
       // Include text typed but not yet added as a chip.
@@ -74,8 +101,9 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
       const result = await addRepositoryAction({
         repoUrlOrSlug: repo,
         // Commits have no pre-release flag.
-        includePrereleases: tracksPaths ? false : includePrereleases,
+        includePrereleases: tracksReleases ? includePrereleases : false,
         trackMode,
+        trackPaths: tracksPaths,
         watchedPaths,
         tagIds,
       });
@@ -84,17 +112,19 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
         setError(result.error.message);
         return;
       }
-      const { fullName, repositoryId, releasesCount, importing } = result.data;
-      const counted = (word: string) => `${releasesCount} ${word}${releasesCount === 1 ? "" : "s"}`;
-      let description = `${counted("release")} imported.`;
-      if (trackMode === "TAGS_AND_COMMITS") description += " Git tags without a release are imported in the background.";
+      const { fullName, repositoryId, releasesCount, commitsCount, importingPaths } = result.data;
+      const parts: string[] = [];
+      if (tracksReleases) parts.push(`${plural(releasesCount, "release")} imported.`);
+      if (trackMode === "TAGS_AND_COMMITS") parts.push("Git tags without a release are imported in the background.");
       if (tracksPaths) {
-        description = importing
-          ? "Recent commits that change the watched paths are imported in the background."
-          : `${counted("matching commit")} found.`;
+        parts.push(
+          importingPaths
+            ? "Recent commits that change the watched paths are imported in the background."
+            : `${plural(commitsCount, "matching commit")} found.`,
+        );
       }
       toast.success(`Now tracking ${fullName}`, {
-        description,
+        description: parts.join(" "),
         action: { label: "View", onClick: () => router.push(feedHref({ repositoryId })) },
       });
       setOpen(false);
@@ -142,36 +172,45 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
             ) : null}
           </div>
 
-          <fieldset className="grid gap-2">
-            <legend className="mb-2 text-sm font-medium">Tracking mode</legend>
+          <fieldset className="grid gap-2" aria-describedby="add-repo-tracking-help">
+            <legend className="mb-2 text-sm font-medium">What to track</legend>
             <div className="grid gap-2 sm:grid-cols-3">
-              {TRACK_MODE_OPTIONS.map((option) => {
-                const selected = trackMode === option.value;
+              {TRACKING_CHOICES.map((choice) => {
+                const selected = isChosen(choice.key);
                 return (
                   <label
-                    key={option.value}
+                    key={choice.key}
                     className={cn(
-                      "grid cursor-pointer gap-0.5 rounded-md border p-2.5 text-sm transition-colors has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50",
+                      "relative grid cursor-pointer gap-0.5 rounded-md border p-2.5 pr-8 text-sm transition-colors has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50",
                       selected ? "border-foreground/40 bg-secondary" : "hover:bg-accent",
                     )}
                   >
                     <input
-                      type="radio"
-                      name="add-repo-track-mode"
-                      value={option.value}
+                      type="checkbox"
+                      name="add-repo-tracking"
+                      value={choice.key}
                       checked={selected}
-                      onChange={() => {
-                        setTrackMode(option.value);
-                        setPathsError(null);
-                      }}
+                      onChange={(event) => choose(choice.key, event.target.checked)}
                       className="sr-only"
                     />
-                    <span className="font-medium">{option.label}</span>
-                    <span className="text-xs text-muted-foreground">{option.hint}</span>
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "absolute top-2.5 right-2.5 flex size-4 items-center justify-center rounded-[4px] border",
+                        selected ? "border-primary bg-primary text-primary-foreground" : "border-input",
+                      )}
+                    >
+                      {selected ? <CheckIcon className="size-3" /> : null}
+                    </span>
+                    <span className="font-medium">{choice.label}</span>
+                    <span className="text-xs text-muted-foreground">{choice.hint}</span>
                   </label>
                 );
               })}
             </div>
+            <p id="add-repo-tracking-help" className={cn("text-xs", tracksAnything ? "text-muted-foreground" : "text-destructive")}>
+              {tracksAnything ? "Pick releases or releases + tags, files / folders, or both." : NOTHING_TRACKED_MESSAGE}
+            </p>
           </fieldset>
 
           {tracksPaths ? (
@@ -199,12 +238,14 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
                 that changes a watched path shows up with its changed files.
               </p>
             </div>
-          ) : (
+          ) : null}
+
+          {tracksReleases ? (
             <Label className="font-normal">
               <Checkbox checked={includePrereleases} onCheckedChange={(v) => setIncludePrereleases(v === true)} />
               Include pre-releases (alpha, beta, rc)
             </Label>
-          )}
+          ) : null}
 
           {tags.length > 0 ? (
             <fieldset className="grid gap-2">
@@ -233,9 +274,12 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
           ) : null}
 
           <DialogFooter>
-            <Button type="submit" disabled={pending || !repo.trim() || (tracksPaths && paths.length === 0 && !pathsDraft.trim())}>
+            <Button
+              type="submit"
+              disabled={pending || !repo.trim() || !tracksAnything || (tracksPaths && paths.length === 0 && !pathsDraft.trim())}
+            >
               {pending ? <LoaderCircleIcon className="animate-spin" /> : null}
-              {pending ? (tracksPaths ? "Adding…" : "Fetching releases…") : "Add repository"}
+              {pending ? (tracksReleases ? "Fetching releases…" : "Adding…") : "Add repository"}
             </Button>
           </DialogFooter>
         </form>

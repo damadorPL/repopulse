@@ -162,7 +162,7 @@ async function storeAndFanOut(
     let plan = EMPTY_FAN_OUT_PLAN;
 
     if (fresh.length > 0 || freshPromoted.length > 0) {
-      // "Files / folders" subscribers never see GitHub Releases.
+      // Paths-only subscribers (`trackMode: NONE`) never see GitHub Releases.
       const subscribers = (await loadSubscribers(tx, repositoryId)).filter(tracksReleases);
       plan = mergeFanOutPlans(
         planFanOut(subscribers, fresh),
@@ -277,8 +277,8 @@ export async function processRepoPoll(
       _count: { select: { subscriptions: true } },
       // A "Releases + tags" subscriber turns on the tag step, a "Files / folders" one the path step.
       subscriptions: {
-        where: { OR: [{ trackMode: "TAGS_AND_COMMITS" }, { trackMode: "PATHS", watchedPaths: { isEmpty: false } }] },
-        select: { trackMode: true },
+        where: { OR: [{ trackMode: "TAGS_AND_COMMITS" }, { trackPaths: true, watchedPaths: { isEmpty: false } }] },
+        select: { trackMode: true, trackPaths: true },
       },
     },
   });
@@ -287,7 +287,7 @@ export async function processRepoPoll(
   if (row._count.subscriptions === 0) return { status: "SKIPPED", reason: "NO_SUBSCRIBERS" };
   const { _count, subscriptions: modeSubscribers, polledPaths, ...repo } = row satisfies PollTarget & object;
   const withTags = modeSubscribers.some((s) => s.trackMode === "TAGS_AND_COMMITS");
-  const withPaths = modeSubscribers.some((s) => s.trackMode === "PATHS");
+  const withPaths = modeSubscribers.some((s) => s.trackPaths);
 
   const notifyRequester = (event: RealtimeEvent) =>
     requestedByUserId ? publish(deps.redis, requestedByUserId, event) : Promise.resolve();

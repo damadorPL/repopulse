@@ -23,11 +23,12 @@ enum SemverType {
   OTHER
 }
 
-/// `PATHS` ("Files / folders", Slice 06): commits on the default branch touching the subscription's `watchedPaths`.
+/// What a subscription follows of a repository's releases: GitHub Releases only, Releases plus Git tags without one
+/// (Slice 04c), or nothing (`NONE`: only commits to watched paths, see `UserSubscription.trackPaths`).
 enum TrackMode {
   RELEASES
   TAGS_AND_COMMITS
-  PATHS
+  NONE
 }
 
 /// Where a `Release` row comes from: a GitHub Release, a Git tag without one (Slice 04c), or a
@@ -186,7 +187,10 @@ model UserSubscription {
   repositoryId       String
   includePrereleases Boolean           @default(false)
   trackMode          TrackMode         @default(RELEASES)
-  /// Normalized repo-relative file or folder paths watched in `PATHS` mode (at most 10).
+  /// "Files / folders" (Slice 06): also track commits on the default branch touching `watchedPaths`. Independent of
+  /// `trackMode`, so releases and paths can be tracked together. At least one of the two is on.
+  trackPaths         Boolean           @default(false)
+  /// Normalized repo-relative file or folder paths watched when `trackPaths` is on (at most 10). Kept when it is off.
   watchedPaths       String[]          @default([])
   createdAt          DateTime          @default(now())
   user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)

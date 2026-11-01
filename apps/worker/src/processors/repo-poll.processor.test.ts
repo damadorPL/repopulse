@@ -162,7 +162,7 @@ describe("processRepoPoll release → tag promotion", () => {
     });
     const prisma = {
       repository: {
-        findUnique: vi.fn(async () => ({ ...REPO, polledPaths: [], _count: { subscriptions: 3 }, subscriptions: [] })),
+        findUnique: vi.fn(async () => ({ ...REPO, polledPaths: [], _count: { subscriptions: 4 }, subscriptions: [] })),
         update: vi.fn(async () => ({})),
       },
       release: {
@@ -184,11 +184,22 @@ describe("processRepoPoll release → tag promotion", () => {
             ? [
                 { userId: "tagger", includePrereleases: false, trackMode: "TAGS_AND_COMMITS", tags: [], user: { notificationRules: [] } },
                 { userId: "releaser", includePrereleases: false, trackMode: "RELEASES", tags: [], user: { notificationRules: [] } },
-                // "Files / folders" subscribers never get GitHub Releases.
+                // Paths-only subscribers never get GitHub Releases.
                 {
                   userId: "pather",
                   includePrereleases: false,
-                  trackMode: "PATHS",
+                  trackMode: "NONE",
+                  trackPaths: true,
+                  watchedPaths: ["docs"],
+                  tags: [],
+                  user: { notificationRules: [] },
+                },
+                // Releases and "Files / folders" at once: gets releases like any release-mode subscriber.
+                {
+                  userId: "both",
+                  includePrereleases: false,
+                  trackMode: "RELEASES",
+                  trackPaths: true,
                   watchedPaths: ["docs"],
                   tags: [],
                   user: { notificationRules: [] },
@@ -239,8 +250,10 @@ describe("processRepoPoll release → tag promotion", () => {
         { userId: "tagger", releaseId: "new-v2.1.0", isRead: false },
         { userId: "releaser", releaseId: "new-v2.1.0", isRead: false },
         { userId: "releaser", releaseId: "tagrow", isRead: false },
+        { userId: "both", releaseId: "new-v2.1.0", isRead: false },
+        { userId: "both", releaseId: "tagrow", isRead: false },
       ]),
     );
-    expect(db.states).toHaveLength(3);
+    expect(db.states).toHaveLength(5);
   });
 });

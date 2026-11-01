@@ -42,7 +42,7 @@ Rules:
    store tags with no row (changelog = "commits since the previous tag" via the compare API) → fan out fresh tags to
    tag-mode subscribers only. **Best effort**: any failure is logged and skipped. It never fails the poll or pauses the
    queue. Tag freshness compares against the newest `RELEASE`/`TAG` row only (commit rows are ignored).
-6. Path step (`repo-paths.ts` → `pollRepoPaths`): only when a subscriber is `PATHS` with watched paths. Union of all
+6. Path step (`repo-paths.ts` → `pollRepoPaths`): only when a subscriber has `trackPaths` and watched paths (whatever its `trackMode`). Union of all
    subscribers' watched paths (deduplicated) → `fetchCommitsForPath` (REST, newest `PATH_COMMITS_PAGE_SIZE` = 10 per
    path; anonymous works) → `fetchCommitDetail` once per unknown commit (failure = stored without files; a rate limit
    skips the step) → insert `COMMIT` rows → `planPathFanOut` per subscriber, using only commits returned by the
@@ -54,7 +54,7 @@ Rules:
      jobs. Commits the user already has a state for are left alone.
    Then `polledPaths` = the paths polled now and `lastPathsPolledAt`. **Best effort** like the tag step. When no
    subscriber watches paths any more, the poll clears `polledPaths`, so watching a path again is a quiet import.
-   The release step skips `PATHS` subscribers (`tracksReleases`).
+   The release step skips paths-only subscribers (`trackMode = NONE`, `tracksReleases`).
 7. After commit: publish SSE events (best effort), add notification jobs, and for manual syncs send `SYNC_COMPLETED`.
 - Errors:
   - `GitHubRateLimitError` → `repoPollQueue.rateLimit(rateLimitDelayMs(resetAt))` (reset + 1 s, clamped to 5 s–1 h)

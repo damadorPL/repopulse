@@ -11,6 +11,7 @@ import { enqueueReleaseBackfill } from "@/server/backfill-queue";
 import { needsPathImport, syncCommitStates } from "@/server/commit-states";
 import { isRealtimeConfigured } from "@/server/realtime";
 import { queueRepoImport } from "@/server/repo-poll-queue";
+import { NOTHING_TRACKED_MESSAGE, tracksSomething } from "@/lib/track-modes";
 import { validateWatchedPaths } from "@/lib/watched-paths";
 
 export type { ActionErrorCode, ActionResult } from "@/server/action-result";
@@ -19,21 +20,36 @@ export interface AddRepositoryResult {
   subscriptionId: string;
   repositoryId: string;
   fullName: string;
-  /** GitHub Releases (and tags) visible to the subscription; matching stored commits in "Files / folders" mode. */
+  /** GitHub Releases (and tags) visible to the subscription; 0 when it tracks no releases. */
   releasesCount: number;
-  /** A background poll was queued to import tags or the commits of never-polled watched paths. */
-  importing: boolean;
+  /** Stored commits matching the watched paths; 0 when "Files / folders" is off. */
+  commitsCount: number;
+  /** A background poll was queued to import tags never read. */
+  importingTags: boolean;
+  /** A background poll was queued to import commits of never-polled watched paths. */
+  importingPaths: boolean;
 }
 
-const trackModeSchema = z.enum(["RELEASES", "TAGS_AND_COMMITS", "PATHS"]);
+export interface UpdateTrackingResult {
+  subscriptionId: string;
+  trackMode: TrackMode;
+  trackPaths: boolean;
+  watchedPaths: string[];
+  importingTags: boolean;
+  importingPaths: boolean;
+}
+
+const trackModeSchema = z.enum(["RELEASES", "TAGS_AND_COMMITS", "NONE"]);
 /** Raw entries; `validateWatchedPaths` normalizes and validates them. */
 const watchedPathsSchema = z.array(z.string().max(1000)).max(50);
 
 const addRepositoryInput = z.object({
   repoUrlOrSlug: z.string().trim().min(1, "Enter a repository").max(500),
   includePrereleases: z.boolean().default(false),
-  /** `TAGS_AND_COMMITS`: also Git tags without a GitHub Release (Slice 04c). `PATHS`: commits touching `watchedPaths` (Slice 06). */
+  /** `TAGS_AND_COMMITS`: also Git tags without a GitHub Release (Slice 04c). `NONE`: no releases at all. */
   trackMode: trackModeSchema.default("RELEASES"),
+  /** "Files / folders" (Slice 06): also commits touching `watchedPaths`. */
+  trackPaths: z.boolean().default(false),
   watchedPaths: watchedPathsSchema.default([]),
   tagIds: z.array(z.string().min(1).max(64)).max(50).default([]),
 });
@@ -41,12 +57,13 @@ const addRepositoryInput = z.object({
 const trackModeInput = z.object({
   subscriptionId: z.string().min(1).max(64),
   trackMode: trackModeSchema,
-  /** Required in `PATHS` mode unless the subscription already has watched paths. */
+  trackPaths: z.boolean(),
+  /** Required with `trackPaths` unless the subscription already has watched paths. */
   watchedPaths: watchedPathsSchema.optional(),
 });
 
 /** Release rows a subscription in "Releases only" or "Releases + tags" can see. */
-function sourceFilter(trackMode: Exclude<TrackMode, "PATHS">) {
+function sourceFilter(trackMode: Exclude<TrackMode, "NONE">) {
   return trackMode === "RELEASES" ? { source: "RELEASE" as const } : { source: { in: ["RELEASE" as const, "TAG" as const] } };
 }
 
@@ -88,11 +105,17 @@ interface RepositoryImportState {
   polledPaths: string[];
 }
 
-/** Whether a priority poll should import tags (never read) or commits of never-polled watched paths. */
-function needsImport(trackMode: TrackMode, watchedPaths: readonly string[], repository: RepositoryImportState): boolean {
-  if (trackMode === "TAGS_AND_COMMITS") return repository.lastTagsPolledAt === null;
-  if (trackMode === "PATHS") return needsPathImport(watchedPaths, repository);
-  return false;
+/** What a priority poll should import now: tags never read, and/or commits of never-polled watched paths. */
+function pendingImports(
+  trackMode: TrackMode,
+  trackPaths: boolean,
+  watchedPaths: readonly string[],
+  repository: RepositoryImportState,
+): { importingTags: boolean; importingPaths: boolean } {
+  return {
+    importingTags: trackMode === "TAGS_AND_COMMITS" && repository.lastTagsPolledAt === null,
+    importingPaths: trackPaths && needsPathImport(watchedPaths, repository),
+  };
 }
 
 const removeSubscriptionInput = z.object({
@@ -103,7 +126,9 @@ export async function addRepositoryAction(input: {
   repoUrlOrSlug: string;
   includePrereleases: boolean;
   trackMode?: TrackMode;
-  /** "Files / folders" mode: repo-relative file or folder paths. */
+  /** "Files / folders": also track commits touching `watchedPaths`. */
+  trackPaths?: boolean;
+  /** Repo-relative file or folder paths, with `trackPaths`. */
   watchedPaths?: string[];
   tagIds: string[];
 }): Promise<ActionResult<AddRepositoryResult>> {
@@ -114,9 +139,10 @@ export async function addRepositoryAction(input: {
     if (!parsed.success) {
       return invalidInput(parsed.error);
     }
-    const { repoUrlOrSlug, includePrereleases, trackMode, tagIds } = parsed.data;
+    const { repoUrlOrSlug, includePrereleases, trackMode, trackPaths, tagIds } = parsed.data;
+    if (!tracksSomething(trackMode, trackPaths)) return fail("INVALID_INPUT", NOTHING_TRACKED_MESSAGE);
     let watchedPaths: string[] = [];
-    if (trackMode === "PATHS") {
+    if (trackPaths) {
       const resolved = validateWatchedPaths(parsed.data.watchedPaths);
       if (!resolved.ok) return fail("INVALID_INPUT", resolved.message);
       watchedPaths = resolved.paths;
@@ -171,9 +197,9 @@ export async function addRepositoryAction(input: {
 
       const subscription = await tx.userSubscription.upsert({
         where: { userId_repositoryId: { userId: user.id, repositoryId: repository.id } },
-        create: { userId: user.id, repositoryId: repository.id, includePrereleases, trackMode, watchedPaths },
-        // Watched paths are kept when re-adding in another mode, so switching back restores them.
-        update: { includePrereleases, trackMode, ...(trackMode === "PATHS" ? { watchedPaths } : {}) },
+        create: { userId: user.id, repositoryId: repository.id, includePrereleases, trackMode, trackPaths, watchedPaths },
+        // Watched paths are kept when re-adding without "Files / folders", so turning it back on restores them.
+        update: { includePrereleases, trackMode, trackPaths, ...(trackPaths ? { watchedPaths } : {}) },
         select: { id: true },
       });
 
@@ -191,42 +217,32 @@ export async function addRepositoryAction(input: {
         }
       }
 
-      if (trackMode === "PATHS") {
-        // "Files / folders": commits other subscribers' polls already stored for these paths.
-        const commits = await syncCommitStates(tx, user.id, repository.id, watchedPaths);
-        return {
-          result: {
-            subscriptionId: subscription.id,
+      // "Files / folders": commits other subscribers' polls already stored for these paths.
+      const commitsCount = trackPaths ? (await syncCommitStates(tx, user.id, repository.id, watchedPaths)).matching : 0;
+
+      let releasesCount = 0;
+      if (trackMode !== "NONE") {
+        // Seed the feed with the latest releases (unread), honoring includePrereleases
+        // the same way the worker does for newly discovered releases.
+        const latestReleases = await tx.release.findMany({
+          where: {
             repositoryId: repository.id,
-            fullName: repository.fullName,
-            releasesCount: commits.matching,
-            importing: false,
+            isDraft: false,
+            ...(includePrereleases ? {} : { isPrerelease: false }),
+            ...sourceFilter(trackMode),
           },
-          repository,
-        };
-      }
-
-      // Seed the feed with the latest releases (unread), honoring includePrereleases
-      // the same way the worker does for newly discovered releases.
-      const latestReleases = await tx.release.findMany({
-        where: {
-          repositoryId: repository.id,
-          isDraft: false,
-          ...(includePrereleases ? {} : { isPrerelease: false }),
-          ...sourceFilter(trackMode),
-        },
-        orderBy: { publishedAt: "desc" },
-        take: INITIAL_RELEASES_LIMIT,
-        select: { id: true },
-      });
-      if (latestReleases.length > 0) {
-        await tx.userReleaseState.createMany({
-          data: latestReleases.map((release) => ({ userId: user.id, releaseId: release.id })),
-          skipDuplicates: true,
+          orderBy: { publishedAt: "desc" },
+          take: INITIAL_RELEASES_LIMIT,
+          select: { id: true },
         });
+        if (latestReleases.length > 0) {
+          await tx.userReleaseState.createMany({
+            data: latestReleases.map((release) => ({ userId: user.id, releaseId: release.id })),
+            skipDuplicates: true,
+          });
+        }
+        releasesCount = await tx.release.count({ where: { repositoryId: repository.id, ...sourceFilter(trackMode) } });
       }
-
-      const releasesCount = await tx.release.count({ where: { repositoryId: repository.id, ...sourceFilter(trackMode) } });
 
       return {
         result: {
@@ -234,7 +250,7 @@ export async function addRepositoryAction(input: {
           repositoryId: repository.id,
           fullName: repository.fullName,
           releasesCount,
-          importing: false,
+          commitsCount,
         },
         repository,
       };
@@ -243,32 +259,35 @@ export async function addRepositoryAction(input: {
     // After the commit, so the worker never runs against a repository that is not there yet.
     await queueHistoryBackfill(result.repositoryId, imported.backfillStatus);
     // Tags never read, or watched paths never polled: import them now instead of at the next scheduled poll.
-    const importing = needsImport(trackMode, watchedPaths, imported);
-    if (importing) await queueRepoImport(result.repositoryId, "addRepositoryAction");
+    const imports = pendingImports(trackMode, trackPaths, watchedPaths, imported);
+    if (imports.importingTags || imports.importingPaths) await queueRepoImport(result.repositoryId, "addRepositoryAction");
 
     revalidatePath("/", "layout");
-    return { ok: true, data: { ...result, importing } };
+    return { ok: true, data: { ...result, ...imports } };
   } catch (error) {
     return toActionError(error, "addRepositoryAction");
   }
 }
 
 /**
- * Switches a subscription between "Releases only", "Releases + tags" and "Files / folders", or
- * changes its watched paths. Rows are shown or hidden at query time and read state is kept, except
- * that commit states follow the watched paths (states of commits that no longer match are dropped,
- * matching stored commits get one). Tags never read, or watched paths never polled, queue an import.
+ * Changes what a subscription tracks: its release mode ("Releases only", "Releases + tags" or none)
+ * and, independently, "Files / folders" with its watched paths. At least one must stay on. Rows are
+ * shown or hidden at query time and read state is kept, except that commit states follow the watched
+ * paths while "Files / folders" is on (states of commits that no longer match are dropped, matching
+ * stored commits get one). Tags never read, or watched paths never polled, queue an import.
  */
 export async function updateTrackModeAction(input: {
   subscriptionId: string;
   trackMode: TrackMode;
+  trackPaths: boolean;
   watchedPaths?: string[];
-}): Promise<ActionResult<{ subscriptionId: string; trackMode: TrackMode; watchedPaths: string[]; importing: boolean }>> {
+}): Promise<ActionResult<UpdateTrackingResult>> {
   try {
     const user = await getCurrentUserOrThrow();
     const parsed = trackModeInput.safeParse(input);
     if (!parsed.success) return invalidInput(parsed.error);
-    const { subscriptionId, trackMode } = parsed.data;
+    const { subscriptionId, trackMode, trackPaths } = parsed.data;
+    if (!tracksSomething(trackMode, trackPaths)) return fail("INVALID_INPUT", NOTHING_TRACKED_MESSAGE);
 
     const subscription = await prisma.userSubscription.findFirst({
       where: { id: subscriptionId, userId: user.id },
@@ -277,7 +296,7 @@ export async function updateTrackModeAction(input: {
     if (!subscription) return fail("NOT_FOUND", "Subscription not found.");
 
     let watchedPaths = subscription.watchedPaths;
-    if (trackMode === "PATHS") {
+    if (trackPaths) {
       const resolved = validateWatchedPaths(parsed.data.watchedPaths ?? subscription.watchedPaths);
       if (!resolved.ok) return fail("INVALID_INPUT", resolved.message);
       watchedPaths = resolved.paths;
@@ -286,16 +305,16 @@ export async function updateTrackModeAction(input: {
     await prisma.$transaction(async (tx) => {
       await tx.userSubscription.update({
         where: { id: subscription.id },
-        data: { trackMode, ...(trackMode === "PATHS" ? { watchedPaths } : {}) },
+        data: { trackMode, trackPaths, ...(trackPaths ? { watchedPaths } : {}) },
       });
-      if (trackMode === "PATHS") await syncCommitStates(tx, user.id, subscription.repositoryId, watchedPaths);
+      if (trackPaths) await syncCommitStates(tx, user.id, subscription.repositoryId, watchedPaths);
     });
 
-    const importing = needsImport(trackMode, watchedPaths, subscription.repository);
-    if (importing) await queueRepoImport(subscription.repositoryId, "updateTrackModeAction");
+    const imports = pendingImports(trackMode, trackPaths, watchedPaths, subscription.repository);
+    if (imports.importingTags || imports.importingPaths) await queueRepoImport(subscription.repositoryId, "updateTrackModeAction");
 
     revalidatePath("/", "layout");
-    return { ok: true, data: { subscriptionId: subscription.id, trackMode, watchedPaths, importing } };
+    return { ok: true, data: { subscriptionId: subscription.id, trackMode, trackPaths, watchedPaths, ...imports } };
   } catch (error) {
     return toActionError(error, "updateTrackModeAction");
   }

@@ -105,7 +105,7 @@ export function AppSidebar({
 
       <div className="grid gap-1">
         <div className="flex items-center justify-between px-2">
-          <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Categories / Tags</h2>
+          <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Tags</h2>
           {tags.length > 0 ? (
             <ManageTagsModal tags={tags}>
               <Button variant="ghost" size="icon-sm" className="size-6" aria-label="Manage tags">

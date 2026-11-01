@@ -6,6 +6,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-11-01 — Releases and files / folders together
+
+**Upgrade notes**
+
+- One migration (`20261101210000_combined_tracking`), applied by the migrator on deploy. Existing "Files / folders"
+  subscriptions keep tracking only their paths.
+
+### Added
+- **Track releases and files / folders at once.** "Files / folders" is no longer a separate mode: it can be combined
+  with "Releases only" or "Releases + tags" on the same repository.
+  - Add dialog: the three tracking cards are now checkboxes. "Releases only" and "Releases + tags" exclude each other,
+    "Files / folders" combines with either, and at least one must be picked.
+  - Repository cards: the select sets the release mode ("Releases", "Releases + tags" or "No releases"), and a
+    separate **Files / folders** button turns path tracking on (opening the path editor). The editor has a
+    **Stop watching paths** button. Choosing "No releases" without watched paths asks for paths first.
+
+### Changed
+- The sidebar section and the manage dialog are now called **Tags** (was "Categories / Tags" and "Categories & tags").
+
+### Fixed
+- Repository cards line up again: the description always takes two lines ("No description" when empty) and the
+  details sit on fixed rows (stars, latest and unread / sync status / history / tracking mode) instead of wrapping to
+  two to four lines depending on content. Long release tags are truncated, with the full tag on hover.
+
 ## [0.6.1] — 2026-11-01 — Theme switcher
 
 **Upgrade notes**

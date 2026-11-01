@@ -53,9 +53,9 @@ export interface PathStepDeps {
 
 type PathSubscriber = SubscriberWithMode & { watchedPaths: string[] };
 
-/** Whether a subscriber is in "Files / folders" mode with at least one watched path. */
+/** Whether a subscriber has "Files / folders" on with at least one watched path (whatever its release mode). */
 export function tracksPaths(subscriber: SubscriberWithMode): boolean {
-  return subscriber.trackMode === "PATHS" && subscriber.watchedPaths.length > 0;
+  return subscriber.trackPaths && subscriber.watchedPaths.length > 0;
 }
 
 /** Normalized, deduplicated watched paths (they are stored normalized; this guards old or hand-edited rows). */
@@ -161,7 +161,7 @@ async function withTokenFallback<T>(
 
 /**
  * The path step of a poll ("Files / folders", Slice 06). Collects the watched paths of every
- * `PATHS` subscriber (deduplicated), reads the newest commits touching each one, stores the
+ * subscriber with "Files / folders" on (deduplicated), reads the newest commits touching each one, stores the
  * unknown commits once each (with their changed files), then plans the per-subscriber fan-out
  * ({@link planPathFanOut}). Finally records the polled paths on the repository.
  *

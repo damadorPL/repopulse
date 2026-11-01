@@ -29,7 +29,7 @@ export function ManageTagsModal({ tags, children }: { tags: SidebarTag[]; childr
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Categories &amp; tags</DialogTitle>
+          <DialogTitle>Tags</DialogTitle>
           <DialogDescription>Group repositories by topic and filter the feed with one click.</DialogDescription>
         </DialogHeader>
 

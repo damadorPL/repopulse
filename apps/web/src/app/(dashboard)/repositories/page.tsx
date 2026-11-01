@@ -74,9 +74,16 @@ export default async function RepositoriesPage() {
                         <ExternalLinkIcon className="size-3.5" />
                       </a>
                     </div>
-                    {repo.description ? (
-                      <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">{repo.description}</p>
-                    ) : null}
+                    {/* Always two lines tall, so every card's metadata starts at the same height. */}
+                    <p
+                      className={
+                        repo.description
+                          ? "mt-0.5 line-clamp-2 min-h-10 text-sm text-muted-foreground"
+                          : "mt-0.5 min-h-10 text-sm text-muted-foreground/60 italic"
+                      }
+                    >
+                      {repo.description || "No description"}
+                    </p>
                   </div>
                   <div className="flex items-center gap-1">
                     <SyncRepoButton repositoryId={repo.id} iconOnly label={`Sync ${repo.fullName} now`} />
@@ -84,69 +91,84 @@ export default async function RepositoriesPage() {
                   </div>
                 </div>
 
-                <dl className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
-                  <div className="flex items-center gap-1">
-                    <dt className="sr-only">Stars</dt>
-                    <StarIcon className="size-3.5" aria-hidden />
-                    <dd className="tabular-nums">{compactNumber.format(repo.starsCount)}</dd>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <dt>Latest</dt>
-                    <dd className="flex items-center gap-1.5">
-                      {latestRelease ? (
-                        <>
-                          <Link
-                            href={feedHref({ repositoryId: repo.id }, latestRelease.id)}
-                            className="font-mono text-foreground hover:underline"
-                          >
-                            {latestRelease.tagName}
-                          </Link>
-                          {latestRelease.source === "COMMIT" ? null : <SemverBadge type={latestRelease.semverType} />}
-                        </>
-                      ) : (
-                        "—"
-                      )}
-                    </dd>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <dt>Unread</dt>
-                    <dd className={unread > 0 ? "font-medium text-unread tabular-nums" : "tabular-nums"}>
-                      {unread > 0 ? <Link href={feedHref({ repositoryId: repo.id, onlyUnread: true })}>{unread}</Link> : 0}
-                    </dd>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <dt>Synced</dt>
-                    <dd>{repo.lastPolledAt ? <RelativeTime date={repo.lastPolledAt} /> : "never"}</dd>
-                  </div>
-                  {repo.pollStatus === "ERROR" ? (
-                    <div className="flex items-center gap-1 text-amber-700 dark:text-amber-400">
-                      <TriangleAlertIcon className="size-3.5" aria-hidden />
-                      <dt className="sr-only">Status</dt>
-                      <dd>Last sync failed</dd>
+                {/* One fixed line per group, so cards line up instead of wrapping to 2–4 lines by content length. */}
+                <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+                  <dl className="flex min-w-0 items-center gap-x-4">
+                    <div className="flex shrink-0 items-center gap-1">
+                      <dt className="sr-only">Stars</dt>
+                      <StarIcon className="size-3.5" aria-hidden />
+                      <dd className="tabular-nums">{compactNumber.format(repo.starsCount)}</dd>
                     </div>
-                  ) : null}
-                  {/* Release history means nothing to a "Files / folders" subscription. */}
-                  {entry.trackMode === "PATHS" ? null : (
-                    <HistoryStatus
-                      repositoryId={repo.id}
-                      history={repo.history}
-                      releaseCount={repo.releaseCount}
-                      canLoadOlder={repo.history.status === "DONE" && repo.history.hasMore && repo.history.target < hardCap}
-                    />
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <dt className="shrink-0">Latest</dt>
+                      <dd className="flex min-w-0 items-center gap-1.5">
+                        {latestRelease ? (
+                          <>
+                            <Link
+                              href={feedHref({ repositoryId: repo.id }, latestRelease.id)}
+                              className="truncate font-mono text-foreground hover:underline"
+                              title={latestRelease.tagName}
+                            >
+                              {latestRelease.tagName}
+                            </Link>
+                            {latestRelease.source === "COMMIT" ? null : (
+                              <span className="shrink-0">
+                                <SemverBadge type={latestRelease.semverType} />
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </dd>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <dt>Unread</dt>
+                      <dd className={unread > 0 ? "font-medium text-unread tabular-nums" : "tabular-nums"}>
+                        {unread > 0 ? <Link href={feedHref({ repositoryId: repo.id, onlyUnread: true })}>{unread}</Link> : 0}
+                      </dd>
+                    </div>
+                  </dl>
+                  <dl className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                    <div className="flex items-center gap-1">
+                      <dt>Synced</dt>
+                      <dd>{repo.lastPolledAt ? <RelativeTime date={repo.lastPolledAt} /> : "never"}</dd>
+                    </div>
+                    {repo.pollStatus === "ERROR" ? (
+                      <div className="flex items-center gap-1 text-amber-700 dark:text-amber-400">
+                        <TriangleAlertIcon className="size-3.5" aria-hidden />
+                        <dt className="sr-only">Status</dt>
+                        <dd>Last sync failed</dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                  {/* Release history means nothing to a subscription tracking only files / folders. */}
+                  {entry.trackMode === "NONE" ? null : (
+                    <dl className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                      <HistoryStatus
+                        repositoryId={repo.id}
+                        history={repo.history}
+                        releaseCount={repo.releaseCount}
+                        canLoadOlder={repo.history.status === "DONE" && repo.history.hasMore && repo.history.target < hardCap}
+                      />
+                    </dl>
                   )}
-                  <TrackModeToggle
-                    subscriptionId={entry.subscriptionId}
-                    fullName={repo.fullName}
-                    trackMode={entry.trackMode}
-                    watchedPaths={entry.watchedPaths}
-                  />
-                  {entry.includePrereleases && entry.trackMode !== "PATHS" ? (
-                    <div>
-                      <dt className="sr-only">Pre-releases</dt>
-                      <dd>Includes pre-releases</dd>
-                    </div>
-                  ) : null}
-                </dl>
+                  <dl className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                    <TrackModeToggle
+                      subscriptionId={entry.subscriptionId}
+                      fullName={repo.fullName}
+                      trackMode={entry.trackMode}
+                      trackPaths={entry.trackPaths}
+                      watchedPaths={entry.watchedPaths}
+                    />
+                    {entry.includePrereleases && entry.trackMode !== "NONE" ? (
+                      <div>
+                        <dt className="sr-only">Pre-releases</dt>
+                        <dd>Includes pre-releases</dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                </div>
 
                 <div className="mt-auto flex flex-wrap items-center gap-1.5 border-t pt-3">
                   {entry.tags.map((tag) => (

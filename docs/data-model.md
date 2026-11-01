@@ -25,7 +25,7 @@
 | `Invite` | instance | `tokenHash` unique (SHA-256 of the raw token; the token itself is never stored), `expiresAt`, `usedAt`/`usedById` (unique: one invite per account), `createdById` (cascade) |
 | `Repository` | shared | `githubRepoId` unique (immutable; survives renames), `fullName` unique, `lastEtag`, `lastPolledAt`, `pollStatus` (`IDLE`/`POLLING`/`ERROR`), `errorCount`; backfill: `backfillStatus`, `backfillNextPage`, `backfillTarget` (100), `backfilledAt`, `backfillRequestedAt`; `lastTagsPolledAt`; `lastPathsPolledAt`, `polledPaths` (watched paths whose initial import is done; exactly the paths watched at the last path poll, cleared when nobody watches paths) |
 | `Release` | shared | unique `(repositoryId, githubReleaseId)` and `(repositoryId, source, tagName)`; `source` `RELEASE`/`TAG`/`COMMIT`; `githubReleaseId` null for tag and commit rows; `tagSha` for tag rows (tagged commit) and commit rows (full SHA, `tagName` = 7-char short SHA); `changedPaths` for commit rows (changed files plus the watched paths the commit was found through); `semverType`; `isDraft` (never ingested as true) |
-| `UserSubscription` | per user | unique `(userId, repositoryId)`, `includePrereleases`, `trackMode` (`RELEASES` / `TAGS_AND_COMMITS` / `PATHS`), `watchedPaths` (normalized, at most 10; kept when switching to another mode) |
+| `UserSubscription` | per user | unique `(userId, repositoryId)`, `includePrereleases`, `trackMode` (`RELEASES` / `TAGS_AND_COMMITS` / `NONE`: release tracking), `trackPaths` ("Files / folders", independent of `trackMode`; at least one of the two is on, enforced by the Server Actions), `watchedPaths` (normalized, at most 10; kept while `trackPaths` is off) |
 | `Tag` | per user | unique `(userId, slug)`, `colorHex` `#RRGGBB` |
 | `SubscriptionTag` | per user | join of subscription ↔ tag (both cascade) |
 | `UserReleaseState` | per user | PK `(userId, releaseId)`, `isRead`, `readAt`. **No row = read** |
@@ -42,15 +42,15 @@ are not built yet.
 - **Visibility** (`visibleReleasesWhere`, `apps/web/src/server/queries/feed.ts`): a user sees a release when
   `isDraft = false`, they subscribe to its repository, it is not a pre-release (unless the subscription has
   `includePrereleases`), and its source fits the subscription's mode: `RELEASE` in `RELEASES` and
-  `TAGS_AND_COMMITS`, `TAG` in `TAGS_AND_COMMITS`, `COMMIT` in `PATHS` **and only with a `UserReleaseState` row** for
+  `TAGS_AND_COMMITS`, `TAG` in `TAGS_AND_COMMITS`, `COMMIT` with `trackPaths` **and only with a `UserReleaseState` row** for
   the user (commit rows are shared; the state row records that the commit matched the user's own watched paths).
 - **Unread**: rows are created only for genuinely new releases. On add, the initial 10 releases are unread. On a poll,
   only inserts published after the newest stored release (`selectFreshReleases`). Backfill and the extra releases of a
   first poll stay read.
 - **Tag promotion**: when a GitHub Release appears for a tag already stored as `source = TAG`, the row is updated in
   place (one entry). `TAGS_AND_COMMITS` subscribers keep their read state and get no second notification.
-- **Commit states follow watched paths** (`apps/web/src/server/commit-states.ts`): adding a repository in `PATHS` mode
-  or changing the paths drops the user's states of commits that no longer match and seeds matching stored commits
+- **Commit states follow watched paths** (`apps/web/src/server/commit-states.ts`): adding a repository with `trackPaths`,
+  turning it on or changing the paths drops the user's states of commits that no longer match and seeds matching stored commits
   (newest 10 unread, older read). Matching: a changed path equals a watched path or lies inside it (`commitMatchesPath`).
 - **Read cursor**: the feed pages by keyset `(publishedAt, id)` (`encodeFeedCursor` / `afterCursorWhere`).
 

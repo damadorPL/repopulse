@@ -19,7 +19,7 @@ describe("visibleReleasesWhere", () => {
           ],
         },
         // Releases for "Releases only" and "Releases + tags", tags for "Releases + tags", and commits
-        // for "Files / folders" only when they matched this user's paths (they have a state row).
+        // with "Files / folders" on (any release mode), only when they matched this user's paths (they have a state row).
         {
           OR: [
             {
@@ -29,7 +29,7 @@ describe("visibleReleasesWhere", () => {
             { source: "TAG", repository: { subscriptions: { some: { userId: USER, trackMode: "TAGS_AND_COMMITS" } } } },
             {
               source: "COMMIT",
-              repository: { subscriptions: { some: { userId: USER, trackMode: "PATHS" } } },
+              repository: { subscriptions: { some: { userId: USER, trackPaths: true } } },
               userStates: { some: { userId: USER } },
             },
           ],

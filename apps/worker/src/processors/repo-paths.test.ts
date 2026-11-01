@@ -21,7 +21,7 @@ function commit(n: number): PathCommitSummary {
 }
 const short = (n: number) => commit(n).sha.slice(0, 7);
 
-type Sub = { userId: string; trackMode: "RELEASES" | "TAGS_AND_COMMITS" | "PATHS"; watchedPaths?: string[] };
+type Sub = { userId: string; trackMode: "RELEASES" | "TAGS_AND_COMMITS" | "NONE"; trackPaths?: boolean; watchedPaths?: string[] };
 type StoredRow = { id: string; tagName: string; tagSha: string; changedPaths: string[]; publishedAt: Date };
 
 function fakePrisma(options: {
@@ -72,6 +72,7 @@ function fakePrisma(options: {
           userId: s.userId,
           includePrereleases: false,
           trackMode: s.trackMode,
+          trackPaths: s.trackPaths ?? false,
           watchedPaths: s.watchedPaths ?? [],
           tags: [],
           user: { notificationRules: [{ id: `rule-${s.userId}`, tagId: null, channel: "DISCORD_WEBHOOK", onlyMajorReleases: false }] },
@@ -118,10 +119,12 @@ describe("pollRepoPaths", () => {
   it("imports newly watched paths quietly: one row per commit, only each user's own commits, no notification rules", async () => {
     const db = fakePrisma({
       subscribers: [
-        { userId: "db-fan", trackMode: "PATHS", watchedPaths: ["packages/db"] },
-        { userId: "docs-fan", trackMode: "PATHS", watchedPaths: ["docs/", "packages/db"] },
-        { userId: "cli-fan", trackMode: "PATHS", watchedPaths: ["packages/cli"] },
-        { userId: "releaser", trackMode: "RELEASES" },
+        { userId: "db-fan", trackMode: "NONE", trackPaths: true, watchedPaths: ["packages/db"] },
+        // Releases + tags and "Files / folders" at once.
+        { userId: "docs-fan", trackMode: "TAGS_AND_COMMITS", trackPaths: true, watchedPaths: ["docs/", "packages/db"] },
+        { userId: "cli-fan", trackMode: "NONE", trackPaths: true, watchedPaths: ["packages/cli"] },
+        // Paths kept from earlier, but "Files / folders" is off.
+        { userId: "releaser", trackMode: "RELEASES", watchedPaths: ["docs"] },
       ],
     });
     // Commit 3 touches both packages/db and docs.
@@ -156,7 +159,7 @@ describe("pollRepoPaths", () => {
   });
 
   it("marks only the 10 newest imported commits unread and the rest read", async () => {
-    const db = fakePrisma({ subscribers: [{ userId: "u", trackMode: "PATHS", watchedPaths: ["src"] }] });
+    const db = fakePrisma({ subscribers: [{ userId: "u", trackMode: "NONE", trackPaths: true, watchedPaths: ["src"] }] });
     const commits = Array.from({ length: 12 }, (_, i) => commit(12 - i));
     await pollRepoPaths({ prisma: db.prisma as never, fetchCommits: commitsByPath({ src: commits }), fetchDetail: detailStub() }, REPO, TOKENS);
     expect(db.states.filter((s) => !s.isRead)).toHaveLength(10);
@@ -167,8 +170,8 @@ describe("pollRepoPaths", () => {
     const db = fakePrisma({
       polledPaths: ["packages/db", "docs"],
       subscribers: [
-        { userId: "db-fan", trackMode: "PATHS", watchedPaths: ["packages/db"] },
-        { userId: "docs-fan", trackMode: "PATHS", watchedPaths: ["docs"] },
+        { userId: "db-fan", trackMode: "NONE", trackPaths: true, watchedPaths: ["packages/db"] },
+        { userId: "docs-fan", trackMode: "NONE", trackPaths: true, watchedPaths: ["docs"] },
         { userId: "tagger", trackMode: "TAGS_AND_COMMITS" },
       ],
       stored: [
@@ -197,7 +200,7 @@ describe("pollRepoPaths", () => {
   it("mixes both for a user who adds a path: new commits notify, the new path's history is imported quietly", async () => {
     const db = fakePrisma({
       polledPaths: ["packages/db"],
-      subscribers: [{ userId: "u", trackMode: "PATHS", watchedPaths: ["packages/db", "README.md"] }],
+      subscribers: [{ userId: "u", trackMode: "NONE", trackPaths: true, watchedPaths: ["packages/db", "README.md"] }],
       stored: [{ id: "old2", tagName: short(2), tagSha: commit(2).sha, changedPaths: [], publishedAt: commit(2).committedDate }],
       // The user was already seeded with the stored commit 2 when they added the path.
       existingStates: [{ userId: "u", releaseId: "old2" }],
@@ -222,7 +225,7 @@ describe("pollRepoPaths", () => {
   });
 
   it("stores a commit without files when its detail request fails", async () => {
-    const db = fakePrisma({ subscribers: [{ userId: "u", trackMode: "PATHS", watchedPaths: ["docs"] }] });
+    const db = fakePrisma({ subscribers: [{ userId: "u", trackMode: "NONE", trackPaths: true, watchedPaths: ["docs"] }] });
     const fetchDetail = vi.fn(async () => {
       throw new Error("502 Bad Gateway");
     });
@@ -235,7 +238,7 @@ describe("pollRepoPaths", () => {
     const limited = vi.fn(async () => {
       throw new GitHubRateLimitError(null);
     });
-    const subscribers: Sub[] = [{ userId: "u", trackMode: "PATHS", watchedPaths: ["docs"] }];
+    const subscribers: Sub[] = [{ userId: "u", trackMode: "NONE", trackPaths: true, watchedPaths: ["docs"] }];
 
     const listDb = fakePrisma({ subscribers });
     await expect(pollRepoPaths({ prisma: listDb.prisma as never, fetchCommits: limited }, REPO, TOKENS)).resolves.toBeNull();
@@ -250,7 +253,7 @@ describe("pollRepoPaths", () => {
   });
 
   it("falls back past a rejected (401) token and keeps using the one that worked", async () => {
-    const db = fakePrisma({ subscribers: [{ userId: "u", trackMode: "PATHS", watchedPaths: ["a", "b"] }] });
+    const db = fakePrisma({ subscribers: [{ userId: "u", trackMode: "NONE", trackPaths: true, watchedPaths: ["a", "b"] }] });
     const fetchCommits = vi.fn(async ({ accessToken }: { accessToken?: string | null }) => {
       if (accessToken === "t1") throw Object.assign(new Error("Bad credentials"), { status: 401 });
       return [];
@@ -264,7 +267,7 @@ describe("pollRepoPaths", () => {
   });
 
   it("does nothing without a subscriber watching paths", async () => {
-    const db = fakePrisma({ subscribers: [{ userId: "u", trackMode: "PATHS", watchedPaths: [] }, { userId: "r", trackMode: "RELEASES" }] });
+    const db = fakePrisma({ subscribers: [{ userId: "u", trackMode: "NONE", trackPaths: true, watchedPaths: [] }, { userId: "r", trackMode: "RELEASES", watchedPaths: ["docs"] }] });
     const fetchCommits = vi.fn();
     expect(await pollRepoPaths({ prisma: db.prisma as never, fetchCommits }, REPO, TOKENS)).toBeNull();
     expect(fetchCommits).not.toHaveBeenCalled();
@@ -273,9 +276,10 @@ describe("pollRepoPaths", () => {
 
 describe("tracksPaths", () => {
   const base = { userId: "u", includePrereleases: false, tagIds: [], rules: [] };
-  it("needs PATHS mode and at least one path", () => {
-    expect(tracksPaths({ ...base, trackMode: "PATHS", watchedPaths: ["a"] })).toBe(true);
-    expect(tracksPaths({ ...base, trackMode: "PATHS", watchedPaths: [] })).toBe(false);
-    expect(tracksPaths({ ...base, trackMode: "TAGS_AND_COMMITS", watchedPaths: ["a"] })).toBe(false);
+  it("needs trackPaths and at least one path, whatever the release mode", () => {
+    expect(tracksPaths({ ...base, trackMode: "NONE", trackPaths: true, watchedPaths: ["a"] })).toBe(true);
+    expect(tracksPaths({ ...base, trackMode: "RELEASES", trackPaths: true, watchedPaths: ["a"] })).toBe(true);
+    expect(tracksPaths({ ...base, trackMode: "NONE", trackPaths: true, watchedPaths: [] })).toBe(false);
+    expect(tracksPaths({ ...base, trackMode: "TAGS_AND_COMMITS", trackPaths: false, watchedPaths: ["a"] })).toBe(false);
   });
 });
