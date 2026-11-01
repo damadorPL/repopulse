@@ -8,3 +8,6 @@ allowBuilds:
   # Optional native msgpack accelerator pulled in by bullmq; its pure-JS fallback is used.
   msgpackr-extract: false
   prisma: true
+overrides:
+  # @tailwindcss/typography 0.5.20 pins 6.0.10, which is affected by GHSA-rj75-hqrm-r3gf (fixed in 6.1.5).
+  postcss-selector-parser: 6.1.5

@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.5.2] — 2026-11-01 — Security: postcss-selector-parser override
+
+**Upgrade notes**
+
+- No migrations or environment changes. Redeploy to pick up the new images.
+
+### Security
+- `postcss-selector-parser` is forced to 6.1.5 through `overrides` in `pnpm-workspace.yaml`, fixing
+  [GHSA-rj75-hqrm-r3gf](https://github.com/advisories/GHSA-rj75-hqrm-r3gf) (quadratic selector parsing, CPU
+  exhaustion). `@tailwindcss/typography` 0.5.20, its latest release, pins the affected 6.0.10. The parser only runs
+  when the web CSS is built. Remove the override once a typography release depends on a fixed version.
+
 ## [0.5.1] — 2026-11-01 — Dependency updates
 
 **Upgrade notes**
