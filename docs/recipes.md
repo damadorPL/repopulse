@@ -89,4 +89,6 @@ For a removal, add the key to `OBSOLETE` in `sync-env.mjs`.
 
 1. Rename `## [Unreleased]` to `## [X.Y.Z] — YYYY-MM-DD — <summary>`, add **Upgrade notes** for migrations and env
    changes, and put a fresh empty `## [Unreleased]` above it.
-2. Optionally tag it: `git tag vX.Y.Z` (only when the user asks).
+2. Set `version` in `apps/web/package.json` to `X.Y.Z`. `next.config.ts` inlines it as `process.env.APP_VERSION`,
+   shown at the bottom of the sidebar.
+3. Optionally tag it: `git tag vX.Y.Z` (only when the user asks).

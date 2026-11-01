@@ -19,7 +19,7 @@
 | `server/queries/*.ts` | Read queries and view types for pages | `server/*`, `lib/*`, packages |
 | `server/*.ts` | Server-only helpers, **not** `"use server"`, so they are not callable from the browser and can be unit-tested | packages |
 | `lib/*.ts` | Code shared by client and server (constants, zod schemas, pure helpers). `lib/auth.ts` is server-only (Auth.js) | no `@repopulse/db`, no `server/*` |
-| `components/<area>/` | Client and server components by feature: `access`, `email`, `feed`, `layout`, `modals`, `notifications`, `reader`, `realtime`, `repositories` | `lib/*`, `server/actions/*`, **type-only** imports from `server/*` |
+| `components/<area>/` | Client and server components by feature: `access`, `email`, `feed`, `layout`, `modals`, `notifications`, `reader`, `realtime`, `repositories`, `theme` | `lib/*`, `server/actions/*`, **type-only** imports from `server/*` |
 | `components/ui/` | shadcn/ui primitives (badge, button, checkbox, dialog, input, label, popover, select, sheet, skeleton, sonner, switch, all on `radix-ui`) | |
 
 Path alias: `@/*` → `apps/web/src/*` (tsconfig and `vitest.config.ts`).
@@ -48,7 +48,7 @@ File → exported actions:
 
 | File | Actions |
 | --- | --- |
-| `repositories.ts` | `addRepositoryAction`, `updateTrackModeAction`, `removeSubscriptionAction` |
+| `repositories.ts` | `addRepositoryAction`, `updateTrackModeAction`, `removeSubscriptionAction`, `listRepositoryPathsAction` (read only: the default branch's files and folders for the path picker) |
 | `sync.ts` | `triggerManualRepoSyncAction` (→ `QUEUED` / `COOLDOWN`) |
 | `backfill.ts` | `requestDeepBackfillAction` ("Load older releases") |
 | `feed.ts` | `loadMoreReleasesAction` |
@@ -134,6 +134,17 @@ React `cache`), `UnauthorizedError` and `ForbiddenError`. The JWT session carrie
 - No `confirm()` dialogs: destructive actions use an inline second step (see "Turn off email").
 - Light and dark themes come from CSS variables in `app/globals.css`. Use tokens (`text-muted-foreground`,
   `bg-card`), not raw colors, except for status tints such as `bg-emerald-500/10`.
+- The theme preference (System / Light / Dark, `lib/theme.ts`) lives in the `theme` cookie. The root layout renders
+  `<html data-theme="light|dark">` from it (no attribute for System). The custom `dark` variant in `globals.css`
+  matches `data-theme="dark"`, or `prefers-color-scheme: dark` when no attribute is set, so `dark:` utilities and
+  `@variant dark` follow the switcher. `ThemeProvider` / `useTheme()` (`components/theme/`) expose the preference
+  on the client, and `ThemeSwitcher` in the account menu changes it without a server round trip.
+- Watched paths ("Files / folders") are edited with `WatchedPathsPicker` (`components/repositories/`), used by the add
+  dialog and the repository card popover. It loads the tree through `listRepositoryPathsAction` (cached per repository
+  for 5 minutes in the browser) and ranks suggestions with `lib/repo-paths.ts`. Typing any valid path must keep working
+  when the tree is missing, truncated or failed to load. Forms submit `[...paths, draft]` so text not yet added as a
+  chip is not lost. A parent Dialog/Popover passes `onEscapeKeyDown` with `isExpandedCombobox` so Escape closes the
+  suggestion list first.
 - Release notes are rendered with `ChangelogMarkdown` (server, sanitized). Never use `dangerouslySetInnerHTML` with
   release content.
 - Instance-admin navigation lives in `components/layout/app-sidebar.tsx` (the **Instance** group) and the account menu

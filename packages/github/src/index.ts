@@ -66,3 +66,4 @@ export {
   type ParsedWatchedPaths,
   type PathCommitSummary,
 } from "./paths.js";
+export { fetchRepoTree, mapRepoTree, REPO_TREE_MAX_ENTRIES, type RepoTree } from "./tree.js";

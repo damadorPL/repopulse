@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { cookies } from "next/headers";
+import { ThemeProvider } from "@/components/theme/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { parseThemePreference, THEME_COOKIE, themeAttribute } from "@/lib/theme";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -8,12 +11,16 @@ export const metadata: Metadata = {
   description: "Self-hosted GitHub release and dependency monitoring.",
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const theme = parseThemePreference((await cookies()).get(THEME_COOKIE)?.value);
+
   return (
-    <html lang="en">
+    <html lang="en" data-theme={themeAttribute(theme)}>
       <body>
-        {children}
-        <Toaster position="bottom-right" closeButton />
+        <ThemeProvider initialTheme={theme}>
+          {children}
+          <Toaster position="bottom-right" closeButton />
+        </ThemeProvider>
       </body>
     </html>
   );

@@ -3,10 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma, type BackfillStatus, type TrackMode } from "@repopulse/db";
-import { INITIAL_RELEASES_LIMIT, parseRepoInput, validateAndFetchRepo } from "@repopulse/github";
+import { fetchRepoTree, INITIAL_RELEASES_LIMIT, parseRepoInput, validateAndFetchRepo, type RepoTree } from "@repopulse/github";
 import { RELEASE_BACKFILL_PRIORITY } from "@repopulse/queue";
 import { getCurrentUserOrThrow } from "@/lib/auth";
-import { fail, getGitHubToken, invalidInput, toActionError, type ActionResult } from "@/server/action-result";
+import { fail, getGitHubToken, invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
 import { enqueueReleaseBackfill } from "@/server/backfill-queue";
 import { needsPathImport, syncCommitStates } from "@/server/commit-states";
 import { isRealtimeConfigured } from "@/server/realtime";
@@ -334,5 +334,33 @@ export async function removeSubscriptionAction(input: {
     return { ok: true, data: { subscriptionId: subscription.id } };
   } catch (error) {
     return toActionError(error, "removeSubscriptionAction");
+  }
+}
+
+const listRepositoryPathsInput = z.object({
+  repoUrlOrSlug: z.string().trim().min(1, "Enter a repository").max(500),
+});
+
+/**
+ * Files and folders on the default branch of a repository, for the "Files / folders" path picker
+ * (autocomplete and browser). Uses the user's GitHub token, so private repositories they can read
+ * work too. Read only, nothing is stored. Very large trees are capped (`REPO_TREE_MAX_ENTRIES`,
+ * folders first) and flagged `truncated`; any path can still be typed by hand.
+ */
+export async function listRepositoryPathsAction(input: { repoUrlOrSlug: string }): Promise<ActionResult<RepoTree>> {
+  try {
+    const user = await getCurrentUserOrThrow();
+    const parsed = listRepositoryPathsInput.safeParse(input);
+    if (!parsed.success) return invalidInput(parsed.error);
+    const { owner, name } = parseRepoInput(parsed.data.repoUrlOrSlug);
+    const tree = await fetchRepoTree({
+      owner,
+      name,
+      accessToken: getGitHubToken(user, "listRepositoryPathsAction"),
+      signal: AbortSignal.timeout(15_000),
+    });
+    return ok(tree);
+  } catch (error) {
+    return toActionError(error, "listRepositoryPathsAction");
   }
 }

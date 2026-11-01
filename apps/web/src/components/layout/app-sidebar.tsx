@@ -160,6 +160,9 @@ export function AppSidebar({
             </NavLink>
           </>
         ) : null}
+        <p className="mt-3 px-2 text-[11px] text-muted-foreground tabular-nums" title="RepoPulse version">
+          RepoPulse v{process.env.APP_VERSION}
+        </p>
       </div>
     </nav>
   );

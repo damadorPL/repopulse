@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { LoaderCircleIcon } from "lucide-react";
 import { toast } from "sonner";
 import { TagDot } from "@/components/feed/tag-pill";
+import { isExpandedCombobox, WatchedPathsPicker } from "@/components/repositories/watched-paths-picker";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -21,7 +22,7 @@ import { Label } from "@/components/ui/label";
 import { feedHref } from "@/lib/feed-filters";
 import { TRACK_MODE_OPTIONS, type TrackModeValue } from "@/lib/track-modes";
 import { cn } from "@/lib/utils";
-import { MAX_WATCHED_PATHS, validateWatchedPaths, WATCHED_PATHS_PLACEHOLDER } from "@/lib/watched-paths";
+import { validateWatchedPaths } from "@/lib/watched-paths";
 import { addRepositoryAction } from "@/server/actions/repositories";
 import type { TagPill } from "@/server/queries/feed";
 
@@ -32,7 +33,8 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
   const [repo, setRepo] = useState("");
   const [includePrereleases, setIncludePrereleases] = useState(false);
   const [trackMode, setTrackMode] = useState<TrackModeValue>("RELEASES");
-  const [pathsText, setPathsText] = useState("");
+  const [paths, setPaths] = useState<string[]>([]);
+  const [pathsDraft, setPathsDraft] = useState("");
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pathsError, setPathsError] = useState<string | null>(null);
@@ -43,7 +45,8 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
     setRepo("");
     setIncludePrereleases(false);
     setTrackMode("RELEASES");
-    setPathsText("");
+    setPaths([]);
+    setPathsDraft("");
     setTagIds([]);
     setError(null);
     setPathsError(null);
@@ -59,7 +62,8 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
     setPathsError(null);
     let watchedPaths: string[] = [];
     if (tracksPaths) {
-      const validation = validateWatchedPaths(pathsText);
+      // Include text typed but not yet added as a chip.
+      const validation = validateWatchedPaths([...paths, pathsDraft]);
       if (!validation.ok) {
         setPathsError(validation.message);
         return;
@@ -108,7 +112,7 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
       }}
     >
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent>
+      <DialogContent onEscapeKeyDown={(event) => isExpandedCombobox(event.target) && event.preventDefault()}>
         <form onSubmit={submit} className="grid gap-5">
           <DialogHeader>
             <DialogTitle>Track a repository</DialogTitle>
@@ -173,25 +177,27 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
           {tracksPaths ? (
             <div className="grid gap-2">
               <Label htmlFor="add-repo-paths">Files or folders</Label>
-              <Input
+              <WatchedPathsPicker
                 id="add-repo-paths"
-                value={pathsText}
-                onChange={(e) => setPathsText(e.target.value)}
-                placeholder={WATCHED_PATHS_PLACEHOLDER}
-                autoComplete="off"
-                spellCheck={false}
-                aria-invalid={pathsError ? true : undefined}
-                aria-describedby={pathsError ? "add-repo-paths-help add-repo-paths-error" : "add-repo-paths-help"}
+                repo={repo.trim() || null}
+                debounceMs={600}
+                paths={paths}
+                onPathsChange={(next) => {
+                  setPaths(next);
+                  setPathsError(null);
+                }}
+                draft={pathsDraft}
+                onDraftChange={(next) => {
+                  setPathsDraft(next);
+                  setPathsError(null);
+                }}
+                error={pathsError}
+                describedBy="add-repo-paths-help"
               />
               <p id="add-repo-paths-help" className="text-xs text-muted-foreground">
-                Paths relative to the repository root, separated by commas (up to {MAX_WATCHED_PATHS}). A folder matches every file
-                inside it. Each commit on the default branch that changes one of them shows up with its changed files.
+                Type to search the default branch, or browse its folders. A folder matches every file inside it. Each commit
+                that changes a watched path shows up with its changed files.
               </p>
-              {pathsError ? (
-                <p id="add-repo-paths-error" role="alert" className="text-sm text-destructive">
-                  {pathsError}
-                </p>
-              ) : null}
             </div>
           ) : (
             <Label className="font-normal">
@@ -227,7 +233,7 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
           ) : null}
 
           <DialogFooter>
-            <Button type="submit" disabled={pending || !repo.trim() || (tracksPaths && !pathsText.trim())}>
+            <Button type="submit" disabled={pending || !repo.trim() || (tracksPaths && paths.length === 0 && !pathsDraft.trim())}>
               {pending ? <LoaderCircleIcon className="animate-spin" /> : null}
               {pending ? (tracksPaths ? "Adding…" : "Fetching releases…") : "Add repository"}
             </Button>

@@ -41,6 +41,7 @@ Scripts: `db:generate`, `db:migrate:deploy`, `db:migrate:dev`. See [data-model.m
 | `mapRelease` | GitHub release → `MappedRelease` (the `Release` columns). Drafts are excluded upstream |
 | `fetchRecentTags` (GraphQL, needs a token), `compareCommits`, `buildTagChangelog`, `mapTag`, `mapGraphqlTag`, `TAGS_PAGE_SIZE` (20), `TAG_CHANGELOG_MAX_COMMITS` (50) | Tag tracking |
 | `fetchCommitsForPath` (REST, `PATH_COMMITS_PAGE_SIZE` 10; 409 empty repo = `[]`), `fetchCommitDetail`, `buildCommitChangelog`, `mapPathCommit`, `COMMIT_CHANGELOG_MAX_FILES` (50) | "Files / folders" tracking |
+| `fetchRepoTree` (repo + recursive Git tree of the default branch, 2 requests; empty repo = empty tree), `mapRepoTree`, `REPO_TREE_MAX_ENTRIES` (10,000, shallowest first; `truncated` flags the rest) | The web path picker's autocomplete and folder browser |
 | `normalizeWatchedPath`, `parseWatchedPaths`, `commitMatchesPath`, `commitMatchesAnyPath`, `MAX_WATCHED_PATHS` (10), `MAX_WATCHED_PATH_LENGTH` (240) | Watched paths. Pure and browser-safe: client code imports them from `@repopulse/github/watched-paths` |
 | `GitHubRepositoryNotFoundError` (404), `GitHubRateLimitError` (`resetAt`; 403 with quota 0, or 429) | Typed errors, mapped to `NOT_FOUND` / `RATE_LIMITED` by `toActionError` |
 

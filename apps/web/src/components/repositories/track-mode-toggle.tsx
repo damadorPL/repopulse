@@ -1,22 +1,16 @@
 "use client";
 
 import { useId, useOptimistic, useState, useTransition, type FormEvent } from "react";
-import { FolderIcon } from "lucide-react";
+import { FolderIcon, PencilIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { isTrackMode, TRACK_MODE_OPTIONS, type TrackModeValue } from "@/lib/track-modes";
-import {
-  formatWatchedPaths,
-  MAX_WATCHED_PATHS,
-  summarizeWatchedPaths,
-  validateWatchedPaths,
-  WATCHED_PATHS_PLACEHOLDER,
-} from "@/lib/watched-paths";
+import { summarizeWatchedPaths, validateWatchedPaths } from "@/lib/watched-paths";
 import { updateTrackModeAction } from "@/server/actions/repositories";
+import { isExpandedCombobox, WatchedPathsPicker } from "./watched-paths-picker";
 
 /**
  * Tracking mode of a repository card: "Releases", "Releases + tags" or "Files / folders", plus a
@@ -37,7 +31,8 @@ export function TrackModeToggle({
   const [pending, startTransition] = useTransition();
   const [optimisticMode, setOptimisticMode] = useOptimistic(trackMode);
   const [editorOpen, setEditorOpen] = useState(false);
-  const [pathsText, setPathsText] = useState("");
+  const [paths, setPaths] = useState<string[]>([]);
+  const [pathsDraft, setPathsDraft] = useState("");
   const [pathsError, setPathsError] = useState<string | null>(null);
   const inputId = useId();
 
@@ -65,7 +60,8 @@ export function TrackModeToggle({
   }
 
   function openEditor() {
-    setPathsText(formatWatchedPaths(watchedPaths));
+    setPaths(watchedPaths);
+    setPathsDraft("");
     setPathsError(null);
     setEditorOpen(true);
   }
@@ -84,7 +80,8 @@ export function TrackModeToggle({
 
   function submitPaths(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const validation = validateWatchedPaths(pathsText);
+    // Include text typed but not yet added as a chip.
+    const validation = validateWatchedPaths([...paths, pathsDraft]);
     if (!validation.ok) {
       setPathsError(validation.message);
       return;
@@ -130,38 +127,39 @@ export function TrackModeToggle({
               >
                 <FolderIcon className="size-3.5 shrink-0" aria-hidden />
                 <span className="truncate font-mono">{watchedPaths.length > 0 ? summarizeWatchedPaths(watchedPaths) : "Choose paths"}</span>
+                <PencilIcon className="size-3 shrink-0 opacity-60" aria-hidden />
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="w-80 p-3">
+            <PopoverContent
+              align="start"
+              className="w-[28rem] max-w-[calc(100vw-2rem)] p-3"
+              onEscapeKeyDown={(event) => isExpandedCombobox(event.target) && event.preventDefault()}
+            >
               <form onSubmit={submitPaths} className="grid gap-2">
                 <Label htmlFor={inputId} className="text-xs font-medium">
                   Watched files and folders
                 </Label>
-                <Input
+                <WatchedPathsPicker
                   id={inputId}
-                  value={pathsText}
-                  onChange={(e) => setPathsText(e.target.value)}
-                  placeholder={WATCHED_PATHS_PLACEHOLDER}
-                  autoComplete="off"
-                  spellCheck={false}
+                  repo={fullName}
+                  paths={paths}
+                  onPathsChange={(next) => {
+                    setPaths(next);
+                    setPathsError(null);
+                  }}
+                  draft={pathsDraft}
+                  onDraftChange={(next) => {
+                    setPathsDraft(next);
+                    setPathsError(null);
+                  }}
+                  error={pathsError}
                   autoFocus
-                  className="h-8 font-mono text-xs"
-                  aria-invalid={pathsError ? true : undefined}
-                  aria-describedby={`${inputId}-help`}
                 />
-                <p id={`${inputId}-help`} className="text-xs text-muted-foreground">
-                  Relative to the repository root, separated by commas (up to {MAX_WATCHED_PATHS}). A folder matches every file inside it.
-                </p>
-                {pathsError ? (
-                  <p role="alert" className="text-xs text-destructive">
-                    {pathsError}
-                  </p>
-                ) : null}
                 <div className="mt-1 flex justify-end gap-2">
                   <Button type="button" variant="ghost" size="sm" onClick={() => setEditorOpen(false)} disabled={pending}>
                     Cancel
                   </Button>
-                  <Button type="submit" size="sm" disabled={pending || !pathsText.trim()}>
+                  <Button type="submit" size="sm" disabled={pending || (paths.length === 0 && !pathsDraft.trim())}>
                     {pending ? "Saving…" : "Save"}
                   </Button>
                 </div>

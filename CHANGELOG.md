@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-11-01 — Theme switcher
+
+**Upgrade notes**
+
+- No migrations or environment changes. Redeploy to pick up the new images.
+
+### Added
+- **Theme switcher** in the account menu (avatar, top right): System / Light / Dark. "System" follows the OS setting
+  as before. The choice is stored per browser in a `theme` cookie and applied while the page is server-rendered, so
+  there is no flash of the wrong theme. Toasts follow the selected theme too.
+- **File and folder picker** for "Files / folders" tracking, in the add dialog and in the watched paths popover of
+  repository cards (click the paths next to the tracking mode to edit them on a tracked repository):
+  - Autocomplete from the repository's default branch: type part of a path or file name, pick with ↑/↓ and Enter,
+    Tab opens a folder to keep typing inside it. Matches are highlighted.
+  - **Browse** opens a folder browser with breadcrumbs and checkboxes to tick files and folders.
+  - Selected paths show as removable chips with a counter (up to 10). Adding a folder drops selected paths inside it,
+    since the folder already covers them. Paths not on the default branch yet are flagged but still accepted.
+  - Any valid path can still be typed or pasted (comma-separated), so very large repositories (only the 10,000
+    shallowest entries are listed), private repositories without access or GitHub errors never block the form.
+  - The tree costs two GitHub API requests per repository and is cached in the browser for 5 minutes.
+- The app version (e.g. "RepoPulse v0.6.1") is shown at the bottom left of the sidebar. It comes from `version` in
+  `apps/web/package.json`, inlined at build time.
+
 ## [0.6.0] — 2026-11-01 — Slice 06: file & folder change tracking
 
 **Upgrade notes**

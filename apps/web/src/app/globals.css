@@ -2,8 +2,20 @@
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
 
-/* Dark mode follows the OS setting (no theme toggle yet). */
-@custom-variant dark (@media (prefers-color-scheme: dark));
+/*
+ * Dark mode: `<html data-theme="dark">` forces it, `data-theme="light"` forces light, and no
+ * attribute (the "System" choice) follows the OS setting. See `lib/theme.ts`.
+ */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme]), :root:not([data-theme]) *) {
+      @slot;
+    }
+  }
+}
 
 :root {
   --radius: 0.625rem;
@@ -33,8 +45,8 @@
   --sidebar-border: oklch(0.92 0.004 286.32);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
+:root {
+  @variant dark {
     color-scheme: dark;
     --background: oklch(0.141 0.005 285.823);
     --foreground: oklch(0.985 0 0);

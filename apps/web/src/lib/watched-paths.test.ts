@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { commitMatchesAnyPath, formatWatchedPaths, summarizeWatchedPaths, validateWatchedPaths } from "./watched-paths";
+import { commitMatchesAnyPath, summarizeWatchedPaths, validateWatchedPaths } from "./watched-paths";
 
 describe("validateWatchedPaths", () => {
   it("returns normalized, deduplicated paths", () => {
@@ -24,8 +24,7 @@ describe("validateWatchedPaths", () => {
 });
 
 describe("formatting", () => {
-  it("formats for editing and summarizes for cards", () => {
-    expect(formatWatchedPaths(["a", "b/c"])).toBe("a, b/c");
+  it("summarizes for cards", () => {
     expect(summarizeWatchedPaths(["a"])).toBe("a");
     expect(summarizeWatchedPaths(["a", "b"])).toBe("a, b");
     expect(summarizeWatchedPaths(["a", "b", "c"])).toBe("a +2 more");

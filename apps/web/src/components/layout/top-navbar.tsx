@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { BellIcon, BellRingIcon, LogOutIcon, MailIcon, MenuIcon, PlusIcon, SearchIcon, UsersIcon, XIcon } from "lucide-react";
 import { RepoAvatar } from "@/components/feed/repo-avatar";
 import { AddRepoModal } from "@/components/modals/add-repo-modal";
+import { ThemeSwitcher } from "@/components/theme/theme-switcher";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -109,6 +110,7 @@ export function TopNavbar({
                 </PopoverClose>
               </>
             ) : null}
+            <ThemeSwitcher className="-mx-2 my-1 border-y px-4 py-2" />
             <form action={signOutAction}>
               <Button type="submit" variant="ghost" size="sm" className="w-full justify-start">
                 <LogOutIcon />

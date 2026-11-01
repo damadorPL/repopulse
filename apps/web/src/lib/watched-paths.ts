@@ -1,4 +1,4 @@
-import { commitMatchesAnyPath, MAX_WATCHED_PATHS, parseWatchedPaths } from "@repopulse/github/watched-paths";
+import { commitMatchesAnyPath, MAX_WATCHED_PATHS, normalizeWatchedPath, parseWatchedPaths } from "@repopulse/github/watched-paths";
 
 /**
  * Watched path helpers ("Files / folders" tracking) shared by Server Actions and client forms.
@@ -6,7 +6,7 @@ import { commitMatchesAnyPath, MAX_WATCHED_PATHS, parseWatchedPaths } from "@rep
  * the action and the worker agree on what a valid path is.
  */
 
-export { commitMatchesAnyPath, MAX_WATCHED_PATHS };
+export { commitMatchesAnyPath, MAX_WATCHED_PATHS, normalizeWatchedPath };
 
 export const WATCHED_PATHS_PLACEHOLDER = "CHANGELOG.md, packages/cli";
 
@@ -25,11 +25,6 @@ export function validateWatchedPaths(input: string | readonly string[]): Watched
   if (tooMany) return { ok: false, message: `Watch at most ${MAX_WATCHED_PATHS} paths.` };
   if (paths.length === 0) return { ok: false, message: "Enter at least one file or folder path." };
   return { ok: true, paths };
-}
-
-/** The editable text form of watched paths: `CHANGELOG.md, packages/cli`. */
-export function formatWatchedPaths(paths: readonly string[]): string {
-  return paths.join(", ");
 }
 
 /** Short label for a repository card: `CHANGELOG.md`, `CHANGELOG.md, docs`, `CHANGELOG.md +2 more`. */
