@@ -75,7 +75,10 @@ function SelectItem({ className, children, ...props }: ComponentProps<typeof Sel
           <CheckIcon className="size-4" />
         </SelectPrimitive.ItemIndicator>
       </span>
-      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+      {/* Inline-flex row so icons/dots sit beside the label, here and in the trigger (SelectValue renders this text). */}
+      <SelectPrimitive.ItemText>
+        <span className="inline-flex min-w-0 items-center gap-2">{children}</span>
+      </SelectPrimitive.ItemText>
     </SelectPrimitive.Item>
   );
 }

@@ -95,7 +95,7 @@ export function AddNotificationRuleForm({
                   <ChannelGlyph channel={value} className="text-muted-foreground" />
                   {CHANNEL_INFO[value].label}
                   {value === "EMAIL_INSTANT" && !smtpConfigured ? (
-                    <span className="text-xs text-muted-foreground">(SMTP not configured)</span>
+                    <span className="text-xs text-muted-foreground">· SMTP not configured</span>
                   ) : null}
                 </SelectItem>
               ))}
