@@ -1,7 +1,7 @@
 import type { z } from "zod";
 import { decryptToken, type User as DbUser } from "@repopulse/db";
 import { GitHubRateLimitError, GitHubRepositoryNotFoundError, InvalidRepositoryInputError } from "@repopulse/github";
-import { UnauthorizedError } from "@/lib/auth";
+import { ForbiddenError, UnauthorizedError } from "@/lib/auth";
 
 /**
  * Shared result plumbing for Server Actions. Thrown errors are redacted in production,
@@ -10,7 +10,7 @@ import { UnauthorizedError } from "@/lib/auth";
 
 export type ActionErrorCode =
   | "UNAUTHORIZED"
-  /** Signed in, but not allowed (admin-only actions). */
+  /** Signed in, but not allowed (super-admin-only actions). */
   | "FORBIDDEN"
   | "INVALID_INPUT"
   | "NOT_FOUND"
@@ -45,6 +45,7 @@ export function isUniqueConstraintError(error: unknown): boolean {
 /** Maps known errors to results; logs and hides everything else. */
 export function toActionError(error: unknown, action: string): ActionResult<never> {
   if (error instanceof UnauthorizedError) return fail("UNAUTHORIZED", error.message);
+  if (error instanceof ForbiddenError) return fail("FORBIDDEN", error.message);
   if (error instanceof InvalidRepositoryInputError) return fail("INVALID_INPUT", error.message);
   if (error instanceof GitHubRepositoryNotFoundError) return fail("NOT_FOUND", error.message);
   if (error instanceof GitHubRateLimitError) return fail("RATE_LIMITED", error.message);

@@ -14,7 +14,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
       tags={data.tags}
       totalUnread={data.totalUnread}
       repositoryCount={data.subscriptions.length}
-      isAdmin={user.isAdmin}
+      isSuperAdmin={user.isSuperAdmin}
     />
   );
 
@@ -24,7 +24,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 border-r border-sidebar-border bg-sidebar md:block">{sidebar}</aside>
       <div className="flex min-w-0 flex-1 flex-col">
         <TopNavbar
-          user={{ name: user.name, email: user.email, avatarUrl: user.avatarUrl, isAdmin: user.isAdmin }}
+          user={{ name: user.name, email: user.email, avatarUrl: user.avatarUrl, isSuperAdmin: user.isSuperAdmin }}
           tags={data.tags}
           totalUnread={data.totalUnread}
           unreadByRepository={data.unreadByRepository}

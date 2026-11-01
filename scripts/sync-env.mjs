@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Adds settings introduced by later slices to existing env files, without touching values
-// that are already there. Safe to run repeatedly.
+// that are already there, and reports settings that are no longer read. Safe to run repeatedly.
 //   pnpm env:sync                      # updates .env.example and .env (if present)
 //   pnpm env:sync --check              # only reports what is missing; exit code 1 if anything is
 //   pnpm env:sync path/to/file.env     # specific files instead of the defaults
@@ -16,6 +16,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  * (`# KEY=`), so a deliberately disabled setting is never re-added.
  */
 const ADDITIONS = [
+  {
+    key: "SERVICE_URL_WEB",
+    after: "AUTH_GITHUB_SECRET",
+    lines: [
+      "# Coolify injects SERVICE_URL_WEB (with the scheme) automatically; set it manually for local compose.",
+      "SERVICE_URL_WEB=http://localhost:3000",
+    ],
+  },
   {
     key: "REPO_POLL_CONCURRENCY",
     after: "POLL_INTERVAL_CRON",
@@ -42,17 +50,8 @@ const ADDITIONS = [
   { key: "RELEASE_BACKFILL_MIN_QUOTA", after: "RELEASE_BACKFILL_HARD_CAP", lines: ["# RELEASE_BACKFILL_MIN_QUOTA=500"] },
   // Slice 05: notifications.
   {
-    key: "SMTP_SECURE",
-    after: "SMTP_PASS",
-    lines: [
-      "# Optional: implicit TLS (default: on for port 465 only, STARTTLS otherwise) and the sender (default: SMTP_USER).",
-      "# SMTP_SECURE=false",
-    ],
-  },
-  { key: "SMTP_FROM", after: "SMTP_SECURE", lines: ["# SMTP_FROM=RepoPulse <releases@example.com>"] },
-  {
     key: "ALLOW_INTERNAL_WEBHOOK_HOSTS",
-    after: "SMTP_FROM",
+    after: "RELEASE_BACKFILL_MIN_QUOTA",
     lines: [
       "",
       "# ─── Notifications (web + worker) ─────────────────────────────────────────",
@@ -67,6 +66,15 @@ const ADDITIONS = [
     after: "ALLOW_INTERNAL_WEBHOOK_HOSTS",
     lines: ["# Public URL for links in notifications (default: AUTH_URL / NEXTAUTH_URL).", "# APP_BASE_URL=https://repopulse.example.com"],
   },
+];
+
+/** Settings that are no longer read. Reported, never deleted: the file is yours. */
+const OBSOLETE = [
+  {
+    keys: ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "SMTP_SECURE", "SMTP_FROM"],
+    note: "SMTP is set up by the super admin in Settings → Email now",
+  },
+  { keys: ["SERVICE_FQDN_WEB"], note: "replaced by SERVICE_URL_WEB, which includes the scheme" },
 ];
 
 const args = process.argv.slice(2);
@@ -96,7 +104,11 @@ function sync(text) {
     }
     added.push(key);
   }
-  return { text: lines.join(eol), added };
+  const obsolete = OBSOLETE.flatMap(({ keys, note }) => {
+    const found = keys.filter((key) => lines.some((line) => new RegExp(`^\\s*${key}=\\S`).test(line)));
+    return found.length ? [`${found.join(", ")} (${note})`] : [];
+  });
+  return { text: lines.join(eol), added, obsolete };
 }
 
 let missingAnything = false;
@@ -113,7 +125,8 @@ for (const file of files) {
     continue;
   }
 
-  const { text, added } = sync(readFileSync(file, "utf8"));
+  const { text, added, obsolete } = sync(readFileSync(file, "utf8"));
+  for (const line of obsolete) console.log(`! ${label}: no longer used: ${line}. You can delete these lines.`);
   if (added.length === 0) {
     console.log(`✔ ${label}: up to date`);
     continue;

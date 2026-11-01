@@ -1,18 +1,16 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
 import { TicketIcon } from "lucide-react";
 import { CreateInviteForm } from "@/components/access/create-invite-form";
 import { InviteItem } from "@/components/access/invite-item";
 import { RegistrationToggle } from "@/components/access/registration-toggle";
 import { getInvites, getMemberCount } from "@/server/queries/access";
 import { isPublicRegistrationOpen } from "@/server/registration";
-import { requireUser } from "@/server/session";
+import { requireSuperAdmin } from "@/server/session";
 
 export const metadata: Metadata = { title: "Access · RepoPulse" };
 
 export default async function AccessSettingsPage() {
-  const user = await requireUser();
-  if (!user.isAdmin) notFound();
+  await requireSuperAdmin();
 
   const [publicRegistration, invites, memberCount] = await Promise.all([
     isPublicRegistrationOpen(),

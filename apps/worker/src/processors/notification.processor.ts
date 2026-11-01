@@ -1,6 +1,6 @@
 import { UnrecoverableError, type Job } from "bullmq";
-import type { PrismaClient } from "@repopulse/db";
-import { dispatchNotification, isDeliverableChannel, NotificationDeliveryError } from "@repopulse/notifications";
+import { loadSmtpSettings, SmtpPasswordUnreadableError, type PrismaClient } from "@repopulse/db";
+import { dispatchNotification, isDeliverableChannel, NotificationDeliveryError, toSmtpConfig } from "@repopulse/notifications";
 import type { NotificationJobData } from "@repopulse/queue";
 import { createLogger } from "../logger";
 
@@ -35,6 +35,9 @@ export interface NotificationDeps {
  * Retries (`NOTIFICATION_JOB_OPTIONS`: 3 attempts, exponential from 5 s) are for transient
  * failures only. A permanent one (4xx, blocked URL, SMTP missing) throws `UnrecoverableError`,
  * which fails the job at once.
+ *
+ * Email rules read the SMTP settings (Settings → Email) on every job, so changes saved in the UI
+ * apply without restarting the worker.
  */
 export async function processNotification(job: Job<NotificationJobData>, deps: NotificationDeps): Promise<NotificationOutcome> {
   const { ruleId, releaseId, userId } = job.data;
@@ -92,9 +95,10 @@ export async function processNotification(job: Job<NotificationJobData>, deps: N
   const dispatch = deps.dispatch ?? dispatchNotification;
   const label = `${release.repository.fullName} ${release.tagName} via ${rule.channel} (rule ${ruleId})`;
   try {
+    const smtp = rule.channel === "EMAIL_INSTANT" ? toSmtpConfig(await loadSmtp(deps.prisma)) : null;
     const result = await dispatch(
       { rule, release, repository: release.repository, user },
-      deps.signal ? { signal: deps.signal } : {},
+      { smtp, ...(deps.signal ? { signal: deps.signal } : {}) },
     );
     log.info(`${label}: delivered to ${result.destination}${result.status ? ` (HTTP ${result.status})` : ""}`);
     return { status: "SENT", channel: result.channel, destination: result.destination };
@@ -105,6 +109,18 @@ export async function processNotification(job: Job<NotificationJobData>, deps: N
     }
     const attempts = job.opts.attempts ?? 1;
     log.warn(`${label}: attempt ${job.attemptsMade + 1}/${attempts} failed: ${error instanceof Error ? error.message : String(error)}`);
+    throw error;
+  }
+}
+
+/** A stored password that can't be decrypted won't fix itself on retry. */
+async function loadSmtp(prisma: PrismaClient) {
+  try {
+    return await loadSmtpSettings(prisma);
+  } catch (error) {
+    if (error instanceof SmtpPasswordUnreadableError) {
+      throw new NotificationDeliveryError(error.message, { permanent: true, cause: error });
+    }
     throw error;
   }
 }

@@ -14,6 +14,14 @@ export class UnauthorizedError extends Error {
   }
 }
 
+/** Signed in, but not allowed: instance settings are for the super admin only. */
+export class ForbiddenError extends Error {
+  constructor(message = "Only the super admin can change instance settings.") {
+    super(message);
+    this.name = "ForbiddenError";
+  }
+}
+
 /** Maps a GitHub sign-in to `User` columns; null when the provider didn't return what we need. */
 function githubUserFields(
   user: AuthUser | undefined,

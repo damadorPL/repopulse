@@ -26,24 +26,38 @@ export interface SmtpConfig {
   from: string;
 }
 
-/** `SMTP_HOST` enables email; `SMTP_PORT` (587), `SMTP_USER`/`SMTP_PASS`, `SMTP_SECURE`, `SMTP_FROM` are optional. */
-export function readSmtpConfig(env: Record<string, string | undefined> = process.env): SmtpConfig | null {
-  const host = env.SMTP_HOST?.trim();
-  if (!host) return null;
-  const port = Number(env.SMTP_PORT?.trim() || 587);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new NotificationDeliveryError(`SMTP_PORT "${env.SMTP_PORT}" is not a valid port.`, { permanent: true });
-  }
-  const secureRaw = env.SMTP_SECURE?.trim().toLowerCase();
-  const secure = secureRaw ? secureRaw === "true" || secureRaw === "1" : port === 465;
-  const user = env.SMTP_USER?.trim() || undefined;
-  const pass = env.SMTP_PASS || undefined;
-  const from = env.SMTP_FROM?.trim() || (user?.includes("@") ? `RepoPulse <${user}>` : `RepoPulse <repopulse@${host}>`);
-  return { host, port, secure, user, pass, from };
+/**
+ * The SMTP columns of `InstanceSettings` (Settings → Email), with the password already decrypted.
+ * Structural, so this package doesn't depend on `@repopulse/db`.
+ */
+export interface StoredSmtpSettings {
+  smtpHost: string | null;
+  smtpPort: number;
+  /** `null` = automatic: implicit TLS on port 465, STARTTLS otherwise. */
+  smtpSecure: boolean | null;
+  smtpUser: string | null;
+  smtpPassword: string | null;
+  smtpFrom: string | null;
 }
 
-export function isSmtpConfigured(env: Record<string, string | undefined> = process.env): boolean {
-  return Boolean(env.SMTP_HOST?.trim());
+/** The sender used when none is set: `RepoPulse <user>` when the username is an address. */
+export function defaultSmtpFrom(host: string, user: string | null | undefined): string {
+  return user?.includes("@") ? `RepoPulse <${user}>` : `RepoPulse <repopulse@${host}>`;
+}
+
+/** Transport settings, or `null` while no host is set (email is off). */
+export function toSmtpConfig(settings: StoredSmtpSettings | null | undefined): SmtpConfig | null {
+  const host = settings?.smtpHost?.trim();
+  if (!settings || !host) return null;
+  const port = settings.smtpPort;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new NotificationDeliveryError(`SMTP port "${port}" is not a valid port.`, { permanent: true });
+  }
+  const secure = settings.smtpSecure ?? port === 465;
+  const user = settings.smtpUser?.trim() || undefined;
+  const pass = user ? settings.smtpPassword || undefined : undefined;
+  const from = settings.smtpFrom?.trim() || defaultSmtpFrom(host, user);
+  return { host, port, secure, user, pass, from };
 }
 
 export interface EmailMessage {
@@ -58,11 +72,18 @@ export type MailSender = (message: EmailMessage) => Promise<void>;
 
 const transports = new Map<string, ReturnType<typeof nodemailer.createTransport>>();
 
-/** Nodemailer SMTP transport, reused per configuration (pooled connections, 15 s timeouts). */
+/**
+ * Nodemailer SMTP transport (15 s timeouts), reused while the configuration stays the same.
+ * Saving new settings in the UI changes the key, and the old transport is closed.
+ */
 export function createSmtpSender(config: SmtpConfig): MailSender {
   const key = JSON.stringify([config.host, config.port, config.secure, config.user, config.pass]);
   let transport = transports.get(key);
   if (!transport) {
+    for (const [staleKey, stale] of transports) {
+      stale.close();
+      transports.delete(staleKey);
+    }
     transport = nodemailer.createTransport({
       host: config.host,
       port: config.port,

@@ -62,8 +62,8 @@ model User {
   avatarUrl                  String?
   githubId                   String             @unique
   githubAccessTokenEncrypted String?
-  /// Admins manage registration and invite links. The first user to sign up becomes one.
-  isAdmin                    Boolean            @default(false)
+  /// The super admin manages instance settings (registration, invite links, SMTP). The first user to sign up is the super admin.
+  isSuperAdmin               Boolean            @default(false)
   createdAt                  DateTime           @default(now())
   updatedAt                  DateTime           @updatedAt
   subscriptions              UserSubscription[]
@@ -78,8 +78,18 @@ model User {
 model InstanceSettings {
   id                 Int      @id @default(1)
   /// `false` = invite-only: new accounts need an invite link (existing users can always sign in).
-  publicRegistration Boolean  @default(true)
-  updatedAt          DateTime @updatedAt
+  publicRegistration    Boolean  @default(true)
+  /// Outgoing email (SMTP), managed by the super admin in Settings → Email. `null` host = email is off.
+  smtpHost              String?
+  smtpPort              Int      @default(587)
+  /// `true` = implicit TLS, `false` = STARTTLS when offered, `null` = automatic (TLS on port 465 only).
+  smtpSecure            Boolean?
+  smtpUser              String?
+  /// AES-256-GCM (`encryptToken`), never sent to the browser.
+  smtpPasswordEncrypted String?
+  /// Sender address; `null` = derived from `smtpUser`.
+  smtpFrom              String?
+  updatedAt             DateTime @updatedAt
 }
 
 /// Single-use sign-up link. Only the SHA-256 of the token is stored; the link is shown once.

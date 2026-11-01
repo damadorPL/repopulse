@@ -1,10 +1,10 @@
-import { prisma } from "@repopulse/db";
+import { INSTANCE_SETTINGS_ID, prisma } from "@repopulse/db";
 import { isWellFormedInviteToken } from "@/lib/invites";
 import { hashInviteToken } from "@/server/invite-tokens";
 
-/** `true` unless an admin turned public sign-up off. A missing settings row means the default. */
+/** `true` unless the super admin turned public sign-up off. A missing settings row means the default. */
 export async function isPublicRegistrationOpen(): Promise<boolean> {
-  const settings = await prisma.instanceSettings.findUnique({ where: { id: 1 }, select: { publicRegistration: true } });
+  const settings = await prisma.instanceSettings.findUnique({ where: { id: INSTANCE_SETTINGS_ID }, select: { publicRegistration: true } });
   return settings?.publicRegistration ?? true;
 }
 
@@ -36,7 +36,7 @@ class InviteUnavailableError extends Error {}
  * Registration gate for a GitHub sign-in (Auth.js `signIn` callback).
  *
  * - Existing users always get in.
- * - The very first account is created here as admin (fresh install).
+ * - The very first account is created here as the super admin (fresh install).
  * - With an invite token, the invite is claimed and the account created in one transaction,
  *   so a link can't be used twice.
  * - Otherwise new accounts need public registration to be on (the `jwt` callback creates them).
@@ -52,7 +52,7 @@ export async function admitGitHubUser(
 
   const [userCount, publicRegistration] = await Promise.all([prisma.user.count(), isPublicRegistrationOpen()]);
   if (userCount === 0) {
-    await prisma.user.create({ data: { ...fields, isAdmin: true } });
+    await prisma.user.create({ data: { ...fields, isSuperAdmin: true } });
     return true;
   }
 

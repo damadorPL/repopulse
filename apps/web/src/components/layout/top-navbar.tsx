@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { BellIcon, BellRingIcon, LogOutIcon, MenuIcon, PlusIcon, SearchIcon, UsersIcon, XIcon } from "lucide-react";
+import { BellIcon, BellRingIcon, LogOutIcon, MailIcon, MenuIcon, PlusIcon, SearchIcon, UsersIcon, XIcon } from "lucide-react";
 import { RepoAvatar } from "@/components/feed/repo-avatar";
 import { AddRepoModal } from "@/components/modals/add-repo-modal";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,7 @@ export function TopNavbar({
   unreadByRepository,
   sidebar,
 }: {
-  user: { name: string | null; email: string; avatarUrl: string | null; isAdmin: boolean };
+  user: { name: string | null; email: string; avatarUrl: string | null; isSuperAdmin: boolean };
   tags: TagPill[];
   totalUnread: number;
   unreadByRepository: UnreadByRepository[];
@@ -79,6 +79,7 @@ export function TopNavbar({
             <div className="px-2 py-1.5">
               <p className="truncate text-sm font-medium">{user.name ?? "Signed in"}</p>
               <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+              {user.isSuperAdmin ? <p className="mt-1 text-[11px] font-medium text-muted-foreground">Super admin</p> : null}
             </div>
             <PopoverClose asChild>
               <Button asChild variant="ghost" size="sm" className="w-full justify-start">
@@ -88,15 +89,25 @@ export function TopNavbar({
                 </Link>
               </Button>
             </PopoverClose>
-            {user.isAdmin ? (
-              <PopoverClose asChild>
-                <Button asChild variant="ghost" size="sm" className="w-full justify-start">
-                  <Link href="/settings/access">
-                    <UsersIcon />
-                    Access &amp; invites
-                  </Link>
-                </Button>
-              </PopoverClose>
+            {user.isSuperAdmin ? (
+              <>
+                <PopoverClose asChild>
+                  <Button asChild variant="ghost" size="sm" className="w-full justify-start">
+                    <Link href="/settings/access">
+                      <UsersIcon />
+                      Access &amp; invites
+                    </Link>
+                  </Button>
+                </PopoverClose>
+                <PopoverClose asChild>
+                  <Button asChild variant="ghost" size="sm" className="w-full justify-start">
+                    <Link href="/settings/email">
+                      <MailIcon />
+                      Email (SMTP)
+                    </Link>
+                  </Button>
+                </PopoverClose>
+              </>
             ) : null}
             <form action={signOutAction}>
               <Button type="submit" variant="ghost" size="sm" className="w-full justify-start">

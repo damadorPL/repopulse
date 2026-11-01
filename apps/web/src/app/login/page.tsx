@@ -9,7 +9,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   AccessDenied: "Access was denied. Please authorize the RepoPulse GitHub app to continue.",
   Configuration: "Sign-in is misconfigured on the server. Check the AUTH_* environment variables and database.",
   Verification: "The sign-in link is no longer valid.",
-  InviteRequired: "RepoPulse is invite-only. Ask an admin for an invite link to create an account.",
+  InviteRequired: "RepoPulse is invite-only. Ask the super admin for an invite link to create an account.",
   InviteInvalid: "That invite link is invalid, has already been used, or has expired. Ask for a new one.",
 };
 

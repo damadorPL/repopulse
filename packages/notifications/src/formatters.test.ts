@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { maskDestination } from "./channels.js";
 import { formatCustomWebhookPayload } from "./formatters/custom.js";
 import { DISCORD_DESCRIPTION_LIMIT, formatDiscordPayload } from "./formatters/discord.js";
-import { readSmtpConfig, renderReleaseEmail } from "./formatters/email.js";
+import { toSmtpConfig, renderReleaseEmail } from "./formatters/email.js";
 import { buildGotifyRequest, buildNtfyRequest, encodeHeaderValue, resolveGotifyEndpoint } from "./formatters/ntfy-gotify.js";
 import { formatSlackPayload } from "./formatters/slack.js";
 import { cleanMarkdown, markdownToEmailHtml, markdownToSlack, truncateBytes, truncateText } from "./markdown.js";
@@ -135,9 +135,12 @@ describe("email", () => {
     expect(html).toContain('href="https://example.com"');
   });
 
-  it("reads SMTP settings with sensible defaults", () => {
-    expect(readSmtpConfig({})).toBeNull();
-    expect(readSmtpConfig({ SMTP_HOST: "smtp.example.com", SMTP_USER: "bot@example.com", SMTP_PASS: "x" })).toEqual({
+  it("builds the SMTP config from the stored settings with sensible defaults", () => {
+    const base = { smtpHost: null, smtpPort: 587, smtpSecure: null, smtpUser: null, smtpPassword: null, smtpFrom: null };
+    expect(toSmtpConfig(null)).toBeNull();
+    expect(toSmtpConfig(base)).toBeNull();
+    expect(toSmtpConfig({ ...base, smtpHost: "  " })).toBeNull();
+    expect(toSmtpConfig({ ...base, smtpHost: "smtp.example.com", smtpUser: "bot@example.com", smtpPassword: "x" })).toEqual({
       host: "smtp.example.com",
       port: 587,
       secure: false,
@@ -145,8 +148,17 @@ describe("email", () => {
       pass: "x",
       from: "RepoPulse <bot@example.com>",
     });
-    expect(readSmtpConfig({ SMTP_HOST: "smtp.example.com", SMTP_PORT: "465" })?.secure).toBe(true);
-    expect(readSmtpConfig({ SMTP_HOST: "h", SMTP_FROM: "Releases <r@example.com>" })?.from).toBe("Releases <r@example.com>");
+    expect(toSmtpConfig({ ...base, smtpHost: "smtp.example.com", smtpPort: 465 })?.secure).toBe(true);
+    expect(toSmtpConfig({ ...base, smtpHost: "smtp.example.com", smtpPort: 465, smtpSecure: false })?.secure).toBe(false);
+    expect(toSmtpConfig({ ...base, smtpHost: "h", smtpFrom: "Releases <r@example.com>" })?.from).toBe("Releases <r@example.com>");
+    expect(toSmtpConfig({ ...base, smtpHost: "relay.lan" })).toMatchObject({
+      user: undefined,
+      pass: undefined,
+      from: "RepoPulse <repopulse@relay.lan>",
+    });
+    // A password without a username is never sent.
+    expect(toSmtpConfig({ ...base, smtpHost: "h", smtpPassword: "x" })?.pass).toBeUndefined();
+    expect(() => toSmtpConfig({ ...base, smtpHost: "h", smtpPort: 70000 })).toThrow(/not a valid port/);
   });
 });
 

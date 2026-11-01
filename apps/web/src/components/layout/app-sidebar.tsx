@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ActivityIcon, BellRingIcon, BoxesIcon, InboxIcon, PlusIcon, Settings2Icon, UsersIcon } from "lucide-react";
+import { ActivityIcon, BellRingIcon, BoxesIcon, InboxIcon, MailIcon, PlusIcon, Settings2Icon, UsersIcon } from "lucide-react";
 import { TagDot } from "@/components/feed/tag-pill";
 import { ManageTagsModal } from "@/components/modals/manage-tags-modal";
 import { Button } from "@/components/ui/button";
@@ -58,13 +58,13 @@ export function AppSidebar({
   tags,
   totalUnread,
   repositoryCount,
-  isAdmin = false,
+  isSuperAdmin = false,
 }: {
   tags: SidebarTag[];
   totalUnread: number;
   repositoryCount: number;
-  /** Admins also see Settings → Access (registration and invite links). */
-  isAdmin?: boolean;
+  /** The super admin also sees the instance settings: Access (registration, invites) and Email (SMTP). */
+  isSuperAdmin?: boolean;
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -149,10 +149,16 @@ export function AppSidebar({
         >
           Notifications
         </NavLink>
-        {isAdmin ? (
-          <NavLink href="/settings/access" active={pathname.startsWith("/settings/access")} icon={<UsersIcon />}>
-            Access
-          </NavLink>
+        {isSuperAdmin ? (
+          <>
+            <h2 className="mt-3 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Instance</h2>
+            <NavLink href="/settings/access" active={pathname.startsWith("/settings/access")} icon={<UsersIcon />}>
+              Access
+            </NavLink>
+            <NavLink href="/settings/email" active={pathname.startsWith("/settings/email")} icon={<MailIcon />}>
+              Email (SMTP)
+            </NavLink>
+          </>
         ) : null}
       </div>
     </nav>

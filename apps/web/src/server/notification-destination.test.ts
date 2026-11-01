@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { ResolveAll } from "@repopulse/notifications";
 
 // action-result pulls in Auth.js (via UnauthorizedError), which needs the Next runtime.
-vi.mock("@/lib/auth", () => ({ UnauthorizedError: class UnauthorizedError extends Error {} }));
+vi.mock("@/lib/auth", () => ({
+  UnauthorizedError: class UnauthorizedError extends Error {},
+  ForbiddenError: class ForbiddenError extends Error {},
+}));
 
 const { normalizeDestination } = await import("@/server/notification-destination");
 
@@ -11,7 +14,7 @@ const resolveAll: ResolveAll = async (hostname) => {
   if (hostname === "nowhere.invalid") throw Object.assign(new Error("ENOTFOUND"), { code: "ENOTFOUND" });
   return [{ address: "93.184.216.34", family: 4 }];
 };
-const opts = { resolveAll, policy: { mode: "none" } as const, env: {} };
+const opts = { resolveAll, policy: { mode: "none" } as const };
 
 describe("normalizeDestination", () => {
   it("accepts public webhook URLs and normalizes them", async () => {
@@ -40,9 +43,13 @@ describe("normalizeDestination", () => {
     });
   });
 
-  it("email: needs SMTP, takes an optional valid address", async () => {
+  it("email: needs SMTP (Settings → Email), takes an optional valid address", async () => {
     expect(await normalizeDestination("EMAIL_INSTANT", "", opts)).toMatchObject({ ok: false, error: { code: "UNAVAILABLE" } });
-    const smtp = { ...opts, env: { SMTP_HOST: "smtp.example.com" } };
+    expect(await normalizeDestination("EMAIL_INSTANT", "", { ...opts, smtpConfigured: false })).toMatchObject({
+      ok: false,
+      error: { message: expect.stringContaining("Settings → Email") },
+    });
+    const smtp = { ...opts, smtpConfigured: true };
     expect(await normalizeDestination("EMAIL_INSTANT", "", smtp)).toEqual({ ok: true, data: null });
     expect(await normalizeDestination("EMAIL_INSTANT", "team@example.com", smtp)).toEqual({ ok: true, data: "team@example.com" });
     expect(await normalizeDestination("EMAIL_INSTANT", "not-an-email", smtp)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });

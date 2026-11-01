@@ -61,13 +61,8 @@ services:
       TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
       # "Load older releases" stops at this many releases per repository (must match the worker).
       RELEASE_BACKFILL_HARD_CAP: ${RELEASE_BACKFILL_HARD_CAP:-1000}
-      # "Send Test" in Settings → Notifications delivers from the web container (same values as the worker).
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASS: ${SMTP_PASS:-}
-      SMTP_SECURE: ${SMTP_SECURE:-}
-      SMTP_FROM: ${SMTP_FROM:-}
+      # "Send Test" in Settings → Notifications delivers from the web container (same value as the worker).
+      # SMTP is not an env setting: the super admin sets it up in Settings → Email (stored encrypted in Postgres).
       ALLOW_INTERNAL_WEBHOOK_HOSTS: ${ALLOW_INTERNAL_WEBHOOK_HOSTS:-}
       APP_BASE_URL: ${SERVICE_URL_WEB}
       # Coolify injects SERVICE_URL_WEB (scheme included; SERVICE_FQDN_WEB is a bare host)
@@ -106,12 +101,6 @@ services:
       RELEASE_BACKFILL_MAX_AGE_DAYS: ${RELEASE_BACKFILL_MAX_AGE_DAYS:-365}
       RELEASE_BACKFILL_HARD_CAP: ${RELEASE_BACKFILL_HARD_CAP:-1000}
       RELEASE_BACKFILL_MIN_QUOTA: ${RELEASE_BACKFILL_MIN_QUOTA:-500}
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASS: ${SMTP_PASS:-}
-      SMTP_SECURE: ${SMTP_SECURE:-}
-      SMTP_FROM: ${SMTP_FROM:-}
       # Webhooks to private networks are blocked unless allowed here (true, or a host list).
       ALLOW_INTERNAL_WEBHOOK_HOSTS: ${ALLOW_INTERNAL_WEBHOOK_HOSTS:-}
       APP_BASE_URL: ${SERVICE_URL_WEB}

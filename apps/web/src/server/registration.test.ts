@@ -10,7 +10,7 @@ const prisma = {
   invite: { findFirst: vi.fn() },
   $transaction: vi.fn(async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx)),
 };
-vi.mock("@repopulse/db", () => ({ prisma }));
+vi.mock("@repopulse/db", () => ({ prisma, INSTANCE_SETTINGS_ID: 1 }));
 
 const { admitGitHubUser, INVITE_INVALID_REDIRECT, INVITE_REQUIRED_REDIRECT } = await import("./registration");
 const { generateInviteToken, hashInviteToken } = await import("./invite-tokens");
@@ -39,10 +39,10 @@ describe("admitGitHubUser", () => {
     expect(prisma.user.create).not.toHaveBeenCalled();
   });
 
-  it("creates the first account as admin", async () => {
+  it("creates the first account as the super admin", async () => {
     setup({ users: 0, open: false });
     await expect(admitGitHubUser(fields, undefined)).resolves.toBe(true);
-    expect(prisma.user.create).toHaveBeenCalledWith({ data: { ...fields, isAdmin: true } });
+    expect(prisma.user.create).toHaveBeenCalledWith({ data: { ...fields, isSuperAdmin: true } });
   });
 
   it("lets new users in while public registration is open (jwt callback creates them)", async () => {

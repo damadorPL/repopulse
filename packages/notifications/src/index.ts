@@ -12,6 +12,7 @@ export {
   dispatchNotification,
   releaseReaderUrl,
   resolveAppBaseUrl,
+  SMTP_NOT_CONFIGURED_MESSAGE,
   type DispatchOptions,
   type DispatchResult,
 } from "./dispatcher.js";
@@ -20,13 +21,14 @@ export { formatCustomWebhookPayload, type CustomWebhookPayload } from "./formatt
 export { DISCORD_COLORS, formatDiscordPayload, type DiscordWebhookPayload } from "./formatters/discord.js";
 export {
   createSmtpSender,
-  isSmtpConfigured,
-  readSmtpConfig,
+  defaultSmtpFrom,
   renderReleaseEmail,
+  toSmtpConfig,
   type EmailMessage,
   type MailSender,
   type RenderedEmail,
   type SmtpConfig,
+  type StoredSmtpSettings,
 } from "./formatters/email.js";
 export {
   buildGotifyRequest,

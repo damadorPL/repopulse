@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { prisma } from "@repopulse/db";
+import { prisma, SmtpPasswordUnreadableError } from "@repopulse/db";
 import {
   buildTestRelease,
   dispatchNotification,
@@ -14,6 +14,7 @@ import { CHANNEL_INFO, DELIVERABLE_CHANNELS } from "@repopulse/notifications/cha
 import { getCurrentUserOrThrow } from "@/lib/auth";
 import { fail, invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
 import { normalizeDestination } from "@/server/notification-destination";
+import { getSmtpConfig, isSmtpConfigured } from "@/server/smtp-settings";
 import {
   MAX_NOTIFICATION_RULES,
   notificationRuleSelect,
@@ -58,7 +59,8 @@ export async function createNotificationRuleAction(input: {
       if (!tag) return fail("NOT_FOUND", "That tag no longer exists. Refresh and try again.");
     }
 
-    const destination = await normalizeDestination(channel, parsed.data.destinationUrl);
+    const smtpConfigured = channel === "EMAIL_INSTANT" ? await isSmtpConfigured() : false;
+    const destination = await normalizeDestination(channel, parsed.data.destinationUrl, { smtpConfigured });
     if (!destination.ok) return destination;
 
     const rule = await prisma.notificationRule.create({
@@ -139,17 +141,23 @@ export async function sendTestNotificationAction(input: {
 
     const { release, repository } = buildTestRelease(new Date(now));
     try {
-      const result = await dispatchNotification({
-        rule,
-        release,
-        repository,
-        user: { id: user.id, email: user.email, name: user.name },
-        test: true,
-        readerUrl: `${resolveAppBaseUrl()}${SETTINGS_PATH}`,
-      });
+      const smtp = rule.channel === "EMAIL_INSTANT" ? await getSmtpConfig() : null;
+      const result = await dispatchNotification(
+        {
+          rule,
+          release,
+          repository,
+          user: { id: user.id, email: user.email, name: user.name },
+          test: true,
+          readerUrl: `${resolveAppBaseUrl()}${SETTINGS_PATH}`,
+        },
+        { smtp },
+      );
       return ok({ channel: CHANNEL_INFO[rule.channel].label, destination: result.destination });
     } catch (error) {
-      if (isNotificationDeliveryError(error)) return fail("DELIVERY_FAILED", error.message);
+      if (isNotificationDeliveryError(error) || error instanceof SmtpPasswordUnreadableError) {
+        return fail("DELIVERY_FAILED", error.message);
+      }
       throw error;
     }
   } catch (error) {

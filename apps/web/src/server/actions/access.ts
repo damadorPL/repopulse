@@ -2,12 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { prisma, type User as DbUser } from "@repopulse/db";
-import { getCurrentUserOrThrow } from "@/lib/auth";
+import { INSTANCE_SETTINGS_ID, prisma } from "@repopulse/db";
 import { INVITE_EXPIRY_DAYS, INVITE_NOTE_MAX_LENGTH, MAX_PENDING_INVITES } from "@/lib/invites";
 import { generateInviteToken, hashInviteToken } from "@/server/invite-tokens";
 import { fail, invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
 import { inviteSelect, toInviteView, type InviteView } from "@/server/queries/access";
+import { getSuperAdminOrThrow } from "@/server/session";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -25,39 +25,26 @@ const createInviteInput = z.object({
 });
 const deleteInviteInput = z.object({ inviteId: z.string().min(1).max(64) });
 
-class ForbiddenError extends Error {}
-
-async function getAdminOrThrow(): Promise<DbUser> {
-  const user = await getCurrentUserOrThrow();
-  if (!user.isAdmin) throw new ForbiddenError();
-  return user;
-}
-
-function handle(error: unknown, action: string): ActionResult<never> {
-  if (error instanceof ForbiddenError) return fail("FORBIDDEN", "Only admins can manage access.");
-  return toActionError(error, action);
-}
-
 function revalidateAccess(): void {
   revalidatePath("/settings/access");
 }
 
 export async function setPublicRegistrationAction(input: { enabled: boolean }): Promise<ActionResult<{ enabled: boolean }>> {
   try {
-    await getAdminOrThrow();
+    await getSuperAdminOrThrow();
     const parsed = setRegistrationInput.safeParse(input);
     if (!parsed.success) return invalidInput(parsed.error);
 
     const { publicRegistration } = await prisma.instanceSettings.upsert({
-      where: { id: 1 },
-      create: { id: 1, publicRegistration: parsed.data.enabled },
+      where: { id: INSTANCE_SETTINGS_ID },
+      create: { id: INSTANCE_SETTINGS_ID, publicRegistration: parsed.data.enabled },
       update: { publicRegistration: parsed.data.enabled },
       select: { publicRegistration: true },
     });
     revalidateAccess();
     return ok({ enabled: publicRegistration });
   } catch (error) {
-    return handle(error, "setPublicRegistrationAction");
+    return toActionError(error, "setPublicRegistrationAction");
   }
 }
 
@@ -67,7 +54,7 @@ export async function createInviteAction(input: {
   expiresInDays: number;
 }): Promise<ActionResult<{ invite: InviteView; token: string }>> {
   try {
-    const admin = await getAdminOrThrow();
+    const admin = await getSuperAdminOrThrow();
     const parsed = createInviteInput.safeParse(input);
     if (!parsed.success) return invalidInput(parsed.error);
 
@@ -90,14 +77,14 @@ export async function createInviteAction(input: {
     revalidateAccess();
     return ok({ invite: toInviteView(invite, now), token });
   } catch (error) {
-    return handle(error, "createInviteAction");
+    return toActionError(error, "createInviteAction");
   }
 }
 
 /** Revokes a pending link, or clears a used / expired one from the list. Accounts are never touched. */
 export async function deleteInviteAction(input: { inviteId: string }): Promise<ActionResult<null>> {
   try {
-    await getAdminOrThrow();
+    await getSuperAdminOrThrow();
     const parsed = deleteInviteInput.safeParse(input);
     if (!parsed.success) return invalidInput(parsed.error);
 
@@ -106,6 +93,6 @@ export async function deleteInviteAction(input: { inviteId: string }): Promise<A
     revalidateAccess();
     return ok(null);
   } catch (error) {
-    return handle(error, "deleteInviteAction");
+    return toActionError(error, "deleteInviteAction");
   }
 }

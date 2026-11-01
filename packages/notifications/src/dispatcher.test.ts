@@ -51,13 +51,20 @@ describe("dispatchNotification", () => {
 
   it("sends email to the rule's address, or the user's email by default", async () => {
     const sendMail = vi.fn(async () => {});
-    await dispatchNotification(input("EMAIL_INSTANT", null), { env: { SMTP_HOST: "smtp.example.com" }, sendMail });
-    await dispatchNotification(input("EMAIL_INSTANT", "team@example.com"), { env: { SMTP_HOST: "smtp.example.com" }, sendMail });
-    expect(sendMail.mock.calls.map((call) => (call as unknown as [{ to: string }])[0].to)).toEqual(["dev@example.com", "team@example.com"]);
+    const smtp = { host: "smtp.example.com", port: 587, secure: false, user: undefined, pass: undefined, from: "Releases <r@example.com>" };
+    await dispatchNotification(input("EMAIL_INSTANT", null), { env: {}, smtp, sendMail });
+    await dispatchNotification(input("EMAIL_INSTANT", "team@example.com"), { env: {}, smtp, sendMail });
+    const sent = sendMail.mock.calls.map((call) => (call as unknown as [{ to: string; from: string }])[0]);
+    expect(sent.map((m) => m.to)).toEqual(["dev@example.com", "team@example.com"]);
+    expect(sent.every((m) => m.from === "Releases <r@example.com>")).toBe(true);
   });
 
   it("fails permanently when SMTP is not configured or the channel is not deliverable", async () => {
     await expect(dispatchNotification(input("EMAIL_INSTANT", null), { env: {} })).rejects.toMatchObject({ permanent: true });
+    // SMTP_* env vars are no longer read: email is set up in the UI only.
+    await expect(
+      dispatchNotification(input("EMAIL_INSTANT", null), { env: { SMTP_HOST: "smtp.example.com" }, smtp: null }),
+    ).rejects.toMatchObject({ permanent: true, message: expect.stringContaining("Settings → Email") });
     await expect(dispatchNotification(input("IN_APP", null), { env: {} })).rejects.toMatchObject({ permanent: true });
     await expect(dispatchNotification(input("DISCORD_WEBHOOK", null), { env: {} })).rejects.toMatchObject({ permanent: true });
   });

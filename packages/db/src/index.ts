@@ -30,3 +30,10 @@ export const db = prisma;
 
 export * from "./generated/prisma/client.js";
 export { encryptToken, decryptToken } from "./crypto.js";
+export {
+  INSTANCE_SETTINGS_ID,
+  SMTP_SETTINGS_SELECT,
+  SmtpPasswordUnreadableError,
+  loadSmtpSettings,
+  type DecryptedSmtpSettings,
+} from "./instance-settings.js";

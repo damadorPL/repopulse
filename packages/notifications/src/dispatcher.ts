@@ -2,7 +2,7 @@ import { CHANNEL_INFO, channelLabel, isDeliverableChannel, maskDestination } fro
 import { NotificationDeliveryError } from "./errors.js";
 import { formatCustomWebhookPayload } from "./formatters/custom.js";
 import { formatDiscordPayload } from "./formatters/discord.js";
-import { createSmtpSender, readSmtpConfig, renderReleaseEmail, type MailSender } from "./formatters/email.js";
+import { createSmtpSender, renderReleaseEmail, type MailSender, type SmtpConfig } from "./formatters/email.js";
 import { buildGotifyRequest, buildNtfyRequest, type PreparedRequest } from "./formatters/ntfy-gotify.js";
 import { formatSlackPayload } from "./formatters/slack.js";
 import { DEFAULT_TIMEOUT_MS, postWebhook, type WebhookSender } from "./http.js";
@@ -10,8 +10,13 @@ import { internalHostsPolicyFromEnv, type InternalHostsPolicy, type ResolveAll }
 import type { DispatchInput, MessageContext } from "./types.js";
 
 export interface DispatchOptions {
-  /** Defaults to `process.env` (SMTP_*, ALLOW_INTERNAL_WEBHOOK_HOSTS, APP_BASE_URL). */
+  /** Defaults to `process.env` (ALLOW_INTERNAL_WEBHOOK_HOSTS, APP_BASE_URL). */
   env?: Record<string, string | undefined>;
+  /**
+   * Outgoing email settings (Settings → Email, see `toSmtpConfig`). Required for email rules;
+   * `null`/missing = email is not set up.
+   */
+  smtp?: SmtpConfig | null;
   /** Overrides `APP_BASE_URL`/`AUTH_URL` for links back to RepoPulse. */
   appBaseUrl?: string;
   timeoutMs?: number;
@@ -46,6 +51,9 @@ export function releaseReaderUrl(appBaseUrl: string, releaseId: string): string 
   return `${appBaseUrl}/?release=${encodeURIComponent(releaseId)}`;
 }
 
+export const SMTP_NOT_CONFIGURED_MESSAGE =
+  "Email is not set up on this RepoPulse instance. The super admin can configure SMTP in Settings → Email.";
+
 function jsonRequest(url: string, payload: unknown): PreparedRequest {
   return { url: new URL(url), headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) };
 }
@@ -76,16 +84,13 @@ export async function dispatchNotification(input: DispatchInput, options: Dispat
 
   if (channel === "EMAIL_INSTANT") {
     const to = rule.destinationUrl?.trim() || input.user.email;
-    let sendMail = options.sendMail;
-    const config = readSmtpConfig(env);
-    if (!sendMail) {
-      if (!config) {
-        throw new NotificationDeliveryError("Email is not configured on this server (SMTP_HOST is not set).", { permanent: true });
-      }
-      sendMail = createSmtpSender(config);
+    const config = options.smtp ?? null;
+    if (!config) {
+      throw new NotificationDeliveryError(SMTP_NOT_CONFIGURED_MESSAGE, { permanent: true });
     }
+    const sendMail = options.sendMail ?? createSmtpSender(config);
     const email = renderReleaseEmail(ctx);
-    await sendMail({ from: config?.from ?? "RepoPulse <repopulse@localhost>", to, ...email });
+    await sendMail({ from: config.from, to, ...email });
     return { channel, destination: to };
   }
 

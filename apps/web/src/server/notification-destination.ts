@@ -1,7 +1,7 @@
 import { z } from "zod";
 import {
-  isSmtpConfigured,
   resolveGotifyEndpoint,
+  SMTP_NOT_CONFIGURED_MESSAGE,
   validateWebhookUrl,
   WebhookUrlError,
   type ValidateWebhookUrlOptions,
@@ -15,20 +15,19 @@ import { fail, ok, type ActionResult } from "@/server/action-result";
  *
  * - Webhook channels need an http(s) URL whose host resolves to a public address (SSRF guard,
  *   honoring `ALLOW_INTERNAL_WEBHOOK_HOSTS`). The worker checks again on every delivery.
- * - Email takes an optional recipient (empty = the account's email) and needs SMTP on the server.
+ * - Email takes an optional recipient (empty = the account's email) and needs SMTP to be set up
+ *   (Settings → Email; the caller passes `smtpConfigured`).
  */
 export async function normalizeDestination(
   channel: DeliverableChannel,
   raw: string,
-  options: ValidateWebhookUrlOptions & { env?: Record<string, string | undefined> } = {},
+  options: ValidateWebhookUrlOptions & { smtpConfigured?: boolean } = {},
 ): Promise<ActionResult<string | null>> {
   const value = raw.trim();
   const info = CHANNEL_INFO[channel];
 
   if (info.destination === "email") {
-    if (!isSmtpConfigured(options.env)) {
-      return fail("UNAVAILABLE", "Email notifications are not available: the server has no SMTP settings (SMTP_HOST).");
-    }
+    if (!options.smtpConfigured) return fail("UNAVAILABLE", SMTP_NOT_CONFIGURED_MESSAGE);
     if (!value) return ok(null);
     if (!z.email().safeParse(value).success) return fail("INVALID_INPUT", "Enter a valid email address, or leave it empty.");
     return ok(value);

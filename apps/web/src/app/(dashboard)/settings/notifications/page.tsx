@@ -1,17 +1,21 @@
 import type { Metadata } from "next";
 import { BellRingIcon, ShieldCheckIcon } from "lucide-react";
-import { isSmtpConfigured } from "@repopulse/notifications";
 import { AddNotificationRuleForm } from "@/components/notifications/add-notification-rule-form";
 import { NotificationRuleItem } from "@/components/notifications/notification-rule-item";
 import { getDashboardData } from "@/server/queries/feed";
 import { getNotificationRules, MAX_NOTIFICATION_RULES } from "@/server/queries/notifications";
 import { requireUser } from "@/server/session";
+import { isSmtpConfigured } from "@/server/smtp-settings";
 
 export const metadata: Metadata = { title: "Notifications · RepoPulse" };
 
 export default async function NotificationSettingsPage() {
   const user = await requireUser();
-  const [rules, dashboard] = await Promise.all([getNotificationRules(user.id), getDashboardData(user.id)]);
+  const [rules, dashboard, smtpConfigured] = await Promise.all([
+    getNotificationRules(user.id),
+    getDashboardData(user.id),
+    isSmtpConfigured(),
+  ]);
   const tags = dashboard.tags.map(({ id, name, slug, colorHex }) => ({ id, name, slug, colorHex }));
   const activeCount = rules.filter((rule) => rule.enabled).length;
 
@@ -24,7 +28,12 @@ export default async function NotificationSettingsPage() {
         </p>
       </div>
 
-      <AddNotificationRuleForm tags={tags} smtpConfigured={isSmtpConfigured()} limitReached={rules.length >= MAX_NOTIFICATION_RULES} />
+      <AddNotificationRuleForm
+        tags={tags}
+        smtpConfigured={smtpConfigured}
+        canConfigureSmtp={user.isSuperAdmin}
+        limitReached={rules.length >= MAX_NOTIFICATION_RULES}
+      />
 
       <section aria-labelledby="rules-heading" className="space-y-3">
         <div className="flex items-baseline justify-between gap-3">

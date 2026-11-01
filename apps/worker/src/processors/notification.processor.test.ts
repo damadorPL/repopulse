@@ -37,8 +37,19 @@ function fakePrisma(options: {
   rule?: Partial<typeof RULE> | null;
   release?: ReturnType<typeof releaseRow> | null;
   subscriptionTags?: string[] | null;
+  smtpHost?: string | null;
 }) {
   return {
+    instanceSettings: {
+      findUnique: vi.fn(async () => ({
+        smtpHost: options.smtpHost ?? null,
+        smtpPort: 587,
+        smtpSecure: null,
+        smtpUser: null,
+        smtpPasswordEncrypted: null,
+        smtpFrom: null,
+      })),
+    },
     notificationRule: { findUnique: vi.fn(async () => (options.rule === null ? null : { ...RULE, ...options.rule })) },
     release: { findUnique: vi.fn(async () => (options.release === undefined ? releaseRow("v2.0.0", "MAJOR") : options.release)) },
     user: { findUnique: vi.fn(async () => ({ id: "u1", email: "dev@example.com", name: "Dev" })) },
@@ -101,6 +112,18 @@ describe("processNotification", () => {
     const dispatch = delivered();
     const prisma = fakePrisma({ rule: { tagId: null, tag: null, onlyMajorReleases: false }, release: releaseRow("v2.0.1", "PATCH"), subscriptionTags: [] });
     expect((await processNotification(job("rel-v2.0.1"), { prisma: prisma as never, dispatch })).status).toBe("SENT");
+  });
+
+  it("passes the SMTP settings saved in the UI to email rules only", async () => {
+    const dispatch = delivered();
+    const email = fakePrisma({ rule: { channel: "EMAIL_INSTANT", destinationUrl: null }, smtpHost: "smtp.example.com" });
+    await processNotification(job(), { prisma: email as never, dispatch });
+    expect(dispatch.mock.calls[0]![1]).toMatchObject({ smtp: { host: "smtp.example.com", port: 587, from: "RepoPulse <repopulse@smtp.example.com>" } });
+
+    const discord = fakePrisma({});
+    await processNotification(job(), { prisma: discord as never, dispatch });
+    expect(dispatch.mock.calls[1]![1]).toMatchObject({ smtp: null });
+    expect(discord.instanceSettings.findUnique).not.toHaveBeenCalled();
   });
 
   it("turns permanent delivery failures into UnrecoverableError (no retries)", async () => {

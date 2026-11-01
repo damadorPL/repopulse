@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LoaderCircleIcon, PlusIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -22,10 +23,13 @@ const ALL = "__all__";
 export function AddNotificationRuleForm({
   tags,
   smtpConfigured,
+  canConfigureSmtp = false,
   limitReached,
 }: {
   tags: TagPill[];
   smtpConfigured: boolean;
+  /** The super admin gets a link to Settings → Email when SMTP isn't set up. */
+  canConfigureSmtp?: boolean;
   limitReached: boolean;
 }) {
   const router = useRouter();
@@ -144,7 +148,19 @@ export function AddNotificationRuleForm({
           aria-describedby="rule-destination-hint"
         />
         <p id="rule-destination-hint" className="text-xs text-muted-foreground">
-          {emailUnavailable ? "Email needs SMTP_HOST (and usually SMTP_USER / SMTP_PASS) in the server environment." : info.hint}
+          {!emailUnavailable ? (
+            info.hint
+          ) : canConfigureSmtp ? (
+            <>
+              Email needs an SMTP server.{" "}
+              <Link href="/settings/email" className="font-medium text-foreground underline underline-offset-2">
+                Set it up in Settings → Email
+              </Link>
+              .
+            </>
+          ) : (
+            "Email isn't set up on this RepoPulse instance yet. Ask the super admin to configure SMTP."
+          )}
         </p>
       </div>
 

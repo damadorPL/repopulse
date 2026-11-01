@@ -78,15 +78,6 @@ POLL_INTERVAL_CRON=*/30 * * * *
 # RELEASE_BACKFILL_HARD_CAP=1000
 # RELEASE_BACKFILL_MIN_QUOTA=500
 
-# ─── Email (optional, worker) ─────────────────────────────────────────────
-SMTP_HOST=
-SMTP_PORT=587
-SMTP_USER=
-SMTP_PASS=
-# Optional: implicit TLS (default: on for port 465 only, STARTTLS otherwise) and the sender (default: SMTP_USER).
-# SMTP_SECURE=false
-# SMTP_FROM=RepoPulse <releases@example.com>
-
 # ─── Notifications (web + worker) ─────────────────────────────────────────
 # Webhooks to private or loopback addresses are blocked (SSRF guard). To reach a self-hosted
 # Gotify/ntfy on the same network, allow every internal host (true) or list them (gotify,ntfy.lan).
