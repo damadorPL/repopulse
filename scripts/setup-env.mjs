@@ -61,7 +61,7 @@ AUTH_URL=http://localhost:3000
 AUTH_GITHUB_ID=${githubId}
 AUTH_GITHUB_SECRET=${githubSecret}
 # Used by docker-compose.coolify.yml for the full-stack local smoke test.
-SERVICE_FQDN_WEB=http://localhost:3000
+SERVICE_URL_WEB=http://localhost:3000
 
 # ─── Token encryption (web + worker) ──────────────────────────────────────
 # Changing this makes all stored GitHub tokens undecryptable (users must sign in again).

@@ -14,7 +14,7 @@ export class UnauthorizedError extends Error {
  * Auth.js v5 — GitHub OAuth with JWT sessions.
  *
  * Env (read automatically): AUTH_SECRET, AUTH_GITHUB_ID, AUTH_GITHUB_SECRET, and
- * AUTH_URL / NEXTAUTH_URL (Coolify injects SERVICE_FQDN_WEB into NEXTAUTH_URL).
+ * AUTH_URL / NEXTAUTH_URL (Coolify injects SERVICE_URL_WEB into NEXTAUTH_URL).
  *
  * The GitHub access token is never put in the session cookie: on sign-in it is
  * AES-256-GCM encrypted and stored on the `User` row; the JWT only carries `userId`.

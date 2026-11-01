@@ -62,7 +62,7 @@ Users add rules under **Settings → Notifications** (`/settings/notifications`)
 - **Webhooks** to private or loopback addresses are blocked. To reach a self-hosted Gotify or ntfy on the same network,
   set `ALLOW_INTERNAL_WEBHOOK_HOSTS=true`, or a host list such as `gotify,ntfy.lan`. Link-local and cloud-metadata
   addresses (`169.254.0.0/16`) are always blocked.
-- Links in notifications use `APP_BASE_URL` (compose sets it from `SERVICE_FQDN_WEB`), falling back to `AUTH_URL`.
+- Links in notifications use `APP_BASE_URL` (compose sets it from `SERVICE_URL_WEB`), falling back to `AUTH_URL`.
 
 Startup order: `postgres` + `redis` healthy → `migrator` runs `prisma migrate deploy` and exits 0 →
 `web` and `worker` start.

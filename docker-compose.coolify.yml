@@ -69,9 +69,9 @@ services:
       SMTP_SECURE: ${SMTP_SECURE:-}
       SMTP_FROM: ${SMTP_FROM:-}
       ALLOW_INTERNAL_WEBHOOK_HOSTS: ${ALLOW_INTERNAL_WEBHOOK_HOSTS:-}
-      APP_BASE_URL: ${SERVICE_FQDN_WEB}
-      # Coolify automatically injects SERVICE_FQDN_WEB for domain routing
-      NEXTAUTH_URL: ${SERVICE_FQDN_WEB}
+      APP_BASE_URL: ${SERVICE_URL_WEB}
+      # Coolify injects SERVICE_URL_WEB (scheme included; SERVICE_FQDN_WEB is a bare host)
+      NEXTAUTH_URL: ${SERVICE_URL_WEB}
     depends_on:
       postgres:
         condition: service_healthy
@@ -114,7 +114,7 @@ services:
       SMTP_FROM: ${SMTP_FROM:-}
       # Webhooks to private networks are blocked unless allowed here (true, or a host list).
       ALLOW_INTERNAL_WEBHOOK_HOSTS: ${ALLOW_INTERNAL_WEBHOOK_HOSTS:-}
-      APP_BASE_URL: ${SERVICE_FQDN_WEB}
+      APP_BASE_URL: ${SERVICE_URL_WEB}
     depends_on:
       postgres:
         condition: service_healthy
