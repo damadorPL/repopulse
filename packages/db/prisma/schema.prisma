@@ -62,12 +62,41 @@ model User {
   avatarUrl                  String?
   githubId                   String             @unique
   githubAccessTokenEncrypted String?
+  /// Admins manage registration and invite links. The first user to sign up becomes one.
+  isAdmin                    Boolean            @default(false)
   createdAt                  DateTime           @default(now())
   updatedAt                  DateTime           @updatedAt
   subscriptions              UserSubscription[]
   tags                       Tag[]
   releaseStates              UserReleaseState[]
   notificationRules          NotificationRule[]
+  invitesCreated             Invite[]           @relation("InviteCreatedBy")
+  inviteUsed                 Invite?            @relation("InviteUsedBy")
+}
+
+/// Instance-wide settings: a single row with `id = 1`; a missing row means the defaults.
+model InstanceSettings {
+  id                 Int      @id @default(1)
+  /// `false` = invite-only: new accounts need an invite link (existing users can always sign in).
+  publicRegistration Boolean  @default(true)
+  updatedAt          DateTime @updatedAt
+}
+
+/// Single-use sign-up link. Only the SHA-256 of the token is stored; the link is shown once.
+model Invite {
+  id          String    @id @default(cuid())
+  tokenHash   String    @unique
+  /// Optional reminder of who the link is for.
+  note        String?
+  createdById String
+  expiresAt   DateTime
+  usedAt      DateTime?
+  usedById    String?   @unique
+  createdAt   DateTime  @default(now())
+  createdBy   User      @relation("InviteCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  usedBy      User?     @relation("InviteUsedBy", fields: [usedById], references: [id], onDelete: SetNull)
+
+  @@index([createdAt(sort: Desc)])
 }
 
 model Repository {

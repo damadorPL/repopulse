@@ -1,13 +1,34 @@
 import { cache } from "react";
 import NextAuth from "next-auth";
 import GitHub from "next-auth/providers/github";
+import type { Account, Profile, User as AuthUser } from "next-auth";
+import { cookies } from "next/headers";
 import { encryptToken, prisma, type User as DbUser } from "@repopulse/db";
+import { INVITE_COOKIE } from "@/lib/invites";
+import { admitGitHubUser, type GitHubUserFields } from "@/server/registration";
 
 export class UnauthorizedError extends Error {
   constructor(message = "You must be signed in to do that.") {
     super(message);
     this.name = "UnauthorizedError";
   }
+}
+
+/** Maps a GitHub sign-in to `User` columns; null when the provider didn't return what we need. */
+function githubUserFields(
+  user: AuthUser | undefined,
+  account: Account | null | undefined,
+  profile: Profile | undefined,
+): GitHubUserFields | null {
+  if (!account?.access_token || profile?.id == null) return null;
+  const githubId = String(profile.id);
+  const login = typeof profile.login === "string" ? profile.login : undefined;
+  // Auth.js resolves the primary email via /user/emails (user:email scope); fall
+  // back to the GitHub noreply address so the required `email` column is never empty.
+  const email = user?.email ?? profile.email ?? `${githubId}+${login ?? "user"}@users.noreply.github.com`;
+  const name = user?.name ?? profile.name ?? login ?? null;
+  const avatarUrl = user?.image ?? (typeof profile.avatar_url === "string" ? profile.avatar_url : null);
+  return { githubId, email, name, avatarUrl, githubAccessTokenEncrypted: encryptToken(account.access_token) };
 }
 
 /**
@@ -30,24 +51,30 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
+    /** Registration gate: existing users pass; new ones need public sign-up or an invite link. */
+    async signIn({ user, account, profile }) {
+      if (account?.provider !== "github") return true;
+      const fields = githubUserFields(user, account, profile);
+      if (!fields) return false;
+      const cookieStore = await cookies();
+      const result = await admitGitHubUser(fields, cookieStore.get(INVITE_COOKIE)?.value);
+      if (result === true) {
+        // Single-use either way; best effort, since the cookie expires within the hour anyway.
+        try {
+          cookieStore.delete(INVITE_COOKIE);
+        } catch {}
+      }
+      return result;
+    },
     async jwt({ token, user, account, profile }) {
       // `account` / `profile` are only present on the sign-in request.
-      if (account?.provider === "github" && account.access_token && profile?.id != null) {
-        const githubId = String(profile.id);
-        const login = typeof profile.login === "string" ? profile.login : undefined;
-        // Auth.js resolves the primary email via /user/emails (user:email scope); fall
-        // back to the GitHub noreply address so the required `email` column is never empty.
-        const email =
-          user?.email ?? profile.email ?? `${githubId}+${login ?? "user"}@users.noreply.github.com`;
-        const name = user?.name ?? profile.name ?? login ?? null;
-        const avatarUrl =
-          user?.image ?? (typeof profile.avatar_url === "string" ? profile.avatar_url : null);
-        const githubAccessTokenEncrypted = encryptToken(account.access_token);
-
+      const fields = account?.provider === "github" ? githubUserFields(user, account, profile) : null;
+      if (fields) {
+        const { githubId, ...profileFields } = fields;
         const dbUser = await prisma.user.upsert({
           where: { githubId },
-          create: { githubId, email, name, avatarUrl, githubAccessTokenEncrypted },
-          update: { email, name, avatarUrl, githubAccessTokenEncrypted },
+          create: fields,
+          update: profileFields,
           select: { id: true },
         });
         token.userId = dbUser.id;

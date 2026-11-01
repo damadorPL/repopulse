@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ActivityIcon, BellRingIcon, BoxesIcon, InboxIcon, PlusIcon, Settings2Icon } from "lucide-react";
+import { ActivityIcon, BellRingIcon, BoxesIcon, InboxIcon, PlusIcon, Settings2Icon, UsersIcon } from "lucide-react";
 import { TagDot } from "@/components/feed/tag-pill";
 import { ManageTagsModal } from "@/components/modals/manage-tags-modal";
 import { Button } from "@/components/ui/button";
@@ -58,10 +58,13 @@ export function AppSidebar({
   tags,
   totalUnread,
   repositoryCount,
+  isAdmin = false,
 }: {
   tags: SidebarTag[];
   totalUnread: number;
   repositoryCount: number;
+  /** Admins also see Settings → Access (registration and invite links). */
+  isAdmin?: boolean;
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -146,6 +149,11 @@ export function AppSidebar({
         >
           Notifications
         </NavLink>
+        {isAdmin ? (
+          <NavLink href="/settings/access" active={pathname.startsWith("/settings/access")} icon={<UsersIcon />}>
+            Access
+          </NavLink>
+        ) : null}
       </div>
     </nav>
   );

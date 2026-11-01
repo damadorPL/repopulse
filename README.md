@@ -52,6 +52,13 @@ Use the **Docker Compose** build pack with `docker-compose.coolify.yml`. Set the
 listed in `.env.example` (generate `TOKEN_ENCRYPTION_KEY` and `AUTH_SECRET` with
 `openssl rand -hex 32`).
 
+### Access & invites
+
+The first account becomes the admin (on existing installs, the oldest account). Admins get **Settings → Access**
+(`/settings/access`) to turn **public registration** off and create **invite links**. Links are single-use, expire after
+1, 7 or 30 days and can be revoked; only a SHA-256 of each token is stored, so a link is shown once. Existing members can
+always sign in.
+
 ### Notifications
 
 Users add rules under **Settings → Notifications** (`/settings/notifications`): a channel, an optional tag scope and

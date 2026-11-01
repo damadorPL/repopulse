@@ -10,6 +10,8 @@ import { UnauthorizedError } from "@/lib/auth";
 
 export type ActionErrorCode =
   | "UNAUTHORIZED"
+  /** Signed in, but not allowed (admin-only actions). */
+  | "FORBIDDEN"
   | "INVALID_INPUT"
   | "NOT_FOUND"
   | "CONFLICT"

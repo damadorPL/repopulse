@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { BellIcon, BellRingIcon, LogOutIcon, MenuIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
+import { BellIcon, BellRingIcon, LogOutIcon, MenuIcon, PlusIcon, SearchIcon, UsersIcon, XIcon } from "lucide-react";
 import { RepoAvatar } from "@/components/feed/repo-avatar";
 import { AddRepoModal } from "@/components/modals/add-repo-modal";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,7 @@ export function TopNavbar({
   unreadByRepository,
   sidebar,
 }: {
-  user: { name: string | null; email: string; avatarUrl: string | null };
+  user: { name: string | null; email: string; avatarUrl: string | null; isAdmin: boolean };
   tags: TagPill[];
   totalUnread: number;
   unreadByRepository: UnreadByRepository[];
@@ -88,6 +88,16 @@ export function TopNavbar({
                 </Link>
               </Button>
             </PopoverClose>
+            {user.isAdmin ? (
+              <PopoverClose asChild>
+                <Button asChild variant="ghost" size="sm" className="w-full justify-start">
+                  <Link href="/settings/access">
+                    <UsersIcon />
+                    Access &amp; invites
+                  </Link>
+                </Button>
+              </PopoverClose>
+            ) : null}
             <form action={signOutAction}>
               <Button type="submit" variant="ghost" size="sm" className="w-full justify-start">
                 <LogOutIcon />

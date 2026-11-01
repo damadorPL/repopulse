@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth, signIn } from "@/lib/auth";
+import { isPublicRegistrationOpen } from "@/server/registration";
 
 export const metadata: Metadata = { title: "Sign in · RepoPulse" };
 
@@ -8,6 +9,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   AccessDenied: "Access was denied. Please authorize the RepoPulse GitHub app to continue.",
   Configuration: "Sign-in is misconfigured on the server. Check the AUTH_* environment variables and database.",
   Verification: "The sign-in link is no longer valid.",
+  InviteRequired: "RepoPulse is invite-only. Ask an admin for an invite link to create an account.",
+  InviteInvalid: "That invite link is invalid, has already been used, or has expired. Ask for a new one.",
 };
 
 /** Only allow same-origin relative paths as a post-login destination. */
@@ -30,6 +33,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
   if (session?.user?.id) {
     redirect(redirectTo);
   }
+  const publicRegistration = await isPublicRegistrationOpen();
 
   async function signInWithGitHub() {
     "use server";
@@ -83,6 +87,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
             Sign in with GitHub
           </button>
         </form>
+        {!publicRegistration ? (
+          <p style={{ color: "#6b7280", fontSize: 13 }}>New accounts are invite-only. Existing members can sign in as usual.</p>
+        ) : null}
         <p style={{ color: "#9ca3af", fontSize: 12 }}>
           Requests <code>read:user</code> and <code>user:email</code>. Your token is stored encrypted.
         </p>
