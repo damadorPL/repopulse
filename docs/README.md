@@ -2,7 +2,7 @@
 
 > **Audience:** coding agents and new contributors. Each file is self-contained: it starts with a summary and the
 > files it covers, then lists rules (**MUST / MUST NOT**), then the details. Paths are relative to the repo root.
-> **Version documented:** 0.5.2 (see [`CHANGELOG.md`](../CHANGELOG.md)).
+> **Version documented:** 0.6.0 (see [`CHANGELOG.md`](../CHANGELOG.md)).
 
 RepoPulse is a self-hosted tracker for GitHub releases and changelogs. Users sign in with GitHub and subscribe to
 repositories. A background worker polls GitHub, stores new releases, marks them unread for every subscriber, pushes
@@ -44,7 +44,9 @@ Other sources:
 3. **Server Actions return `ActionResult<T>` and never throw to the client.** End them with
    `catch (error) { return toActionError(error, "nameAction"); }` ([web-app.md](./web-app.md#server-actions)).
 4. **Every feed or unread query goes through `visibleReleasesWhere()`**, so the feed, the reader and the counters agree.
-5. **A missing `UserReleaseState` row means "read".** Only genuinely new releases get unread rows. History backfill
+5. **A missing `UserReleaseState` row means "read".** Exception: commit rows (`source = COMMIT`, "Files / folders")
+   are visible only *through* a state row, which records that the commit matched the user's watched paths (read or
+   unread). Only genuinely new releases get unread rows. History backfill
    creates none.
 6. **Secrets stay encrypted and server-side.** GitHub tokens and the SMTP password go through
    `encryptToken`/`decryptToken`. Never return them or a raw webhook URL to the browser (use `maskDestination`).

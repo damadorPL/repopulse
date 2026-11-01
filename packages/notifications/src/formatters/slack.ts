@@ -1,4 +1,4 @@
-import { markdownToSlack, releaseKindLabel, releaseSummary, truncateText } from "../markdown.js";
+import { githubLinkLabel, markdownToSlack, releaseKindLabel, releaseSummary, truncateText } from "../markdown.js";
 import type { MessageContext } from "../types.js";
 
 /** Slack limits: header text 150 characters, section text 3000, button URL 3000. */
@@ -41,7 +41,7 @@ export function formatSlackPayload(ctx: MessageContext): SlackWebhookPayload {
 
   return {
     // Fallback for push notifications and clients without Block Kit.
-    text: `New release: ${headline}`,
+    text: `${release.source === "COMMIT" ? "New commit" : "New release"}: ${headline}`,
     blocks: [
       { type: "header", text: { type: "plain_text", text: truncateText(headline, HEADER_LIMIT), emoji: true } },
       { type: "context", elements: [{ type: "mrkdwn", text: context }] },
@@ -58,7 +58,7 @@ export function formatSlackPayload(ctx: MessageContext): SlackWebhookPayload {
           },
           {
             type: "button",
-            text: { type: "plain_text", text: release.source === "TAG" ? "View on GitHub" : "Release notes on GitHub" },
+            text: { type: "plain_text", text: githubLinkLabel(release) },
             url: release.htmlUrl,
             action_id: "open_github",
           },

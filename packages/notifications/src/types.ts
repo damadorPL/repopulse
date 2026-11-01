@@ -34,8 +34,8 @@ export interface NotificationReleaseInput {
   semverType: SemverType;
   isPrerelease: boolean;
   publishedAt: Date;
-  /** `TAG` = a Git tag without a GitHub Release (Slice 04c). */
-  source?: "RELEASE" | "TAG";
+  /** `TAG` = a Git tag without a GitHub Release (Slice 04c); `COMMIT` = a commit touching a watched path (Slice 06). */
+  source?: "RELEASE" | "TAG" | "COMMIT";
 }
 
 export interface NotificationRepositoryInput {

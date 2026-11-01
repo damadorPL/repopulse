@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from "@repopulse/db";
+import type { Prisma, PrismaClient, TrackMode } from "@repopulse/db";
 import {
   buildTagChangelog,
   compareCommits,
@@ -26,7 +26,11 @@ export const STORED_RELEASE_SELECT = {
   publishedAt: true,
 } satisfies Prisma.ReleaseSelect;
 
-export type SubscriberWithMode = FanOutSubscriber & { trackMode: "RELEASES" | "TAGS_AND_COMMITS" };
+export type SubscriberWithMode = FanOutSubscriber & {
+  trackMode: TrackMode;
+  /** Watched paths in `PATHS` mode (Slice 06); empty otherwise. */
+  watchedPaths: string[];
+};
 
 type Tx = Prisma.TransactionClient | PrismaClient;
 
@@ -38,6 +42,7 @@ export async function loadSubscribers(tx: Tx, repositoryId: string): Promise<Sub
       userId: true,
       includePrereleases: true,
       trackMode: true,
+      watchedPaths: true,
       tags: { select: { tagId: true } },
       user: {
         select: {
@@ -53,6 +58,7 @@ export async function loadSubscribers(tx: Tx, repositoryId: string): Promise<Sub
     userId: s.userId,
     includePrereleases: s.includePrereleases,
     trackMode: s.trackMode,
+    watchedPaths: s.watchedPaths ?? [],
     tagIds: s.tags.map((t) => t.tagId),
     rules: s.user.notificationRules,
   }));
@@ -60,6 +66,11 @@ export async function loadSubscribers(tx: Tx, repositoryId: string): Promise<Sub
 
 export function tracksTags(subscriber: SubscriberWithMode): boolean {
   return subscriber.trackMode === "TAGS_AND_COMMITS";
+}
+
+/** GitHub Releases are shown in "Releases only" and "Releases + tags", never in "Files / folders". */
+export function tracksReleases(subscriber: SubscriberWithMode): boolean {
+  return subscriber.trackMode !== "PATHS";
 }
 
 export interface TagPollTarget {
@@ -139,7 +150,8 @@ export async function pollRepoTags(
     const existing =
       tags.length > 0
         ? await prisma.release.findMany({
-            where: { repositoryId: repo.id, tagName: { in: tags.map((t) => t.name) } },
+            // Commit rows are keyed by short SHA and never shadow a tag.
+            where: { repositoryId: repo.id, source: { in: ["RELEASE", "TAG"] }, tagName: { in: tags.map((t) => t.name) } },
             select: { tagName: true },
           })
         : [];

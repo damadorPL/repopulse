@@ -23,15 +23,19 @@ enum SemverType {
   OTHER
 }
 
+/// `PATHS` ("Files / folders", Slice 06): commits on the default branch touching the subscription's `watchedPaths`.
 enum TrackMode {
   RELEASES
   TAGS_AND_COMMITS
+  PATHS
 }
 
-/// Where a `Release` row comes from (Slice 04c): a GitHub Release, or a Git tag without one.
+/// Where a `Release` row comes from: a GitHub Release, a Git tag without one (Slice 04c), or a
+/// commit touching a watched path (Slice 06).
 enum ReleaseSource {
   RELEASE
   TAG
+  COMMIT
 }
 
 /// Progress of the background import of older releases (Slice 04b).
@@ -134,6 +138,11 @@ model Repository {
   backfillRequestedAt DateTime?
   /// Last time the tags were read (Slice 04c); `null` = never, so the first "Releases + tags" subscriber queues a poll.
   lastTagsPolledAt    DateTime?
+  /// Last time watched paths were polled (Slice 06); `null` = never.
+  lastPathsPolledAt   DateTime?
+  /// Normalized paths whose initial import is done. A watched path missing here is "newly added":
+  /// its first poll imports existing history quietly (no notifications).
+  polledPaths         String[]           @default([])
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
   releases            Release[]
@@ -146,10 +155,10 @@ model Repository {
 model Release {
   id              String             @id @default(cuid())
   repositoryId    String
-  /// `null` for tag rows (`source = TAG`).
+  /// `null` for tag and commit rows (`source = TAG` / `COMMIT`).
   githubReleaseId BigInt?
   source          ReleaseSource      @default(RELEASE)
-  /// Tagged commit of a tag row.
+  /// Tagged commit of a tag row; the full SHA of a commit row (whose `tagName` is the 7-char short SHA).
   tagSha          String?
   tagName         String
   title           String
@@ -160,6 +169,9 @@ model Release {
   semverType      SemverType         @default(OTHER)
   publishedAt     DateTime
   discoveredAt    DateTime           @default(now())
+  /// Commit rows: repo-relative paths the commit changed, plus the watched paths it was found
+  /// through (a fallback when GitHub's file list is unavailable or truncated).
+  changedPaths    String[]           @default([])
   repository      Repository         @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
   userStates      UserReleaseState[]
 
@@ -174,6 +186,8 @@ model UserSubscription {
   repositoryId       String
   includePrereleases Boolean           @default(false)
   trackMode          TrackMode         @default(RELEASES)
+  /// Normalized repo-relative file or folder paths watched in `PATHS` mode (at most 10).
+  watchedPaths       String[]          @default([])
   createdAt          DateTime          @default(now())
   user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   repository         Repository        @relation(fields: [repositoryId], references: [id], onDelete: Cascade)

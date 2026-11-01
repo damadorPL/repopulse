@@ -19,7 +19,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { feedHref } from "@/lib/feed-filters";
+import { TRACK_MODE_OPTIONS, type TrackModeValue } from "@/lib/track-modes";
 import { cn } from "@/lib/utils";
+import { MAX_WATCHED_PATHS, validateWatchedPaths, WATCHED_PATHS_PLACEHOLDER } from "@/lib/watched-paths";
 import { addRepositoryAction } from "@/server/actions/repositories";
 import type { TagPill } from "@/server/queries/feed";
 
@@ -29,17 +31,22 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
   const [open, setOpen] = useState(false);
   const [repo, setRepo] = useState("");
   const [includePrereleases, setIncludePrereleases] = useState(false);
-  const [trackTags, setTrackTags] = useState(false);
+  const [trackMode, setTrackMode] = useState<TrackModeValue>("RELEASES");
+  const [pathsText, setPathsText] = useState("");
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [pathsError, setPathsError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const tracksPaths = trackMode === "PATHS";
 
   function reset() {
     setRepo("");
     setIncludePrereleases(false);
-    setTrackTags(false);
+    setTrackMode("RELEASES");
+    setPathsText("");
     setTagIds([]);
     setError(null);
+    setPathsError(null);
   }
 
   function toggleTag(id: string) {
@@ -49,11 +56,23 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    setPathsError(null);
+    let watchedPaths: string[] = [];
+    if (tracksPaths) {
+      const validation = validateWatchedPaths(pathsText);
+      if (!validation.ok) {
+        setPathsError(validation.message);
+        return;
+      }
+      watchedPaths = validation.paths;
+    }
     startTransition(async () => {
       const result = await addRepositoryAction({
         repoUrlOrSlug: repo,
-        includePrereleases,
-        trackMode: trackTags ? "TAGS_AND_COMMITS" : "RELEASES",
+        // Commits have no pre-release flag.
+        includePrereleases: tracksPaths ? false : includePrereleases,
+        trackMode,
+        watchedPaths,
         tagIds,
       });
       if (!result.ok) {
@@ -61,11 +80,17 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
         setError(result.error.message);
         return;
       }
-      const { fullName, repositoryId, releasesCount } = result.data;
+      const { fullName, repositoryId, releasesCount, importing } = result.data;
+      const counted = (word: string) => `${releasesCount} ${word}${releasesCount === 1 ? "" : "s"}`;
+      let description = `${counted("release")} imported.`;
+      if (trackMode === "TAGS_AND_COMMITS") description += " Git tags without a release are imported in the background.";
+      if (tracksPaths) {
+        description = importing
+          ? "Recent commits that change the watched paths are imported in the background."
+          : `${counted("matching commit")} found.`;
+      }
       toast.success(`Now tracking ${fullName}`, {
-        description:
-          `${releasesCount} release${releasesCount === 1 ? "" : "s"} imported.` +
-          (trackTags ? " Git tags without a release are imported in the background." : ""),
+        description,
         action: { label: "View", onClick: () => router.push(feedHref({ repositoryId })) },
       });
       setOpen(false);
@@ -88,7 +113,7 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
           <DialogHeader>
             <DialogTitle>Track a repository</DialogTitle>
             <DialogDescription>
-              Paste a GitHub URL or <code className="text-xs">owner/repo</code>. The latest releases are imported right away.
+              Paste a GitHub URL or <code className="text-xs">owner/repo</code>, then choose what to follow.
             </DialogDescription>
           </DialogHeader>
 
@@ -113,18 +138,67 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
             ) : null}
           </div>
 
-          <Label className="font-normal">
-            <Checkbox checked={includePrereleases} onCheckedChange={(v) => setIncludePrereleases(v === true)} />
-            Include pre-releases (alpha, beta, rc)
-          </Label>
+          <fieldset className="grid gap-2">
+            <legend className="mb-2 text-sm font-medium">Tracking mode</legend>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {TRACK_MODE_OPTIONS.map((option) => {
+                const selected = trackMode === option.value;
+                return (
+                  <label
+                    key={option.value}
+                    className={cn(
+                      "grid cursor-pointer gap-0.5 rounded-md border p-2.5 text-sm transition-colors has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50",
+                      selected ? "border-foreground/40 bg-secondary" : "hover:bg-accent",
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="add-repo-track-mode"
+                      value={option.value}
+                      checked={selected}
+                      onChange={() => {
+                        setTrackMode(option.value);
+                        setPathsError(null);
+                      }}
+                      className="sr-only"
+                    />
+                    <span className="font-medium">{option.label}</span>
+                    <span className="text-xs text-muted-foreground">{option.hint}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
 
-          <Label className="items-start font-normal">
-            <Checkbox className="mt-0.5" checked={trackTags} onCheckedChange={(v) => setTrackTags(v === true)} />
-            <span className="grid gap-0.5">
-              Also track Git tags without a GitHub release
-              <span className="text-xs text-muted-foreground">For projects that only push tags. Their notes list the commits since the previous tag.</span>
-            </span>
-          </Label>
+          {tracksPaths ? (
+            <div className="grid gap-2">
+              <Label htmlFor="add-repo-paths">Files or folders</Label>
+              <Input
+                id="add-repo-paths"
+                value={pathsText}
+                onChange={(e) => setPathsText(e.target.value)}
+                placeholder={WATCHED_PATHS_PLACEHOLDER}
+                autoComplete="off"
+                spellCheck={false}
+                aria-invalid={pathsError ? true : undefined}
+                aria-describedby={pathsError ? "add-repo-paths-help add-repo-paths-error" : "add-repo-paths-help"}
+              />
+              <p id="add-repo-paths-help" className="text-xs text-muted-foreground">
+                Paths relative to the repository root, separated by commas (up to {MAX_WATCHED_PATHS}). A folder matches every file
+                inside it. Each commit on the default branch that changes one of them shows up with its changed files.
+              </p>
+              {pathsError ? (
+                <p id="add-repo-paths-error" role="alert" className="text-sm text-destructive">
+                  {pathsError}
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <Label className="font-normal">
+              <Checkbox checked={includePrereleases} onCheckedChange={(v) => setIncludePrereleases(v === true)} />
+              Include pre-releases (alpha, beta, rc)
+            </Label>
+          )}
 
           {tags.length > 0 ? (
             <fieldset className="grid gap-2">
@@ -153,9 +227,9 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
           ) : null}
 
           <DialogFooter>
-            <Button type="submit" disabled={pending || !repo.trim()}>
+            <Button type="submit" disabled={pending || !repo.trim() || (tracksPaths && !pathsText.trim())}>
               {pending ? <LoaderCircleIcon className="animate-spin" /> : null}
-              {pending ? "Fetching releases…" : "Add repository"}
+              {pending ? (tracksPaths ? "Adding…" : "Fetching releases…") : "Add repository"}
             </Button>
           </DialogFooter>
         </form>

@@ -101,7 +101,7 @@ export default async function RepositoriesPage() {
                           >
                             {latestRelease.tagName}
                           </Link>
-                          <SemverBadge type={latestRelease.semverType} />
+                          {latestRelease.source === "COMMIT" ? null : <SemverBadge type={latestRelease.semverType} />}
                         </>
                       ) : (
                         "—"
@@ -125,14 +125,22 @@ export default async function RepositoriesPage() {
                       <dd>Last sync failed</dd>
                     </div>
                   ) : null}
-                  <HistoryStatus
-                    repositoryId={repo.id}
-                    history={repo.history}
-                    releaseCount={repo.releaseCount}
-                    canLoadOlder={repo.history.status === "DONE" && repo.history.hasMore && repo.history.target < hardCap}
+                  {/* Release history means nothing to a "Files / folders" subscription. */}
+                  {entry.trackMode === "PATHS" ? null : (
+                    <HistoryStatus
+                      repositoryId={repo.id}
+                      history={repo.history}
+                      releaseCount={repo.releaseCount}
+                      canLoadOlder={repo.history.status === "DONE" && repo.history.hasMore && repo.history.target < hardCap}
+                    />
+                  )}
+                  <TrackModeToggle
+                    subscriptionId={entry.subscriptionId}
+                    fullName={repo.fullName}
+                    trackMode={entry.trackMode}
+                    watchedPaths={entry.watchedPaths}
                   />
-                  <TrackModeToggle subscriptionId={entry.subscriptionId} fullName={repo.fullName} trackMode={entry.trackMode} />
-                  {entry.includePrereleases ? (
+                  {entry.includePrereleases && entry.trackMode !== "PATHS" ? (
                     <div>
                       <dt className="sr-only">Pre-releases</dt>
                       <dd>Includes pre-releases</dd>

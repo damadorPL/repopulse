@@ -51,8 +51,11 @@ BullMQ 6, ioredis 6, Tailwind CSS 4 with shadcn/ui on `radix-ui`, zod 4, Vitest 
    happens **before** the transaction, so no DB connection is held during network I/O.
 3. One transaction upserts the `Repository` by `githubRepoId`, inserts the releases, and creates the
    `UserSubscription`, the `SubscriptionTag` links (only tags the user owns) and unread `UserReleaseState` rows.
-4. Best effort afterwards: queue `release-backfill` (if `backfillStatus` is `NONE`/`ERROR`) and, for
-   `TAGS_AND_COMMITS`, a tag import (`queueTagImport`).
+4. Best effort afterwards: queue `release-backfill` (if `backfillStatus` is `NONE`/`ERROR`) and a priority poll
+   (`queueRepoImport`) for `TAGS_AND_COMMITS` when tags were never read, or for `PATHS` when a watched path is not in
+   `polledPaths` yet.
+- In `PATHS` mode no releases are seeded; instead `syncCommitStates` gives the user states for stored commits matching
+  their paths (another user may already watch them).
 
 ### 2. Scheduled polling (worker)
 `repo-scheduler` runs on `POLL_INTERVAL_CRON` (default `*/30 * * * *`) plus once at startup. It enqueues one
@@ -62,6 +65,8 @@ BullMQ 6, ioredis 6, Tailwind CSS 4 with shadcn/ui on `radix-ui`, zod 4, Vitest 
 - `200` → insert the new releases, then `planFanOut()`: unread rows for each subscriber (pre-releases only for
   subscriptions that opt in), SSE `NEW_RELEASE` events, and `notification-dispatch` jobs for matching rules.
 - With any `TAGS_AND_COMMITS` subscriber, a best-effort tag step (`pollRepoTags`) runs after the release step.
+- With any `PATHS` subscriber, a best-effort path step (`pollRepoPaths`) runs after that: commits touching the watched
+  paths, fanned out per subscriber.
 Details: [worker.md](./worker.md).
 
 ### 3. Manual sync

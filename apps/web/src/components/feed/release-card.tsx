@@ -6,7 +6,7 @@ import type { FeedItem } from "@/server/queries/feed";
 import { RelativeTime } from "./relative-time";
 import { RepoAvatar } from "./repo-avatar";
 import { SemverBadge } from "./semver-badge";
-import { TagSourceBadge } from "./source-badge";
+import { CommitSourceBadge, TagSourceBadge } from "./source-badge";
 import { TagPill } from "./tag-pill";
 
 export function ReleaseCard({
@@ -34,7 +34,7 @@ export function ReleaseCard({
         type="button"
         onClick={() => onOpen(item)}
         className="absolute inset-0 z-0 rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        aria-label={`Read ${item.source === "TAG" ? "tag" : "release"} notes for ${item.repository.fullName} ${item.tagName}${isRead ? "" : " (unread)"}`}
+        aria-label={`Read ${item.source === "TAG" ? "tag" : item.source === "COMMIT" ? "commit" : "release"} notes for ${item.repository.fullName} ${item.tagName}${isRead ? "" : " (unread)"}`}
       />
 
       <RepoAvatar src={item.repository.avatarUrl} name={item.repository.name} className="pointer-events-none relative" />
@@ -52,7 +52,7 @@ export function ReleaseCard({
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
           <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{item.tagName}</code>
           {item.source === "TAG" ? <TagSourceBadge /> : null}
-          <SemverBadge type={item.semverType} />
+          {item.source === "COMMIT" ? <CommitSourceBadge /> : <SemverBadge type={item.semverType} />}
           {showPrereleaseFlag ? <SemverBadge type="PRERELEASE" /> : null}
         </div>
 

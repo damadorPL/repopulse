@@ -2,6 +2,8 @@ import { Worker, type Job, type Queue } from "bullmq";
 import type { PrismaClient } from "@repopulse/db";
 import {
   compareCommits,
+  fetchCommitDetail,
+  fetchCommitsForPath,
   fetchRecentTags,
   GitHubRateLimitError,
   GitHubRepositoryNotFoundError,
@@ -28,7 +30,8 @@ import {
   selectFreshReleases,
   type FanOutPlan,
 } from "./fan-out";
-import { loadSubscribers, pollRepoTags, STORED_RELEASE_SELECT, tracksTags, type TagStepResult } from "./repo-tags";
+import { pollRepoPaths, type PathStepCounts, type PathStepResult } from "./repo-paths";
+import { loadSubscribers, pollRepoTags, STORED_RELEASE_SELECT, tracksReleases, tracksTags, type TagStepResult } from "./repo-tags";
 
 const log = createLogger("repo-poll");
 
@@ -36,8 +39,14 @@ const log = createLogger("repo-poll");
 export const MAX_ERROR_COUNT = 5;
 const GITHUB_REQUEST_TIMEOUT_MS = 30_000;
 
-/** Outcome of the tag step, present only when it ran ("Releases + tags" subscribers, Slice 04c). */
-export type TagOutcome = { tags?: { received: number; stored: number; fresh: number } };
+/**
+ * Outcomes of the tag step ("Releases + tags" subscribers, Slice 04c) and the path step ("Files /
+ * folders" subscribers, Slice 06), each present only when it ran.
+ */
+export type TagOutcome = {
+  tags?: { received: number; stored: number; fresh: number };
+  paths?: PathStepCounts;
+};
 
 export type RepoPollOutcome =
   | { status: "SKIPPED"; reason: "REPOSITORY_GONE" | "NO_SUBSCRIBERS" }
@@ -53,6 +62,8 @@ export interface RepoPollDeps {
   poll?: typeof pollRepoReleases;
   fetchTags?: typeof fetchRecentTags;
   compare?: typeof compareCommits;
+  fetchPathCommits?: typeof fetchCommitsForPath;
+  fetchCommitDetail?: typeof fetchCommitDetail;
   now?: () => Date;
 }
 
@@ -151,7 +162,8 @@ async function storeAndFanOut(
     let plan = EMPTY_FAN_OUT_PLAN;
 
     if (fresh.length > 0 || freshPromoted.length > 0) {
-      const subscribers = await loadSubscribers(tx, repositoryId);
+      // "Files / folders" subscribers never see GitHub Releases.
+      const subscribers = (await loadSubscribers(tx, repositoryId)).filter(tracksReleases);
       plan = mergeFanOutPlans(
         planFanOut(subscribers, fresh),
         // Tag-mode subscribers already received these as tags.
@@ -261,32 +273,48 @@ export async function processRepoPoll(
       fullName: true,
       htmlUrl: true,
       lastEtag: true,
+      polledPaths: true,
       _count: { select: { subscriptions: true } },
-      // Any "Releases + tags" subscriber turns on the tag step.
-      subscriptions: { where: { trackMode: "TAGS_AND_COMMITS" }, select: { userId: true }, take: 1 },
+      // A "Releases + tags" subscriber turns on the tag step, a "Files / folders" one the path step.
+      subscriptions: {
+        where: { OR: [{ trackMode: "TAGS_AND_COMMITS" }, { trackMode: "PATHS", watchedPaths: { isEmpty: false } }] },
+        select: { trackMode: true },
+      },
     },
   });
   if (!row) return { status: "SKIPPED", reason: "REPOSITORY_GONE" };
   // The last subscriber left between enqueue and processing.
   if (row._count.subscriptions === 0) return { status: "SKIPPED", reason: "NO_SUBSCRIBERS" };
-  const { _count, subscriptions: tagSubscribers, ...repo } = row satisfies PollTarget & object;
-  const withTags = tagSubscribers.length > 0;
+  const { _count, subscriptions: modeSubscribers, polledPaths, ...repo } = row satisfies PollTarget & object;
+  const withTags = modeSubscribers.some((s) => s.trackMode === "TAGS_AND_COMMITS");
+  const withPaths = modeSubscribers.some((s) => s.trackMode === "PATHS");
 
   const notifyRequester = (event: RealtimeEvent) =>
     requestedByUserId ? publish(deps.redis, requestedByUserId, event) : Promise.resolve();
   const syncFailed = (reason: "NOT_FOUND" | "RATE_LIMITED" | "ERROR", message: string) =>
     notifyRequester({ type: "SYNC_FAILED", repositoryId, repositoryName: repo.fullName, reason, message });
 
-  await prisma.repository.update({ where: { id: repositoryId }, data: { pollStatus: "POLLING" } });
+  await prisma.repository.update({
+    where: { id: repositoryId },
+    // Nobody watches paths any more: forget them, so a path watched again later is imported quietly
+    // instead of notifying its subscriber about everything committed in between.
+    data: { pollStatus: "POLLING", ...(!withPaths && polledPaths.length > 0 ? { polledPaths: [] } : {}) },
+  });
 
   try {
     const timeout = AbortSignal.timeout(GITHUB_REQUEST_TIMEOUT_MS);
     const signal = jobSignal ? AbortSignal.any([jobSignal, timeout]) : timeout;
     const candidates = await tokenCandidates(prisma, repositoryId, requestedByUserId);
-    // Tags are new when newer than every row stored before this poll (any source).
+    // Tags are new when newer than every release or tag row stored before this poll. Commit rows
+    // (Slice 06) are far more frequent and would push genuinely new tags into read history.
     const newestBefore = withTags
-      ? ((await prisma.release.findFirst({ where: { repositoryId }, orderBy: { publishedAt: "desc" }, select: { publishedAt: true } }))
-          ?.publishedAt ?? null)
+      ? ((
+          await prisma.release.findFirst({
+            where: { repositoryId, source: { in: ["RELEASE", "TAG"] } },
+            orderBy: { publishedAt: "desc" },
+            select: { publishedAt: true },
+          })
+        )?.publishedAt ?? null)
       : null;
     const result = await pollWithFallback(repo, candidates, deps.poll ?? pollRepoReleases, signal);
 
@@ -311,18 +339,32 @@ export async function processRepoPoll(
       ? await pollRepoTags({ prisma, fetchTags: deps.fetchTags, compare: deps.compare, now }, repo, candidates, newestBefore, signal)
       : null;
     const tags = tagStep ? { tags: { received: tagStep.received, stored: tagStep.stored, fresh: tagStep.fresh } } : {};
+    // Best effort too: commits touching watched paths ("Files / folders", Slice 06).
+    const pathStep: PathStepResult | null = withPaths
+      ? await pollRepoPaths(
+          { prisma, fetchCommits: deps.fetchPathCommits, fetchDetail: deps.fetchCommitDetail, now },
+          repo,
+          candidates,
+          signal,
+        )
+      : null;
+    const stepOutcomes: TagOutcome = { ...tags, ...(pathStep ? { paths: pathStep.counts } : {}) };
 
-    const plan = mergeFanOutPlans(releaseStep?.plan ?? EMPTY_FAN_OUT_PLAN, tagStep?.plan ?? EMPTY_FAN_OUT_PLAN);
+    const plan = mergeFanOutPlans(
+      releaseStep?.plan ?? EMPTY_FAN_OUT_PLAN,
+      tagStep?.plan ?? EMPTY_FAN_OUT_PLAN,
+      pathStep?.plan ?? EMPTY_FAN_OUT_PLAN,
+    );
     await dispatchFanOut(deps, repo, plan);
     await notifyRequester({
       type: "SYNC_COMPLETED",
       repositoryId,
       repositoryName: repo.fullName,
-      result: releaseStep || (tagStep?.stored ?? 0) > 0 ? "UPDATED" : "NOT_MODIFIED",
+      result: releaseStep || (tagStep?.stored ?? 0) > 0 || (pathStep?.counts.stored ?? 0) > 0 ? "UPDATED" : "NOT_MODIFIED",
       newReleases: plan.deliveries.find((d) => d.userId === requestedByUserId)?.releases.length ?? 0,
     });
 
-    if (!releaseStep) return { status: "NOT_MODIFIED", ...tags };
+    if (!releaseStep) return { status: "NOT_MODIFIED", ...stepOutcomes };
     const { stored, promoted, fresh } = releaseStep;
     return {
       status: "UPDATED",
@@ -331,7 +373,7 @@ export async function processRepoPoll(
       promoted,
       fresh,
       notifications: plan.notifications.length,
-      ...tags,
+      ...stepOutcomes,
     };
   } catch (error) {
     if (error instanceof GitHubRateLimitError) {

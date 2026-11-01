@@ -41,8 +41,21 @@ Rules:
 5. Tag step (`repo-tags.ts` → `pollRepoTags`): only when a subscriber is `TAGS_AND_COMMITS`. GraphQL newest 20 tags →
    store tags with no row (changelog = "commits since the previous tag" via the compare API) → fan out fresh tags to
    tag-mode subscribers only. **Best effort**: any failure is logged and skipped. It never fails the poll or pauses the
-   queue.
-6. After commit: publish SSE events (best effort), add notification jobs, and for manual syncs send `SYNC_COMPLETED`.
+   queue. Tag freshness compares against the newest `RELEASE`/`TAG` row only (commit rows are ignored).
+6. Path step (`repo-paths.ts` → `pollRepoPaths`): only when a subscriber is `PATHS` with watched paths. Union of all
+   subscribers' watched paths (deduplicated) → `fetchCommitsForPath` (REST, newest `PATH_COMMITS_PAGE_SIZE` = 10 per
+   path; anonymous works) → `fetchCommitDetail` once per unknown commit (failure = stored without files; a rate limit
+   skips the step) → insert `COMMIT` rows → `planPathFanOut` per subscriber, using only commits returned by the
+   subscriber's own paths:
+   - **fresh** = inserted by this poll *and* returned by a path already in `polledPaths`: `planFanOut` (unread, SSE,
+     notification rules, 10 per user). No date comparison: a polled path's newest commits are all stored, so an
+     unknown one is new on the branch (merged branches keep older commit dates).
+   - **imported** = returned by a newly watched path: newest 10 unread, the rest read, SSE but **no** notification
+     jobs. Commits the user already has a state for are left alone.
+   Then `polledPaths` = the paths polled now and `lastPathsPolledAt`. **Best effort** like the tag step. When no
+   subscriber watches paths any more, the poll clears `polledPaths`, so watching a path again is a quiet import.
+   The release step skips `PATHS` subscribers (`tracksReleases`).
+7. After commit: publish SSE events (best effort), add notification jobs, and for manual syncs send `SYNC_COMPLETED`.
 - Errors:
   - `GitHubRateLimitError` → `repoPollQueue.rateLimit(rateLimitDelayMs(resetAt))` (reset + 1 s, clamped to 5 s–1 h)
     and `throw Worker.RateLimitError()`. No attempt is consumed.

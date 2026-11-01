@@ -9,6 +9,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./watched-paths": {
+      "types": "./src/watched-paths.ts",
+      "default": "./dist/watched-paths.js"
     }
   },
   "files": [

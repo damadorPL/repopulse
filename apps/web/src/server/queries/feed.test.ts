@@ -18,11 +18,20 @@ describe("visibleReleasesWhere", () => {
             { repository: { subscriptions: { some: { userId: USER, includePrereleases: true } } } },
           ],
         },
-        // Tag rows only for "Releases + tags" subscriptions.
+        // Releases for "Releases only" and "Releases + tags", tags for "Releases + tags", and commits
+        // for "Files / folders" only when they matched this user's paths (they have a state row).
         {
           OR: [
-            { source: "RELEASE" },
-            { repository: { subscriptions: { some: { userId: USER, trackMode: "TAGS_AND_COMMITS" } } } },
+            {
+              source: "RELEASE",
+              repository: { subscriptions: { some: { userId: USER, trackMode: { in: ["RELEASES", "TAGS_AND_COMMITS"] } } } },
+            },
+            { source: "TAG", repository: { subscriptions: { some: { userId: USER, trackMode: "TAGS_AND_COMMITS" } } } },
+            {
+              source: "COMMIT",
+              repository: { subscriptions: { some: { userId: USER, trackMode: "PATHS" } } },
+              userStates: { some: { userId: USER } },
+            },
           ],
         },
       ],

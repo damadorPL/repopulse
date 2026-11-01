@@ -35,7 +35,7 @@ export function buildNtfyRequest(ctx: MessageContext, destinationUrl: string): P
     url: new URL(destinationUrl),
     headers: {
       "Content-Type": "text/markdown; charset=utf-8",
-      Title: encodeHeaderValue(truncateText(`New Release: ${repository.fullName} ${release.tagName}`, 250)),
+      Title: encodeHeaderValue(truncateText(`${release.source === "COMMIT" ? "New Commit" : "New Release"}: ${repository.fullName} ${release.tagName}`, 250)),
       Priority: release.semverType === "MAJOR" ? "high" : "default",
       Tags: "package,rocket",
       Click: release.htmlUrl,
@@ -73,7 +73,7 @@ export interface GotifyMessage {
 export function formatGotifyMessage(ctx: MessageContext): GotifyMessage {
   const { release, repository } = ctx;
   return {
-    title: truncateText(`New Release: ${repository.fullName} ${release.tagName}`, 250),
+    title: truncateText(`${release.source === "COMMIT" ? "New Commit" : "New Release"}: ${repository.fullName} ${release.tagName}`, 250),
     message: `${truncateText(pushBody(ctx), GOTIFY_MESSAGE_LIMIT)}\n\n${releaseKindLabel(release)} · [Open in RepoPulse](${ctx.readerUrl})`,
     priority: release.semverType === "MAJOR" ? 8 : 5,
     extras: {

@@ -191,7 +191,8 @@ export async function fetchRecentTags(params: {
 // REST: commits between two tags
 // ---------------------------------------------------------------------------
 
-function subjectOf(message: string): string {
+/** First line of a commit or tag message, trimmed and capped at 200 characters. */
+export function subjectOf(message: string): string {
   const subject = message.split(/\r?\n/, 1)[0]?.trim() ?? "";
   return subject.length > SUBJECT_MAX_LENGTH ? `${subject.slice(0, SUBJECT_MAX_LENGTH - 1)}…` : subject;
 }

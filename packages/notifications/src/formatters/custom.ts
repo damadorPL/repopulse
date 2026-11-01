@@ -14,7 +14,7 @@ export interface CustomWebhookPayload {
     title: string;
     semverType: string;
     isPrerelease: boolean;
-    source: "RELEASE" | "TAG";
+    source: "RELEASE" | "TAG" | "COMMIT";
     publishedAt: string;
     htmlUrl: string;
     bodyMarkdown: string;

@@ -6,7 +6,7 @@ import { CircleDotIcon, ExternalLinkIcon, MailOpenIcon } from "lucide-react";
 import { RelativeTime } from "@/components/feed/relative-time";
 import { RepoAvatar } from "@/components/feed/repo-avatar";
 import { SemverBadge } from "@/components/feed/semver-badge";
-import { TagSourceBadge } from "@/components/feed/source-badge";
+import { CommitSourceBadge, TagSourceBadge } from "@/components/feed/source-badge";
 import { TagPill } from "@/components/feed/tag-pill";
 import { SyncRepoButton } from "@/components/repositories/sync-repo-button";
 import { Button } from "@/components/ui/button";
@@ -65,7 +65,7 @@ export function ChangelogDrawer({ detail, children }: { detail: FeedItem | null;
                     {current.repository.fullName}
                   </Link>
                   <span className="text-xs text-muted-foreground">
-                    {current.source === "TAG" ? "Tagged" : "Published"} <RelativeTime date={current.publishedAt} />
+                    {current.source === "TAG" ? "Tagged" : current.source === "COMMIT" ? "Committed" : "Published"} <RelativeTime date={current.publishedAt} />
                   </span>
                 </div>
               </div>
@@ -75,7 +75,7 @@ export function ChangelogDrawer({ detail, children }: { detail: FeedItem | null;
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">{current.tagName}</code>
                   {current.source === "TAG" ? <TagSourceBadge /> : null}
-                  <SemverBadge type={current.semverType} />
+                  {current.source === "COMMIT" ? <CommitSourceBadge /> : <SemverBadge type={current.semverType} />}
                   {current.isPrerelease && current.semverType !== "PRERELEASE" ? <SemverBadge type="PRERELEASE" /> : null}
                   {current.tags.map((tag) => (
                     <TagPill key={tag.id} name={tag.name} colorHex={tag.colorHex} />

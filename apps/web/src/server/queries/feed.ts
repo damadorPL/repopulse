@@ -30,7 +30,10 @@ export interface FeedRepository {
 
 export interface FeedItem {
   id: string;
-  /** `TAG`: a Git tag without a GitHub Release ("Releases + tags" subscriptions). */
+  /**
+   * `TAG`: a Git tag without a GitHub Release ("Releases + tags" subscriptions). `COMMIT`: a commit
+   * touching a watched path ("Files / folders" subscriptions); `tagName` is its short SHA.
+   */
   source: ReleaseSource;
   tagName: string;
   title: string;
@@ -66,21 +69,36 @@ export interface GetReleaseFeedParams extends Partial<FeedFilters> {
 // ---------------------------------------------------------------------------
 
 /**
- * Releases the user can see: non-draft releases of repositories they subscribe to, minus
- * pre-releases for subscriptions with `includePrereleases = false`, and minus tag rows unless the
- * subscription tracks "Releases + tags" (`TAGS_AND_COMMITS`). `subscriptionFilter` narrows the
- * subscription (e.g. by tag).
+ * Releases the user can see: non-draft rows of repositories they subscribe to, minus pre-releases
+ * for subscriptions with `includePrereleases = false`, and depending on the tracking mode:
+ *
+ * - GitHub Releases in "Releases only" and "Releases + tags",
+ * - tag rows in "Releases + tags" (`TAGS_AND_COMMITS`),
+ * - commit rows in "Files / folders" (`PATHS`), and only those with a `UserReleaseState` row for
+ *   the user: commit rows are shared by everyone watching paths of the repository, and the state
+ *   row is what says a commit matched this user's own watched paths.
+ *
+ * `subscriptionFilter` narrows the subscription (e.g. by tag).
  */
 export function visibleReleasesWhere(
   userId: string,
   subscriptionFilter: Prisma.UserSubscriptionWhereInput = {},
 ): Prisma.ReleaseWhereInput {
+  const inMode = (trackMode: TrackMode | { in: TrackMode[] }): Prisma.ReleaseWhereInput => ({
+    repository: { subscriptions: { some: { userId, trackMode } } },
+  });
   return {
     isDraft: false,
     repository: { subscriptions: { some: { ...subscriptionFilter, userId } } },
     AND: [
       { OR: [{ isPrerelease: false }, { repository: { subscriptions: { some: { userId, includePrereleases: true } } } }] },
-      { OR: [{ source: "RELEASE" }, { repository: { subscriptions: { some: { userId, trackMode: "TAGS_AND_COMMITS" } } } }] },
+      {
+        OR: [
+          { source: "RELEASE", ...inMode({ in: ["RELEASES", "TAGS_AND_COMMITS"] }) },
+          { source: "TAG", ...inMode("TAGS_AND_COMMITS") },
+          { source: "COMMIT", ...inMode("PATHS"), userStates: { some: { userId } } },
+        ],
+      },
     ],
   };
 }
@@ -344,6 +362,8 @@ export interface TrackedRepository {
   subscriptionId: string;
   includePrereleases: boolean;
   trackMode: TrackMode;
+  /** Watched file or folder paths ("Files / folders" mode); kept when switching to another mode. */
+  watchedPaths: string[];
   subscribedAt: Date;
   tags: TagPill[];
   repository: FeedRepository & {
@@ -354,7 +374,7 @@ export interface TrackedRepository {
     releaseCount: number;
     history: RepositoryHistory;
   };
-  latestRelease: { id: string; tagName: string; semverType: SemverType; publishedAt: Date } | null;
+  latestRelease: { id: string; source: ReleaseSource; tagName: string; semverType: SemverType; publishedAt: Date } | null;
 }
 
 /** Release-history backfill state of a repository (Slice 04b). */
@@ -375,6 +395,7 @@ export async function getTrackedRepositories(userId: string): Promise<TrackedRep
       id: true,
       includePrereleases: true,
       trackMode: true,
+      watchedPaths: true,
       createdAt: true,
       tags: { select: { tag: { select: { id: true, name: true, slug: true, colorHex: true } } } },
       repository: {
@@ -395,8 +416,9 @@ export async function getTrackedRepositories(userId: string): Promise<TrackedRep
           // GitHub Releases only: this is the release history count of the backfill status line.
           _count: { select: { releases: { where: { isDraft: false, source: "RELEASE" } } } },
           // A few recent rows so the latest one matching the subscription settings can be picked.
+          // Commit rows are picked separately below: they are frequent and would crowd releases out.
           releases: {
-            where: { isDraft: false },
+            where: { isDraft: false, source: { in: ["RELEASE", "TAG"] } },
             orderBy: [{ publishedAt: "desc" }, { id: "desc" }],
             take: 20,
             select: { id: true, tagName: true, semverType: true, publishedAt: true, isPrerelease: true, source: true },
@@ -406,23 +428,40 @@ export async function getTrackedRepositories(userId: string): Promise<TrackedRep
     },
   });
 
-  const oldest = await prisma.release.groupBy({
-    by: ["repositoryId"],
-    where: { repositoryId: { in: rows.map((row) => row.repository.id) }, isDraft: false, source: "RELEASE" },
-    _min: { publishedAt: true },
-  });
+  const pathRepositoryIds = rows.filter((row) => row.trackMode === "PATHS").map((row) => row.repository.id);
+  const [oldest, latestCommits] = await Promise.all([
+    prisma.release.groupBy({
+      by: ["repositoryId"],
+      where: { repositoryId: { in: rows.map((row) => row.repository.id) }, isDraft: false, source: "RELEASE" },
+      _min: { publishedAt: true },
+    }),
+    // "Files / folders": the newest commit matching the user's own paths (it has a state row).
+    pathRepositoryIds.length > 0
+      ? prisma.release.findMany({
+          where: { repositoryId: { in: pathRepositoryIds }, source: "COMMIT", userStates: { some: { userId } } },
+          orderBy: [{ publishedAt: "desc" }, { id: "desc" }],
+          distinct: ["repositoryId"],
+          select: { id: true, repositoryId: true, source: true, tagName: true, semverType: true, publishedAt: true },
+        })
+      : [],
+  ]);
   const oldestByRepo = new Map(oldest.map((r) => [r.repositoryId, r._min.publishedAt]));
+  const latestCommitByRepo = new Map(latestCommits.map((r) => [r.repositoryId, r]));
 
   return rows
     .map(({ repository: { _count, releases, backfillStatus, backfillNextPage, backfillTarget, ...repository }, ...row }) => {
-      const latest = releases.find(
-        (r) =>
-          (row.includePrereleases || !r.isPrerelease) && (r.source === "RELEASE" || row.trackMode === "TAGS_AND_COMMITS"),
-      );
+      const latest =
+        row.trackMode === "PATHS"
+          ? latestCommitByRepo.get(repository.id)
+          : releases.find(
+              (r) =>
+                (row.includePrereleases || !r.isPrerelease) && (r.source === "RELEASE" || row.trackMode === "TAGS_AND_COMMITS"),
+            );
       return {
         subscriptionId: row.id,
         includePrereleases: row.includePrereleases,
         trackMode: row.trackMode,
+        watchedPaths: row.watchedPaths,
         subscribedAt: row.createdAt,
         tags: row.tags.map((t) => t.tag).sort(byName),
         repository: {
@@ -436,7 +475,7 @@ export async function getTrackedRepositories(userId: string): Promise<TrackedRep
           },
         },
         latestRelease: latest
-          ? { id: latest.id, tagName: latest.tagName, semverType: latest.semverType, publishedAt: latest.publishedAt }
+          ? { id: latest.id, source: latest.source, tagName: latest.tagName, semverType: latest.semverType, publishedAt: latest.publishedAt }
           : null,
       };
     })

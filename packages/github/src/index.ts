@@ -46,3 +46,23 @@ export {
   type GitTag,
   type MappedTag,
 } from "./tags.js";
+export {
+  buildCommitChangelog,
+  commitMatchesAnyPath,
+  commitMatchesPath,
+  fetchCommitDetail,
+  fetchCommitsForPath,
+  mapCommitListItem,
+  mapPathCommit,
+  normalizeWatchedPath,
+  parseWatchedPaths,
+  COMMIT_CHANGELOG_MAX_FILES,
+  MAX_WATCHED_PATH_LENGTH,
+  MAX_WATCHED_PATHS,
+  PATH_COMMITS_PAGE_SIZE,
+  type CommitDetail,
+  type CommitFileChange,
+  type MappedPathCommit,
+  type ParsedWatchedPaths,
+  type PathCommitSummary,
+} from "./paths.js";

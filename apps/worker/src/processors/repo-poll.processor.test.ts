@@ -15,12 +15,17 @@ const { MAX_ERROR_COUNT, processRepoPoll } = await import("./repo-poll.processor
 const REPO = { id: "repo1", owner: "acme", name: "widget", fullName: "acme/widget", htmlUrl: "https://github.com/acme/widget", lastEtag: '"old"' };
 
 /** Minimal stand-in for the Prisma calls made by the processor (no transaction path). */
-function fakePrisma(options: { errorCount?: number; subscribers?: number; tokens?: Array<[string, string]> } = {}) {
+function fakePrisma(options: { errorCount?: number; subscribers?: number; tokens?: Array<[string, string]>; polledPaths?: string[] } = {}) {
   const repo = { ...REPO, errorCount: options.errorCount ?? 0, pollStatus: "IDLE" as string };
   const updates: Array<Record<string, unknown>> = [];
   const prisma = {
     repository: {
-      findUnique: vi.fn(async () => ({ ...REPO, _count: { subscriptions: options.subscribers ?? 1 }, subscriptions: [] })),
+      findUnique: vi.fn(async () => ({
+        ...REPO,
+        polledPaths: options.polledPaths ?? [],
+        _count: { subscriptions: options.subscribers ?? 1 },
+        subscriptions: [],
+      })),
       update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         updates.push(data);
         const inc = data.errorCount as { increment?: number } | number | undefined;
@@ -120,6 +125,12 @@ describe("processRepoPoll", () => {
     expect(at.repo.pollStatus).toBe("ERROR");
   });
 
+  it("forgets the polled paths once nobody watches paths", async () => {
+    const { prisma, updates } = fakePrisma({ polledPaths: ["docs"] });
+    await processRepoPoll(job(), deps(prisma, notModified));
+    expect(updates[0]).toEqual({ pollStatus: "POLLING", polledPaths: [] });
+  });
+
   it("rethrows other errors for BullMQ retries, counting only the final attempt", async () => {
     const poll = vi.fn(async () => {
       throw new Error("socket hang up");
@@ -151,7 +162,7 @@ describe("processRepoPoll release → tag promotion", () => {
     });
     const prisma = {
       repository: {
-        findUnique: vi.fn(async () => ({ ...REPO, _count: { subscriptions: 2 }, subscriptions: [] })),
+        findUnique: vi.fn(async () => ({ ...REPO, polledPaths: [], _count: { subscriptions: 3 }, subscriptions: [] })),
         update: vi.fn(async () => ({})),
       },
       release: {
@@ -173,6 +184,15 @@ describe("processRepoPoll release → tag promotion", () => {
             ? [
                 { userId: "tagger", includePrereleases: false, trackMode: "TAGS_AND_COMMITS", tags: [], user: { notificationRules: [] } },
                 { userId: "releaser", includePrereleases: false, trackMode: "RELEASES", tags: [], user: { notificationRules: [] } },
+                // "Files / folders" subscribers never get GitHub Releases.
+                {
+                  userId: "pather",
+                  includePrereleases: false,
+                  trackMode: "PATHS",
+                  watchedPaths: ["docs"],
+                  tags: [],
+                  user: { notificationRules: [] },
+                },
               ]
             : [],
         ),

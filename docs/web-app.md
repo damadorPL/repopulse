@@ -112,7 +112,8 @@ Client usage pattern: call the action in `startTransition`, show `toast` from `s
 | `queries/notifications.ts` | `getNotificationRules` (masked), `MAX_NOTIFICATION_RULES = 25` |
 | `queries/access.ts` | `getInvites` (newest 100), `getMemberCount` |
 | `realtime.ts` | Redis connection (fail-fast, `maxRetriesPerRequest: 1`), `getRepoPollQueue`, `getReleaseBackfillQueue`, `publishToUser`, `createSubscriber`, `withRedisTimeout`, `isRealtimeConfigured` |
-| `backfill-queue.ts`, `repo-poll-queue.ts` | `enqueueReleaseBackfill`, `queueTagImport` |
+| `backfill-queue.ts`, `repo-poll-queue.ts` | `enqueueReleaseBackfill`, `queueRepoImport` (priority poll for a tag or path import) |
+| `commit-states.ts` | `syncCommitStates` / `planCommitStates` (prune and seed a `PATHS` user's commit states), `needsPathImport` |
 | `notification-destination.ts` | `normalizeDestination(channel, raw, { smtpConfigured })`: SSRF-checked URL or optional email |
 | `smtp-settings.ts` | `getSmtpConfig()` (decrypts), `isSmtpConfigured()`, `getSmtpSettingsView()` (no password), security ↔ `smtpSecure` mapping |
 | `registration.ts` | `admitGitHubUser`, `isPublicRegistrationOpen`, `findUsableInvite` |

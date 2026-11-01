@@ -6,6 +6,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-11-01 — Slice 06: file & folder change tracking
+
+**Upgrade notes**
+
+- Run the new migration `20261101180000_path_tracking` (the compose `migrator` service does this). It adds
+  `TrackMode.PATHS`, `ReleaseSource.COMMIT`, `Repository.lastPathsPolledAt` / `polledPaths`, `Release.changedPaths`
+  and `UserSubscription.watchedPaths`. No environment changes.
+
+### Added
+- **"Files / folders" tracking mode** (Slice 06) for repositories without releases or tags, and for monorepos where only
+  some paths matter. Watch up to 10 repo-relative files or folders (e.g. `CHANGELOG.md, packages/cli`): every commit
+  on the default branch that changes one of them becomes a feed entry with a **Commit** badge, titled with the commit
+  subject and labeled with its short SHA. Its notes hold the full commit message, the author, the changed files with
+  `+/-` line counts (watched files first, up to 50) and a link to the commit.
+  - The add dialog has a 3-way "Tracking mode" selector (Releases only / Releases + tags / Files / folders) that
+    replaces the "Also track Git tags" checkbox. Repository cards get the same selector plus a popover to edit the
+    watched paths.
+  - Users watching different paths of the same repository each see only commits touching their own paths.
+    "Releases only" and "Releases + tags" subscribers never see commits, and "Files / folders" subscribers no longer
+    receive GitHub Releases.
+  - A newly watched path imports its 10 most recent commits as unread, quietly: no webhook or email notifications for
+    existing history. Later commits notify like new releases.
+  - Watched paths are polled once per repository and deduplicated across users (10 newest commits per path per poll,
+    one detail request per new commit). Like tags, the path step is best effort: GitHub errors and rate limits are
+    logged and retried at the next poll, and never fail release polling.
+- Notifications for commits say "new commit" and link to the commit (Discord, Slack, email, ntfy, Gotify), and the
+  custom webhook payload has `release.source = "COMMIT"`.
+
+### Fixed
+- Tag tracking compared new tags against the newest stored row of any source. It now ignores commit rows, which would
+  otherwise push genuinely new tags into read history.
+
 ## [0.5.2] — 2026-11-01 — Security: postcss-selector-parser override
 
 **Upgrade notes**

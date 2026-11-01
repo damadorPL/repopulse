@@ -17,10 +17,17 @@ export function semverLabel(type: SemverType): string {
   return SEMVER_LABELS[type];
 }
 
-/** "Major release", "Pre-release", "Git tag", … */
+/** "Major release", "Pre-release", "Git tag", "Commit", … */
 export function releaseKindLabel(release: Pick<NotificationReleaseInput, "semverType" | "source">): string {
+  if (release.source === "COMMIT") return "Commit";
   if (release.source === "TAG") return release.semverType === "OTHER" ? "Git tag" : `${semverLabel(release.semverType)} tag`;
   return release.semverType === "PRERELEASE" ? "Pre-release" : `${semverLabel(release.semverType)} release`;
+}
+
+/** Label of the "open on GitHub" button: tags and commits have no release notes page. */
+export function githubLinkLabel(release: Pick<NotificationReleaseInput, "source">): string {
+  if (release.source === "COMMIT") return "View commit on GitHub";
+  return release.source === "TAG" ? "View on GitHub" : "Release notes on GitHub";
 }
 
 /** Normalizes line endings, drops HTML comments and tags (keeping their text) and squeezes blank lines. */

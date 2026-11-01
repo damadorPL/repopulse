@@ -5,7 +5,7 @@ import { DISCORD_DESCRIPTION_LIMIT, formatDiscordPayload } from "./formatters/di
 import { toSmtpConfig, renderReleaseEmail } from "./formatters/email.js";
 import { buildGotifyRequest, buildNtfyRequest, encodeHeaderValue, resolveGotifyEndpoint } from "./formatters/ntfy-gotify.js";
 import { formatSlackPayload } from "./formatters/slack.js";
-import { cleanMarkdown, markdownToEmailHtml, markdownToSlack, truncateBytes, truncateText } from "./markdown.js";
+import { cleanMarkdown, githubLinkLabel, markdownToEmailHtml, releaseKindLabel, markdownToSlack, truncateBytes, truncateText } from "./markdown.js";
 import type { MessageContext, SemverType } from "./types.js";
 
 function context(overrides: { semverType?: SemverType; body?: string; tag?: { name: string; colorHex: string } | null } = {}): MessageContext {
@@ -172,6 +172,24 @@ describe("custom webhook", () => {
       release: { tagName: "v2.0.0", semverType: "MAJOR", source: "RELEASE", publishedAt: "2026-10-30T12:00:00.000Z" },
       links: { repopulse: "https://pulse.example.com/?release=rel1" },
     });
+  });
+});
+
+describe("commit notifications", () => {
+  const commit = (): MessageContext => {
+    const ctx = context({ semverType: "OTHER" });
+    return {
+      ...ctx,
+      release: { ...ctx.release, source: "COMMIT", tagName: "0123456", title: "fix(db): index", htmlUrl: "https://github.com/acme/widget/commit/0123456" },
+    };
+  };
+
+  it("say commit instead of release", () => {
+    expect(releaseKindLabel({ source: "COMMIT", semverType: "OTHER" })).toBe("Commit");
+    expect(githubLinkLabel({ source: "COMMIT" })).toBe("View commit on GitHub");
+    expect(formatDiscordPayload(commit()).embeds[0]!.title).toBe("acme/widget: new commit 0123456");
+    expect(formatSlackPayload(commit()).text).toBe("New commit: acme/widget 0123456");
+    expect(formatCustomWebhookPayload(commit()).release.source).toBe("COMMIT");
   });
 });
 

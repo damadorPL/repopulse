@@ -1,6 +1,6 @@
 import nodemailer from "nodemailer";
 import { NotificationDeliveryError } from "../errors.js";
-import { escapeHtml, markdownToEmailHtml, releaseKindLabel, releaseSummary, truncateText } from "../markdown.js";
+import { escapeHtml, githubLinkLabel, markdownToEmailHtml, releaseKindLabel, releaseSummary, truncateText } from "../markdown.js";
 import type { MessageContext, SemverType } from "../types.js";
 
 /** Release notes beyond this are cut; the email links to the full notes. */
@@ -143,7 +143,10 @@ export function renderReleaseEmail(ctx: MessageContext): RenderedEmail {
   const published = release.publishedAt.toUTCString().replace(/:\d\d GMT$/, " UTC");
   const showTitle = release.title && release.title !== release.tagName;
 
-  const subject = `${ctx.test ? "[Test] " : ""}${repository.fullName} ${release.tagName} released${release.semverType === "MAJOR" ? " (major)" : ""}`;
+  const subject =
+    release.source === "COMMIT"
+      ? `${ctx.test ? "[Test] " : ""}${repository.fullName}: new commit ${release.tagName}`
+      : `${ctx.test ? "[Test] " : ""}${repository.fullName} ${release.tagName} released${release.semverType === "MAJOR" ? " (major)" : ""}`;
 
   const text = [
     ctx.test ? "This is a test notification from RepoPulse.\n" : null,
@@ -185,7 +188,7 @@ ${showTitle ? `<p style="margin:0 0 6px;font-size:15px;font-weight:600">${escape
 ${markdownToEmailHtml(summary)}
 </td></tr>
 <tr><td style="padding:8px 24px 20px">
-${button(ctx.readerUrl, "Open in RepoPulse", true)}${button(release.htmlUrl, release.source === "TAG" ? "View on GitHub" : "Release notes on GitHub", false)}
+${button(ctx.readerUrl, "Open in RepoPulse", true)}${button(release.htmlUrl, githubLinkLabel(release), false)}
 </td></tr>
 <tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;line-height:1.5;color:#64748b">
 Sent by a RepoPulse notification rule${rule.tag ? ` for the tag “${escapeHtml(rule.tag.name)}”` : " for all repositories"}.

@@ -140,7 +140,7 @@ function etagOf(headers: ResponseHeaders): string | null {
 }
 
 /** Converts Octokit HTTP errors into typed domain errors; re-throws everything else. */
-function rethrowGitHubError(error: unknown, owner: string, name: string): never {
+export function rethrowGitHubError(error: unknown, owner: string, name: string): never {
   if (isGitHubHttpError(error)) {
     const rateLimit = getRateLimitInfo(error.response?.headers);
     if (error.status === 429 || (error.status === 403 && rateLimit.remaining === 0)) {
