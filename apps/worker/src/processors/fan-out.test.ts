@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  isSnoozed,
+  mayNotify,
+  passesNotificationLevel,
   planFanOut,
   rateLimitDelayMs,
   ruleMatches,
@@ -121,6 +124,83 @@ describe("planFanOut", () => {
       { ruleId: "major", releaseId: "m", userId: "u1" },
       { ruleId: "all", releaseId: "s", userId: "u1" },
     ]);
+  });
+});
+
+describe("notification level and snooze (Slice 07)", () => {
+  const now = new Date("2026-10-20T12:00:00Z");
+  const major = release("m", 5, { semverType: "MAJOR" });
+  const minor = release("n", 4, { semverType: "MINOR" });
+  const patch = release("p", 3, { semverType: "PATCH" });
+  const commit = release("c", 2, { semverType: "OTHER" });
+  const pre = release("rc", 1, { semverType: "PRERELEASE", isPrerelease: true });
+
+  it("passesNotificationLevel: ALL keeps everything, NONE nothing", () => {
+    for (const r of [major, minor, patch, commit, pre]) {
+      expect(passesNotificationLevel("ALL", r)).toBe(true);
+      expect(passesNotificationLevel(undefined, r)).toBe(true);
+      expect(passesNotificationLevel("NONE", r)).toBe(false);
+    }
+  });
+
+  it("passesNotificationLevel: MINOR_AND_UP skips patch, pre-release and other (commits)", () => {
+    expect([major, minor, patch, commit, pre].map((r) => passesNotificationLevel("MINOR_AND_UP", r))).toEqual([true, true, false, false, false]);
+  });
+
+  it("passesNotificationLevel: MAJOR_ONLY keeps major releases only", () => {
+    expect([major, minor, patch, commit, pre].map((r) => passesNotificationLevel("MAJOR_ONLY", r))).toEqual([true, false, false, false, false]);
+    // A pre-release flagged on GitHub never counts as major, whatever its tag says.
+    expect(passesNotificationLevel("MAJOR_ONLY", release("x", 1, { semverType: "MAJOR", isPrerelease: true }))).toBe(false);
+  });
+
+  it("isSnoozed only while snoozedUntil lies in the future", () => {
+    expect(isSnoozed(null, now)).toBe(false);
+    expect(isSnoozed(undefined, now)).toBe(false);
+    expect(isSnoozed(new Date("2026-10-20T12:00:01Z"), now)).toBe(true);
+    expect(isSnoozed(new Date("2026-10-20T12:00:00Z"), now)).toBe(false);
+    expect(isSnoozed(new Date("2026-10-19T00:00:00Z"), now)).toBe(false);
+  });
+
+  it("mayNotify combines both checks", () => {
+    expect(mayNotify(subscriber("u"), patch, now)).toBe(true);
+    expect(mayNotify(subscriber("u", { notificationLevel: "MAJOR_ONLY" }), patch, now)).toBe(false);
+    expect(mayNotify(subscriber("u", { snoozedUntil: new Date("2026-10-21T00:00:00Z") }), major, now)).toBe(false);
+  });
+
+  it("planFanOut skips notification jobs but keeps unread states and deliveries", () => {
+    const rules = [rule("r1")];
+    const plan = planFanOut(
+      [
+        subscriber("all", { rules }),
+        subscriber("major-only", { rules, notificationLevel: "MAJOR_ONLY" }),
+        subscriber("muted", { rules, notificationLevel: "NONE" }),
+        subscriber("snoozed", { rules, snoozedUntil: new Date("2026-10-27T12:00:00Z") }),
+        subscriber("snooze-over", { rules, snoozedUntil: new Date("2026-10-19T12:00:00Z") }),
+      ],
+      [major, minor],
+      10,
+      now,
+    );
+    // Everyone still gets both releases as unread, with SSE deliveries.
+    expect(plan.states).toHaveLength(10);
+    expect(plan.deliveries.map((d) => d.userId)).toEqual(["all", "major-only", "muted", "snoozed", "snooze-over"]);
+    expect(plan.notifications).toEqual([
+      { ruleId: "r1", releaseId: "m", userId: "all" },
+      { ruleId: "r1", releaseId: "n", userId: "all" },
+      { ruleId: "r1", releaseId: "m", userId: "major-only" },
+      { ruleId: "r1", releaseId: "m", userId: "snooze-over" },
+      { ruleId: "r1", releaseId: "n", userId: "snooze-over" },
+    ]);
+  });
+
+  it("the level is per subscriber: a second subscriber of the same repository is unaffected", () => {
+    const plan = planFanOut(
+      [subscriber("quiet", { rules: [rule("q")], notificationLevel: "NONE" }), subscriber("loud", { rules: [rule("l")] })],
+      [patch],
+      10,
+      now,
+    );
+    expect(plan.notifications).toEqual([{ ruleId: "l", releaseId: "p", userId: "loud" }]);
   });
 });
 

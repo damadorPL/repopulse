@@ -29,7 +29,8 @@ Path alias: `@/*` → `apps/web/src/*` (tsconfig and `vitest.config.ts`).
 | Route | File | Access |
 | --- | --- | --- |
 | `/` | `app/(dashboard)/page.tsx` | user. Release feed; the URL holds all filter state (`lib/feed-filters.ts` `PARAM`); `?release=<id>` opens the changelog drawer |
-| `/repositories` | `app/(dashboard)/repositories/page.tsx` | user. Subscriptions, tags, track mode, history status, sync, remove |
+| `/repositories` | `app/(dashboard)/repositories/page.tsx` | user. Subscription cards (tags, read-only tracking summary, history status, pin, sync, remove) with search / sort / quick filters in the URL (`lib/repo-list-filters.ts`, below) |
+| `/repositories/[owner]/[name]` | `app/(dashboard)/repositories/[owner]/[name]/page.tsx` (+ `not-found.tsx`) | user. Settings of the user's own subscription: header, activity grid + stats, tracking, tags, notifications & feed, history, danger zone. Case-insensitive slug, redirected to the canonical casing; a repository the user does not track is the "Not tracked" page with a prefilled Add button. `?from=` carries the list's query string for the back link |
 | `/settings/notifications` | `app/(dashboard)/settings/notifications/page.tsx` | user. Notification rules |
 | `/admin` | `app/(dashboard)/admin/page.tsx` (+ `admin/layout.tsx`: guard and tabs) | **super admin**. Admin panel overview: counts and a card per section |
 | `/admin/access` | `app/(dashboard)/admin/access/page.tsx` | **super admin**. Registration toggle, invite links (was `/settings/access`, redirected) |
@@ -50,7 +51,7 @@ File → exported actions:
 
 | File | Actions |
 | --- | --- |
-| `repositories.ts` | `addRepositoryAction`, `updateTrackModeAction`, `removeSubscriptionAction`, `listRepositoryPathsAction` (read only: the default branch's files and folders for the path picker) |
+| `repositories.ts` | `addRepositoryAction`, `updateTrackModeAction`, `updateSubscriptionSettingsAction` (include pre-releases, pin, note, notification level, snooze, "my version"; input schema `subscriptionSettingsInput` in `lib/subscription-settings.ts`), `removeSubscriptionAction`, `listRepositoryPathsAction` (read only: the default branch's files and folders for the path picker) |
 | `sync.ts` | `triggerManualRepoSyncAction` (→ `QUEUED` / `COOLDOWN`) |
 | `backfill.ts` | `requestDeepBackfillAction` ("Load older releases"; step, cooldown and hard cap from `getBackfillConfig()`) |
 | `backfill-settings.ts` | `saveBackfillSettingsAction`, `reapplyBackfillSettingsAction` (super admin; helpers in `server/backfill-settings.ts`) |
@@ -111,7 +112,8 @@ Client usage pattern: call the action in `startTransition`, show `toast` from `s
 | --- | --- |
 | `session.ts` | `requireUser()` (redirects to `/login`), `requireSuperAdmin()` (404 for non-admins), `getSuperAdminOrThrow()` (throws `ForbiddenError`) |
 | `action-result.ts` | `ok`, `fail`, `invalidInput`, `toActionError`, `isUniqueConstraintError`, `getGitHubToken(user)` (decrypts, undefined on failure) |
-| `queries/feed.ts` | `visibleReleasesWhere`, `buildFeedWhere`, `getReleaseFeed` (keyset), `countUnread`, `getReleaseDetail`, `getDashboardData` (sidebar, unread counts) |
+| `queries/feed.ts` | `visibleReleasesWhere`, `buildFeedWhere`, `getReleaseFeed` (keyset; sets `newerThanMine` / `isMyVersion`), `countUnread`, `getReleaseDetail`, `getDashboardData` (sidebar, unread counts), `getTrackedRepositories` / `loadTrackedRepositories` / `toTrackedRepository` (the `TrackedRepository` view shared by the list and the settings page) |
+| `queries/repository-settings.ts` | `getRepositorySettings(userId, owner, name)` (`null` unless the user subscribes), `getRepositoryActivity(userId, repositoryId)` (activity grid rows through `visibleReleasesWhere`, newest 5 000 of the last 371 days, plus total and oldest date) |
 | `queries/notifications.ts` | `getNotificationRules` (masked), `MAX_NOTIFICATION_RULES = 25` |
 | `queries/access.ts` | `getInvites` (newest 100), `getMemberCount` |
 | `realtime.ts` | Redis connection (fail-fast, `maxRetriesPerRequest: 1`), `getRepoPollQueue`, `getReleaseBackfillQueue`, `publishToUser`, `createSubscriber`, `withRedisTimeout`, `isRealtimeConfigured` |
@@ -143,11 +145,25 @@ React `cache`), `UnauthorizedError` and `ForbiddenError`. The JWT session carrie
   `@variant dark` follow the switcher. `ThemeProvider` / `useTheme()` (`components/theme/`) expose the preference
   on the client, and `ThemeSwitcher` in the account menu changes it without a server round trip.
 - Watched paths ("Files / folders") are edited with `WatchedPathsPicker` (`components/repositories/`), used by the add
-  dialog and the repository card popover. It loads the tree through `listRepositoryPathsAction` (cached per repository
+  dialog and, inline, by the Tracking section of the repository settings page (`TrackingSettings`). It loads the tree through `listRepositoryPathsAction` (cached per repository
   for 5 minutes in the browser) and ranks suggestions with `lib/repo-paths.ts`. Typing any valid path must keep working
   when the tree is missing, truncated or failed to load. Forms submit `[...paths, draft]` so text not yet added as a
   chip is not lost. A parent Dialog/Popover passes `onEscapeKeyDown` with `isExpandedCombobox` so Escape closes the
   suggestion list first.
+- Per-subscription settings live on the repository settings page, not on the `/repositories` cards. The cards keep
+  the tags, sync, unread count, history line, a pin button and a read-only tracking summary that links to the page.
+- `/repositories` search params (`lib/repo-list-filters.ts`): `q` (≤ 200 characters; every word must match the full
+  name, description, note, tag names or watched paths), `sort` (`name` default, `-name`, `added`, `-added`, `updated` =
+  newest visible item first, `synced`, `unread`, `stars`; pinned first in any sort, ties by full name), `tag` (slug) and
+  `status` (comma list of `unread`, `error`, `paths`, `pinned`, all must hold). Filtering runs in memory on the server
+  (`applyRepoListFilters`); `RepoListToolbar` only rewrites the URL (search debounced 250 ms, `/` focuses it).
+- The activity grid (`ActivityGrid`, `ActivityStats`, pure helpers in `lib/activity-grid.ts`) receives timestamps and
+  buckets them by the browser's local day after mount; nothing date-dependent is rendered on the server. Colors are
+  `--activity-1..4` in `globals.css` (derived from `--primary`, so both themes follow).
+- "My version" (`lib/version-compare.ts`): visible `RELEASE` / `TAG` rows published after the row whose `tagName`
+  matches the version (or its `v`-prefix variant) are newer; without a matching row, SemVer comparison of normalized
+  versions. Shown as "N releases behind · M major" on the card and the settings page, "Newer than yours" on feed cards,
+  and set from the reader with "Set as my version".
 - Release notes are rendered with `ChangelogMarkdown` (server, sanitized). Never use `dangerouslySetInnerHTML` with
   release content.
 - Instance-admin navigation lives in `components/layout/app-sidebar.tsx` (the **Instance** group) and the account menu

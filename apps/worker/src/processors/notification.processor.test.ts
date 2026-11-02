@@ -37,6 +37,7 @@ function fakePrisma(options: {
   rule?: Partial<typeof RULE> | null;
   release?: ReturnType<typeof releaseRow> | null;
   subscriptionTags?: string[] | null;
+  subscription?: { notificationLevel?: string; snoozedUntil?: Date | null };
   smtpHost?: string | null;
 }) {
   return {
@@ -55,7 +56,14 @@ function fakePrisma(options: {
     user: { findUnique: vi.fn(async () => ({ id: "u1", email: "dev@example.com", name: "Dev" })) },
     userSubscription: {
       findUnique: vi.fn(async () =>
-        options.subscriptionTags === null ? null : { tags: (options.subscriptionTags ?? ["critical"]).map((tagId) => ({ tagId })) },
+        options.subscriptionTags === null
+          ? null
+          : {
+              tags: (options.subscriptionTags ?? ["critical"]).map((tagId) => ({ tagId })),
+              notificationLevel: "ALL",
+              snoozedUntil: null,
+              ...options.subscription,
+            },
       ),
     },
   };
@@ -101,11 +109,19 @@ describe("processNotification", () => {
     ["UNSUPPORTED_CHANNEL", { rule: { channel: "EMAIL_DIGEST" } }],
     ["UNSUBSCRIBED", { subscriptionTags: null }],
     ["TAG_REMOVED", { subscriptionTags: ["other"] }],
+    ["SNOOZED", { subscription: { snoozedUntil: new Date(Date.now() + 60_000) } }],
+    ["NOTIFICATION_LEVEL", { subscription: { notificationLevel: "NONE" } }],
   ] as const)("skips with %s", async (reason, options) => {
     const dispatch = delivered();
     const outcome = await processNotification(job(), { prisma: fakePrisma(options as never) as never, dispatch });
     expect(outcome).toEqual({ status: "SKIPPED", reason });
     expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("delivers again once a snooze has ended (Slice 07)", async () => {
+    const dispatch = delivered();
+    const prisma = fakePrisma({ subscription: { snoozedUntil: new Date(Date.now() - 60_000), notificationLevel: "MAJOR_ONLY" } });
+    expect((await processNotification(job(), { prisma: prisma as never, dispatch })).status).toBe("SENT");
   });
 
   it("delivers untagged rules for any subscription and non-major releases when allowed", async () => {

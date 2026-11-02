@@ -54,6 +54,16 @@ export function ReleaseCard({
           {item.source === "TAG" ? <TagSourceBadge /> : null}
           {item.source === "COMMIT" ? <CommitSourceBadge /> : <SemverBadge type={item.semverType} />}
           {showPrereleaseFlag ? <SemverBadge type="PRERELEASE" /> : null}
+          {item.newerThanMine ? (
+            <span
+              className="inline-flex items-center rounded-md border border-dashed px-1.5 py-0.5 text-[11px] text-muted-foreground"
+              title="Newer than the version you set as yours"
+            >
+              Newer than yours
+            </span>
+          ) : item.isMyVersion ? (
+            <span className="inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] text-muted-foreground">Your version</span>
+          ) : null}
         </div>
 
         <h3 className={cn("mt-1.5 line-clamp-2 text-sm break-words", isRead ? "font-normal text-foreground/80" : "font-semibold")}>

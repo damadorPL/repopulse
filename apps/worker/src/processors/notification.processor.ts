@@ -3,6 +3,7 @@ import { loadSmtpSettings, SmtpPasswordUnreadableError, type PrismaClient } from
 import { dispatchNotification, isDeliverableChannel, NotificationDeliveryError, toSmtpConfig } from "@repopulse/notifications";
 import type { NotificationJobData } from "@repopulse/queue";
 import { createLogger } from "../logger";
+import { isSnoozed, passesNotificationLevel } from "./fan-out";
 
 const log = createLogger("notification-dispatch");
 
@@ -13,6 +14,10 @@ export type NotificationSkipReason =
   | "NOT_MAJOR"
   | "UNSUBSCRIBED"
   | "TAG_REMOVED"
+  /** The subscription was snoozed after the fan-out queued the job (Slice 07). */
+  | "SNOOZED"
+  /** The subscription's notification level was lowered after the fan-out queued the job (Slice 07). */
+  | "NOTIFICATION_LEVEL"
   | "UNSUPPORTED_CHANNEL";
 
 export type NotificationOutcome =
@@ -30,7 +35,8 @@ export interface NotificationDeps {
  * `notification-dispatch` job: `{ ruleId, releaseId, userId }`, queued by the repo-poll fan-out.
  *
  * The rule is re-checked here because it may have changed since the fan-out: disabled, deleted,
- * switched to major-only, or the user untracked the repository or removed the tag.
+ * switched to major-only, or the user untracked the repository, removed the tag, snoozed the repository or lowered
+ * its notification level.
  *
  * Retries (`NOTIFICATION_JOB_OPTIONS`: 3 attempts, exponential from 5 s) are for transient
  * failures only. A permanent one (4xx, blocked URL, SMTP missing) throws `UnrecoverableError`,
@@ -87,10 +93,12 @@ export async function processNotification(job: Job<NotificationJobData>, deps: N
 
   const subscription = await deps.prisma.userSubscription.findUnique({
     where: { userId_repositoryId: { userId, repositoryId: release.repositoryId } },
-    select: { tags: { select: { tagId: true } } },
+    select: { tags: { select: { tagId: true } }, notificationLevel: true, snoozedUntil: true },
   });
   if (!subscription) return skip("UNSUBSCRIBED");
   if (rule.tagId && !subscription.tags.some((t) => t.tagId === rule.tagId)) return skip("TAG_REMOVED");
+  if (isSnoozed(subscription.snoozedUntil, new Date())) return skip("SNOOZED");
+  if (!passesNotificationLevel(subscription.notificationLevel, release)) return skip("NOTIFICATION_LEVEL");
 
   const dispatch = deps.dispatch ?? dispatchNotification;
   const label = `${release.repository.fullName} ${release.tagName} via ${rule.channel} (rule ${ruleId})`;

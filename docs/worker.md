@@ -37,7 +37,9 @@ Rules:
 3. `pollRepoReleases({ etag })`: `NOT_MODIFIED` or `UPDATED`.
 4. Release step (one transaction): insert unknown releases, promote tag rows that now have a Release,
    `selectFreshReleases` → `planFanOut` (unread states, SSE deliveries, notification jobs; pre-releases only with
-   `includePrereleases`; at most `INITIAL_RELEASES_LIMIT` = 10 newest per subscriber per poll, applied after filtering), bookkeeping (`lastEtag`, `lastPolledAt`, `pollStatus`, `errorCount`).
+   `includePrereleases`; at most `INITIAL_RELEASES_LIMIT` = 10 newest per subscriber per poll, applied after filtering;
+   notification jobs only when `mayNotify` allows: not snoozed (`snoozedUntil`) and at or above the subscription's
+   `notificationLevel`, checked before the rules), bookkeeping (`lastEtag`, `lastPolledAt`, `pollStatus`, `errorCount`).
 5. Tag step (`repo-tags.ts` → `pollRepoTags`): only when a subscriber is `TAGS_AND_COMMITS`. GraphQL newest 20 tags →
    store tags with no row (changelog = "commits since the previous tag" via the compare API) → fan out fresh tags to
    tag-mode subscribers only. **Best effort**: any failure is logged and skipped. It never fails the poll or pauses the
@@ -63,7 +65,10 @@ Rules:
     without retrying.
   - Anything else (network, 5xx, timeouts) is rethrown, so BullMQ retries it. Only the last attempt counts towards
     `errorCount`.
-- The pure decision logic lives in `fan-out.ts` (`selectFreshReleases`, `ruleMatches`, `planFanOut`,
+- `loadSubscribers` (`repo-tags.ts`, shared by the release, tag and path steps) selects `notificationLevel` and
+  `snoozedUntil` with each subscription, so all three steps honor them.
+- The pure decision logic lives in `fan-out.ts` (`selectFreshReleases`, `ruleMatches`, `passesNotificationLevel`,
+  `isSnoozed`, `mayNotify`, `planFanOut`,
   `mergeFanOutPlans`, `rateLimitDelayMs`). Test it there.
 
 ### `release-backfill.processor.ts` → `processReleaseBackfill`
@@ -79,7 +84,8 @@ Rules:
 
 ### `notification.processor.ts` → `processNotification`
 - Re-checks the rule against the current state: `RULE_GONE`, `RULE_DISABLED`, `RELEASE_GONE`, `NOT_MAJOR`,
-  `UNSUPPORTED_CHANNEL`, `UNSUBSCRIBED`, `TAG_REMOVED` → `SKIPPED`.
+  `UNSUPPORTED_CHANNEL`, `UNSUBSCRIBED`, `TAG_REMOVED`, `SNOOZED`, `NOTIFICATION_LEVEL` (the subscription was snoozed
+  or its level lowered after the fan-out) → `SKIPPED`.
 - Email rules: `toSmtpConfig(await loadSmtpSettings(prisma))` on **every job** (UI changes apply without a restart). An
   unreadable password becomes a permanent failure.
 - `dispatchNotification(input, { smtp, signal })`. `NotificationDeliveryError.permanent` → `UnrecoverableError`.

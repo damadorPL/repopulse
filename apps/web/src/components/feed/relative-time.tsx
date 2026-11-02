@@ -21,3 +21,18 @@ export function RelativeTime({ date, className }: { date: Date | string; classNa
     </time>
   );
 }
+
+/**
+ * An absolute date and time ("Oct 14, 2026, 11:30 PM") in the viewer's time zone. The server
+ * renders it in UTC and the browser replaces it after mount, so hydration never mismatches.
+ */
+export function LocalDateTime({ date, pattern = "PPp", className }: { date: Date | string; pattern?: string; className?: string }) {
+  const iso = (typeof date === "string" ? new Date(date) : date).toISOString();
+  const [label, setLabel] = useState(() => `${iso.slice(0, 16).replace("T", " ")} UTC`);
+  useEffect(() => setLabel(format(new Date(iso), pattern)), [iso, pattern]);
+  return (
+    <time dateTime={iso} className={cn("whitespace-nowrap", className)} suppressHydrationWarning>
+      {label}
+    </time>
+  );
+}

@@ -43,6 +43,14 @@
   --sidebar-accent: oklch(0.94 0.002 286.32);
   --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
   --sidebar-border: oklch(0.92 0.004 286.32);
+  /*
+   * Activity grid (repository settings page): four steps of the primary color over the muted
+   * background (level 0 is bg-muted). Derived from the tokens, so the dark theme follows on its own.
+   */
+  --activity-1: color-mix(in oklch, var(--primary) 28%, var(--muted));
+  --activity-2: color-mix(in oklch, var(--primary) 50%, var(--muted));
+  --activity-3: color-mix(in oklch, var(--primary) 74%, var(--muted));
+  --activity-4: var(--primary);
 }
 
 :root {

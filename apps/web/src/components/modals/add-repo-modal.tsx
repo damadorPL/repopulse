@@ -38,11 +38,11 @@ function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
-/** "Add repository" dialog; `children` is the trigger element. */
-export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: ReactNode }) {
+/** "Add repository" dialog; `children` is the trigger element. `defaultRepo` prefills the repository field. */
+export function AddRepoModal({ tags, children, defaultRepo = "" }: { tags: TagPill[]; children: ReactNode; defaultRepo?: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [repo, setRepo] = useState("");
+  const [repo, setRepo] = useState(defaultRepo);
   const [includePrereleases, setIncludePrereleases] = useState(false);
   const [trackMode, setTrackMode] = useState<TrackModeValue>("RELEASES");
   const [tracksPaths, setTracksPaths] = useState(false);
@@ -56,7 +56,7 @@ export function AddRepoModal({ tags, children }: { tags: TagPill[]; children: Re
   const tracksAnything = tracksSomething(trackMode, tracksPaths);
 
   function reset() {
-    setRepo("");
+    setRepo(defaultRepo);
     setIncludePrereleases(false);
     setTrackMode("RELEASES");
     setTracksPaths(false);

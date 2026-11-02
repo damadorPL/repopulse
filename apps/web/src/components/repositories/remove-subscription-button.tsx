@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -16,7 +17,22 @@ import {
 } from "@/components/ui/dialog";
 import { removeSubscriptionAction } from "@/server/actions/repositories";
 
-export function RemoveSubscriptionButton({ subscriptionId, fullName }: { subscriptionId: string; fullName: string }) {
+/**
+ * "Stop tracking" with a confirmation dialog. `redirectTo` navigates away after removal (the
+ * settings page of the repository no longer exists then); `withLabel` shows a full button.
+ */
+export function RemoveSubscriptionButton({
+  subscriptionId,
+  fullName,
+  redirectTo,
+  withLabel = false,
+}: {
+  subscriptionId: string;
+  fullName: string;
+  redirectTo?: string;
+  withLabel?: boolean;
+}) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
@@ -29,15 +45,23 @@ export function RemoveSubscriptionButton({ subscriptionId, fullName }: { subscri
       }
       setOpen(false);
       toast.success(`Stopped tracking ${fullName}`);
+      if (redirectTo) router.push(redirectTo);
     });
   }
 
   return (
     <Dialog open={open} onOpenChange={(next) => !pending && setOpen(next)}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-destructive" aria-label={`Stop tracking ${fullName}`}>
-          <Trash2Icon />
-        </Button>
+        {withLabel ? (
+          <Button variant="destructive" size="sm">
+            <Trash2Icon />
+            Stop tracking
+          </Button>
+        ) : (
+          <Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-destructive" aria-label={`Stop tracking ${fullName}`}>
+            <Trash2Icon />
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>

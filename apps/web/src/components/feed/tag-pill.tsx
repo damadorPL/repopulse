@@ -16,6 +16,7 @@ export function TagPill({
   name,
   colorHex,
   className,
+  children,
   ...props
 }: { name: string; colorHex: string } & ComponentProps<"span">) {
   return (
@@ -29,6 +30,8 @@ export function TagPill({
     >
       <TagDot color={colorHex} className="size-1.5" />
       <span className="truncate">{name}</span>
+      {/* Trailing controls, e.g. a remove button. */}
+      {children}
     </span>
   );
 }

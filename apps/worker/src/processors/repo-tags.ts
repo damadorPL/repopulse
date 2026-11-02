@@ -46,6 +46,8 @@ export async function loadSubscribers(tx: Tx, repositoryId: string): Promise<Sub
       trackMode: true,
       trackPaths: true,
       watchedPaths: true,
+      notificationLevel: true,
+      snoozedUntil: true,
       tags: { select: { tagId: true } },
       user: {
         select: {
@@ -63,6 +65,8 @@ export async function loadSubscribers(tx: Tx, repositoryId: string): Promise<Sub
     trackMode: s.trackMode,
     trackPaths: s.trackPaths,
     watchedPaths: s.watchedPaths ?? [],
+    notificationLevel: s.notificationLevel ?? "ALL",
+    snoozedUntil: s.snoozedUntil ?? null,
     tagIds: s.tags.map((t) => t.tagId),
     rules: s.user.notificationRules,
   }));

@@ -1,4 +1,4 @@
-import type { NotificationChannel, SemverType } from "@repopulse/db";
+import type { NotificationChannel, NotificationLevel, SemverType } from "@repopulse/db";
 import { INITIAL_RELEASES_LIMIT } from "@repopulse/github";
 import type { NotificationJobData } from "@repopulse/queue";
 
@@ -29,6 +29,13 @@ export interface FanOutSubscriber {
   tagIds: string[];
   /** The user's enabled notification rules. */
   rules: FanOutRule[];
+  /**
+   * Per-repository override checked before the rules (Slice 07). Missing = `ALL` (the rules decide).
+   * Only external notifications are affected: unread states and SSE deliveries are planned regardless.
+   */
+  notificationLevel?: NotificationLevel;
+  /** External notifications are skipped while this lies in the future (Slice 07). Not retroactive. */
+  snoozedUntil?: Date | null;
 }
 
 export interface FanOutPlan {
@@ -65,14 +72,43 @@ export function ruleMatches(rule: FanOutRule, tagIds: readonly string[], release
 }
 
 /**
+ * Whether a release clears a subscription's notification level. Commits are stored as `OTHER`, so
+ * `MINOR_AND_UP` and `MAJOR_ONLY` silence them; pre-releases count as below a minor release.
+ */
+export function passesNotificationLevel(level: NotificationLevel | undefined, release: StoredRelease): boolean {
+  switch (level ?? "ALL") {
+    case "ALL":
+      return true;
+    case "NONE":
+      return false;
+    case "MAJOR_ONLY":
+      return !release.isPrerelease && release.semverType === "MAJOR";
+    case "MINOR_AND_UP":
+      return !release.isPrerelease && (release.semverType === "MAJOR" || release.semverType === "MINOR");
+  }
+}
+
+/** A snooze is active while `snoozedUntil` lies strictly in the future. */
+export function isSnoozed(snoozedUntil: Date | null | undefined, now: Date): boolean {
+  return snoozedUntil != null && snoozedUntil.getTime() > now.getTime();
+}
+
+/** Whether the subscription may send external notifications for a release at all (before its rules run). */
+export function mayNotify(subscriber: FanOutSubscriber, release: StoredRelease, now: Date): boolean {
+  return !isSnoozed(subscriber.snoozedUntil, now) && passesNotificationLevel(subscriber.notificationLevel, release);
+}
+
+/**
  * Per subscriber: drop pre-releases unless the subscription opts in, cap at `limit` newest (a burst
  * of releases can't flood the feed, and the cap applies *after* filtering so pre-releases can't
- * crowd out a stable one), then plan unread rows, SSE deliveries and notification jobs.
+ * crowd out a stable one), then plan unread rows, SSE deliveries and notification jobs. Notification
+ * jobs are planned only when the subscription's snooze and notification level allow it ({@link mayNotify}).
  */
 export function planFanOut(
   subscribers: FanOutSubscriber[],
   fresh: StoredRelease[],
   limit = INITIAL_RELEASES_LIMIT,
+  now: Date = new Date(),
 ): FanOutPlan {
   const plan: FanOutPlan = { states: [], deliveries: [], notifications: [] };
 
@@ -85,6 +121,7 @@ export function planFanOut(
     plan.deliveries.push({ userId: subscriber.userId, releases: visible });
     for (const release of visible) {
       plan.states.push({ userId: subscriber.userId, releaseId: release.id });
+      if (!mayNotify(subscriber, release, now)) continue;
       for (const rule of subscriber.rules) {
         if (ruleMatches(rule, subscriber.tagIds, release)) {
           plan.notifications.push({ ruleId: rule.id, releaseId: release.id, userId: subscriber.userId });

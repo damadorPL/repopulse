@@ -25,13 +25,14 @@
 | `Invite` | instance | `tokenHash` unique (SHA-256 of the raw token; the token itself is never stored), `expiresAt`, `usedAt`/`usedById` (unique: one invite per account), `createdById` (cascade) |
 | `Repository` | shared | `githubRepoId` unique (immutable; survives renames), `fullName` unique, `lastEtag`, `lastPolledAt`, `pollStatus` (`IDLE`/`POLLING`/`ERROR`), `errorCount`; backfill: `backfillStatus`, `backfillNextPage`, `backfillTarget` (100), `backfilledAt`, `backfillRequestedAt`; `lastTagsPolledAt`; `lastPathsPolledAt`, `polledPaths` (watched paths whose initial import is done; exactly the paths watched at the last path poll, cleared when nobody watches paths) |
 | `Release` | shared | unique `(repositoryId, githubReleaseId)` and `(repositoryId, source, tagName)`; `source` `RELEASE`/`TAG`/`COMMIT`; `githubReleaseId` null for tag and commit rows; `tagSha` for tag rows (tagged commit) and commit rows (full SHA, `tagName` = 7-char short SHA); `changedPaths` for commit rows (changed files plus the watched paths the commit was found through); `semverType`; `isDraft` (never ingested as true) |
-| `UserSubscription` | per user | unique `(userId, repositoryId)`, `includePrereleases`, `trackMode` (`RELEASES` / `TAGS_AND_COMMITS` / `NONE`: release tracking), `trackPaths` ("Files / folders", independent of `trackMode`; at least one of the two is on, enforced by the Server Actions), `watchedPaths` (normalized, at most 10; kept while `trackPaths` is off) |
+| `UserSubscription` | per user | unique `(userId, repositoryId)`, `includePrereleases`, `trackMode` (`RELEASES` / `TAGS_AND_COMMITS` / `NONE`: release tracking), `trackPaths` ("Files / folders", independent of `trackMode`; at least one of the two is on, enforced by the Server Actions), `watchedPaths` (normalized, at most 10; kept while `trackPaths` is off); Slice 07 settings: `isPinned`, `note` (plain text, ≤ 2 000), `notificationLevel` (`ALL` / `MINOR_AND_UP` / `MAJOR_ONLY` / `NONE`), `snoozedUntil`, `currentVersion` (≤ 100, "my version") |
 | `Tag` | per user | unique `(userId, slug)`, `colorHex` `#RRGGBB` |
 | `SubscriptionTag` | per user | join of subscription ↔ tag (both cascade) |
 | `UserReleaseState` | per user | PK `(userId, releaseId)`, `isRead`, `readAt`. **No row = read** |
 | `NotificationRule` | per user | `channel`, `destinationUrl` (webhook URL or optional email recipient), `tagId` (null = all repositories; `SetNull` on tag delete), `onlyMajorReleases`, `enabled`. Max 25 per user (`MAX_NOTIFICATION_RULES`) |
 
 Enums: `PollStatus`, `SemverType` (`MAJOR`, `MINOR`, `PATCH`, `PRERELEASE`, `OTHER`), `TrackMode`, `ReleaseSource`,
+`NotificationLevel` (`ALL`, `MINOR_AND_UP`, `MAJOR_ONLY`, `NONE`),
 `BackfillStatus` (`NONE`, `QUEUED`, `RUNNING`, `DONE`, `PARTIAL`, `ERROR`), `NotificationChannel` (`IN_APP`,
 `EMAIL_INSTANT`, `EMAIL_DIGEST`, `DISCORD_WEBHOOK`, `SLACK_WEBHOOK`, `NTFY_WEBHOOK`, `GOTIFY_WEBHOOK`,
 `CUSTOM_WEBHOOK`). `IN_APP` and `EMAIL_DIGEST` are never dispatched: in-app is the unread state itself, and digests
@@ -52,6 +53,14 @@ are not built yet.
 - **Commit states follow watched paths** (`apps/web/src/server/commit-states.ts`): adding a repository with `trackPaths`,
   turning it on or changing the paths drops the user's states of commits that no longer match and seeds matching stored commits
   (newest 10 unread, older read). Matching: a changed path equals a watched path or lies inside it (`commitMatchesPath`).
+- **Per-subscription notification settings** (Slice 07, worker `fan-out.ts` → `mayNotify`, re-checked by the
+  notification processor): while `snoozedUntil > now`, or when the release is below `notificationLevel`
+  (`MINOR_AND_UP` skips `PATCH` / `PRERELEASE` / `OTHER` and anything flagged pre-release, `MAJOR_ONLY` keeps `MAJOR`,
+  `NONE` skips all; commits are `OTHER`), no notification job is queued. Unread states and SSE events are unaffected,
+  and a snooze is not retroactive. All per user: another subscriber of the same repository is unaffected.
+- **Pre-releases toggled after adding** (`updateSubscriptionSettingsAction`): on → the stored pre-releases among the 10
+  newest visible items get unread states; off → the user's unread states of pre-release rows of the repository are
+  deleted.
 - **Read cursor**: the feed pages by keyset `(publishedAt, id)` (`encodeFeedCursor` / `afterCursorWhere`).
 
 ## Migrations

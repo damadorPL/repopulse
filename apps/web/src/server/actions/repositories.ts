@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { prisma, type BackfillStatus, type TrackMode } from "@repopulse/db";
+import { prisma, type BackfillStatus, type NotificationLevel, type TrackMode } from "@repopulse/db";
 import { fetchRepoTree, INITIAL_RELEASES_LIMIT, parseRepoInput, validateAndFetchRepo, type RepoTree } from "@repopulse/github";
 import { RELEASE_BACKFILL_PRIORITY } from "@repopulse/queue";
 import { getCurrentUserOrThrow } from "@/lib/auth";
@@ -11,6 +11,7 @@ import { enqueueReleaseBackfill } from "@/server/backfill-queue";
 import { needsPathImport, syncCommitStates } from "@/server/commit-states";
 import { isRealtimeConfigured } from "@/server/realtime";
 import { queueRepoImport } from "@/server/repo-poll-queue";
+import { subscriptionSettingsInput, validateSnooze, type SubscriptionSettingsInput } from "@/lib/subscription-settings";
 import { NOTHING_TRACKED_MESSAGE, tracksSomething } from "@/lib/track-modes";
 import { validateWatchedPaths } from "@/lib/watched-paths";
 
@@ -37,6 +38,17 @@ export interface UpdateTrackingResult {
   watchedPaths: string[];
   importingTags: boolean;
   importingPaths: boolean;
+}
+
+/** Per-subscription settings after `updateSubscriptionSettingsAction` (Slice 07). */
+export interface SubscriptionSettings {
+  subscriptionId: string;
+  includePrereleases: boolean;
+  isPinned: boolean;
+  note: string | null;
+  notificationLevel: NotificationLevel;
+  snoozedUntil: Date | null;
+  currentVersion: string | null;
 }
 
 const trackModeSchema = z.enum(["RELEASES", "TAGS_AND_COMMITS", "NONE"]);
@@ -381,5 +393,94 @@ export async function listRepositoryPathsAction(input: { repoUrlOrSlug: string }
     return ok(tree);
   } catch (error) {
     return toActionError(error, "listRepositoryPathsAction");
+  }
+}
+
+/**
+ * Updates the per-subscription settings of the repository settings page (Slice 07): include
+ * pre-releases, pin, note, notification level, snooze and "my version". Every field is optional;
+ * only the ones sent change.
+ *
+ * Pre-releases follow `addRepositoryAction`: turning them on gives the stored pre-releases among the
+ * {@link INITIAL_RELEASES_LIMIT} newest visible items an unread state; turning them off deletes the
+ * user's unread states of pre-release rows, so the unread counter drops at once. Read states are
+ * kept (harmless: hidden rows are filtered by `visibleReleasesWhere`).
+ */
+export async function updateSubscriptionSettingsAction(input: SubscriptionSettingsInput): Promise<ActionResult<SubscriptionSettings>> {
+  try {
+    const user = await getCurrentUserOrThrow();
+    const parsed = subscriptionSettingsInput.safeParse(input);
+    if (!parsed.success) return invalidInput(parsed.error);
+    const { subscriptionId, includePrereleases, isPinned, note, notificationLevel, snoozedUntil, currentVersion } = parsed.data;
+    if (snoozedUntil) {
+      const message = validateSnooze(snoozedUntil);
+      if (message) return fail("INVALID_INPUT", message);
+    }
+
+    const subscription = await prisma.userSubscription.findFirst({
+      where: { id: subscriptionId, userId: user.id },
+      select: { id: true, repositoryId: true, trackMode: true, includePrereleases: true },
+    });
+    if (!subscription) return fail("NOT_FOUND", "Subscription not found.");
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.userSubscription.update({
+        where: { id: subscription.id },
+        data: {
+          ...(includePrereleases !== undefined ? { includePrereleases } : {}),
+          ...(isPinned !== undefined ? { isPinned } : {}),
+          ...(note !== undefined ? { note } : {}),
+          ...(notificationLevel !== undefined ? { notificationLevel } : {}),
+          ...(snoozedUntil !== undefined ? { snoozedUntil } : {}),
+          ...(currentVersion !== undefined ? { currentVersion } : {}),
+        },
+        select: {
+          id: true,
+          includePrereleases: true,
+          isPinned: true,
+          note: true,
+          notificationLevel: true,
+          snoozedUntil: true,
+          currentVersion: true,
+        },
+      });
+
+      const prereleasesChanged = includePrereleases !== undefined && includePrereleases !== subscription.includePrereleases;
+      if (prereleasesChanged && subscription.trackMode !== "NONE") {
+        if (includePrereleases) {
+          const newest = await tx.release.findMany({
+            where: { repositoryId: subscription.repositoryId, isDraft: false, ...sourceFilter(subscription.trackMode) },
+            orderBy: [{ publishedAt: "desc" }, { id: "desc" }],
+            take: INITIAL_RELEASES_LIMIT,
+            select: { id: true, isPrerelease: true },
+          });
+          const prereleases = newest.filter((release) => release.isPrerelease);
+          if (prereleases.length > 0) {
+            await tx.userReleaseState.createMany({
+              data: prereleases.map((release) => ({ userId: user.id, releaseId: release.id })),
+              skipDuplicates: true,
+            });
+          }
+        } else {
+          await tx.userReleaseState.deleteMany({
+            where: {
+              userId: user.id,
+              isRead: false,
+              release: { repositoryId: subscription.repositoryId, isPrerelease: true, source: { in: ["RELEASE", "TAG"] } },
+            },
+          });
+        }
+      }
+      return row;
+    });
+
+    revalidatePath("/repositories");
+    revalidatePath("/repositories/[owner]/[name]", "page");
+    // The feed, the reader and the sidebar / navbar unread counters.
+    revalidatePath("/", "layout");
+    const { id, ...settings } = updated;
+    return ok({ subscriptionId: id, ...settings });
+  } catch (error) {
+    return toActionError(error, "updateSubscriptionSettingsAction");
   }
 }

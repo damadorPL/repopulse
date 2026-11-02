@@ -8,6 +8,7 @@ import { RepoAvatar } from "@/components/feed/repo-avatar";
 import { SemverBadge } from "@/components/feed/semver-badge";
 import { CommitSourceBadge, TagSourceBadge } from "@/components/feed/source-badge";
 import { TagPill } from "@/components/feed/tag-pill";
+import { SetMyVersionButton } from "@/components/repositories/set-my-version-button";
 import { SyncRepoButton } from "@/components/repositories/sync-repo-button";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
@@ -95,6 +96,16 @@ export function ChangelogDrawer({ detail, children }: { detail: FeedItem | null;
                   {read ? "Mark as unread" : "Mark as read"}
                 </Button>
                 <SyncRepoButton repositoryId={current.repository.id} label="Sync repo now" />
+                {current.source !== "COMMIT" && current.subscriptionId ? (
+                  <SetMyVersionButton
+                    // Reset the optimistic state when another release opens.
+                    key={current.id}
+                    subscriptionId={current.subscriptionId}
+                    fullName={current.repository.fullName}
+                    tagName={current.tagName}
+                    isMyVersion={current.isMyVersion}
+                  />
+                ) : null}
               </div>
             </header>
 

@@ -1,6 +1,15 @@
 import { cache } from "react";
-import { prisma, type BackfillStatus, type Prisma, type ReleaseSource, type SemverType, type TrackMode } from "@repopulse/db";
+import {
+  prisma,
+  type BackfillStatus,
+  type NotificationLevel,
+  type Prisma,
+  type ReleaseSource,
+  type SemverType,
+  type TrackMode,
+} from "@repopulse/db";
 import { FEED_PAGE_SIZE, type FeedFilters } from "@/lib/feed-filters";
+import { computeVersionStatus, isNewerThanVersion, versionTagCandidates, type VersionStatus } from "@/lib/version-compare";
 
 /**
  * Typed, user-scoped read queries for the dashboard. Every query goes through
@@ -46,6 +55,10 @@ export interface FeedItem {
   tags: TagPill[];
   /** No `UserReleaseState` row means the release predates the subscription → treated as read. */
   isRead: boolean;
+  /** Slice 07: a release / tag newer than the version the user set as theirs ("Newer than yours"). */
+  newerThanMine: boolean;
+  /** Slice 07: this release / tag is the version the user set as theirs. */
+  isMyVersion: boolean;
 }
 
 export interface ReleaseDetail extends FeedItem {
@@ -157,7 +170,11 @@ function feedItemSelect(userId: string) {
         htmlUrl: true,
         subscriptions: {
           where: { userId },
-          select: { id: true, tags: { select: { tag: { select: { id: true, name: true, slug: true, colorHex: true } } } } },
+          select: {
+            id: true,
+            currentVersion: true,
+            tags: { select: { tag: { select: { id: true, name: true, slug: true, colorHex: true } } } },
+          },
         },
       },
     },
@@ -187,7 +204,50 @@ function toFeedItem(row: FeedRow): FeedItem {
     subscriptionId: subscription?.id ?? null,
     tags: (subscription?.tags.map((t) => t.tag) ?? []).sort(byName),
     isRead: row.userStates[0]?.isRead ?? true,
+    newerThanMine: false,
+    isMyVersion:
+      row.source !== "COMMIT" && Boolean(subscription?.currentVersion) && versionTagCandidates(subscription!.currentVersion!).includes(row.tagName),
   };
+}
+
+/**
+ * Sets `newerThanMine` on the release / tag rows of repositories where the user set "my version":
+ * newer than the stored row matching that version, or by SemVer when none matches. One query for
+ * the anchor rows of the page, none when no version is set.
+ */
+async function markNewerThanMine<T extends FeedItem>(items: T[], rows: FeedRow[]): Promise<T[]> {
+  const versions = new Map<string, string>();
+  for (const row of rows) {
+    const version = row.repository.subscriptions[0]?.currentVersion;
+    if (version) versions.set(row.repository.id, version);
+  }
+  if (versions.size === 0) return items;
+  const anchors = await prisma.release.findMany({
+    where: {
+      OR: [...versions].map(([repositoryId, version]) => ({
+        repositoryId,
+        source: { in: ["RELEASE" as const, "TAG" as const] },
+        tagName: { in: versionTagCandidates(version) },
+      })),
+    },
+    select: { repositoryId: true, tagName: true, publishedAt: true },
+  });
+  const anchorAt = new Map<string, Date>();
+  for (const [repositoryId, version] of versions) {
+    // Same preference as `findVersionRow`: the exact text first, then a `v`-prefix variant.
+    for (const candidate of versionTagCandidates(version)) {
+      const anchor = anchors.find((a) => a.repositoryId === repositoryId && a.tagName === candidate);
+      if (anchor) {
+        anchorAt.set(repositoryId, anchor.publishedAt);
+        break;
+      }
+    }
+  }
+  return items.map((item) => {
+    const version = versions.get(item.repository.id);
+    if (!version || item.source === "COMMIT") return item;
+    return { ...item, newerThanMine: isNewerThanVersion(item, version, anchorAt.get(item.repository.id) ?? null) };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -241,7 +301,10 @@ export async function getReleaseFeed(params: GetReleaseFeedParams): Promise<Feed
   const hasMore = rows.length > take;
   const page = hasMore ? rows.slice(0, take) : rows;
   const last = page.at(-1);
-  return { items: page.map(toFeedItem), nextCursor: hasMore && last ? encodeFeedCursor(last) : null };
+  return {
+    items: await markNewerThanMine(page.map(toFeedItem), page),
+    nextCursor: hasMore && last ? encodeFeedCursor(last) : null,
+  };
 }
 
 /** Unread releases matching a filter (for views narrowed by SemVer type or search). */
@@ -261,8 +324,9 @@ export async function getReleaseDetail(userId: string, releaseId: string): Promi
   });
   if (!row) return null;
   const { lastPolledAt, ...repository } = row.repository;
+  const [item] = await markNewerThanMine([toFeedItem({ ...row, repository })], [{ ...row, repository }]);
   return {
-    ...toFeedItem({ ...row, repository }),
+    ...item!,
     bodyMarkdown: row.bodyMarkdown,
     repositoryLastPolledAt: lastPolledAt,
   };
@@ -369,6 +433,18 @@ export interface TrackedRepository {
   watchedPaths: string[];
   subscribedAt: Date;
   tags: TagPill[];
+  /** Slice 07: pinned repositories sort first on `/repositories`. */
+  isPinned: boolean;
+  /** Slice 07: the user's plain-text note. */
+  note: string | null;
+  /** Slice 07: per-repository notification override (enforced by the worker fan-out). */
+  notificationLevel: NotificationLevel;
+  /** Slice 07: external notifications are skipped until then. */
+  snoozedUntil: Date | null;
+  /** Slice 07: the version the user runs. */
+  currentVersion: string | null;
+  /** How far `currentVersion` is behind the visible releases / tags; `null` when unset or not comparable. */
+  versionStatus: VersionStatus | null;
   repository: FeedRepository & {
     description: string | null;
     starsCount: number;
@@ -378,6 +454,8 @@ export interface TrackedRepository {
     history: RepositoryHistory;
   };
   latestRelease: { id: string; source: ReleaseSource; tagName: string; semverType: SemverType; publishedAt: Date } | null;
+  /** `publishedAt` of the newest item visible to the user (release, tag or commit); `null` when there is none. */
+  latestActivityAt: Date | null;
 }
 
 /** Release-history backfill state of a repository (Slice 04b). */
@@ -390,50 +468,124 @@ export interface RepositoryHistory {
   oldestAt: Date | null;
 }
 
-/** Subscriptions for the "Tracked Repositories" page, alphabetical. */
-export async function getTrackedRepositories(userId: string): Promise<TrackedRepository[]> {
-  const rows = await prisma.userSubscription.findMany({
-    where: { userId },
+export const TRACKED_REPOSITORY_SELECT = {
+  id: true,
+  includePrereleases: true,
+  trackMode: true,
+  trackPaths: true,
+  watchedPaths: true,
+  isPinned: true,
+  note: true,
+  notificationLevel: true,
+  snoozedUntil: true,
+  currentVersion: true,
+  createdAt: true,
+  tags: { select: { tag: { select: { id: true, name: true, slug: true, colorHex: true } } } },
+  repository: {
     select: {
       id: true,
-      includePrereleases: true,
-      trackMode: true,
-      trackPaths: true,
-      watchedPaths: true,
-      createdAt: true,
-      tags: { select: { tag: { select: { id: true, name: true, slug: true, colorHex: true } } } },
-      repository: {
-        select: {
-          id: true,
-          owner: true,
-          name: true,
-          fullName: true,
-          avatarUrl: true,
-          htmlUrl: true,
-          description: true,
-          starsCount: true,
-          lastPolledAt: true,
-          pollStatus: true,
-          backfillStatus: true,
-          backfillNextPage: true,
-          backfillTarget: true,
-          // GitHub Releases only: this is the release history count of the backfill status line.
-          _count: { select: { releases: { where: { isDraft: false, source: "RELEASE" } } } },
-          // A few recent rows so the latest one matching the subscription settings can be picked.
-          // Commit rows are picked separately below: they are frequent and would crowd releases out.
-          releases: {
-            where: { isDraft: false, source: { in: ["RELEASE", "TAG"] } },
-            orderBy: [{ publishedAt: "desc" }, { id: "desc" }],
-            take: 20,
-            select: { id: true, tagName: true, semverType: true, publishedAt: true, isPrerelease: true, source: true },
-          },
-        },
+      owner: true,
+      name: true,
+      fullName: true,
+      avatarUrl: true,
+      htmlUrl: true,
+      description: true,
+      starsCount: true,
+      lastPolledAt: true,
+      pollStatus: true,
+      backfillStatus: true,
+      backfillNextPage: true,
+      backfillTarget: true,
+      // GitHub Releases only: this is the release history count of the backfill status line.
+      _count: { select: { releases: { where: { isDraft: false, source: "RELEASE" } } } },
+      // A few recent rows so the latest one matching the subscription settings can be picked.
+      // Commit rows are picked separately: they are frequent and would crowd releases out.
+      releases: {
+        where: { isDraft: false, source: { in: ["RELEASE", "TAG"] } },
+        orderBy: [{ publishedAt: "desc" }, { id: "desc" }],
+        take: 20,
+        select: { id: true, tagName: true, semverType: true, publishedAt: true, isPrerelease: true, source: true },
       },
     },
+  },
+} satisfies Prisma.UserSubscriptionSelect;
+
+export type TrackedRepositoryRow = Prisma.UserSubscriptionGetPayload<{ select: typeof TRACKED_REPOSITORY_SELECT }>;
+type LatestRow = { id: string; source: ReleaseSource; tagName: string; semverType: SemverType; publishedAt: Date };
+
+/** Most visible release / tag rows read per list to compute "N releases behind". */
+const VERSION_ROWS_CAP = 5000;
+
+/**
+ * Maps a subscription row (+ the per-list lookups) to the view type shared by `/repositories` and
+ * the repository settings page.
+ */
+export function toTrackedRepository(
+  row: TrackedRepositoryRow,
+  extras: { oldestAt: Date | null; latestCommit: LatestRow | undefined; versionStatus: VersionStatus | null },
+): TrackedRepository {
+  const { _count, releases, backfillStatus, backfillNextPage, backfillTarget, ...repository } = row.repository;
+  // The latest release when releases are tracked, else (or when none matches yet) the latest matching commit.
+  const latestRelease =
+    row.trackMode === "NONE"
+      ? undefined
+      : releases.find(
+          (r) => (row.includePrereleases || !r.isPrerelease) && (r.source === "RELEASE" || row.trackMode === "TAGS_AND_COMMITS"),
+        );
+  const latestCommit = row.trackPaths ? extras.latestCommit : undefined;
+  const latest = latestRelease ?? latestCommit;
+  // The newest visible item of any kind ("Latest update" sort): a commit may be newer than the latest release.
+  const activityTimes = [latestRelease?.publishedAt, latestCommit?.publishedAt].filter((d): d is Date => d instanceof Date);
+  const latestActivityAt = activityTimes.length > 0 ? new Date(Math.max(...activityTimes.map((d) => d.getTime()))) : null;
+  return {
+    subscriptionId: row.id,
+    includePrereleases: row.includePrereleases,
+    trackMode: row.trackMode,
+    trackPaths: row.trackPaths,
+    watchedPaths: row.watchedPaths,
+    subscribedAt: row.createdAt,
+    tags: row.tags.map((t) => t.tag).sort(byName),
+    isPinned: row.isPinned,
+    note: row.note,
+    notificationLevel: row.notificationLevel,
+    snoozedUntil: row.snoozedUntil,
+    currentVersion: row.currentVersion,
+    versionStatus: extras.versionStatus,
+    repository: {
+      ...repository,
+      releaseCount: _count.releases,
+      history: {
+        status: backfillStatus,
+        hasMore: backfillNextPage !== null,
+        target: backfillTarget,
+        oldestAt: extras.oldestAt,
+      },
+    },
+    latestRelease: latest
+      ? { id: latest.id, source: latest.source, tagName: latest.tagName, semverType: latest.semverType, publishedAt: latest.publishedAt }
+      : null,
+    latestActivityAt,
+  };
+}
+
+/**
+ * Tracked repositories of a user matching `where` (always scoped to `userId`, which `where` cannot
+ * override), with the lookups that take one query per list rather than per row: oldest stored
+ * release, latest matching commit and the "my version" status.
+ */
+export async function loadTrackedRepositories(
+  userId: string,
+  where: Prisma.UserSubscriptionWhereInput = {},
+): Promise<TrackedRepository[]> {
+  const rows = await prisma.userSubscription.findMany({
+    where: { ...where, userId },
+    select: TRACKED_REPOSITORY_SELECT,
   });
+  if (rows.length === 0) return [];
 
   const pathRepositoryIds = rows.filter((row) => row.trackPaths).map((row) => row.repository.id);
-  const [oldest, latestCommits] = await Promise.all([
+  const versionRepositoryIds = rows.filter((row) => row.currentVersion && row.trackMode !== "NONE").map((row) => row.repository.id);
+  const [oldest, latestCommits, versionRows] = await Promise.all([
     prisma.release.groupBy({
       by: ["repositoryId"],
       where: { repositoryId: { in: rows.map((row) => row.repository.id) }, isDraft: false, source: "RELEASE" },
@@ -448,43 +600,44 @@ export async function getTrackedRepositories(userId: string): Promise<TrackedRep
           select: { id: true, repositoryId: true, source: true, tagName: true, semverType: true, publishedAt: true },
         })
       : [],
+    // "My version": the visible releases / tags of the repositories that have one set.
+    versionRepositoryIds.length > 0
+      ? prisma.release.findMany({
+          where: {
+            AND: [
+              visibleReleasesWhere(userId, { repositoryId: { in: versionRepositoryIds } }),
+              { repositoryId: { in: versionRepositoryIds }, source: { in: ["RELEASE", "TAG"] } },
+            ],
+          },
+          orderBy: [{ publishedAt: "desc" }, { id: "desc" }],
+          take: VERSION_ROWS_CAP,
+          select: { repositoryId: true, tagName: true, publishedAt: true, semverType: true },
+        })
+      : [],
   ]);
   const oldestByRepo = new Map(oldest.map((r) => [r.repositoryId, r._min.publishedAt]));
   const latestCommitByRepo = new Map(latestCommits.map((r) => [r.repositoryId, r]));
+  const versionRowsByRepo = new Map<string, Array<{ tagName: string; publishedAt: Date; semverType: SemverType }>>();
+  for (const row of versionRows) {
+    const list = versionRowsByRepo.get(row.repositoryId);
+    if (list) list.push(row);
+    else versionRowsByRepo.set(row.repositoryId, [row]);
+  }
 
-  return rows
-    .map(({ repository: { _count, releases, backfillStatus, backfillNextPage, backfillTarget, ...repository }, ...row }) => {
-      // The latest release when releases are tracked, else (or when none matches yet) the latest matching commit.
-      const latestRelease =
-        row.trackMode === "NONE"
-          ? undefined
-          : releases.find(
-              (r) =>
-                (row.includePrereleases || !r.isPrerelease) && (r.source === "RELEASE" || row.trackMode === "TAGS_AND_COMMITS"),
-            );
-      const latest = latestRelease ?? (row.trackPaths ? latestCommitByRepo.get(repository.id) : undefined);
-      return {
-        subscriptionId: row.id,
-        includePrereleases: row.includePrereleases,
-        trackMode: row.trackMode,
-        trackPaths: row.trackPaths,
-        watchedPaths: row.watchedPaths,
-        subscribedAt: row.createdAt,
-        tags: row.tags.map((t) => t.tag).sort(byName),
-        repository: {
-          ...repository,
-          releaseCount: _count.releases,
-          history: {
-            status: backfillStatus,
-            hasMore: backfillNextPage !== null,
-            target: backfillTarget,
-            oldestAt: oldestByRepo.get(repository.id) ?? null,
-          },
-        },
-        latestRelease: latest
-          ? { id: latest.id, source: latest.source, tagName: latest.tagName, semverType: latest.semverType, publishedAt: latest.publishedAt }
+  return rows.map((row) =>
+    toTrackedRepository(row, {
+      oldestAt: oldestByRepo.get(row.repository.id) ?? null,
+      latestCommit: latestCommitByRepo.get(row.repository.id),
+      versionStatus:
+        row.currentVersion && row.trackMode !== "NONE"
+          ? computeVersionStatus(versionRowsByRepo.get(row.repository.id) ?? [], row.currentVersion)
           : null,
-      };
-    })
-    .sort((a, b) => a.repository.fullName.localeCompare(b.repository.fullName));
+    }),
+  );
+}
+
+/** Subscriptions for the "Tracked Repositories" page, alphabetical (the page re-sorts with `applyRepoListFilters`). */
+export async function getTrackedRepositories(userId: string): Promise<TrackedRepository[]> {
+  const repositories = await loadTrackedRepositories(userId);
+  return repositories.sort((a, b) => a.repository.fullName.localeCompare(b.repository.fullName));
 }

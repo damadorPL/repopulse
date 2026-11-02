@@ -6,7 +6,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-11-02 — Repository settings page
+
+**Upgrade notes**
+
+- One migration (`20261102120000_subscription_settings`), applied by the migrator on deploy. Existing subscriptions
+  get the defaults (not pinned, no note, notification level "All updates", not snoozed, no version).
+
+### Added
+- **Repository settings page** (`/repositories/<owner>/<name>`): every setting of a tracked repository in one place,
+  with a header (sync, open in feed, pin), tracking, tags, notifications & feed, release history and a danger zone.
+  The URL is case-insensitive and redirects to the canonical casing; a repository you don't track shows a "Not
+  tracked" page with an Add button prefilled with it.
+- **Activity grid**: a GitHub-style heatmap of the repository's updates in your feed over the last 53 weeks, bucketed by
+  your local day, with major-release markers, a source filter (releases / tags / commits), tooltips, click-to-read,
+  and stats (updates in the last 12 months, last update, typical gap between releases, busiest month, weekly streak).
+- **Search, sort and filters on Tracked repositories**: search by name, description, note, tags or watched paths;
+  sort by name, date added, latest update, last synced, unread or stars; filter by tag and by Pinned / Unread /
+  Files / folders / Sync failed. Everything is kept in the URL, and the settings page's back link returns to it.
+- **Pin to top**: pinned repositories sort first on Tracked repositories, whatever the sort.
+- **Personal note** per repository, shown on the settings page and as a one-line hint on the card, and searchable.
+- **Notification level** per repository: All updates, Minor and major, Major releases only, or Feed only. Applied
+  before your notification rules; the feed and unread count always update. Commits count as "other" updates.
+- **Snooze notifications** of a repository for 1 day, 1 week, 1 month or until a date. The card shows "Snoozed
+  until …"; nothing is sent afterwards for what happened meanwhile.
+- **My version**: set the version you run (on the settings page, or "Set as my version" in the reader). Cards and the
+  settings page show "N releases behind · M major", and feed cards of newer releases are marked "Newer than yours".
+
 ### Changed
+- The tracking controls (release mode select, "Files / folders" popover) moved from the repository cards to the
+  settings page, where the path editor is shown inline. Cards show a read-only tracking summary that links to it, and
+  their title now opens the settings page (a new feed icon opens the repository in the feed).
+- **Include pre-releases** can now be changed after adding a repository. Turning it on marks the stored pre-releases
+  among the 10 newest updates as unread; turning it off removes unread pre-releases from the feed and the counters.
 - Updated dependencies to their latest stable releases:
   - `next` 16.4.3 → 16.4.4 (`apps/web`)
   - `semver` 7.8.5 → 7.8.6 (`packages/github`)

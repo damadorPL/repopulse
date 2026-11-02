@@ -49,6 +49,16 @@ enum BackfillStatus {
   ERROR
 }
 
+/// Per-repository override of external notifications (Slice 07), checked in the worker fan-out before the user's
+/// notification rules. `ALL` = the rules decide; `MINOR_AND_UP` skips patch, pre-release and other updates (commits
+/// count as `OTHER`); `MAJOR_ONLY` keeps major releases only; `NONE` = feed only. Unread state and SSE are unaffected.
+enum NotificationLevel {
+  ALL
+  MINOR_AND_UP
+  MAJOR_ONLY
+  NONE
+}
+
 enum NotificationChannel {
   IN_APP
   EMAIL_INSTANT
@@ -202,6 +212,16 @@ model UserSubscription {
   trackPaths         Boolean           @default(false)
   /// Normalized repo-relative file or folder paths watched when `trackPaths` is on (at most 10). Kept when it is off.
   watchedPaths       String[]          @default([])
+  /// Slice 07: pinned repositories sort first on /repositories.
+  isPinned           Boolean           @default(false)
+  /// Slice 07: personal plain-text note (at most 2 000 characters), shown on the settings page and the card.
+  note               String?           @db.Text
+  /// Slice 07: per-repository notification override, applied before the user's rules in the worker fan-out.
+  notificationLevel  NotificationLevel @default(ALL)
+  /// Slice 07: no external notifications while `snoozedUntil > now` (the feed still updates; not retroactive).
+  snoozedUntil       DateTime?
+  /// Slice 07: the version the user runs (at most 100 characters), compared with stored release and tag rows.
+  currentVersion     String?
   createdAt          DateTime          @default(now())
   user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   repository         Repository        @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
