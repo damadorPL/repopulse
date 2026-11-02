@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+### Changed
+- Updated dependencies to their latest stable releases:
+  - `next` 16.4.3 → 16.4.4 (`apps/web`)
+  - `semver` 7.8.5 → 7.8.6 (`packages/github`)
+  - `vitest` 5.0.5 → 5.1.0 (`apps/web`, `apps/worker`, `packages/{db,github,notifications,queue}`)
+  - Switched `apps/web/vitest.config.ts` JSX configuration to `oxc: { jsx: { runtime: "automatic" } }` for compatibility with Vitest 5.1.0 and Vite 8 Oxc transformation.
+
+
 ## [0.7.1] — 2026-11-01 — Admin panel
 
 **Upgrade notes**
