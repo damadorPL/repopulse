@@ -9,20 +9,37 @@ allowBuilds:
   msgpackr-extract: false
   prisma: true
 minimumReleaseAgeExclude:
-  - '@next/env@16.4.4'
-  - '@next/swc-darwin-arm64@16.4.4'
-  - '@next/swc-darwin-x64@16.4.4'
-  - '@next/swc-linux-arm64-gnu@16.4.4'
-  - '@next/swc-linux-arm64-musl@16.4.4'
-  - '@next/swc-linux-x64-gnu@16.4.4'
-  - '@next/swc-linux-x64-musl@16.4.4'
-  - '@next/swc-win32-arm64-msvc@16.4.4'
-  - '@next/swc-win32-x64-msvc@16.4.4'
+  - '@next/env@16.4.4 || 16.4.5'
+  - '@next/swc-darwin-arm64@16.4.4 || 16.4.5'
+  - '@next/swc-darwin-x64@16.4.4 || 16.4.5'
+  - '@next/swc-linux-arm64-gnu@16.4.4 || 16.4.5'
+  - '@next/swc-linux-arm64-musl@16.4.4 || 16.4.5'
+  - '@next/swc-linux-x64-gnu@16.4.4 || 16.4.5'
+  - '@next/swc-linux-x64-musl@16.4.4 || 16.4.5'
+  - '@next/swc-win32-arm64-msvc@16.4.4 || 16.4.5'
+  - '@next/swc-win32-x64-msvc@16.4.4 || 16.4.5'
   - '@vitest/mocker@5.1.0'
   - '@vitest/spy@5.1.0'
-  - next@16.4.4
+  - next@16.4.4 || 16.4.5
   - semver@7.8.6
   - vitest@5.1.0
+  - '@tailwindcss/node@4.3.4'
+  - '@tailwindcss/oxide-android-arm64@4.3.4'
+  - '@tailwindcss/oxide-darwin-arm64@4.3.4'
+  - '@tailwindcss/oxide-darwin-x64@4.3.4'
+  - '@tailwindcss/oxide-freebsd-x64@4.3.4'
+  - '@tailwindcss/oxide-linux-arm-gnueabihf@4.3.4'
+  - '@tailwindcss/oxide-linux-arm64-gnu@4.3.4'
+  - '@tailwindcss/oxide-linux-arm64-musl@4.3.4'
+  - '@tailwindcss/oxide-linux-x64-gnu@4.3.4'
+  - '@tailwindcss/oxide-linux-x64-musl@4.3.4'
+  - '@tailwindcss/oxide-wasm32-wasi@4.3.4'
+  - '@tailwindcss/oxide-win32-arm64-msvc@4.3.4'
+  - '@tailwindcss/oxide-win32-x64-msvc@4.3.4'
+  - '@tailwindcss/oxide@4.3.4'
+  - '@tailwindcss/postcss@4.3.4'
+  - lucide-react@1.67.0
+  - tailwindcss@4.3.4
 overrides:
   # @tailwindcss/typography 0.5.20 pins 6.0.10, which is affected by GHSA-rj75-hqrm-r3gf (fixed in 6.1.5).
   postcss-selector-parser: 6.1.5

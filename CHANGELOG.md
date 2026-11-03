@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+### Changed
+- Updated dependencies across workspace packages to their latest releases:
+  - `bullmq` 6.5.3 → 6.5.4 (`apps/web`, `apps/deps-worker`, `apps/worker`, `packages/queue`)
+  - `lucide-react` 1.66.0 → 1.67.0 (`apps/web`)
+  - `next` 16.4.4 → 16.4.5 (`apps/web`)
+  - `@tailwindcss/postcss` and `tailwindcss` 4.3.3 → 4.3.4 (`apps/web`)
+
 ## [0.9.4] — 2026-11-03 — Security and reliability fixes
 
 **Upgrade notes**
