@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-11-03 — Coolify deploy fix for deps-egress
+
+### Fixed
+- **Coolify deploy of `deps-egress`**: the container failed to start ("Are you trying to mount a directory onto a
+  file") because Coolify keeps no repository files on the host, so the `squid.conf` bind mount had an empty directory
+  as its source. `squid.conf` is now baked into a small image built from the pinned Squid image
+  (`deploy/deps-egress/Dockerfile`).
+
 ## [0.9.0] — 2026-11-03 — Dependencies
 
 **Upgrade notes**

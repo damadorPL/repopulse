@@ -16,7 +16,7 @@
 | `worker` | `apps/worker/Dockerfile` target `runner` (`node apps/worker/dist/index.js`) | Jobs, health on 3001. `stop_grace_period: 30s` | `wget localhost:3001/health` |
 | `deps-worker` | `apps/deps-worker/Dockerfile` target `runner` (`node apps/deps-worker/dist/index.js`, user `node`) | Dependency scans, update PRs, dependency notifications; health on 3002. Networks `default` + `deps_sandbox`. `stop_grace_period: 30s` | `wget localhost:3002/health` |
 | `deps-sandbox` | `apps/deps-sandbox/Dockerfile` (`node:26-trixie-slim`, Python 3.13, npm 12.2.1, pnpm 12.14.0, Bun 1.4.3, uv 0.13.1, Poetry 2.5.1, `tini`, uid 10001) | Lockfile regeneration on 3003. Network `deps_sandbox` only. Hardened (below) | `fetch 127.0.0.1:3003/health` |
-| `deps-egress` | `ubuntu/squid:6.6-24.04_edge` pinned by digest, `deploy/deps-egress/squid.conf` mounted read-only | The sandbox's only way out (port 3128). Networks `default` + `deps_sandbox` (alias `deps-egress`) | — |
+| `deps-egress` | `deploy/deps-egress/Dockerfile`: `ubuntu/squid:6.6-24.04_edge` pinned by digest with `squid.conf` baked in (Coolify keeps no repository files on the host, so a bind mount would fail) | The sandbox's only way out (port 3128). Networks `default` + `deps_sandbox` (alias `deps-egress`) | — |
 
 Startup order: `postgres` and `redis` healthy → `migrator` completed successfully → `web`, `worker` and `deps-worker`.
 `deps-sandbox` and `deps-egress` have no database dependency and start right away.
@@ -51,6 +51,10 @@ Startup order: `postgres` and `redis` healthy → `migrator` completed successfu
 - **MUST NOT** give `deps-sandbox` more environment, volumes, `env_file` or networks, or relax its hardening. It runs
   third-party package managers on untrusted repository files ([dependencies.md](./dependencies.md#rules)).
 - **MUST** keep `deps_sandbox` `internal: true`, and check after the first deploy that Coolify kept it (below).
+- **MUST NOT** bind-mount repository files (`./deploy/...:/path`) in `docker-compose.coolify.yml`. Coolify keeps only
+  the generated compose file and `.env` on the host, so the missing source becomes an empty directory and the
+  container fails to start ("Are you trying to mount a directory onto a file"). Bake files into an image with a
+  `build:` (as `deploy/deps-egress/Dockerfile` does for `squid.conf`).
 - A new app with a Dockerfile follows the same `turbo prune @repopulse/<app> --docker` pattern; Coolify builds each
   service's image from the repository root.
 

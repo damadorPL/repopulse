@@ -13,13 +13,11 @@ client, method, `host:port`, status) and no query strings.
 
 ## Image
 
-Use a pinned Squid image, for example:
-
-```yaml
-image: ubuntu/squid:6.6-24.04_edge@sha256:8a3baed477e2c282ab8aa5edad442f69873246964f225c5c2ae8364b6610963c
-volumes:
-  - ./deploy/deps-egress/squid.conf:/etc/squid/squid.conf:ro
-```
+[`Dockerfile`](./Dockerfile) copies `squid.conf` into the pinned `ubuntu/squid:6.6-24.04_edge` image (by digest), and
+`docker-compose.coolify.yml` builds it with `context: ./deploy/deps-egress`. The config is baked in rather than
+bind-mounted because Coolify does not keep repository files on the host for compose deployments: a
+`./deploy/deps-egress/squid.conf` bind mount gets an empty directory as its source and the container fails with
+"Are you trying to mount a directory onto a file". Changing `squid.conf` therefore needs a redeploy (rebuild).
 
 Squid drops to the `proxy` user, so it writes its logs to `/var/log/squid/`. The image's entrypoint tails those
 files to stdout, so `docker logs` shows them.
