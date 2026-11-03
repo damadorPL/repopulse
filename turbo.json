@@ -46,6 +46,7 @@
       "cache": false
     },
     "lint": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/eslint.config.mjs"],
       "dependsOn": [
         "db:generate",
         "^db:generate"

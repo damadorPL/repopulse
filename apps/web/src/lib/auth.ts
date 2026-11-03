@@ -75,7 +75,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // Single-use either way; best effort, since the cookie expires within the hour anyway.
         try {
           cookieStore.delete(INVITE_COOKIE);
-        } catch {}
+        } catch {
+          // Cookie writes may be unavailable here; the short-lived cookie expires itself.
+        }
       }
       return result;
     },

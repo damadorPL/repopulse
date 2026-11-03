@@ -498,12 +498,11 @@ export const TRACKED_REPOSITORY_SELECT = {
       backfillTarget: true,
       // GitHub Releases only: this is the release history count of the backfill status line.
       _count: { select: { releases: { where: { isDraft: false, source: "RELEASE" } } } },
-      // A few recent rows so the latest one matching the subscription settings can be picked.
-      // Commit rows are picked separately: they are frequent and would crowd releases out.
+      // The user-scoped loader adds visibility before limiting this relation.
       releases: {
         where: { isDraft: false, source: { in: ["RELEASE", "TAG"] } },
         orderBy: [{ publishedAt: "desc" }, { id: "desc" }],
-        take: 20,
+        take: 1,
         select: { id: true, tagName: true, semverType: true, publishedAt: true, isPrerelease: true, source: true },
       },
     },
@@ -579,7 +578,20 @@ export async function loadTrackedRepositories(
 ): Promise<TrackedRepository[]> {
   const rows = await prisma.userSubscription.findMany({
     where: { ...where, userId },
-    select: TRACKED_REPOSITORY_SELECT,
+    select: {
+      ...TRACKED_REPOSITORY_SELECT,
+      repository: {
+        select: {
+          ...TRACKED_REPOSITORY_SELECT.repository.select,
+          releases: {
+            ...TRACKED_REPOSITORY_SELECT.repository.select.releases,
+            // Filter before take: excluded tags/prereleases must never crowd out
+            // the latest visible release, however many newer rows exist.
+            where: { AND: [visibleReleasesWhere(userId), { source: { in: ["RELEASE", "TAG"] } }] },
+          },
+        },
+      },
+    },
   });
   if (rows.length === 0) return [];
 

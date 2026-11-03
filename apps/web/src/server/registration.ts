@@ -50,11 +50,17 @@ export async function admitGitHubUser(
   const existing = await prisma.user.findUnique({ where: { githubId: fields.githubId }, select: { id: true } });
   if (existing) return true;
 
-  const [userCount, publicRegistration] = await Promise.all([prisma.user.count(), isPublicRegistrationOpen()]);
-  if (userCount === 0) {
-    await prisma.user.create({ data: { ...fields, isSuperAdmin: true } });
+  // Serialize bootstrap across web processes: two initial OAuth callbacks must not
+  // both observe an empty instance and acquire administrator privileges.
+  const admitted = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(724512, 1)`;
+    if (await tx.user.findUnique({ where: { githubId: fields.githubId }, select: { id: true } })) return true;
+    if ((await tx.user.count()) !== 0) return false;
+    await tx.user.create({ data: { ...fields, isSuperAdmin: true } });
     return true;
-  }
+  });
+  if (admitted) return true;
+  const publicRegistration = await isPublicRegistrationOpen();
 
   if (inviteToken && isWellFormedInviteToken(inviteToken)) {
     const tokenHash = hashInviteToken(inviteToken);

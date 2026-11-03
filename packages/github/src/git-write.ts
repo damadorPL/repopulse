@@ -244,6 +244,8 @@ export interface CommitFilesParams {
   message: string;
   /** `true`: force-update the branch (created when missing). `false`: create it; an existing branch is a conflict. */
   force: boolean;
+  /** Persist the exact prepared SHA before publishing it to the branch. A rejection prevents the ref write. */
+  onPrepared?: (commitSha: string) => Promise<void>;
 }
 
 export interface CommitFilesResult {
@@ -302,6 +304,7 @@ export async function commitFiles(octokit: Octokit, params: CommitFilesParams): 
     rethrowRateLimit(error);
   }
 
+  await params.onPrepared?.(commitSha);
   await writeRef(octokit, owner, repo, ref, commitSha, params.force);
   return { commitSha, treeSha };
 }

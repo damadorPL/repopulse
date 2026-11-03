@@ -209,6 +209,27 @@ describe("commitFiles", () => {
     expect(patch?.body).toEqual({ sha: "newcommit", force: true });
   });
 
+  it("awaits durable commit preparation before writing the ref", async () => {
+    let persisted = false;
+    const { octokit } = fakeGitHub(gitRoutes({ [`POST ${R}/git/refs`]: () => {
+      expect(persisted).toBe(true);
+      return json({ ref: "x" }, { status: 201 });
+    } }));
+    await commitFiles(octokit, { ...params, force: false, onPrepared: async (sha) => {
+      expect(sha).toBe("newcommit");
+      await Promise.resolve();
+      persisted = true;
+    } });
+  });
+
+  it("does not write the ref when durable preparation fails", async () => {
+    const { octokit, calls } = fakeGitHub(gitRoutes({}));
+    await expect(commitFiles(octokit, { ...params, force: false, onPrepared: async () => {
+      throw new Error("Database unavailable");
+    } })).rejects.toThrow("Database unavailable");
+    expect(calls.some((call) => call.path.includes("/git/refs"))).toBe(false);
+  });
+
   it("creates the branch when a force update finds it deleted", async () => {
     const { octokit, calls } = fakeGitHub(
       gitRoutes({

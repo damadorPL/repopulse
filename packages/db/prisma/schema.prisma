@@ -437,10 +437,25 @@ model DependencyProject {
   updates            DependencyUpdate[]
   pullRequests       DependencyPullRequest[]
   prOwnership        DependencyPrOwner?
+  notificationOutbox DependencyNotificationOutbox[]
+  branchWriteIntents DependencyBranchWriteIntent[]
 
   @@unique([userId, githubRepoId])
   @@index([nextScanAt, scanStatus])
   @@index([githubRepoId])
+}
+
+/// Exact bot commit prepared before a branch write, allowing safe retry reconciliation.
+model DependencyBranchWriteIntent {
+  projectId String
+  groupKey  String
+  commitSha String
+  /// Bot head observed before preparing this commit; retained when a replacement ref write fails.
+  previousHeadSha String?
+  createdAt DateTime          @default(now())
+  project   DependencyProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, groupKey])
 }
 
 model DependencyManifest {
@@ -527,4 +542,15 @@ model DependencyPrOwner {
   githubRepoId Int               @id
   projectId    String            @unique
   project      DependencyProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+/// Durable queue intents; removed only after BullMQ acknowledges enqueueing the deterministic job id.
+model DependencyNotificationOutbox {
+  id        String            @id
+  projectId String
+  payload   Json
+  createdAt DateTime          @default(now())
+  project   DependencyProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
 }

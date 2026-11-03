@@ -209,6 +209,7 @@ describe("sanitizeOutput", () => {
       "bell\u0007 and \r\n crlf",
     ].join("\n");
     const out = sanitizeOutput(raw, "/tmp/lock-abc");
+    // eslint-disable-next-line no-control-regex -- verify terminal control characters were stripped.
     expect(out).not.toMatch(/\u001b|\u0007/);
     expect(out).not.toContain("hunter2");
     expect(out).not.toContain("abcdefghijklmnopqrstuvwxyz0123456789");

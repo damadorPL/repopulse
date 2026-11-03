@@ -77,7 +77,9 @@
 - **Digest** after a scan: `OUTDATED` rows with `notifiedAt = null` at or above the project's `notificationLevel`
   (`passesDependencyNotificationLevel`, the Slice 07 semantics applied to the update's `level`) → one `deps-notify`
   job per enabled, untagged, deliverable rule of the owner with `DEPENDENCY_UPDATES`. `notifiedAt` is set in the same
-  transaction, so each target version is announced once; a new target resets it. The first scan of a new project is
+  transaction as durable `DependencyNotificationOutbox` intents. A dispatcher retries every five seconds, including
+  after restarts, and removes intents only after BullMQ acknowledges enqueueing. Deterministic job ids deduplicate
+  retries. A new target resets `notifiedAt`. The first scan of a new project is
   silent unless "Notify about what is outdated now" was ticked.
 - **PR notices** (`DEPENDENCY_PULL_REQUESTS`): `opened`, `updated` (a commit with new versions), `edited` (someone
   else pushed) and `access_lost` (the project fell back to notify-only). A project with notification level `NONE`

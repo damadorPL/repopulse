@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LoaderCircleIcon, SearchIcon, XIcon } from "lucide-react";
@@ -21,17 +21,19 @@ export function DependencyListToolbar({ filters, shown, total }: { filters: Depe
   const [pending, startTransition] = useTransition();
   const [query, setQuery] = useState(filters.q ?? "");
   const inputRef = useRef<HTMLInputElement>(null);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  function navigate(next: Partial<DependencyListFilters>) {
-    startTransition(() => router.replace(dependencyListHref({ ...filters, ...next }), { scroll: false }));
-  }
+  const navigate = useCallback((next: Partial<DependencyListFilters>) => {
+    clearTimeout(searchTimer.current);
+    startTransition(() => router.replace(dependencyListHref({ ...filters, q: query, ...next }), { scroll: false }));
+  }, [filters, query, router]);
 
   useEffect(() => {
     if (query.trim() === (filters.q ?? "")) return;
     const timer = setTimeout(() => navigate({ q: query }), SEARCH_DEBOUNCE_MS);
+    searchTimer.current = timer;
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `navigate` is recreated every render; the query drives this.
-  }, [query]);
+  }, [query, filters.q, navigate]);
 
   // Follow URL changes made elsewhere (back button, "Clear search").
   const [lastUrlQuery, setLastUrlQuery] = useState(filters.q ?? "");

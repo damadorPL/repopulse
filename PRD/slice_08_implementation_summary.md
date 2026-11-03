@@ -2,9 +2,8 @@
 
 **Spec:** [`slice_08_dependency_updates.md`](./slice_08_dependency_updates.md)
 **Status:** Implemented: Part A (projects and checks), Part B (GitHub App), Part C (manifest-only update PRs), Part D
-(sandboxed lockfile regeneration) and Part E (webhooks). Two items were still landing when this summary was written
-and are documented as behavior: the per-scan read-permission re-check of private repositories, and "Create PR" being
-disabled while the `deps-worker` heartbeat shows no reachable sandbox. See §5 for what was verified.
+(sandboxed lockfile regeneration) and Part E (webhooks), including per-scan private-repository permission checks and
+disabling "Create PR" when the worker heartbeat reports no reachable sandbox. See §5 for verification history.
 **Date:** 2026-11-03
 
 ---
@@ -98,9 +97,6 @@ docs/dependencies.md (NEW), docs/{README,architecture,data-model,packages,config
 
 - A force-push between the branch check and the ref update can be overwritten: GitHub's ref API has no
   compare-and-swap.
-- Scans ignore `.npmrc` registries, so a private package that shadows a public name can still get a manifest-only PR
-  (lockfile PRs are refused by the sandbox's registry check).
-- A digest can be lost if Redis fails right after `notifiedAt` is set (the rows count as announced).
 - A second "edited" notice for the same PR within 7 days is deduplicated by the notify jobId.
 - Poetry may build sdists (`setup.py`) inside the sandbox. Jobs run as the same uid as the sandbox server and could
   read its bearer token from `/proc` (the token only grants sandbox use).
@@ -113,10 +109,18 @@ docs/dependencies.md (NEW), docs/{README,architecture,data-model,packages,config
 
 ## 5. Verification
 
+Version 0.9.4 review follow-up fixes private registry detection, queued mode/slot enforcement and retry recovery.
+`20261103130000_dependency_branch_write_intents` stores prepared bot SHAs before pushes;
+`20261103131000_dependency_notification_outbox` makes digest enqueue intents durable. Both migrations applied to a
+disposable PostgreSQL 16 database with an empty Prisma schema diff. Live PostgreSQL checks also verified concurrent
+bootstrap registration, outbox enqueue recovery and branch-intent cascading on project deletion.
+
+Final review verification passed: package builds, typecheck, actual workspace ESLint tasks, 1,081 tests and the web
+production build. These checks include the review fixes below; earlier verification records remain historical.
+
 - During the docs pass: `pnpm --filter "./packages/*" build && pnpm typecheck && pnpm lint && pnpm test` passed
   (deps 184, github 154, notifications 101, queue 32, db 14, worker 91, deps-worker 67, deps-sandbox 51, web 336
-  tests), and `pnpm --filter @repopulse/web build` passed. This ran before the last review-pass changes and the two
-  in-progress items (header): run it again once they land.
+  tests), and `pnpm --filter @repopulse/web build` passed. This earlier run predates the review fixes above.
 - The sandbox commands were run end to end in the built image through the egress proxy by the implementing agent
   (see `apps/deps-sandbox/src/commands.ts`).
 - **Not verified here:** applying the two migrations to a real database (`pnpm db:migrate:deploy` + the

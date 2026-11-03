@@ -1,16 +1,20 @@
 import {
   applyPolicy,
+  applyRegistryPolicy,
   detectManifests,
   ignoreRulesSchema,
   isManifestParseError,
+  isDefaultPypiIndex,
   MAX_LOCKFILE_BYTES,
   MAX_MANIFEST_BYTES,
   mapWithConcurrency,
   parsePackageJson,
   parsePyproject,
+  parseRequirements,
   parseRequirementsTree,
   readLockfile,
   REGISTRY_CONCURRENCY,
+  registryConfigPaths,
   resolveManifestGroups,
   type DependencyEcosystem,
   type DependencyKind,
@@ -182,6 +186,12 @@ export async function analyzeProject(params: {
   const warnings = [...resolved.warnings];
   if (params.truncated) warnings.push("The repository tree is too large: only part of it was searched for manifests");
   const manifestPaths = new Set(resolved.manifests.map((manifest) => manifest.path));
+  // Include ancestor registry config even for manifest-only projects: both scans and PR jobs must reject
+  // private-source packages before looking their names up on public registries.
+  const existingPaths = new Set(params.entries.filter((entry) => entry.type === "blob").map((entry) => entry.path));
+  const configPaths = [...new Set(resolved.manifests.flatMap((manifest) => registryConfigPaths(manifest.path, manifest.ecosystem)))].filter((path) => existingPaths.has(path));
+  const configTexts = await reader.readMany(configPaths, MAX_MANIFEST_BYTES);
+  const registryFiles = new Map(configPaths.map((path) => [path, configTexts.get(path) ?? null]));
 
   const manifests: AnalyzedManifest[] = [];
   for (const detected of resolved.manifests) {
@@ -206,6 +216,22 @@ export async function analyzeProject(params: {
           const skipPaths = new Set([...manifestPaths].filter((path) => path !== detected.path));
           const tree = await parseRequirementsTree(detected.path, (path) => reader.read(path), { text, skipPaths });
           parsed = tree.dependencies;
+          // Index options in any included requirements/constraints file affect the whole installation, not
+          // merely dependencies declared in that file. Never fall back to public names for extra indexes.
+          for (const path of tree.files) {
+            const source = path === detected.path ? text : await reader.read(path);
+            if (source === null) continue;
+            const requirement = parseRequirements(source, path);
+            const custom = (requirement.indexUrl !== null && !isDefaultPypiIndex(requirement.indexUrl))
+              || requirement.extraIndexUrls.some((url) => !isDefaultPypiIndex(url))
+              || /^\s*(?:-f\s*|--find-links(?:=|\s+))/m.test(source);
+            if (custom) {
+              parsed = parsed.map((dependency) => dependency.supported
+                ? { ...dependency, supported: false, unsupportedReason: "Resolved from a custom requirements index or source" }
+                : dependency);
+              break;
+            }
+          }
           manifestWarnings.push(...tree.warnings);
           for (const dependency of tree.dependencies as RequirementDependency[]) {
             if (dependency.pinnedVersion && !fallbackVersions.has(dependency.name)) fallbackVersions.set(dependency.name, dependency.pinnedVersion);
@@ -225,7 +251,7 @@ export async function analyzeProject(params: {
       const key = dependencyKey(dependency.name, dependency.kind, dependency.group);
       if (!unique.has(key)) unique.set(key, dependency);
     }
-    const list = [...unique.values()];
+    const list = applyRegistryPolicy({ path: detected.path, ecosystem: detected.ecosystem, dependencies: [...unique.values()], files: registryFiles });
     const lock = await readCurrentVersions(
       detected,
       list.map((d) => ({ name: d.name, declared: d.declared })),

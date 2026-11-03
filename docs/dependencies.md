@@ -34,8 +34,13 @@
   every rewrite is re-parsed and compared with the plan, and sandbox lockfiles are validated by the worker
   (`validateLockfile` in `sandbox-client.ts`). Anything else aborts the job.
 - **MUST NOT** overwrite a bot branch whose head is not the stored `headSha` (someone else pushed: `EDITED`, hands off).
+- A persisted `DependencyBranchWriteIntent.commitSha` is also a known bot head: it is saved before the ref write
+  and lets a retry recover after a push succeeded but PR creation or persistence failed. `previousHeadSha` retains
+  the observed bot head if a subsequent replacement push fails. Any other head is hands off.
 - **MUST** re-check, on **every** `deps-update` job: mode ≠ `NOTIFY`, the project owns PRs (`DependencyPrOwner`), the
   App is installed, and the owner's collaborator permission is `write`+. The web checks are a convenience.
+- Automatic jobs also require the current mode to remain `AUTO_PR`. A group without a current PR slot cannot open
+  a new PR; an existing open PR may still be maintained.
 - **MUST** scope every web query to the signed-in user (projects are per user); admin pages and actions are super
   admin only. Every action that queues work returns `UNAVAILABLE` while the module is off.
 - **MUST NOT** fetch a user-supplied URL: registry hosts are constants (`NPM_REGISTRY_URL`, `PYPI_SIMPLE_URL`,
@@ -102,12 +107,16 @@ notifications).
    `deps:lockread:<key>`, 7 days); every manifest is still re-parsed.
 4. Look up each distinct `(ecosystem, name)` once (≤ 8 in flight), `selectTarget` per dependency, at most 1,000
    dependencies (warning beyond).
+   Shared scan/update analysis reads ancestor registry configuration first. Dependencies using custom registries
+   or repository sources become `UNSUPPORTED_SOURCE` before public lookups or manifest-only PR planning. Unreadable
+   configuration fails closed; error reasons do not include registry URLs or credentials.
 5. One transaction: upsert manifests (vanished ones cascade), upsert / delete `DependencyUpdate` rows. `firstSeenAt` /
    `notifiedAt` are kept while `targetVersion` is unchanged and reset when it changes. Project-level warnings (caps,
    unreadable files) are stored on the first manifest. Refresh `fullName`, `defaultBranch`, `isPrivate`,
    `lastScannedSha`; `nextScanAt = now + scanIntervalHours`, `IDLE`, `errorCount = 0`.
 6. Refresh open PRs (`getPullRequestState`): merged → `MERGED`; closed → `CLOSED` and its targets' rows `DISMISSED`;
-   head ≠ `headSha` → `EDITED` (notified once), **unless** an update job for that group is waiting or running.
+   head ≠ `headSha` → `EDITED` (notified once), **unless** it matches either SHA in a persisted branch-write intent or an update
+   job for that group is waiting or running.
 7. After commit: SSE `DEPS_SCAN_COMPLETED`, the digest (below), and with `AUTO_PR` + an installation, `deps-update`
    jobs for groups (within `maxOpenPrs`) whose planned targets differ from the open PR's `targets`, plus groups whose
    open PR has no planned updates any more (the job closes it). `EDITED` PRs are left alone.
@@ -164,7 +173,9 @@ lockfile groups while the `deps-worker` heartbeat shows no reachable sandbox.
    the result (path, ≤ 20 MiB, parses, same format version, every planned dependency at its target).
 5. Branch `repopulse/deps/<groupKey>`: edited by someone else → `EDITED`, stop (a pre-existing non-bot branch is a
    refusal); same content → no commit; else `commitFiles` (blobs → tree → commit without author, so GitHub shows
-   `<slug>[bot]` → create or force-update the ref). A 409 / 422 race retries once from step 2.
+   `<slug>[bot]` → persist the prepared SHA in `DependencyBranchWriteIntent` → create or force-update the ref).
+   A retry recognizes that exact prepared SHA, its observed previous head, or the stored PR head if the ref write never happened.
+   A 409 / 422 race retries once from step 2. Clear the intent after the PR state is saved.
 6. `upsertPullRequest` (title = commit subject, dependency names verbatim; body table with names, paths and versions
    in code spans, so `@scope/name` never becomes a mention, + "Not included" + hidden
    `<!-- repopulse:deps:<groupKey> -->` marker; no labels, no auto-merge). Save `headSha` and `targets` (every planned
@@ -265,6 +276,4 @@ Dependencies first. Adding an ecosystem or package manager: [recipes.md](./recip
 - GitHub's API can't activate the App webhook or change its events: the super admin ticks them on GitHub (Admin →
   GitHub App lists the steps).
 - A force-push between the branch check and the ref update can be overwritten (GitHub's ref API has no
-  compare-and-swap). Scans ignore `.npmrc` registries, so a private package shadowing a public name can still get a
-  manifest-only PR. A digest is lost if Redis fails right after `notifiedAt` is set. A second "edited" notice for the
-  same PR within 7 days is deduplicated.
+  compare-and-swap). A second "edited" notice for the same PR within 7 days is deduplicated.

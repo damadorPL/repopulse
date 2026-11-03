@@ -222,6 +222,8 @@ export function createFakePrisma() {
     })),
     dependencyPullRequest: new FakeTable(() => ({ state: "OPEN", openedAt: new Date(), closedAt: null, targets: [] })),
     dependencyPrOwner: new FakeTable(),
+    dependencyBranchWriteIntent: new FakeTable(),
+    dependencyNotificationOutbox: new FakeTable(),
   };
   const prisma = {
     ...tables,

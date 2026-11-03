@@ -64,7 +64,7 @@ describe("parsePackageJson", () => {
   });
 
   it("handles a BOM and CRLF", () => {
-    const text = `﻿{\r\n  "dependencies": {\r\n    "a": "1.0.0"\r\n  }\r\n}\r\n`;
+    const text = `\uFEFF{\r\n  "dependencies": {\r\n    "a": "1.0.0"\r\n  }\r\n}\r\n`;
     const dependency = parsePackageJson(text).dependencies[0]!;
     expect(text.slice(dependency.span!.start, dependency.span!.end)).toBe("1.0.0");
   });

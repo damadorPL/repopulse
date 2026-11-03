@@ -108,6 +108,30 @@ describe("getRepositorySettings", () => {
     expect(await getRepositorySettings(USER, "vercel", "next.js")).toBeNull();
   });
 
+  it.each(["TAG", "PRERELEASE"])("keeps the latest stable release behind more than 20 excluded %s rows", async (kind) => {
+    const stable = subscriptionRow().repository.releases[0]!;
+    const hidden = Array.from({ length: 25 }, (_, i) => ({
+      ...stable,
+      id: `hidden_${i}`,
+      source: kind === "TAG" ? "TAG" : "RELEASE",
+      isPrerelease: kind === "PRERELEASE",
+      publishedAt: new Date("2026-11-01T00:00:00Z"),
+    }));
+    prisma.userSubscription.findMany.mockImplementation(async ({ select }) => {
+      const selection = select.repository.select.releases;
+      // A visibility predicate must be applied before the database's limit.
+      const visible = selection.where.AND?.[0];
+      const candidates = visible ? [stable] : [...hidden, stable];
+      return [{ ...subscriptionRow(), repository: { ...subscriptionRow().repository, releases: candidates.slice(0, selection.take) } }];
+    });
+    const settings = await getRepositorySettings(USER, "vercel", "next.js");
+    expect(settings?.latestRelease?.id).toBe(stable.id);
+    expect(settings?.latestActivityAt).toEqual(stable.publishedAt);
+    const selection = prisma.userSubscription.findMany.mock.calls[0]![0].select.repository.select.releases;
+    expect(selection.where.AND).toEqual([visibleReleasesWhere(USER), { source: { in: ["RELEASE", "TAG"] } }]);
+    expect(selection.take).toBe(1);
+  });
+
   it("returns null for an unknown repository without looking for subscriptions", async () => {
     prisma.repository.findFirst.mockResolvedValue(null);
     expect(await getRepositorySettings(USER, "nobody", "nothing")).toBeNull();

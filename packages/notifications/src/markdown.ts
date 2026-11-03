@@ -100,6 +100,7 @@ export function markdownToSlack(markdown: string): string {
     .replace(/~~(.+?)~~/g, "~$1~")
     .replace(/^(\s*)[-*+]\s+/gm, "$1• ");
 
+  // eslint-disable-next-line no-control-regex -- null delimiters protect fenced code during conversion.
   return converted.replace(/\u0000(\d+)\u0000/g, (_m, index: string) => {
     const code = (fences[Number(index)] ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     return `\`\`\`${code}\`\`\``;

@@ -6,6 +6,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.4] — 2026-11-03 — Security and reliability fixes
+
+**Upgrade notes**
+
+- Two new migrations, applied by the migrator on deploy: `20261103130000_dependency_branch_write_intents`
+  and `20261103131000_dependency_notification_outbox`. No environment changes.
+
+### Security
+- Serialize first-account registration so concurrent sign-ins cannot create multiple super admins.
+- Mark dependencies using custom registries or repository sources unsupported before public registry lookups,
+  including manifest-only update pull requests.
+
+### Fixed
+- Recover dependency update pull requests after a failure between pushing the bot branch and saving its state,
+  while preserving protection for human edits.
+- Recheck automatic/manual mode and PR slots when queued dependency update jobs execute.
+- Retain dependency digest notification intents in a transactional outbox and retry enqueueing after Redis failures.
+- Select the latest visible release before limiting repository summaries, so tags and excluded prereleases cannot
+  hide stable releases or distort activity sorting.
+- Preserve search text and current filters when a pending debounced search overlaps sort or filter changes.
+
+### Changed
+- Run actual ESLint checks in workspace lint tasks instead of completing without linting any source files.
+
 ## [0.9.3] — 2026-11-03 — Coolify-generated sandbox token
 
 **Upgrade notes**

@@ -4,6 +4,7 @@ import { GitHubRateLimitError } from "@repopulse/github";
 import type { DepsScanJobData } from "@repopulse/queue";
 import { createFakeGitHub, type FakeGitHub } from "../testing/fake-github";
 import { createFakePrisma, seed, type FakePrisma } from "../testing/fake-prisma";
+import { flushNotificationOutbox } from "../notification-outbox";
 import { fakeAccess, fakeQueues, fakeRegistry, HASHED_REQUIREMENTS, job, NOW, published, pypiRegistry, version } from "../testing/fixtures";
 import { MAX_ERROR_COUNT, NO_ACCESS_MESSAGE, PAUSED_RESCAN_MS, processDepsScan } from "./deps-scan.processor";
 
@@ -49,6 +50,21 @@ function rows(prisma: FakePrisma) {
 }
 
 describe("processDepsScan", () => {
+  it("keeps digest intents durable when Redis fails after notifiedAt is committed", async () => {
+    const { deps, prisma, queues } = setup({ project: { lastScannedAt: new Date("2026-10-01T00:00:00Z") } });
+    queues.notifyQueue.addBulk.mockRejectedValueOnce(new Error("Redis unavailable"));
+    expect(await processDepsScan(scanJob(), deps)).toMatchObject({ status: "SCANNED", digests: 1 });
+    expect(rows(prisma).requests!.notifiedAt).toEqual(NOW);
+    expect(prisma.dependencyNotificationOutbox.rows).toHaveLength(1);
+    // A recovery dispatcher does not need a fresh scan or unannounced update rows.
+    await flushNotificationOutbox(deps.prisma, deps.notifyQueue);
+    expect(prisma.dependencyNotificationOutbox.rows).toHaveLength(0);
+    const calls = queues.notifyQueue.addBulk.mock.calls;
+    expect(calls[0]![0]).toEqual(calls[1]![0]);
+    await processDepsScan(scanJob(), deps);
+    expect(queues.notifyQueue.addBulk).toHaveBeenCalledTimes(2);
+  });
+
   it("does nothing while the module is disabled", async () => {
     const { deps, prisma } = setup({ depsEnabled: false });
     expect(await processDepsScan(scanJob(), deps)).toEqual({ status: "SKIPPED", reason: "DISABLED" });
@@ -273,6 +289,34 @@ describe("processDepsScan", () => {
       queues.updateQueue.getJob.mockResolvedValue({ getState: async () => "active" } as never);
       await processDepsScan(scanJob(), deps);
       expect(prisma.dependencyPullRequest.rows[0]!.state).toBe("OPEN");
+    });
+
+    it.each(["prepared", "previous"])("recovers an exact %s bot push after its update job has exhausted retries", async (headKind) => {
+      const { deps, prisma, github, queues } = setup({ project: { updateMode: "AUTO_PR", lastScannedAt: NOW }, app: true, installed: true });
+      prisma.dependencyPrOwner.rows.push({ githubRepoId: 42, projectId: "p1" });
+      await withOpenPr(github, prisma);
+      github.push("repopulse/deps/all", { "requirements.txt": "requests==2.33.0\n" });
+      const currentHead = github.branches.get("repopulse/deps/all");
+      prisma.dependencyBranchWriteIntent.rows.push({
+        projectId: "p1", groupKey: "all",
+        commitSha: headKind === "prepared" ? currentHead : "replacement-not-pushed",
+        previousHeadSha: headKind === "previous" ? currentHead : null,
+      });
+      deps.registry = fakeRegistry({ "PYPI:requests": [version("2.31.0", 300), version("2.33.0", 40)], "PYPI:flask": [version("3.0.0")] });
+      // BullMQ removed the failed job: it no longer offers in-flight protection.
+      expect(await processDepsScan(scanJob(), deps)).toMatchObject({ pullRequests: { edited: 0 }, autoUpdates: 1 });
+      expect(prisma.dependencyPullRequest.rows[0]!.state).toBe("OPEN");
+      expect(queues.updateQueue.addBulk).toHaveBeenCalledWith([expect.objectContaining({ data: { projectId: "p1", groupKey: "all", trigger: "auto" } })]);
+    });
+
+    it("still detects a human push after a pending bot write", async () => {
+      const { deps, prisma, github } = setup({ project: { lastScannedAt: NOW } });
+      await withOpenPr(github, prisma);
+      github.push("repopulse/deps/all", { "requirements.txt": "requests==2.33.0\n" });
+      prisma.dependencyBranchWriteIntent.rows.push({ projectId: "p1", groupKey: "all", commitSha: github.branches.get("repopulse/deps/all") });
+      github.push("repopulse/deps/all", { "README.md": "human change" });
+      expect(await processDepsScan(scanJob(), deps)).toMatchObject({ pullRequests: { edited: 1 } });
+      expect(prisma.dependencyPullRequest.rows[0]!.state).toBe("EDITED");
     });
   });
 

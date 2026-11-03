@@ -135,6 +135,7 @@ const idSchema = z.string().min(1).max(64);
 
 export const COMMIT_PREFIX_MAX_LENGTH = 50;
 /** One line, no control characters (it starts every commit message and PR title). */
+// eslint-disable-next-line no-control-regex -- exclude control characters from commit messages and PR titles.
 const COMMIT_PREFIX_RE = /^[^\u0000-\u001f\u007f]*$/;
 
 export const updateModeSchema = z.enum(DEPS_UPDATE_MODES, "Choose an update mode");

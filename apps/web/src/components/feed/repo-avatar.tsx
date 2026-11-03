@@ -18,6 +18,6 @@ export function RepoAvatar({
       </span>
     );
   }
-  // eslint-disable-next-line @next/next/no-img-element -- avatars.githubusercontent.com, already sized by GitHub
+  // GitHub already sizes these avatars; they do not need the Next image optimizer.
   return <img src={src.includes("?") ? src : `${src}?s=80`} alt="" className={base} loading="lazy" referrerPolicy="no-referrer" />;
 }

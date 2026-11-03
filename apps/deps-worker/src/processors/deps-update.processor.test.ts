@@ -65,6 +65,32 @@ function commits(github: ReturnType<typeof createFakeGitHub>) {
 }
 
 describe("processDepsUpdate: server-side checks", () => {
+  it("skips a queued automatic update after switching to manual mode", async () => {
+    const { deps, github } = setup({ project: { updateMode: "MANUAL_PR" } });
+    const queued = job<DepsUpdateJobData>({ projectId: "p1", groupKey: "all", trigger: "auto" });
+    await expect(processDepsUpdate(queued, deps)).resolves.toEqual({ status: "SKIPPED", reason: "MODE_CHANGED" });
+    expect(commits(github)).toEqual([]);
+  });
+
+  it("rechecks current PR slots for queued groups, while allowing an existing PR to be maintained", async () => {
+    const { deps, prisma, github } = setup({
+      project: { groupMode: "PER_DEPENDENCY", maxOpenPrs: 2 },
+      registry: fakeRegistry({
+        "PYPI:requests": [version("2.31.0"), version("2.32.3", 40, { sha256: [hex("c")] })],
+        "PYPI:flask": [version("3.0.0"), version("3.1.0")],
+      }),
+    });
+    prisma.dependencyUpdate.rows.push({ id: "flask", projectId: "p1", manifestId: "m1", name: "flask", kind: "PROD", group: "", status: "OUTDATED", declared: "==3.0.0", currentVersion: "3.0.0", targetVersion: "3.1.0", level: "MINOR" });
+    // flask sorts first. The queued requests group loses its slot before it executes.
+    prisma.dependencyProject.rows[0]!.maxOpenPrs = 1;
+    await expect(processDepsUpdate(updateJob("pypi-requests"), deps)).resolves.toEqual({ status: "SKIPPED", reason: "NO_PR_SLOT" });
+    expect(commits(github)).toEqual([]);
+    prisma.dependencyProject.rows[0]!.maxOpenPrs = 2;
+    await expect(processDepsUpdate(updateJob("pypi-requests"), deps)).resolves.toMatchObject({ status: "OPENED" });
+    prisma.dependencyProject.rows[0]!.maxOpenPrs = 1;
+    await expect(processDepsUpdate(updateJob("pypi-requests"), deps)).resolves.toMatchObject({ status: "UNCHANGED" });
+  });
+
   it("refuses a project in NOTIFY mode", async () => {
     const { deps, queues, github } = setup({ project: { updateMode: "NOTIFY" } });
     await expect(processDepsUpdate(updateJob(), deps)).rejects.toBeInstanceOf(UnrecoverableError);
@@ -115,6 +141,106 @@ describe("processDepsUpdate: server-side checks", () => {
 });
 
 describe("processDepsUpdate: hashed requirements (no lockfile)", () => {
+  it("recovers a bot push when the PR API fails before the first PR is saved", async () => {
+    const { deps, prisma, github } = setup();
+    const upsert = github.raw.upsertPullRequest;
+    const spy = vi.spyOn(github.raw, "upsertPullRequest").mockRejectedValueOnce(new Error("GitHub unavailable")).mockImplementation(upsert);
+    await expect(processDepsUpdate(updateJob(), deps)).rejects.toThrow("GitHub unavailable");
+    expect(prisma.dependencyPullRequest.rows).toHaveLength(0);
+    expect(prisma.dependencyBranchWriteIntent.rows[0]!.commitSha).toBe(github.branches.get(BRANCH));
+    await expect(processDepsUpdate(updateJob(), deps)).resolves.toMatchObject({ status: "OPENED" });
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(commits(github)).toHaveLength(1);
+    expect(prisma.dependencyBranchWriteIntent.rows).toHaveLength(0);
+  });
+
+  it("recovers a bot push when persistence of an existing PR fails", async () => {
+    const { deps, prisma, github, queues } = setup();
+    await processDepsUpdate(updateJob(), deps);
+    // A newer target requires a new commit on the existing branch.
+    deps.registry = fakeRegistry({ "PYPI:requests": [version("2.31.0"), version("2.33.0", 40, { sha256: [hex("c")] })], "PYPI:flask": [version("3.0.0")] });
+    const save = prisma.dependencyPullRequest.upsert;
+    vi.spyOn(prisma.dependencyPullRequest, "upsert").mockRejectedValueOnce(new Error("Database unavailable")).mockImplementation(save);
+    const previousHead = prisma.dependencyPullRequest.rows[0]!.headSha;
+    await expect(processDepsUpdate(updateJob(), deps)).rejects.toThrow("Database unavailable");
+    expect(github.branches.get(BRANCH)).not.toBe(previousHead);
+    await expect(processDepsUpdate(updateJob(), deps)).resolves.toMatchObject({ status: "UPDATED" });
+    expect(prisma.dependencyPullRequest.rows[0]!.state).toBe("OPEN");
+    expect(prisma.dependencyPullRequest.rows[0]!.headSha).toBe(github.branches.get(BRANCH));
+    expect(prisma.dependencyBranchWriteIntent.rows).toHaveLength(0);
+    expect(notifyJobs(queues)).toContainEqual(expect.objectContaining({ event: "updated" }));
+  });
+
+  it("announces a first PR recovered after its initial persistence failed", async () => {
+    const { deps, prisma, github, queues } = setup();
+    const save = prisma.dependencyPullRequest.upsert;
+    vi.spyOn(prisma.dependencyPullRequest, "upsert").mockRejectedValueOnce(new Error("Database unavailable")).mockImplementation(save);
+    await expect(processDepsUpdate(updateJob(), deps)).rejects.toThrow("Database unavailable");
+    expect(github.prs).toHaveLength(1);
+    expect(prisma.dependencyPullRequest.rows).toHaveLength(0);
+    await expect(processDepsUpdate(updateJob(), deps)).resolves.toMatchObject({ status: "OPENED" });
+    expect(github.prs).toHaveLength(1);
+    expect(notifyJobs(queues)).toContainEqual(expect.objectContaining({ event: "opened" }));
+  });
+
+  it("preserves human edits after a failed bot push workflow", async () => {
+    const { deps, github } = setup();
+    vi.spyOn(github.raw, "upsertPullRequest").mockRejectedValueOnce(new Error("GitHub unavailable"));
+    await expect(processDepsUpdate(updateJob(), deps)).rejects.toThrow("GitHub unavailable");
+    github.push(BRANCH, { "human.txt": "do not overwrite" });
+    const humanHead = github.branches.get(BRANCH);
+    await expect(processDepsUpdate(updateJob(), deps)).rejects.toThrow("already exists and was not created by RepoPulse");
+    expect(github.branches.get(BRANCH)).toBe(humanHead);
+  });
+
+  it("does not push when persisting the write intent fails", async () => {
+    const { deps, prisma, github } = setup();
+    const save = prisma.dependencyBranchWriteIntent.upsert;
+    vi.spyOn(prisma.dependencyBranchWriteIntent, "upsert").mockRejectedValueOnce(new Error("Database unavailable")).mockImplementation(save);
+    await expect(processDepsUpdate(updateJob(), deps)).rejects.toThrow("Database unavailable");
+    expect(github.branches.has(BRANCH)).toBe(false);
+    await expect(processDepsUpdate(updateJob(), deps)).resolves.toMatchObject({ status: "OPENED" });
+  });
+
+  it("retries from the original bot head when a ref write fails after intent persistence", async () => {
+    const { deps, prisma, github } = setup();
+    await processDepsUpdate(updateJob(), deps);
+    deps.registry = fakeRegistry({ "PYPI:requests": [version("2.31.0"), version("2.33.0", 40, { sha256: [hex("c")] })], "PYPI:flask": [version("3.0.0")] });
+    const write = github.raw.commitFiles;
+    vi.spyOn(github.raw, "commitFiles").mockImplementationOnce(async (_octokit, params) => {
+      await params.onPrepared?.("prepared-but-not-pushed");
+      throw new Error("Ref API unavailable");
+    }).mockImplementation(write);
+    await expect(processDepsUpdate(updateJob(), deps)).rejects.toThrow("Ref API unavailable");
+    expect(prisma.dependencyBranchWriteIntent.rows[0]!.commitSha).toBe("prepared-but-not-pushed");
+    await expect(processDepsUpdate(updateJob(), deps)).resolves.toMatchObject({ status: "UPDATED" });
+    expect(prisma.dependencyPullRequest.rows[0]!.state).toBe("OPEN");
+  });
+
+  it("retains an unsaved bot head when a later replacement ref write fails", async () => {
+    const { deps, prisma, github } = setup();
+    const upsert = github.raw.upsertPullRequest;
+    vi.spyOn(github.raw, "upsertPullRequest").mockRejectedValueOnce(new Error("PR API unavailable")).mockImplementation(upsert);
+    await expect(processDepsUpdate(updateJob(), deps)).rejects.toThrow("PR API unavailable");
+    const firstHead = github.branches.get(BRANCH);
+    expect(prisma.dependencyPullRequest.rows).toHaveLength(0);
+
+    deps.registry = fakeRegistry({ "PYPI:requests": [version("2.31.0"), version("2.33.0", 40, { sha256: [hex("c")] })], "PYPI:flask": [version("3.0.0")] });
+    const write = github.raw.commitFiles;
+    vi.spyOn(github.raw, "commitFiles").mockImplementationOnce(async (_octokit, params) => {
+      await params.onPrepared?.("replacement-not-pushed");
+      throw new Error("Ref API unavailable");
+    }).mockImplementation(write);
+    await expect(processDepsUpdate(updateJob(), deps)).rejects.toThrow("Ref API unavailable");
+    expect(prisma.dependencyBranchWriteIntent.rows[0]).toMatchObject({ commitSha: "replacement-not-pushed", previousHeadSha: firstHead });
+    expect(github.branches.get(BRANCH)).toBe(firstHead);
+
+    await expect(processDepsUpdate(updateJob(), deps)).resolves.toMatchObject({ status: "OPENED" });
+    expect(github.files(BRANCH)["requirements.txt"]).toContain("requests==2.33.0");
+    expect(prisma.dependencyPullRequest.rows[0]!.state).toBe("OPEN");
+    expect(prisma.dependencyBranchWriteIntent.rows).toHaveLength(0);
+  });
+
   it("opens a PR that changes only requirements.txt, with every sha256 of the target, then no-ops", async () => {
     const { deps, prisma, github, queues } = setup();
     const outcome = await processDepsUpdate(updateJob(), deps);

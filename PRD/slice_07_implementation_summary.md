@@ -103,8 +103,9 @@ docs/web-app.md, docs/data-model.md, docs/worker.md, CHANGELOG.md
 - "N releases behind" reads at most 5 000 visible release / tag rows per list. Fine at self-hosted scale.
 - The activity stats (median gap, busiest month) use the grid window (last 371 days), not the whole history.
 - "Set as my version" accepts tag names that pass the loose validation only (no spaces or `~ ^ : ? * [ \`).
-- The toolbar's debounced search uses the filters of the render that started it: changing the sort within 250 ms of
-  typing can be undone by the search navigation.
+
+Version 0.9.4 follow-up: repository summaries now filter release visibility before selecting the newest row, and
+toolbar filter changes cancel pending searches immediately while preserving draft text.
 
 ## 5. Not verified yet
 

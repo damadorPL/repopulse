@@ -93,7 +93,7 @@ export interface DepsUpdateDeps {
 }
 
 export type DepsUpdateOutcome =
-  | { status: "SKIPPED"; reason: "DISABLED" | "PROJECT_GONE" }
+  | { status: "SKIPPED"; reason: "DISABLED" | "PROJECT_GONE" | "MODE_CHANGED" | "NO_PR_SLOT" }
   | { status: "CLOSED"; number: number }
   | { status: "NOTHING_TO_DO" }
   | { status: "EDITED"; number: number }
@@ -236,6 +236,7 @@ async function runUpdate(
 
   // Step 1: server-side checks, on every job.
   if (project.updateMode === "NOTIFY") throw new Refusal("Pull requests are turned off for this project (notify-only mode).");
+  if (job.data.trigger === "auto" && project.updateMode !== "AUTO_PR") return { status: "SKIPPED", reason: "MODE_CHANGED" };
   const ownership = await prisma.dependencyPrOwner.findUnique({ where: { projectId: project.id } });
   if (!ownership || ownership.githubRepoId !== project.githubRepoId) {
     throw new Refusal("Another RepoPulse user manages pull requests for this repository.");
@@ -332,6 +333,7 @@ async function runUpdate(
   }));
   const group = groupUpdates(items, project.groupMode, project.maxOpenPrs).find((candidate) => candidate.groupKey === groupKey);
   if (!group || group.updates.length === 0) return closeEmptyGroup(deps, github, octokit, project, prRow, now);
+  if (prRow?.state !== "OPEN" && !group.hasPrSlot) return { status: "SKIPPED", reason: "NO_PR_SLOT" };
 
   const groupManifests = [...new Map(group.updates.map((u) => [u.manifest.detected.path, u.manifest])).values()];
   const capability = groupCapability(groupManifests.map((m) => m.detected), { lockfileRegeneration: deps.sandbox !== null });
@@ -486,7 +488,14 @@ async function runUpdate(
 
   // Step 6: the bot branch.
   const branch = depsBranchName(groupKey);
-  const state = await github.inspectBranch(octokit, repo.owner, repo.name, branch, prRow?.headSha ?? null);
+  const intentWhere = { projectId_groupKey: { projectId: project.id, groupKey } };
+  const intent = await prisma.dependencyBranchWriteIntent.findUnique({ where: intentWhere });
+  let state = await github.inspectBranch(octokit, repo.owner, repo.name, branch, intent?.commitSha ?? prRow?.headSha ?? null);
+  // A failed ref write can leave either the saved PR head or an earlier, not-yet-saved bot
+  // push in place. Trust only these exact durable SHAs, never other branch content.
+  if (state.status === "edited" && (intent?.previousHeadSha === state.headSha || prRow?.headSha === state.headSha)) {
+    state = { status: "owned", headSha: state.headSha };
+  }
   if (state.status === "edited") {
     if (!prRow) {
       throw new Refusal(`The branch ${branch} already exists and was not created by RepoPulse. Delete it to let RepoPulse open the pull request.`);
@@ -495,7 +504,8 @@ async function runUpdate(
   }
 
   let headSha: string;
-  let committed = false;
+  const recovered = state.status === "owned" && !!intent && state.headSha !== prRow?.headSha;
+  let committed = recovered;
   if (state.status === "owned" && (await github.treeHasContent(octokit, repo.owner, repo.name, state.headSha, files))) {
     headSha = state.headSha;
   } else {
@@ -507,6 +517,14 @@ async function runUpdate(
       files,
       message,
       force: state.status === "owned",
+      onPrepared: async (commitSha) => {
+        const previousHeadSha = state.status === "owned" ? state.headSha : null;
+        await prisma.dependencyBranchWriteIntent.upsert({
+          where: intentWhere,
+          create: { projectId: project.id, groupKey, commitSha, previousHeadSha },
+          update: { commitSha, previousHeadSha },
+        });
+      },
     });
     headSha = commit.commitSha;
     committed = true;
@@ -541,6 +559,9 @@ async function runUpdate(
       ...(pr.created ? { openedAt: at } : {}),
     },
   });
+  await prisma.dependencyBranchWriteIntent.deleteMany({
+    where: { projectId: project.id, groupKey, OR: [{ commitSha: headSha }, { previousHeadSha: headSha }] },
+  });
   await publish(deps.redis, project.userId, {
     type: "DEPS_PULL_REQUEST_UPDATED",
     projectId: project.id,
@@ -552,10 +573,11 @@ async function runUpdate(
   });
   const previousTargets = prRow?.state === "OPEN" ? [...prRow.targets].sort().join("\n") : null;
   const newVersions = previousTargets !== targets.join("\n");
-  if (pr.created) await notifyPullRequestEvent(deps, project, saved.id, "opened", headSha);
+  const opened = pr.created || (recovered && !prRow);
+  if (opened) await notifyPullRequestEvent(deps, project, saved.id, "opened", headSha);
   else if (committed && newVersions) await notifyPullRequestEvent(deps, project, saved.id, "updated", headSha);
 
-  const status = pr.created ? "OPENED" : committed ? "UPDATED" : "UNCHANGED";
+  const status = opened ? "OPENED" : committed ? "UPDATED" : "UNCHANGED";
   log.info(`${label}: PR #${pr.number} ${status.toLowerCase()} (${files.length} file(s), ${included.length} update(s))`);
   return { status, number: pr.number, headSha, files: files.map((f) => f.path) };
 }
@@ -592,8 +614,13 @@ async function closeEmptyGroup(
   now: () => Date,
 ): Promise<DepsUpdateOutcome> {
   if (!prRow || prRow.state !== "OPEN") return { status: "NOTHING_TO_DO" };
-  const branch = await github.inspectBranch(octokit, project.owner, project.name, prRow.branch, prRow.headSha);
-  if (branch.status === "edited") return markEdited(deps, project, prRow, prRow.branch);
+  const intent = await deps.prisma.dependencyBranchWriteIntent.findUnique({
+    where: { projectId_groupKey: { projectId: project.id, groupKey: prRow.groupKey } },
+  });
+  const branch = await github.inspectBranch(octokit, project.owner, project.name, prRow.branch, intent?.commitSha ?? prRow.headSha);
+  if (branch.status === "edited" && branch.headSha !== prRow.headSha && branch.headSha !== intent?.previousHeadSha) {
+    return markEdited(deps, project, prRow, prRow.branch);
+  }
   await github.closePullRequest(octokit, { owner: project.owner, repo: project.name, number: prRow.number, comment: EMPTY_GROUP_COMMENT });
   await deps.prisma.dependencyPullRequest.update({ where: { id: prRow.id }, data: { state: "CLOSED", closedAt: now() } });
   await publish(deps.redis, project.userId, {

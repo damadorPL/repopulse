@@ -113,13 +113,14 @@ export function createFakeGitHub(init: {
     },
     commitFiles: async (
       _o: unknown,
-      params: { baseSha: string; branch: string; files: ReadonlyArray<{ path: string; content: string | Uint8Array }>; message: string; force: boolean },
+      params: { baseSha: string; branch: string; files: ReadonlyArray<{ path: string; content: string | Uint8Array }>; message: string; force: boolean; onPrepared?: (commitSha: string) => Promise<void> },
     ) => {
       state.calls.push(`commitFiles:${params.branch}:${params.files.map((f) => f.path).join(",")}`);
       if (!params.force && branches.has(params.branch)) throw new RefUpdateConflictError(`refs/heads/${params.branch}`, 422, "exists");
       const files = new Map(commits.get(params.baseSha)!.files);
       for (const file of params.files) files.set(file.path, String(file.content));
       const sha = makeCommit(files, params.baseSha, params.message);
+      await params.onPrepared?.(sha);
       branches.set(params.branch, sha);
       return { commitSha: sha, treeSha: `tree-${sha}` };
     },

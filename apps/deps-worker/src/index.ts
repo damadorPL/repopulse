@@ -15,6 +15,7 @@ import { GitHubAccess } from "./github-access";
 import { startHealthServer, type HealthServer } from "./health";
 import { startHeartbeat } from "./heartbeat";
 import { createLogger, errorMessage } from "./logger";
+import { startNotificationOutbox } from "./notification-outbox";
 import { processDepsNotify } from "./processors/deps-notify.processor";
 import { processDepsScan } from "./processors/deps-scan.processor";
 import { processDepsSchedulerTick } from "./processors/deps-scheduler.processor";
@@ -41,6 +42,7 @@ let redis: Redis | undefined;
 let queues: DepsQueues | undefined;
 let workers: Worker[] = [];
 let stopHeartbeat: (() => void) | undefined;
+let stopNotificationOutbox: (() => Promise<void>) | undefined;
 let shuttingDown = false;
 
 async function gracefulShutdown(reason: string, exitCode = 0): Promise<void> {
@@ -59,6 +61,7 @@ async function gracefulShutdown(reason: string, exitCode = 0): Promise<void> {
   try {
     stopHeartbeat?.();
     await Promise.all(workers.map((worker) => worker.close()));
+    await stopNotificationOutbox?.();
     log.info(`${workers.length} BullMQ workers drained and closed`);
     if (queues) await closeQueues(queues);
     if (healthServer) {
@@ -190,6 +193,7 @@ async function main(): Promise<void> {
   }
 
   stopHeartbeat = startHeartbeat(connection, sandboxProbe);
+  stopNotificationOutbox = startNotificationOutbox(prisma, q.notifyQueue);
   await registerSchedule(q.schedulerQueue, config.scanCron);
   log.info(
     `deps-scheduler registered with cron "${config.scanCron}"; scan concurrency ${config.scanConcurrency}, ` +

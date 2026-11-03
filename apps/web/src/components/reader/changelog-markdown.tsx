@@ -27,7 +27,7 @@ const components: Components = {
     );
   },
   img({ node: _node, alt, ...props }) {
-    // eslint-disable-next-line @next/next/no-img-element -- arbitrary third-party hosts, no Next image optimizer
+    // Release notes use arbitrary third-party hosts, outside the Next image optimizer.
     return <img alt={alt ?? ""} loading="lazy" decoding="async" referrerPolicy="no-referrer" {...props} />;
   },
   table({ node: _node, ...props }) {

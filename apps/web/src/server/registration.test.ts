@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const tx = {
   invite: { updateMany: vi.fn(), update: vi.fn() },
-  user: { create: vi.fn() },
+  user: { findUnique: vi.fn(), count: vi.fn(), create: vi.fn() },
+  $executeRaw: vi.fn(),
 };
 const prisma = {
-  user: { findUnique: vi.fn(), count: vi.fn(), create: vi.fn() },
+  user: tx.user,
   instanceSettings: { findUnique: vi.fn() },
   invite: { findFirst: vi.fn() },
   $transaction: vi.fn(async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx)),
@@ -30,7 +31,11 @@ function setup({ existing = false, users = 3, open = true } = {}) {
   tx.user.create.mockResolvedValue({ id: "u_new" });
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.resetAllMocks();
+  prisma.$transaction.mockImplementation(async (fn) => fn(tx));
+  tx.$executeRaw.mockResolvedValue(0);
+});
 
 describe("admitGitHubUser", () => {
   it("always lets existing users in, even when invite-only", async () => {
@@ -43,6 +48,31 @@ describe("admitGitHubUser", () => {
     setup({ users: 0, open: false });
     await expect(admitGitHubUser(fields, undefined)).resolves.toBe(true);
     expect(prisma.user.create).toHaveBeenCalledWith({ data: { ...fields, isSuperAdmin: true } });
+    expect(tx.$executeRaw).toHaveBeenCalledBefore(tx.user.count);
+  });
+
+  it("admits only one bootstrap admin when initial callbacks overlap", async () => {
+    setup({ users: 0, open: false });
+    const created: Array<typeof fields & { isSuperAdmin?: boolean }> = [];
+    let previous = Promise.resolve();
+    // Model the transaction lock: the next transaction observes committed users.
+    prisma.$transaction.mockImplementation((fn) => {
+      const result = previous.then(() => fn(tx));
+      previous = result.then(() => undefined);
+      return result;
+    });
+    tx.user.count.mockImplementation(async () => created.length);
+    tx.user.create.mockImplementation(async ({ data }) => {
+      created.push(data);
+      return { id: data.githubId };
+    });
+
+    const results = await Promise.all([
+      admitGitHubUser(fields, undefined),
+      admitGitHubUser({ ...fields, githubId: "43", email: "second@example.com" }, undefined),
+    ]);
+    expect(results).toEqual([true, INVITE_REQUIRED_REDIRECT]);
+    expect(created).toEqual([{ ...fields, isSuperAdmin: true }]);
   });
 
   it("lets new users in while public registration is open (jwt callback creates them)", async () => {
@@ -55,7 +85,7 @@ describe("admitGitHubUser", () => {
     setup({ open: false });
     await expect(admitGitHubUser(fields, undefined)).resolves.toBe(INVITE_REQUIRED_REDIRECT);
     await expect(admitGitHubUser(fields, "not-a-token")).resolves.toBe(INVITE_REQUIRED_REDIRECT);
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.user.create).not.toHaveBeenCalled();
   });
 
   it("claims a usable invite and creates the account in one transaction", async () => {

@@ -24,7 +24,7 @@ The first GitHub account to sign in becomes the super admin. After pulling chang
 | `pnpm dev` | All `dev` tasks (web on :3000, worker with health on :3001) |
 | `pnpm build` | Every package and app (`db:generate` first) |
 | `pnpm typecheck` | `tsc --noEmit` everywhere (web runs `next typegen` first) |
-| `pnpm lint` | Lint tasks |
+| `pnpm lint` | ESLint across app/package sources and tests; warnings fail the check |
 | `pnpm test` | Vitest in every workspace |
 | `pnpm --filter <pkg> <script>` | One workspace, e.g. `pnpm --filter @repopulse/worker test` |
 | `pnpm --filter "./packages/*" build` | Rebuild the libraries' `dist/` (needed before app tests or runs pick up package changes) |
@@ -35,6 +35,11 @@ The first GitHub account to sign in becomes the super admin. After pulling chang
 | `npx vitest run path/to/file.test.ts` (inside a workspace) | A single test file |
 
 ## Testing conventions
+
+ESLint uses the root `eslint.config.mjs` for TypeScript correctness and React hook checks. Each code workspace has
+a lint task; generated Prisma/Next files and build outputs are excluded. The root `typescript` alias supplies the
+TypeScript 6 API required by ESLint's parser, while `@typescript/native` and workspace TypeScript dependencies keep
+the `tsc` executable on TypeScript 7. Keep both aliases pinned when updating lint tooling.
 
 - Vitest 5, `environment: "node"`, files next to the code: `src/**/*.test.ts(x)`.
 - Keep decision logic pure and test it directly: `fan-out.ts`, `backfill-plan.ts`, `lib/*`, `formatters.test.ts`,

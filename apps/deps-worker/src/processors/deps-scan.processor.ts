@@ -36,8 +36,8 @@ import { defaultGitHubApi, type GitHubApi, type Octokit } from "../github-api";
 import { createLogger } from "../logger";
 import type { BlobCache, LockfileCache } from "../registry-cache";
 import { rateLimitDelayMs } from "../rate-limit";
+import { flushNotificationOutbox, storeNotificationIntents } from "../notification-outbox";
 import {
-  addNotifyJobs,
   digestScanId,
   notifyPullRequestEvent,
   passesDependencyNotificationLevel,
@@ -524,6 +524,12 @@ async function refreshPullRequests(
         next = "CLOSED";
       } else if (state.headSha !== pr.headSha) {
         if (await updateInFlight(deps, project.id, pr.groupKey)) continue;
+        const intent = await prisma.dependencyBranchWriteIntent.findUnique({
+          where: { projectId_groupKey: { projectId: project.id, groupKey: pr.groupKey } },
+        });
+        // A bot push can succeed before its job exhausts retries on PR API / DB failures.
+        // Keep it eligible for automatic recovery; only the exact durable SHA is trusted.
+        if (intent?.commitSha === state.headSha || intent?.previousHeadSha === state.headSha) continue;
         const changed = await prisma.dependencyPullRequest.updateMany({
           where: { id: pr.id, state: "OPEN", headSha: pr.headSha },
           data: { state: "EDITED" },
@@ -555,8 +561,8 @@ type UpdateRow = Awaited<ReturnType<PrismaClient["dependencyUpdate"]["findMany"]
 
 /**
  * §3.11.1 digest: OUTDATED rows not yet notified, at or above the project's `notificationLevel`. `notifiedAt` is
- * set in the transaction that reads the rules (the job intent); the jobs are added after commit with a
- * deterministic jobId. The first scan of a new project only records a silent baseline unless `notifyOnFirstScan`.
+ * set in the transaction that stores durable outbox intents. Enqueue failures leave those intents for the
+ * periodic dispatcher. The first scan records a silent baseline unless `notifyOnFirstScan`.
  */
 async function queueDigest(
   deps: DepsScanDeps,
@@ -576,9 +582,15 @@ async function queueDigest(
     const rules = silent ? [] : await rulesFor(tx as PrismaClient, project.userId, "DEPENDENCY_UPDATES");
     await tx.dependencyUpdate.updateMany({ where: { id: { in: ids }, notifiedAt: null }, data: { notifiedAt: at } });
     const scanId = digestScanId(project.id, eligible);
-    return rules.map((rule): DepsNotifyJobData => ({ ruleId: rule.id, projectId: project.id, kind: "digest", scanId, updateIds: ids }));
+    const intents = rules.map((rule): DepsNotifyJobData => ({ ruleId: rule.id, projectId: project.id, kind: "digest", scanId, updateIds: ids }));
+    await storeNotificationIntents(tx, intents);
+    return intents;
   });
-  await addNotifyJobs(deps.notifyQueue, jobs, `${project.fullName} digest`);
+  try {
+    await flushNotificationOutbox(deps.prisma, deps.notifyQueue);
+  } catch (error) {
+    log.error(`${project.fullName}: notification intents saved; enqueue will be retried`, error);
+  }
   return jobs.length;
 }
 

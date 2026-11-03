@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LoaderCircleIcon, SearchIcon, XIcon } from "lucide-react";
@@ -47,19 +47,23 @@ export function RepoListToolbar({
   const [pending, startTransition] = useTransition();
   const [query, setQuery] = useState(filters.q ?? "");
   const inputRef = useRef<HTMLInputElement>(null);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const active = hasActiveRepoListFilters(filters);
 
-  function navigate(next: Partial<RepoListFilters>) {
-    startTransition(() => router.replace(repoListHref({ ...filters, ...next }), { scroll: false }));
-  }
+  const navigate = useCallback((next: Partial<RepoListFilters>) => {
+    // Flush the draft search when changing a filter, and cancel its old URL write
+    // immediately, even if the new server-rendered filters have not arrived yet.
+    clearTimeout(searchTimer.current);
+    startTransition(() => router.replace(repoListHref({ ...filters, q: query, ...next }), { scroll: false }));
+  }, [filters, query, router]);
 
   // Debounced search → URL. Skipped while the text already matches the URL (e.g. after "Clear filters").
   useEffect(() => {
     if (query.trim() === (filters.q ?? "")) return;
     const timer = setTimeout(() => navigate({ q: query }), SEARCH_DEBOUNCE_MS);
+    searchTimer.current = timer;
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `navigate` is recreated every render; the query drives this.
-  }, [query]);
+  }, [query, filters.q, navigate]);
 
   // Follow URL changes made elsewhere (back button, "Clear filters" link).
   const [lastUrlQuery, setLastUrlQuery] = useState(filters.q ?? "");

@@ -38,6 +38,8 @@
 | `DependencyUpdate` | per project | One direct dependency that is not up to date (up-to-date ones have no row). Unique `(manifestId, name, kind, group)` (`group` is `""`, not null, so the key works); `declared`, `currentVersion`, `wantedVersion`, `targetVersion` (set for `OUTDATED` and `DISMISSED` only), `latestVersion`, `level` (`SemverType` of current → target), `status`, `targetReleasedAt`, `sourceRepoUrl`, `firstSeenAt`, `notifiedAt` |
 | `DependencyPullRequest` | per project | Unique `(projectId, groupKey)`; `branch` (`repopulse/deps/<groupKey>`), `number`, `htmlUrl`, `state` (`OPEN` / `MERGED` / `CLOSED` / `EDITED`), `headSha` (the bot's last commit), `targets` (`manifestPath#name@version`, every planned target incl. no-ops), `closedAt` |
 | `DependencyPrOwner` | instance | Primary key `githubRepoId`, `projectId` unique (cascade): the one project per GitHub repository that may open PRs |
+| `DependencyBranchWriteIntent` | per project/group | Primary key `(projectId, groupKey)`; prepared `commitSha` and observed `previousHeadSha`, persisted before changing a bot branch; project deletion cascades |
+| `DependencyNotificationOutbox` | per project | Deterministic BullMQ job `id`, JSON `payload`, `createdAt`; retained until enqueue acknowledgement; project deletion cascades |
 
 Enums: `PollStatus`, `SemverType` (`MAJOR`, `MINOR`, `PATCH`, `PRERELEASE`, `OTHER`), `TrackMode`, `ReleaseSource`,
 `NotificationLevel` (`ALL`, `MINOR_AND_UP`, `MAJOR_ONLY`, `NONE`),
@@ -86,10 +88,17 @@ mirror them as string unions for client code.
   `deps-update` finds that the owner lost access.
 - **`notifiedAt` follows `targetVersion`**: a scan keeps `firstSeenAt` / `notifiedAt` while the target is unchanged and
   resets both when it changes, so a digest mentions each target version once. Digest rows get `notifiedAt` in the
-  same transaction that reads the rules. The first scan of a new project marks its rows notified without sending,
+  same transaction that stores `DependencyNotificationOutbox` intents. A dispatcher retries enqueueing every five
+  seconds and deletes intents only after BullMQ acknowledges their deterministic job ids. The first scan marks rows notified without sending,
   unless `notifyOnFirstScan`.
 - **Closed PR → `DISMISSED`**: the rows of a PR closed without merging stay `DISMISSED` for that version; a newer target
-  makes them `OUTDATED` again. A PR whose branch head is not `headSha` is `EDITED` and never touched again.
+  makes them `OUTDATED` again. A PR whose branch head is neither `headSha` nor a pending
+  `DependencyBranchWriteIntent.commitSha` / `previousHeadSha` is `EDITED` and never touched again.
+
+Version 0.9.4 adds `DependencyBranchWriteIntent` (prepared and previous bot SHAs per project/group) and
+`DependencyNotificationOutbox` (JSON queue payloads keyed by deterministic job id). Both cascade when their project
+is removed. Migrations: `20261103130000_dependency_branch_write_intents` and
+`20261103131000_dependency_notification_outbox`.
 
 ## Migrations
 

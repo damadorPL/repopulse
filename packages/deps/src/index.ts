@@ -5,6 +5,7 @@ export * from "./types.js";
 export { normalizePypiName } from "./util.js";
 
 export * from "./detect.js";
+export * from "./registry-config.js";
 
 export * from "./manifests/errors.js";
 export * from "./manifests/package-json.js";

@@ -71,6 +71,7 @@ export function applyReplacements(text: string, replacements: readonly SpanRepla
 
 /** Rejects specs that could break out of a string / line. */
 export function assertSafeSpec(value: string, path: string, forbidden: RegExp): void {
+  // eslint-disable-next-line no-control-regex -- reject control characters in version specs.
   if (value.trim() === "" || forbidden.test(value) || /[\u0000-\u001f\u007f]/.test(value)) {
     throw new ManifestRewriteError("INVALID_VALUE", path, `unsafe version spec ${JSON.stringify(value)}`);
   }
