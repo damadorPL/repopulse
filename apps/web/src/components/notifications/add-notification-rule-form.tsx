@@ -14,6 +14,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NotificationEventCheckboxes } from "@/components/notifications/notification-event-checkboxes";
+import { DEFAULT_NOTIFICATION_EVENTS, isEventAllowedForScope, NOTIFICATION_EVENT_LABELS, type NotificationEventValue } from "@/lib/notification-events";
 import { createNotificationRuleAction } from "@/server/actions/notifications";
 import type { TagPill } from "@/server/queries/feed";
 
@@ -37,12 +39,16 @@ export function AddNotificationRuleForm({
   const [scope, setScope] = useState<string>(ALL);
   const [destination, setDestination] = useState("");
   const [onlyMajor, setOnlyMajor] = useState(false);
+  const [events, setEvents] = useState<NotificationEventValue[]>(DEFAULT_NOTIFICATION_EVENTS);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   const info = CHANNEL_INFO[channel];
   const isEmail = info.destination === "email";
   const emailUnavailable = isEmail && !smtpConfigured;
+  const tagScoped = scope !== ALL;
+  /** Tag-scoped rules support only releases: what the form shows is what gets sent. */
+  const effectiveEvents = events.filter((event) => isEventAllowedForScope(event, tagScoped));
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -53,6 +59,7 @@ export function AddNotificationRuleForm({
         channel,
         destinationUrl: destination,
         onlyMajorReleases: onlyMajor,
+        events: effectiveEvents,
       });
       if (!result.ok) {
         if (result.error.code === "UNAUTHORIZED") router.push("/login");
@@ -61,12 +68,14 @@ export function AddNotificationRuleForm({
       }
       const rule = result.data;
       const label = CHANNEL_INFO[channel].label;
+      const what = rule.events.map((event) => NOTIFICATION_EVENT_LABELS[event]).join(", ");
       toast.success(`${label} rule added`, {
-        description: rule.tag ? `Releases of repositories tagged “${rule.tag.name}”.` : "Releases of all your repositories.",
+        description: rule.tag ? `${what} of repositories tagged “${rule.tag.name}”.` : `${what} of all your repositories.`,
         action: { label: "Send test", onClick: () => void sendTestWithToast(rule.id, label) },
       });
       setDestination("");
       setOnlyMajor(false);
+      setEvents(DEFAULT_NOTIFICATION_EVENTS);
     });
   }
 
@@ -164,11 +173,13 @@ export function AddNotificationRuleForm({
         </p>
       </div>
 
+      <NotificationEventCheckboxes idPrefix="rule-event" value={effectiveEvents} onChange={setEvents} tagScoped={tagScoped} />
+
       <Label className="items-start font-normal">
         <Checkbox className="mt-0.5" checked={onlyMajor} onCheckedChange={(v) => setOnlyMajor(v === true)} />
         <span className="grid gap-0.5">
           Only major releases
-          <span className="text-xs text-muted-foreground">Skip minor, patch and pre-releases (for example v2.0.0, but not v2.0.1).</span>
+          <span className="text-xs text-muted-foreground">Skip minor, patch and pre-releases (for example v2.0.0, but not v2.0.1). Dependency notifications follow each project's own notification level.</span>
         </span>
       </Label>
 
@@ -179,7 +190,10 @@ export function AddNotificationRuleForm({
       ) : null}
 
       <div className="flex flex-wrap items-center gap-3">
-        <Button type="submit" disabled={pending || emailUnavailable || limitReached || (!isEmail && !destination.trim())}>
+        <Button
+          type="submit"
+          disabled={pending || emailUnavailable || limitReached || effectiveEvents.length === 0 || (!isEmail && !destination.trim())}
+        >
           {pending ? <LoaderCircleIcon className="animate-spin" /> : <PlusIcon />}
           {pending ? "Checking destination…" : "Add rule"}
         </Button>

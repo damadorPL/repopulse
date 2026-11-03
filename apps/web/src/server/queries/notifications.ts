@@ -1,5 +1,6 @@
-import { prisma, type NotificationChannel } from "@repopulse/db";
+import { prisma, type NotificationChannel, type NotificationEvent } from "@repopulse/db";
 import { maskDestination } from "@repopulse/notifications/channels";
+import { normalizeEvents } from "@/lib/notification-events";
 import type { TagPill } from "@/server/queries/feed";
 
 /** Most rules a user can have; keeps fan-out and the settings page bounded. */
@@ -12,6 +13,8 @@ export interface NotificationRuleView {
   destination: string;
   tag: TagPill | null;
   onlyMajorReleases: boolean;
+  /** What the rule fires for (Slice 08), in `NOTIFICATION_EVENTS` order. */
+  events: NotificationEvent[];
   enabled: boolean;
   createdAt: Date;
 }
@@ -21,6 +24,7 @@ export const notificationRuleSelect = {
   channel: true,
   destinationUrl: true,
   onlyMajorReleases: true,
+  events: true,
   enabled: true,
   createdAt: true,
   tag: { select: { id: true, name: true, slug: true, colorHex: true } },
@@ -31,12 +35,13 @@ export function toNotificationRuleView(rule: {
   channel: NotificationChannel;
   destinationUrl: string | null;
   onlyMajorReleases: boolean;
+  events: NotificationEvent[];
   enabled: boolean;
   createdAt: Date;
   tag: TagPill | null;
 }): NotificationRuleView {
   const { destinationUrl, ...rest } = rule;
-  return { ...rest, destination: maskDestination(rule.channel, destinationUrl) };
+  return { ...rest, events: normalizeEvents(rule.events), destination: maskDestination(rule.channel, destinationUrl) };
 }
 
 export async function getNotificationRules(userId: string): Promise<NotificationRuleView[]> {

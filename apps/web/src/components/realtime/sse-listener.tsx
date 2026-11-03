@@ -16,9 +16,31 @@ export function syncToastId(repositoryId: string): string {
   return `sync-${repositoryId}`;
 }
 
+/** Toast id of a dependency check, so a "Check now" button's loading toast is replaced by the outcome. */
+export function depsScanToastId(projectId: string): string {
+  return `deps-scan-${projectId}`;
+}
+
+/** The project page of a dependency project (`owner/name`). */
+function dependencyProjectHref(fullName: string): string {
+  const [owner = "", name = ""] = fullName.split("/");
+  return `/dependencies/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+}
+
+/** Only GitHub links from the event are opened (the payload comes from our worker, but stay strict). */
+function isGitHubUrl(url: string | null): url is string {
+  return url !== null && url.startsWith("https://github.com/");
+}
+
+const PR_LABEL = {
+  OPEN: "opened",
+  MERGED: "merged",
+  CLOSED: "closed without merging",
+} as const;
+
 /**
  * Subscribes to `/api/events/stream` and keeps the dashboard live: toasts for new releases and
- * manual-sync outcomes, a quiet refresh after a history backfill, plus `router.refresh()` so the server-rendered feed, sidebar and unread
+ * manual-sync outcomes, dependency checks and update pull requests (Slice 08), a quiet refresh after a history backfill, plus `router.refresh()` so the server-rendered feed, sidebar and unread
  * counters update without a page reload. EventSource reconnects on its own; after a reconnect
  * the page refreshes once, since events sent while disconnected are lost.
  */
@@ -79,6 +101,47 @@ export function SseListener() {
           const id = syncToastId(event.repositoryId);
           if (event.reason === "RATE_LIMITED") toast.warning(event.message, { id });
           else toast.error(event.message, { id });
+          refresh();
+          break;
+        }
+        case "DEPS_SCAN_COMPLETED": {
+          const open = { label: "Open", onClick: () => router.push(dependencyProjectHref(event.fullName)) };
+          const id = depsScanToastId(event.projectId);
+          if (event.outdated === 0) {
+            toast.success(`${event.fullName}: dependencies are up to date`, { id });
+          } else {
+            const majors = event.majors > 0 ? ` (${event.majors} major)` : "";
+            toast(`${event.fullName}: ${event.outdated} outdated dependenc${event.outdated === 1 ? "y" : "ies"}${majors}`, { id, action: open });
+          }
+          refresh();
+          break;
+        }
+        case "DEPS_SCAN_FAILED":
+          toast.warning(`Dependency check failed for ${event.fullName}`, {
+            id: depsScanToastId(event.projectId),
+            description: event.message,
+          });
+          refresh();
+          break;
+        case "DEPS_PULL_REQUEST_UPDATED": {
+          const pr = event.number !== null ? `#${event.number}` : "pull request";
+          const url = event.htmlUrl;
+          const action = isGitHubUrl(url)
+            ? { label: "View", onClick: () => window.open(url, "_blank", "noopener,noreferrer") }
+            : { label: "Open", onClick: () => router.push(dependencyProjectHref(event.fullName)) };
+          if (event.state === "FAILED") {
+            toast.warning(`Could not update the dependency pull request for ${event.fullName}`, {
+              description: event.message,
+              action,
+            });
+          } else if (event.state === "EDITED") {
+            toast.warning(`${event.fullName} ${pr} was changed by someone else`, {
+              description: "RepoPulse no longer updates this pull request.",
+              action,
+            });
+          } else {
+            toast(`${event.fullName}: update ${pr} ${PR_LABEL[event.state]}`, { action });
+          }
           refresh();
           break;
         }

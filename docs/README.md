@@ -2,12 +2,13 @@
 
 > **Audience:** coding agents and new contributors. Each file is self-contained: it starts with a summary and the
 > files it covers, then lists rules (**MUST / MUST NOT**), then the details. Paths are relative to the repo root.
-> **Version documented:** 0.8.0 (see [`CHANGELOG.md`](../CHANGELOG.md)).
+> **Version documented:** 0.9.0 (see [`CHANGELOG.md`](../CHANGELOG.md)).
 
 RepoPulse is a self-hosted tracker for GitHub releases and changelogs. Users sign in with GitHub and subscribe to
 repositories. A background worker polls GitHub, stores new releases, marks them unread for every subscriber, pushes
-live updates over SSE and delivers notifications (Discord, Slack, ntfy, Gotify, email, custom webhooks). It runs as a
-Turborepo + pnpm monorepo deployed with Docker Compose on Coolify.
+live updates over SSE and delivers notifications (Discord, Slack, ntfy, Gotify, email, custom webhooks). An optional
+Dependencies module checks the users' own repositories for outdated npm / Bun / PyPI dependencies and can open update
+pull requests through a GitHub App. It runs as a Turborepo + pnpm monorepo deployed with Docker Compose on Coolify.
 
 ## Where to look
 
@@ -16,14 +17,15 @@ Turborepo + pnpm monorepo deployed with Docker Compose on Coolify.
 | The overall system, data flow, which process does what | [architecture.md](./architecture.md) |
 | Prisma models, migrations, invariants on rows | [data-model.md](./data-model.md) |
 | Next.js pages, Server Actions, `ActionResult`, UI components | [web-app.md](./web-app.md) |
-| BullMQ queues, polling, fan-out, backfill, the scheduler | [worker.md](./worker.md) |
-| The public API of `@repopulse/db`, `github`, `queue`, `notifications` | [packages.md](./packages.md) |
+| BullMQ queues, polling, fan-out, backfill, the scheduler (release `worker`) | [worker.md](./worker.md) |
+| Dependency projects, `deps-worker`, `deps-sandbox`, `deps-egress`, update PRs, ecosystems | [dependencies.md](./dependencies.md) |
+| The public API of `@repopulse/db`, `github`, `queue`, `notifications`, `deps` | [packages.md](./packages.md) |
 | Notification channels, SSRF guard, SMTP settings, Send Test | [notifications.md](./notifications.md) |
-| GitHub sign-in, the super admin, registration, invites | [auth-and-access.md](./auth-and-access.md) |
+| GitHub sign-in, the super admin, registration, invites, the GitHub App | [auth-and-access.md](./auth-and-access.md) |
 | Environment variables, `env:setup` / `env:sync` | [configuration.md](./configuration.md) |
 | Local setup, commands, tests, gotchas, commit rules | [development.md](./development.md) |
 | Coolify / Docker Compose deployment, images, migrator | [deployment.md](./deployment.md) |
-| Step-by-step recipes (new migration, action, setting, job, channel, env var) | [recipes.md](./recipes.md) |
+| Step-by-step recipes (new migration, action, setting, job, channel, env var, dependency ecosystem) | [recipes.md](./recipes.md) |
 
 Other sources:
 

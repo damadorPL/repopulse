@@ -75,7 +75,7 @@ function fakePrisma(options: {
           trackPaths: s.trackPaths ?? false,
           watchedPaths: s.watchedPaths ?? [],
           tags: [],
-          user: { notificationRules: [{ id: `rule-${s.userId}`, tagId: null, channel: "DISCORD_WEBHOOK", onlyMajorReleases: false }] },
+          user: { notificationRules: [{ id: `rule-${s.userId}`, tagId: null, channel: "DISCORD_WEBHOOK", onlyMajorReleases: false, events: ["RELEASES"] }] },
         })),
       ),
     },

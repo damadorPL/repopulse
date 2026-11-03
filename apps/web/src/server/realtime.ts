@@ -44,7 +44,7 @@ const globalForRealtime = globalThis as unknown as {
  * Shared command connection. Unlike the worker, requests must fail fast when Redis is down
  * instead of queueing forever, so `maxRetriesPerRequest` is finite here.
  */
-function getRedis(): Redis {
+export function getRedis(): Redis {
   if (!isRealtimeConfigured()) throw new RealtimeUnavailableError("Background sync is not configured (REDIS_URL is not set).");
   if (!globalForRealtime.repopulseRedis) {
     const redis = createRedisConnection({ connectionName: "repopulse-web", maxRetriesPerRequest: 1, connectTimeout: 5_000 });

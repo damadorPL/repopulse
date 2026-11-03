@@ -9,7 +9,10 @@
 - **MUST** add a new migration folder for every schema change: `YYYYMMDDHHMMSS_snake_name/migration.sql`.
 - **MUST NOT** edit or delete a migration that has shipped. Released migrations so far: `20261031000000_init`,
   `20261031120000_release_backfill`, `20261101090000_tag_tracking`, `20261101120000_invites_registration`,
-  `20261101150000_super_admin_smtp_settings` and `20261101180000_path_tracking`.
+  `20261101150000_super_admin_smtp_settings`, `20261101180000_path_tracking`, `20261101210000_combined_tracking`,
+  `20261101230000_backfill_settings` and `20261102120000_subscription_settings`. 0.9.0 (Slice 08):
+  `20261103090000_dependency_projects` (Dependencies models and enums, `NotificationRule.events`, `User.githubLogin`,
+  `InstanceSettings.depsEnabled`) and `20261103100000_github_app` (the `InstanceSettings.githubApp*` columns).
 - **MUST** keep the migration and the schema identical. Check with
   `cd packages/db && npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script`
   against a migrated dev DB. The output must be `-- This is an empty migration.`
@@ -20,8 +23,8 @@
 
 | Model | Scope | Key fields and invariants |
 | --- | --- | --- |
-| `User` | per person | `githubId` unique (the identity), `email` unique, `githubAccessTokenEncrypted` (AES-GCM, `iv:tag:cipher` hex), `isSuperAdmin` (the first account; see [auth-and-access.md](./auth-and-access.md)) |
-| `InstanceSettings` | instance, one row `id = 1` | `publicRegistration` (default `true`); SMTP: `smtpHost` (null = email off), `smtpPort` (587), `smtpSecure` (null = auto), `smtpUser`, `smtpPasswordEncrypted`, `smtpFrom`; release history (Admin → Release history, each `null` = the `RELEASE_BACKFILL_*` env var or default): `backfillDefaultTarget`, `backfillMaxAgeDays`, `backfillHardCap`, `backfillMinQuota`, `backfillDeepStep`, `backfillDeepCooldownMinutes`. A missing row means defaults, so always `upsert` |
+| `User` | per person | `githubId` unique (the identity), `email` unique, `githubAccessTokenEncrypted` (AES-GCM, `iv:tag:cipher` hex), `githubLogin` (refreshed on every sign-in; a cache for the GitHub App permission check, re-resolved from `githubId` on a 404), `isSuperAdmin` (the first account; see [auth-and-access.md](./auth-and-access.md)) |
+| `InstanceSettings` | instance, one row `id = 1` | `publicRegistration` (default `true`); SMTP: `smtpHost` (null = email off), `smtpPort` (587), `smtpSecure` (null = auto), `smtpUser`, `smtpPasswordEncrypted`, `smtpFrom`; release history (Admin → Release history, each `null` = the `RELEASE_BACKFILL_*` env var or default): `backfillDefaultTarget`, `backfillMaxAgeDays`, `backfillHardCap`, `backfillMinQuota`, `backfillDeepStep`, `backfillDeepCooldownMinutes`; Dependencies: `depsEnabled` (default `false`, Admin → Dependencies); GitHub App (Admin → GitHub App; configured when id, slug and key are all set): `githubAppId`, `githubAppSlug`, `githubAppClientId`, `githubAppOwner`, `githubAppPrivateKeyEncrypted` (PEM), `githubAppWebhookSecretEncrypted` (both AES-GCM, never sent to the browser). A missing row means defaults, so always `upsert` |
 | `Invite` | instance | `tokenHash` unique (SHA-256 of the raw token; the token itself is never stored), `expiresAt`, `usedAt`/`usedById` (unique: one invite per account), `createdById` (cascade) |
 | `Repository` | shared | `githubRepoId` unique (immutable; survives renames), `fullName` unique, `lastEtag`, `lastPolledAt`, `pollStatus` (`IDLE`/`POLLING`/`ERROR`), `errorCount`; backfill: `backfillStatus`, `backfillNextPage`, `backfillTarget` (100), `backfilledAt`, `backfillRequestedAt`; `lastTagsPolledAt`; `lastPathsPolledAt`, `polledPaths` (watched paths whose initial import is done; exactly the paths watched at the last path poll, cleared when nobody watches paths) |
 | `Release` | shared | unique `(repositoryId, githubReleaseId)` and `(repositoryId, source, tagName)`; `source` `RELEASE`/`TAG`/`COMMIT`; `githubReleaseId` null for tag and commit rows; `tagSha` for tag rows (tagged commit) and commit rows (full SHA, `tagName` = 7-char short SHA); `changedPaths` for commit rows (changed files plus the watched paths the commit was found through); `semverType`; `isDraft` (never ingested as true) |
@@ -29,14 +32,25 @@
 | `Tag` | per user | unique `(userId, slug)`, `colorHex` `#RRGGBB` |
 | `SubscriptionTag` | per user | join of subscription ↔ tag (both cascade) |
 | `UserReleaseState` | per user | PK `(userId, releaseId)`, `isRead`, `readAt`. **No row = read** |
-| `NotificationRule` | per user | `channel`, `destinationUrl` (webhook URL or optional email recipient), `tagId` (null = all repositories; `SetNull` on tag delete), `onlyMajorReleases`, `enabled`. Max 25 per user (`MAX_NOTIFICATION_RULES`) |
+| `NotificationRule` | per user | `channel`, `destinationUrl` (webhook URL or optional email recipient), `tagId` (null = all repositories; `SetNull` on tag delete), `onlyMajorReleases`, `enabled`, `events` (`NotificationEvent[]`, default `[RELEASES]`; at least one; a tag-scoped rule may only have `RELEASES`). Max 25 per user (`MAX_NOTIFICATION_RULES`) |
+| `DependencyProject` | per user | A repository whose dependencies the user checks, independent of subscriptions. Unique `(userId, githubRepoId)`; `owner` / `name` / `fullName` / `defaultBranch` / `isPrivate` refreshed by every scan; `repositoryId` (the tracked `Repository`, `SetNull`); policy: `updateMode` (`NOTIFY` / `MANUAL_PR` / `AUTO_PR`), `maxUpdateLevel` (`MINOR`), `includePrereleases`, `minReleaseAgeDays` (3, 0–30), `groupMode` (`SEPARATE_MAJORS`), `rangeStrategy` (`BUMP`), `maxOpenPrs` (5, 1–20), `scanIntervalHours` (24: 6 / 12 / 24 / 168), `notificationLevel` (`MINOR_AND_UP`), `ignoreRules` (JSON `[{ name, versions? }]`, ≤ 50), `manifestPaths` (empty = auto-detect), `commitPrefix` (`chore(deps):`), `notifyOnFirstScan`; scan state: `lastScannedAt`, `lastScannedSha`, `nextScanAt`, `scanStatus` (`IDLE` / `QUEUED` / `SCANNING` / `ERROR`), `scanError` (user-safe), `errorCount` |
+| `DependencyManifest` | per project | Unique `(projectId, path)`; `ecosystem`, `packageManager`, `lockfilePath`, `workspaceRoot`, `blobSha`, `dependencyCount`, `warnings` (project-level warnings are stored on the first manifest). Cascade from the project |
+| `DependencyUpdate` | per project | One direct dependency that is not up to date (up-to-date ones have no row). Unique `(manifestId, name, kind, group)` (`group` is `""`, not null, so the key works); `declared`, `currentVersion`, `wantedVersion`, `targetVersion` (set for `OUTDATED` and `DISMISSED` only), `latestVersion`, `level` (`SemverType` of current → target), `status`, `targetReleasedAt`, `sourceRepoUrl`, `firstSeenAt`, `notifiedAt` |
+| `DependencyPullRequest` | per project | Unique `(projectId, groupKey)`; `branch` (`repopulse/deps/<groupKey>`), `number`, `htmlUrl`, `state` (`OPEN` / `MERGED` / `CLOSED` / `EDITED`), `headSha` (the bot's last commit), `targets` (`manifestPath#name@version`, every planned target incl. no-ops), `closedAt` |
+| `DependencyPrOwner` | instance | Primary key `githubRepoId`, `projectId` unique (cascade): the one project per GitHub repository that may open PRs |
 
 Enums: `PollStatus`, `SemverType` (`MAJOR`, `MINOR`, `PATCH`, `PRERELEASE`, `OTHER`), `TrackMode`, `ReleaseSource`,
 `NotificationLevel` (`ALL`, `MINOR_AND_UP`, `MAJOR_ONLY`, `NONE`),
 `BackfillStatus` (`NONE`, `QUEUED`, `RUNNING`, `DONE`, `PARTIAL`, `ERROR`), `NotificationChannel` (`IN_APP`,
 `EMAIL_INSTANT`, `EMAIL_DIGEST`, `DISCORD_WEBHOOK`, `SLACK_WEBHOOK`, `NTFY_WEBHOOK`, `GOTIFY_WEBHOOK`,
 `CUSTOM_WEBHOOK`). `IN_APP` and `EMAIL_DIGEST` are never dispatched: in-app is the unread state itself, and digests
-are not built yet.
+are not built yet. Slice 08: `NotificationEvent` (`RELEASES`, `DEPENDENCY_UPDATES`, `DEPENDENCY_PULL_REQUESTS`),
+`DependencyEcosystem` (`NPM`, `PYPI`), `PackageManager` (`NPM`, `PNPM`, `BUN`, `YARN`, `PIP`, `PIP_TOOLS`, `UV`,
+`POETRY`, `NONE`), `DependencyKind` (`PROD`, `DEV`, `PEER`, `OPTIONAL`, `GROUP`), `DepsUpdateMode`, `DepsUpdateLevel`
+(`PATCH`, `MINOR`, `MAJOR`), `DepsGroupMode`, `DepsRangeStrategy` (`BUMP`, `LOCKFILE_ONLY`), `DepsScanStatus`,
+`DependencyUpdateStatus` (`OUTDATED`, `TOO_NEW`, `ABOVE_LEVEL`, `BLOCKED_BY_RANGE`, `IGNORED`, `DISMISSED`,
+`UNSUPPORTED_SOURCE`), `DepsPrState`. `apps/web/src/lib/dependency-settings.ts` and `lib/notification-events.ts`
+mirror them as string unions for client code.
 
 ## Semantics to preserve
 
@@ -62,6 +76,20 @@ are not built yet.
   newest visible items get unread states; off → the user's unread states of pre-release rows of the repository are
   deleted.
 - **Read cursor**: the feed pages by keyset `(publishedAt, id)` (`encodeFeedCursor` / `afterCursorWhere`).
+- **Notification events** (Slice 08): the release fan-out (`ruleMatches`) and the notification processor require
+  `RELEASES` in `events`; `deps-worker` queues dependency jobs only for enabled, untagged rules with
+  `DEPENDENCY_UPDATES` / `DEPENDENCY_PULL_REQUESTS`. Existing rules got `[RELEASES]`, so they behave as before.
+- **Dependency projects are separate from subscriptions**: removing either never touches the other. Dependency
+  updates are not `Release` rows and never reach the feed or the unread counters.
+- **One PR owner per GitHub repository** (`DependencyPrOwner`): only the owning project may open PRs. It is claimed
+  when a project switches to a PR mode and released by `NOTIFY`, by removing the project (cascade) or when a scan or
+  `deps-update` finds that the owner lost access.
+- **`notifiedAt` follows `targetVersion`**: a scan keeps `firstSeenAt` / `notifiedAt` while the target is unchanged and
+  resets both when it changes, so a digest mentions each target version once. Digest rows get `notifiedAt` in the
+  same transaction that reads the rules. The first scan of a new project marks its rows notified without sending,
+  unless `notifyOnFirstScan`.
+- **Closed PR → `DISMISSED`**: the rows of a PR closed without merging stay `DISMISSED` for that version; a newer target
+  makes them `OUTDATED` again. A PR whose branch head is not `headSha` is `EDITED` and never touched again.
 
 ## Migrations
 
@@ -77,13 +105,14 @@ npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prism
 cd ../.. && pnpm --filter "./packages/*" build && pnpm typecheck && pnpm test
 ```
 
-In production the `migrator` service runs `prisma migrate deploy` before `web` and `worker` start
+In production the `migrator` service runs `prisma migrate deploy` before `web`, `worker` and `deps-worker` start
 ([deployment.md](./deployment.md)). Mention every new migration in `CHANGELOG.md`.
 
 ## Client usage
 
 ```ts
 import { prisma, encryptToken, decryptToken, loadSmtpSettings, INSTANCE_SETTINGS_ID, type User } from "@repopulse/db";
+import { loadDepsEnabled, loadGitHubAppSettings } from "@repopulse/db"; // Dependencies module (Slice 08)
 ```
 
 - `prisma` is a singleton (cached on `globalThis` outside production because of HMR). Don't create new clients.

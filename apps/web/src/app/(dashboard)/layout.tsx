@@ -2,12 +2,13 @@ import type { ReactNode } from "react";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { TopNavbar } from "@/components/layout/top-navbar";
 import { SseListener } from "@/components/realtime/sse-listener";
+import { getDepsSidebarInfo } from "@/server/deps-status";
 import { getDashboardData } from "@/server/queries/feed";
 import { requireUser } from "@/server/session";
 
 export default async function DashboardLayout({ children }: { children: ReactNode }) {
   const user = await requireUser();
-  const data = await getDashboardData(user.id);
+  const [data, dependencies] = await Promise.all([getDashboardData(user.id), getDepsSidebarInfo(user.id)]);
 
   const sidebar = (
     <AppSidebar
@@ -15,6 +16,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
       totalUnread={data.totalUnread}
       repositoryCount={data.subscriptions.length}
       isSuperAdmin={user.isSuperAdmin}
+      dependencies={dependencies}
     />
   );
 

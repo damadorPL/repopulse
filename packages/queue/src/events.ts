@@ -42,7 +42,23 @@ export type RealtimeEvent =
    * Older releases were imported in the background (sent to every subscriber). History is stored as
    * read, so clients refresh quietly: no "new release" toast.
    */
-  | { type: "HISTORY_BACKFILLED"; repositoryId: string; repositoryName: string; added: number };
+  | { type: "HISTORY_BACKFILLED"; repositoryId: string; repositoryName: string; added: number }
+  /** Slice 08: a dependency scan finished (sent to the project owner). */
+  | { type: "DEPS_SCAN_COMPLETED"; projectId: string; fullName: string; outdated: number; majors: number }
+  /** Slice 08: a manual dependency scan failed. `message` is user-safe. */
+  | { type: "DEPS_SCAN_FAILED"; projectId: string; fullName: string; message: string }
+  /** Slice 08: an update pull request was opened, updated, merged, closed or edited by someone else. */
+  | {
+      type: "DEPS_PULL_REQUEST_UPDATED";
+      projectId: string;
+      fullName: string;
+      groupKey: string;
+      state: "OPEN" | "MERGED" | "CLOSED" | "EDITED" | "FAILED";
+      number: number | null;
+      htmlUrl: string | null;
+      /** User-safe reason when `state = FAILED`. */
+      message?: string;
+    };
 
 export type RealtimeEventType = RealtimeEvent["type"];
 
@@ -66,7 +82,10 @@ export function parseRealtimeEvent(raw: string): RealtimeEvent | null {
   } catch {
     return null;
   }
-  if (!isRecord(value) || !hasStrings(value, ["type", "repositoryId", "repositoryName"])) return null;
+  if (!isRecord(value) || typeof value.type !== "string") return null;
+
+  if (value.type.startsWith("DEPS_")) return parseDepsEvent(value);
+  if (!hasStrings(value, ["repositoryId", "repositoryName"])) return null;
 
   switch (value.type) {
     case "NEW_RELEASE":
@@ -86,6 +105,34 @@ export function parseRealtimeEvent(raw: string): RealtimeEvent | null {
         : null;
     case "HISTORY_BACKFILLED":
       return typeof value.added === "number" && Number.isFinite(value.added) ? (value as RealtimeEvent) : null;
+    default:
+      return null;
+  }
+}
+
+function isCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+const PR_EVENT_STATES = new Set(["OPEN", "MERGED", "CLOSED", "EDITED", "FAILED"]);
+
+/** Slice 08: the `DEPS_*` events carry a project instead of a repository. */
+function parseDepsEvent(value: Record<string, unknown>): RealtimeEvent | null {
+  if (!hasStrings(value, ["projectId", "fullName"])) return null;
+  switch (value.type) {
+    case "DEPS_SCAN_COMPLETED":
+      return isCount(value.outdated) && isCount(value.majors) ? (value as RealtimeEvent) : null;
+    case "DEPS_SCAN_FAILED":
+      return typeof value.message === "string" ? (value as RealtimeEvent) : null;
+    case "DEPS_PULL_REQUEST_UPDATED":
+      return typeof value.groupKey === "string" &&
+        typeof value.state === "string" &&
+        PR_EVENT_STATES.has(value.state) &&
+        (value.number === null || isCount(value.number)) &&
+        (value.htmlUrl === null || typeof value.htmlUrl === "string") &&
+        (value.message === undefined || typeof value.message === "string")
+        ? (value as RealtimeEvent)
+        : null;
     default:
       return null;
   }

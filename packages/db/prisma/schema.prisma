@@ -59,6 +59,13 @@ enum NotificationLevel {
   NONE
 }
 
+/// Slice 08: what a notification rule sends.
+enum NotificationEvent {
+  RELEASES
+  DEPENDENCY_UPDATES
+  DEPENDENCY_PULL_REQUESTS
+}
+
 enum NotificationChannel {
   IN_APP
   EMAIL_INSTANT
@@ -71,50 +78,66 @@ enum NotificationChannel {
 }
 
 model User {
-  id                         String             @id @default(cuid())
-  email                      String             @unique
+  id                         String              @id @default(cuid())
+  email                      String              @unique
   name                       String?
   avatarUrl                  String?
-  githubId                   String             @unique
+  githubId                   String              @unique
   githubAccessTokenEncrypted String?
+  /// GitHub login, refreshed on every sign-in (Slice 08). A cache for the GitHub App collaborator permission check:
+  /// logins can change, so a 404 re-resolves it from `githubId`.
+  githubLogin                String?
   /// The super admin manages instance settings (registration, invite links, SMTP). The first user to sign up is the super admin.
-  isSuperAdmin               Boolean            @default(false)
-  createdAt                  DateTime           @default(now())
-  updatedAt                  DateTime           @updatedAt
+  isSuperAdmin               Boolean             @default(false)
+  createdAt                  DateTime            @default(now())
+  updatedAt                  DateTime            @updatedAt
   subscriptions              UserSubscription[]
   tags                       Tag[]
   releaseStates              UserReleaseState[]
   notificationRules          NotificationRule[]
-  invitesCreated             Invite[]           @relation("InviteCreatedBy")
-  inviteUsed                 Invite?            @relation("InviteUsedBy")
+  dependencyProjects         DependencyProject[]
+  invitesCreated             Invite[]            @relation("InviteCreatedBy")
+  inviteUsed                 Invite?             @relation("InviteUsedBy")
 }
 
 /// Instance-wide settings: a single row with `id = 1`; a missing row means the defaults.
 model InstanceSettings {
-  id                 Int      @id @default(1)
+  id                              Int      @id @default(1)
   /// `false` = invite-only: new accounts need an invite link (existing users can always sign in).
-  publicRegistration    Boolean  @default(true)
+  publicRegistration              Boolean  @default(true)
   /// Outgoing email (SMTP), managed by the super admin in Admin → Email. `null` host = email is off.
-  smtpHost              String?
-  smtpPort              Int      @default(587)
+  smtpHost                        String?
+  smtpPort                        Int      @default(587)
   /// `true` = implicit TLS, `false` = STARTTLS when offered, `null` = automatic (TLS on port 465 only).
-  smtpSecure            Boolean?
-  smtpUser              String?
+  smtpSecure                      Boolean?
+  smtpUser                        String?
   /// AES-256-GCM (`encryptToken`), never sent to the browser.
-  smtpPasswordEncrypted String?
+  smtpPasswordEncrypted           String?
   /// Sender address; `null` = derived from `smtpUser`.
-  smtpFrom              String?
+  smtpFrom                        String?
   /// Release history import (Admin → Release history). Each `null` = the `RELEASE_BACKFILL_*` environment variable,
   /// or the built-in default. Read by the worker on every backfill job and by the web app ("Load older releases").
-  backfillDefaultTarget       Int?
-  backfillMaxAgeDays          Int?
-  backfillHardCap             Int?
-  backfillMinQuota            Int?
+  backfillDefaultTarget           Int?
+  backfillMaxAgeDays              Int?
+  backfillHardCap                 Int?
+  backfillMinQuota                Int?
   /// Releases added per "Load older releases" click.
-  backfillDeepStep            Int?
+  backfillDeepStep                Int?
   /// Minimum minutes between two "Load older releases" requests for the same repository.
-  backfillDeepCooldownMinutes Int?
-  updatedAt             DateTime @updatedAt
+  backfillDeepCooldownMinutes     Int?
+  /// Slice 08: the Dependencies module (Admin → Dependencies). Off until the super admin enables it.
+  depsEnabled                     Boolean  @default(false)
+  /// Slice 08 Part B: the RepoPulse GitHub App (Admin → GitHub App). Configured when id, slug and key are all set.
+  githubAppId                     Int?
+  githubAppSlug                   String?
+  githubAppClientId               String?
+  /// PEM private key, AES-256-GCM (`encryptToken`), never sent to the browser.
+  githubAppPrivateKeyEncrypted    String?
+  /// Webhook secret, AES-256-GCM (`encryptToken`), never sent to the browser.
+  githubAppWebhookSecretEncrypted String?
+  /// Account (user or organization) that owns the App, for display.
+  githubAppOwner                  String?
+  updatedAt                       DateTime @updatedAt
 }
 
 /// Single-use sign-up link. Only the SHA-256 of the token is stored; the link is shown once.
@@ -135,25 +158,25 @@ model Invite {
 }
 
 model Repository {
-  id                  String             @id @default(cuid())
-  githubRepoId        Int                @unique
+  id                  String              @id @default(cuid())
+  githubRepoId        Int                 @unique
   owner               String
   name                String
-  fullName            String             @unique
+  fullName            String              @unique
   description         String?
   avatarUrl           String?
   htmlUrl             String
-  starsCount          Int                @default(0)
+  starsCount          Int                 @default(0)
   lastPolledAt        DateTime?
   lastEtag            String?
-  pollStatus          PollStatus         @default(IDLE)
-  errorCount          Int                @default(0)
+  pollStatus          PollStatus          @default(IDLE)
+  errorCount          Int                 @default(0)
   /// Release history backfill (Slice 04b).
-  backfillStatus      BackfillStatus     @default(NONE)
+  backfillStatus      BackfillStatus      @default(NONE)
   /// Next GitHub releases page (100 per page) to fetch; `null` before the first run and once the history is complete.
   backfillNextPage    Int?
   /// How many releases the repository should hold in total.
-  backfillTarget      Int                @default(100)
+  backfillTarget      Int                 @default(100)
   backfilledAt        DateTime?
   /// Last "Load older releases" request; drives its 5-minute cooldown claim.
   backfillRequestedAt DateTime?
@@ -163,11 +186,12 @@ model Repository {
   lastPathsPolledAt   DateTime?
   /// Normalized paths whose initial import is done. A watched path missing here is "newly added":
   /// its first poll imports existing history quietly (no notifications).
-  polledPaths         String[]           @default([])
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
+  polledPaths         String[]            @default([])
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
   releases            Release[]
   subscriptions       UserSubscription[]
+  dependencyProjects  DependencyProject[]
 
   @@index([lastPolledAt, pollStatus])
   @@index([backfillStatus])
@@ -272,7 +296,235 @@ model NotificationRule {
   destinationUrl    String?
   onlyMajorReleases Boolean             @default(false)
   enabled           Boolean             @default(true)
+  /// Slice 08: which events the rule sends. Existing rules default to `[RELEASES]`. A tag-scoped rule supports only
+  /// `RELEASES` (dependency projects have no tags).
+  events            NotificationEvent[] @default([RELEASES])
   createdAt         DateTime            @default(now())
   user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   tag               Tag?                @relation(fields: [tagId], references: [id], onDelete: SetNull)
+}
+
+// ---------------------------------------------------------------------------
+// Slice 08: Dependencies module (projects, outdated dependencies, update PRs)
+// ---------------------------------------------------------------------------
+
+enum DependencyEcosystem {
+  NPM
+  PYPI
+}
+
+enum PackageManager {
+  NPM
+  PNPM
+  BUN
+  YARN
+  PIP
+  PIP_TOOLS
+  UV
+  POETRY
+  NONE
+}
+
+/// `GROUP` = PEP 735 dependency group, Poetry group or extra (its name is in `DependencyUpdate.group`).
+enum DependencyKind {
+  PROD
+  DEV
+  PEER
+  OPTIONAL
+  GROUP
+}
+
+enum DepsUpdateMode {
+  NOTIFY
+  MANUAL_PR
+  AUTO_PR
+}
+
+/// The highest update level that becomes a target.
+enum DepsUpdateLevel {
+  PATCH
+  MINOR
+  MAJOR
+}
+
+enum DepsGroupMode {
+  SINGLE
+  SEPARATE_MAJORS
+  PER_DEPENDENCY
+}
+
+enum DepsRangeStrategy {
+  BUMP
+  LOCKFILE_ONLY
+}
+
+enum DepsScanStatus {
+  IDLE
+  QUEUED
+  SCANNING
+  ERROR
+}
+
+enum DependencyUpdateStatus {
+  /// A target exists and passes the policy.
+  OUTDATED
+  /// The newest acceptable version is younger than `minReleaseAgeDays`.
+  TOO_NEW
+  /// Only updates above `maxUpdateLevel` exist (shown, never a target).
+  ABOVE_LEVEL
+  /// `LOCKFILE_ONLY` or an upper bound (`<2`) excludes the target.
+  BLOCKED_BY_RANGE
+  /// Matches an ignore rule.
+  IGNORED
+  /// Its PR was closed without merging; a newer version reopens it.
+  DISMISSED
+  /// git / file / workspace / alias / private registry / catalog / not on the public registry.
+  UNSUPPORTED_SOURCE
+}
+
+/// `EDITED` = someone else pushed to the bot branch: hands off.
+enum DepsPrState {
+  OPEN
+  MERGED
+  CLOSED
+  EDITED
+}
+
+/// A repository whose dependencies one user checks (Slice 08). Independent of `UserSubscription`.
+model DependencyProject {
+  id                 String                  @id @default(cuid())
+  userId             String
+  githubRepoId       Int
+  owner              String
+  name               String
+  /// Refreshed on every scan (renames).
+  fullName           String
+  defaultBranch      String
+  isPrivate          Boolean                 @default(false)
+  /// The tracked Repository, if any (quick add, "Tracked" badge).
+  repositoryId       String?
+  updateMode         DepsUpdateMode          @default(NOTIFY)
+  maxUpdateLevel     DepsUpdateLevel         @default(MINOR)
+  includePrereleases Boolean                 @default(false)
+  /// 0–30.
+  minReleaseAgeDays  Int                     @default(3)
+  groupMode          DepsGroupMode           @default(SEPARATE_MAJORS)
+  rangeStrategy      DepsRangeStrategy       @default(BUMP)
+  /// 1–20.
+  maxOpenPrs         Int                     @default(5)
+  /// 6 / 12 / 24 / 168.
+  scanIntervalHours  Int                     @default(24)
+  notificationLevel  NotificationLevel       @default(MINOR_AND_UP)
+  /// `[{ name: "pattern", versions?: "range" }]`, at most 50.
+  ignoreRules        Json                    @default("[]")
+  /// Empty = auto-detect; otherwise only these paths.
+  manifestPaths      String[]                @default([])
+  commitPrefix       String                  @default("chore(deps):")
+  /// "Notify about what is outdated now" in the Add dialog: the first scan sends a digest. Default off.
+  notifyOnFirstScan  Boolean                 @default(false)
+  lastScannedAt      DateTime?
+  lastScannedSha     String?
+  nextScanAt         DateTime?
+  scanStatus         DepsScanStatus          @default(IDLE)
+  /// User-safe message, never a stack or a token.
+  scanError          String?
+  errorCount         Int                     @default(0)
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  user               User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repository         Repository?             @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
+  manifests          DependencyManifest[]
+  updates            DependencyUpdate[]
+  pullRequests       DependencyPullRequest[]
+  prOwnership        DependencyPrOwner?
+
+  @@unique([userId, githubRepoId])
+  @@index([nextScanAt, scanStatus])
+  @@index([githubRepoId])
+}
+
+model DependencyManifest {
+  id              String              @id @default(cuid())
+  projectId       String
+  /// Repo-relative, e.g. "apps/web/package.json".
+  path            String
+  ecosystem       DependencyEcosystem
+  packageManager  PackageManager
+  lockfilePath    String?
+  /// Path of the root manifest for workspace members.
+  workspaceRoot   String?
+  /// Skips re-parsing an unchanged file.
+  blobSha         String
+  dependencyCount Int                 @default(0)
+  /// "bun.lockb is binary", "pip-compile output: check only", …
+  warnings        String[]            @default([])
+  project         DependencyProject   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  updates         DependencyUpdate[]
+
+  @@unique([projectId, path])
+}
+
+model DependencyUpdate {
+  id               String                 @id @default(cuid())
+  projectId        String
+  manifestId       String
+  /// npm name or PEP 503-normalized PyPI name.
+  name             String
+  kind             DependencyKind
+  /// PEP 735 group / Poetry group / extra; "" = none (not nullable: NULLs are distinct in the unique key).
+  group            String                 @default("")
+  /// The spec as written: "^1.2.3", ">=2,<3", "==4.1.0".
+  declared         String
+  /// From the lockfile; null when unknown.
+  currentVersion   String?
+  /// Newest that satisfies `declared`.
+  wantedVersion    String?
+  /// What a PR would set; null unless OUTDATED.
+  targetVersion    String?
+  /// Newest stable on the registry.
+  latestVersion    String?
+  /// Of current → target.
+  level            SemverType?
+  status           DependencyUpdateStatus
+  targetReleasedAt DateTime?
+  /// From registry metadata, for changelog links.
+  sourceRepoUrl    String?
+  /// First scan that saw this target.
+  firstSeenAt      DateTime               @default(now())
+  /// A digest already mentioned this target.
+  notifiedAt       DateTime?
+  project          DependencyProject      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  manifest         DependencyManifest     @relation(fields: [manifestId], references: [id], onDelete: Cascade)
+
+  @@unique([manifestId, name, kind, group])
+  @@index([projectId, status])
+}
+
+model DependencyPullRequest {
+  id        String            @id @default(cuid())
+  projectId String
+  /// "all", "major-react", "npm-react", …
+  groupKey  String
+  /// "repopulse/deps/<groupKey>".
+  branch    String
+  number    Int
+  htmlUrl   String
+  state     DepsPrState       @default(OPEN)
+  /// The bot's last commit; anything else on the branch = EDITED.
+  headSha   String
+  /// "manifestPath#name@version" the PR currently sets.
+  targets   String[]
+  openedAt  DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  closedAt  DateTime?
+  project   DependencyProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, groupKey])
+}
+
+/// Only one project per GitHub repository, instance-wide, may open PRs (two users would race on the same branches).
+model DependencyPrOwner {
+  githubRepoId Int               @id
+  projectId    String            @unique
+  project      DependencyProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }

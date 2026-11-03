@@ -60,3 +60,28 @@ export type {
   NotificationUserInput,
   SemverType,
 } from "./types.js";
+export { dispatchDependencyNotification } from "./dependency-dispatcher.js";
+export {
+  buildDependencyContext,
+  buildDependencyGotifyRequest,
+  buildDependencyNtfyRequest,
+  dependencyHeadline,
+  dependencyLevelLabel,
+  formatDependencyDiscordPayload,
+  formatDependencyGotifyMessage,
+  formatDependencySlackPayload,
+  formatDependencyWebhookPayload,
+  renderDependencyEmail,
+  DIGEST_MAX_ITEMS,
+  type DependencyDiscordPayload,
+  type DependencyGotifyMessage,
+  type DependencyMessageContext,
+  type DependencyNotificationInput,
+  type DependencyPullRequestEvent,
+  type DependencyPullRequestInput,
+  type DependencySlackPayload,
+  type DependencyUpdateInput,
+  type DependencyUpdateLevel,
+  type DependencyWebhookPayload,
+  type RenderedDependencyEmail,
+} from "./formatters/dependencies.js";

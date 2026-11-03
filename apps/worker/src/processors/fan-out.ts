@@ -1,4 +1,4 @@
-import type { NotificationChannel, NotificationLevel, SemverType } from "@repopulse/db";
+import type { NotificationChannel, NotificationEvent, NotificationLevel, SemverType } from "@repopulse/db";
 import { INITIAL_RELEASES_LIMIT } from "@repopulse/github";
 import type { NotificationJobData } from "@repopulse/queue";
 
@@ -20,6 +20,8 @@ export interface FanOutRule {
   tagId: string | null;
   channel: NotificationChannel;
   onlyMajorReleases: boolean;
+  /** What the rule fires for (Slice 08). Release fan-out needs `RELEASES`. */
+  events: readonly NotificationEvent[];
 }
 
 export interface FanOutSubscriber {
@@ -62,10 +64,12 @@ export function selectFreshReleases(created: StoredRelease[], newestKnownAt: Dat
 /**
  * Whether a notification rule fires for a release on a subscription with `tagIds`.
  * In-app delivery is the unread state + SSE event itself, so `IN_APP` rules never queue a job;
- * neither do `EMAIL_DIGEST` rules, which have no sender yet.
+ * neither do `EMAIL_DIGEST` rules, which have no sender yet. A rule that only covers dependency
+ * events (Slice 08) never fires for releases.
  */
 export function ruleMatches(rule: FanOutRule, tagIds: readonly string[], release: StoredRelease): boolean {
   if (rule.channel === "IN_APP" || rule.channel === "EMAIL_DIGEST") return false;
+  if (!rule.events.includes("RELEASES")) return false;
   if (rule.tagId !== null && !tagIds.includes(rule.tagId)) return false;
   if (rule.onlyMajorReleases && release.semverType !== "MAJOR") return false;
   return true;

@@ -1,5 +1,7 @@
 # RepoPulse production stack for Coolify (Docker Compose build pack).
-# Deploys web + worker + one-off migrator + PostgreSQL + Redis atomically from this repo.
+# Deploys web + worker + one-off migrator + PostgreSQL + Redis atomically from this repo, plus the
+# Dependencies module (Slice 08): deps-worker, the deps-sandbox lockfile runner and its deps-egress
+# allowlist proxy. deps-sandbox sits on the internal deps_sandbox network, whose only way out is deps-egress.
 # Local test: cp .env.example .env && docker compose -f docker-compose.coolify.yml up --build
 
 x-database-url: &database-url postgresql://${POSTGRES_USER:-repopulse}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-repopulse}
@@ -120,6 +122,96 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  deps-worker:
+    build:
+      context: .
+      dockerfile: apps/deps-worker/Dockerfile
+      target: runner
+    restart: unless-stopped
+    # Give in-flight scans and update PRs time to finish on Coolify rollouts (SIGTERM -> graceful close).
+    stop_grace_period: 30s
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: *database-url
+      REDIS_URL: *redis-url
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
+      ALLOW_INTERNAL_WEBHOOK_HOSTS: ${ALLOW_INTERNAL_WEBHOOK_HOSTS:-}
+      APP_BASE_URL: ${SERVICE_URL_WEB}
+      # Lockfile regeneration for update PRs. The token must be the one deps-sandbox gets.
+      DEPS_SANDBOX_URL: ${DEPS_SANDBOX_URL:-http://deps-sandbox:3003}
+      DEPS_SANDBOX_TOKEN: ${DEPS_SANDBOX_TOKEN}
+      DEPS_SCAN_CRON: ${DEPS_SCAN_CRON:-17 * * * *}
+      DEPS_SCAN_CONCURRENCY: ${DEPS_SCAN_CONCURRENCY:-3}
+      DEPS_UPDATE_CONCURRENCY: ${DEPS_UPDATE_CONCURRENCY:-1}
+      DEPS_HEALTH_PORT: ${DEPS_HEALTH_PORT:-3002}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    # default: Postgres, Redis, GitHub and the registries. deps_sandbox: calls to deps-sandbox.
+    networks:
+      - default
+      - deps_sandbox
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:${DEPS_HEALTH_PORT:-3002}/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Runs npm / pnpm / Bun / uv / Poetry on untrusted manifests to regenerate lockfiles. It holds no secret besides
+  # its own bearer token: no database, no Redis, no volumes, no env_file. Internal network only; the registries
+  # are reached through deps-egress.
+  deps-sandbox:
+    build:
+      context: .
+      dockerfile: apps/deps-sandbox/Dockerfile
+    restart: unless-stopped
+    stop_grace_period: 30s
+    environment:
+      # Required, at least 16 characters (`pnpm env:setup` generates one). Same value as deps-worker's.
+      DEPS_SANDBOX_TOKEN: ${DEPS_SANDBOX_TOKEN}
+      DEPS_SANDBOX_TIMEOUT_MS: ${DEPS_SANDBOX_TIMEOUT_MS:-300000}
+    networks:
+      - deps_sandbox
+    read_only: true
+    tmpfs:
+      - /tmp:size=2g
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: 2g
+    cpus: 2
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3003/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # Allowlist forward proxy, the sandbox's only way out: HTTPS CONNECT to the npm and PyPI registries only.
+  deps-egress:
+    image: ubuntu/squid:6.6-24.04_edge@sha256:8a3baed477e2c282ab8aa5edad442f69873246964f225c5c2ae8364b6610963c
+    restart: unless-stopped
+    volumes:
+      - ./deploy/deps-egress/squid.conf:/etc/squid/squid.conf:ro
+    networks:
+      default:
+      deps_sandbox:
+        aliases:
+          - deps-egress
+
+networks:
+  # No route to the outside: deps-sandbox reaches only deps-worker (its caller) and deps-egress (the proxy).
+  # Services without a `networks:` key stay on the implicit default network, as before.
+  deps_sandbox:
+    internal: true
 
 volumes:
   postgres_data:

@@ -1,11 +1,13 @@
 "use client";
 
 import { useOptimistic, useState, useTransition } from "react";
-import { LoaderCircleIcon, SendIcon, Trash2Icon } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { LoaderCircleIcon, SendIcon, SlidersHorizontalIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { channelLabel } from "@repopulse/notifications/channels";
 import { TagPill } from "@/components/feed/tag-pill";
 import { ChannelIcon } from "@/components/notifications/channel-icon";
+import { NotificationEventCheckboxes } from "@/components/notifications/notification-event-checkboxes";
 import { sendTestWithToast } from "@/components/notifications/send-test";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,8 +22,13 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { NOTIFICATION_EVENT_LABELS, type NotificationEventValue } from "@/lib/notification-events";
 import { cn } from "@/lib/utils";
-import { deleteNotificationRuleAction, toggleNotificationRuleAction } from "@/server/actions/notifications";
+import {
+  deleteNotificationRuleAction,
+  toggleNotificationRuleAction,
+  updateNotificationRuleEventsAction,
+} from "@/server/actions/notifications";
 import type { NotificationRuleView } from "@/server/queries/notifications";
 
 export function NotificationRuleItem({ rule }: { rule: NotificationRuleView }) {
@@ -64,6 +71,11 @@ export function NotificationRuleItem({ rule }: { rule: NotificationRuleView }) {
                 All repositories
               </Badge>
             )}
+            {rule.events.map((event) => (
+              <Badge key={event} variant="secondary" className="rounded-full text-[11px] font-medium">
+                {NOTIFICATION_EVENT_LABELS[event]}
+              </Badge>
+            ))}
             {rule.onlyMajorReleases ? (
               <Badge className="rounded-full border-transparent bg-red-500/10 text-[11px] text-red-700 dark:text-red-400">Major only</Badge>
             ) : null}
@@ -84,6 +96,7 @@ export function NotificationRuleItem({ rule }: { rule: NotificationRuleView }) {
           aria-label={`${enabled ? "Disable" : "Enable"} ${label} rule`}
           title={enabled ? "Enabled" : "Disabled"}
         />
+        <EditEventsButton rule={rule} label={label} />
         <Button variant="outline" size="sm" onClick={() => void test()} disabled={testing}>
           {testing ? <LoaderCircleIcon className="animate-spin" /> : <SendIcon />}
           Send Test
@@ -91,6 +104,73 @@ export function NotificationRuleItem({ rule }: { rule: NotificationRuleView }) {
         <DeleteRuleButton ruleId={rule.id} label={label} />
       </div>
     </li>
+  );
+}
+
+function EditEventsButton({ rule, label }: { rule: NotificationRuleView; label: string }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [events, setEvents] = useState<NotificationEventValue[]>(rule.events);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function save() {
+    setError(null);
+    startTransition(async () => {
+      const result = await updateNotificationRuleEventsAction({ ruleId: rule.id, events });
+      if (!result.ok) {
+        if (result.error.code === "UNAUTHORIZED") router.push("/login");
+        setError(result.error.message);
+        return;
+      }
+      setOpen(false);
+      toast.success(`${label} rule updated`);
+    });
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (pending) return;
+        if (next) {
+          setEvents(rule.events);
+          setError(null);
+        }
+        setOpen(next);
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="icon-sm" className="text-muted-foreground" aria-label={`Choose what the ${label} rule notifies about`}>
+          <SlidersHorizontalIcon />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>What should this {label} rule notify about?</DialogTitle>
+          <DialogDescription>
+            {rule.tag ? `This rule is limited to repositories tagged “${rule.tag.name}”, so it can only notify about releases.` : "Pick one or more."}
+          </DialogDescription>
+        </DialogHeader>
+        <NotificationEventCheckboxes idPrefix={`rule-${rule.id}-event`} value={events} onChange={setEvents} tagScoped={rule.tag !== null} disabled={pending} />
+        {error ? (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        ) : null}
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline" disabled={pending}>
+              Cancel
+            </Button>
+          </DialogClose>
+          <Button onClick={save} disabled={pending || events.length === 0}>
+            {pending ? <LoaderCircleIcon className="animate-spin" /> : null}
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

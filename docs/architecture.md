@@ -2,7 +2,9 @@
 
 > **Summary:** two Node processes (`web` = Next.js, `worker` = BullMQ) share PostgreSQL (state) and Redis (queues
 > plus Pub/Sub). The web app reads and writes state and enqueues jobs. The worker talks to GitHub, stores releases,
-> fans them out and delivers notifications. Live updates go worker → Redis Pub/Sub → web SSE → browser.
+> fans them out and delivers notifications. Live updates go worker → Redis Pub/Sub → web SSE → browser. The optional
+> Dependencies module adds three services of its own (`deps-worker`, `deps-sandbox`, `deps-egress`) on the same
+> PostgreSQL and Redis ([dependencies.md](./dependencies.md)).
 
 ## Workspaces
 
@@ -10,14 +12,18 @@
 | --- | --- | --- | --- |
 | `apps/web` | `@repopulse/web` | Next.js 16 App Router UI, Server Actions, Auth.js v5, SSE endpoint, `GET /api/health` | Node, port 3000 |
 | `apps/worker` | `@repopulse/worker` | BullMQ workers (scheduler, repo-poll, release-backfill, notification-dispatch), `GET :3001/health` | Node, port 3001 |
+| `apps/deps-worker` | `@repopulse/deps-worker` | Dependencies module: BullMQ workers (deps-scheduler, deps-scan, deps-update, deps-notify), Redis heartbeat, `GET :3002/health` | Node, port 3002 |
+| `apps/deps-sandbox` | `@repopulse/deps-sandbox` | Runs package managers to regenerate lockfiles (`POST /v1/lock`, `GET /health`); no secrets, internal network only | Node + npm / pnpm / Bun / uv / Poetry, port 3003 |
 | `packages/db` | `@repopulse/db` | Prisma 7 schema and migrations, singleton client (`@prisma/adapter-pg`), AES-256-GCM crypto, SMTP settings loader | library (CJS dist) |
-| `packages/github` | `@repopulse/github` | Octokit wrapper, repo-input parser, SemVer classifier, ETag polling, release paging, GraphQL tags, commit compare | library (ESM) |
+| `packages/github` | `@repopulse/github` | Octokit wrapper, repo-input parser, SemVer classifier, ETag polling, release paging, GraphQL tags, commit compare; GitHub App, Git Data API writes, webhook signatures | library (ESM) |
 | `packages/queue` | `@repopulse/queue` | Queue and job names, payload types, job options, jobId helpers, Redis factory, `RealtimeEvent` contract | library (ESM) |
-| `packages/notifications` | `@repopulse/notifications` | Channel formatters, `dispatchNotification()`, SSRF guard, SMTP transport | library (ESM) |
+| `packages/notifications` | `@repopulse/notifications` | Channel formatters, `dispatchNotification()`, `dispatchDependencyNotification()`, SSRF guard, SMTP transport | library (ESM) |
+| `packages/deps` | `@repopulse/deps` | Dependencies module logic: manifest detection and parsing, lockfile readers, npm / PEP 440 versions, registry clients, planning, manifest rewrites, PR text, sandbox contract | library (ESM) |
 | `packages/tsconfig` | `@repopulse/tsconfig` | Shared `base.json` and `nextjs.json` | config |
 
-Dependency direction: `apps/*` → `packages/*`. Packages never import apps. `notifications` does **not** depend on
-`db`: its input types are structural, so the apps pass Prisma rows straight in.
+Dependency direction: `apps/*` → `packages/*`. Packages never import apps. `notifications` and `deps` do **not**
+depend on `db`: their input types are structural, so the apps pass Prisma rows straight in. `deps-worker` and
+`worker` never import each other.
 
 Stack: Node ≥ 24 (images use Node 26), pnpm 12, Turborepo 2, TypeScript 7, Next.js 16.4, React 19.3, Prisma 7.10,
 BullMQ 6, ioredis 6, Tailwind CSS 4 with shadcn/ui on `radix-ui`, zod 4, Vitest 5.
@@ -40,6 +46,25 @@ BullMQ 6, ioredis 6, Tailwind CSS 4 with shadcn/ui on `radix-ui`, zod 4, Vitest 
                 └──────────────┘        Prisma      │    worker    ├──► GitHub REST/GraphQL
                                                     │   (BullMQ)   ├──► webhooks / SMTP
                                                     └──────────────┘
+```
+
+Dependencies module (only when deployed and enabled in Admin → Dependencies):
+
+```
+   web ──enqueue deps-*──► Redis ◄──consume / publish / heartbeat──┐
+   POST /api/github-app/webhook ──enqueue deps-scan                │
+                                                     ┌─────────────┴─────┐ Prisma ┌────────────┐
+                                                     │    deps-worker    ├───────►│ PostgreSQL │
+     GitHub REST (App installation tokens)   ◄───────┤ scan, update PRs, │        └────────────┘
+     npm registry / PyPI (cached in Redis)   ◄───────┤ notify            ├──► webhooks / SMTP
+                                                     └─────────┬─────────┘
+                       network deps_sandbox (internal)         │ POST /v1/lock (Bearer DEPS_SANDBOX_TOKEN)
+                                                     ┌─────────▼─────────┐ CONNECT :443 ┌─────────────┐
+                                                     │   deps-sandbox    ├─────────────►│ deps-egress ├──► npm / PyPI
+                                                     │ npm, pnpm, Bun,   │              │   (Squid    │    registries
+                                                     │ uv, Poetry;       │              │  allowlist) │    only
+                                                     │ no secrets        │              └─────────────┘
+                                                     └───────────────────┘
 ```
 
 ## Core flows
@@ -86,12 +111,29 @@ of these come from `RELEASE_BACKFILL_*` (or defaults) with per-value overrides i
 Worker → `publishUserEvent(redis, userId, event)` on `user:{userId}:events` → `GET /api/events/stream` (one Redis
 subscriber per open stream, 25 s heartbeat) → `SseListener` shows toasts and calls `router.refresh()`.
 Events (`packages/queue/src/events.ts`): `NEW_RELEASE`, `SYNC_STARTED`, `SYNC_COMPLETED`, `SYNC_FAILED`,
-`HISTORY_BACKFILLED`. Publishing is best effort: a missed event is fixed by the next page load.
+`HISTORY_BACKFILLED`, and from `deps-worker` `DEPS_SCAN_COMPLETED`, `DEPS_SCAN_FAILED`, `DEPS_PULL_REQUEST_UPDATED`.
+Publishing is best effort: a missed event is fixed by the next page load.
 
 ### 6. Notifications
-`notification-dispatch` job `{ ruleId, releaseId, userId }` → re-check the rule (enabled, major-only, still
-subscribed, tag still assigned) → for email, load the SMTP settings from `InstanceSettings` → `dispatchNotification()`.
-Permanent failures become `UnrecoverableError` (no retry). Details: [notifications.md](./notifications.md).
+`notification-dispatch` job `{ ruleId, releaseId, userId }` → re-check the rule (enabled, `RELEASES` in `events`,
+major-only, still subscribed, tag still assigned) → for email, load the SMTP settings from `InstanceSettings` →
+`dispatchNotification()`. Permanent failures become `UnrecoverableError` (no retry). Details:
+[notifications.md](./notifications.md).
+
+### 7. Dependency scan and update PR
+1. A user adds a project (`addDependencyProjectsAction`) or clicks "Check now", the hourly `deps-scheduler` finds it
+   due (`nextScanAt`), or a GitHub App `push` webhook arrives → `deps-scan` (jobId `deps-scan-{projectId}`).
+2. `deps-worker` reads the default-branch tree with the best credentials (App installation token → the owner's OAuth
+   token → anonymous), detects and parses manifests and lockfiles in TypeScript, looks up the npm registry / PyPI
+   (Redis cache), applies the project policy (`selectTarget`) and stores `DependencyManifest` / `DependencyUpdate`
+   rows in one transaction. Then it refreshes open PR states, publishes `DEPS_SCAN_COMPLETED`, queues `deps-notify`
+   digests for new targets and, in `AUTO_PR` mode, `deps-update` jobs.
+3. `deps-update` (or "Create PR") re-checks the mode, PR ownership, App installation and the owner's `write`
+   permission, recomputes the group, span-edits the manifests, asks `deps-sandbox` for the regenerated lockfile
+   (validated by the worker), commits through the Git Data API to `repopulse/deps/<groupKey>` as `<slug>[bot]` and
+   opens or updates the PR. `DEPS_PULL_REQUEST_UPDATED` and `deps-notify` follow.
+4. A merged or closed PR is picked up by the next scan (sooner with the `pull_request` webhook). Details:
+   [dependencies.md](./dependencies.md).
 
 ## Cross-cutting design decisions
 
@@ -104,3 +146,5 @@ Permanent failures become `UnrecoverableError` (no retry). Details: [notificatio
 | Rate limit → `queue.rateLimit(until X-RateLimit-Reset)` + `Worker.RateLimitError()` | Pauses the whole queue without spending an attempt |
 | Instance settings live in the single `InstanceSettings` row (`id = 1`); a missing row means defaults | Settings editable in the UI, read by both processes |
 | Release notes are rendered server-side through `rehype-sanitize` (GitHub allow-list) | Release bodies are untrusted input |
+| Repository content is only parsed in `deps-worker`; package managers run in `deps-sandbox` (no secrets, egress allowlist) | Lockfile regeneration runs third-party tooling on untrusted input; nothing that holds a token may run it |
+| Writes to users' repositories go through a GitHub App installed per repository, never the sign-in token | Sign-in keeps `read:user user:email`; App tokens are short-lived, narrowed to one repository, and commits are bot-authored |

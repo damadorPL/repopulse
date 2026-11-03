@@ -39,6 +39,11 @@ function githubUserFields(
   return { githubId, email, name, avatarUrl, githubAccessTokenEncrypted: encryptToken(account.access_token) };
 }
 
+/** The GitHub login of a sign-in (a cache: logins can change, so it is refreshed on every sign-in). */
+function githubLoginOf(profile: Profile | undefined): string | null {
+  return typeof profile?.login === "string" && profile.login.length > 0 ? profile.login : null;
+}
+
 /**
  * Auth.js v5 — GitHub OAuth with JWT sessions.
  *
@@ -79,10 +84,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const fields = account?.provider === "github" ? githubUserFields(user, account, profile) : null;
       if (fields) {
         const { githubId, ...profileFields } = fields;
+        // `githubLogin` feeds the collaborator permission check of dependency update PRs (Slice 08).
+        const githubLogin = githubLoginOf(profile);
         const dbUser = await prisma.user.upsert({
           where: { githubId },
-          create: fields,
-          update: profileFields,
+          create: { ...fields, githubLogin },
+          update: { ...profileFields, githubLogin },
           select: { id: true },
         });
         token.userId = dbUser.id;

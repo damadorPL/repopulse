@@ -1,0 +1,23 @@
+{
+  "name": "@repopulse/deps-sandbox",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./dist/server.js",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../../.env src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@repopulse/deps": "workspace:*"
+  },
+  "devDependencies": {
+    "@repopulse/tsconfig": "workspace:*",
+    "@types/node": "26.6.6",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}

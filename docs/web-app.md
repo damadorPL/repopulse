@@ -1,7 +1,7 @@
 # Web app (`apps/web`)
 
 > **Summary:** Next.js 16 App Router with React Server Components and Server Actions. There is no REST API
-> besides auth, SSE and health. Pages read through `server/queries/*`, and mutations are `"use server"` functions in
+> besides auth, SSE, health and the GitHub App routes (manifest callback, webhook). Pages read through `server/queries/*`, and mutations are `"use server"` functions in
 > `server/actions/*` that return `ActionResult<T>`. UI uses Tailwind CSS 4 with shadcn/ui primitives in
 > `components/ui`.
 
@@ -14,12 +14,12 @@
 | --- | --- | --- |
 | `app/(dashboard)/` | Signed-in pages sharing `layout.tsx` (sidebar, top bar, `SseListener`) | anything server-side |
 | `app/login`, `app/invite/[token]` | Public pages | |
-| `app/api/auth/[...nextauth]`, `app/api/events/stream`, `app/api/health` | Route handlers | |
+| `app/api/auth/[...nextauth]`, `app/api/events/stream`, `app/api/health`, `app/api/github-app/{manifest/callback,webhook}` | Route handlers | |
 | `server/actions/*.ts` | `"use server"` mutations, one file per area | `server/*`, `lib/*`, packages |
 | `server/queries/*.ts` | Read queries and view types for pages | `server/*`, `lib/*`, packages |
 | `server/*.ts` | Server-only helpers, **not** `"use server"`, so they are not callable from the browser and can be unit-tested | packages |
 | `lib/*.ts` | Code shared by client and server (constants, zod schemas, pure helpers). `lib/auth.ts` is server-only (Auth.js) | no `@repopulse/db`, no `server/*` |
-| `components/<area>/` | Client and server components by feature: `access`, `email`, `feed`, `layout`, `modals`, `notifications`, `reader`, `realtime`, `repositories`, `theme` | `lib/*`, `server/actions/*`, **type-only** imports from `server/*` |
+| `components/<area>/` | Client and server components by feature: `access`, `admin`, `dependencies`, `email`, `feed`, `layout`, `modals`, `notifications`, `reader`, `realtime`, `repositories`, `theme` | `lib/*`, `server/actions/*`, **type-only** imports from `server/*` |
 | `components/ui/` | shadcn/ui primitives (badge, button, checkbox, dialog, input, label, popover, select, sheet, skeleton, sonner, switch, all on `radix-ui`) | |
 
 Path alias: `@/*` → `apps/web/src/*` (tsconfig and `vitest.config.ts`).
@@ -31,16 +31,22 @@ Path alias: `@/*` → `apps/web/src/*` (tsconfig and `vitest.config.ts`).
 | `/` | `app/(dashboard)/page.tsx` | user. Release feed; the URL holds all filter state (`lib/feed-filters.ts` `PARAM`); `?release=<id>` opens the changelog drawer |
 | `/repositories` | `app/(dashboard)/repositories/page.tsx` | user. Subscription cards (tags, read-only tracking summary, history status, pin, sync, remove) with search / sort / quick filters in the URL (`lib/repo-list-filters.ts`, below) |
 | `/repositories/[owner]/[name]` | `app/(dashboard)/repositories/[owner]/[name]/page.tsx` (+ `not-found.tsx`) | user. Settings of the user's own subscription: header, activity grid + stats, tracking, tags, notifications & feed, history, danger zone. Case-insensitive slug, redirected to the canonical casing; a repository the user does not track is the "Not tracked" page with a prefilled Add button. `?from=` carries the list's query string for the back link |
-| `/settings/notifications` | `app/(dashboard)/settings/notifications/page.tsx` | user. Notification rules |
+| `/dependencies` | `app/(dashboard)/dependencies/page.tsx` | user. Dependency projects: package managers, outdated counts by level, open PRs, mode, last check, "Check now", "Tracked" badge; search / sort in the URL (`lib/dependency-list-filters.ts`: `q`, `sort` = `name` / `outdated` / `checked`); the Add dialog (from tracked repositories, or by URL). `?installed=1` shows the "App installed" notice. With the module off: "Dependency checks are turned off by the administrator" |
+| `/dependencies/[owner]/[name]` | `app/(dashboard)/dependencies/[owner]/[name]/page.tsx` (+ `not-found.tsx`) | user, own project only. Header + App status banner, outdated table (filters, ignore actions, changelog links, "Track releases"), pull requests (planned groups with "Create PR" / "Update PR" or the reason it is disabled, history), settings form, manifests, danger zone. Canonical-casing redirect like the repository page |
+| `/settings/notifications` | `app/(dashboard)/settings/notifications/page.tsx` | user. Notification rules (with event checkboxes and an events edit dialog) |
 | `/admin` | `app/(dashboard)/admin/page.tsx` (+ `admin/layout.tsx`: guard and tabs) | **super admin**. Admin panel overview: counts and a card per section |
 | `/admin/access` | `app/(dashboard)/admin/access/page.tsx` | **super admin**. Registration toggle, invite links (was `/settings/access`, redirected) |
 | `/admin/email` | `app/(dashboard)/admin/email/page.tsx` | **super admin**. SMTP settings, test email (was `/settings/email`, redirected) |
 | `/admin/history` | `app/(dashboard)/admin/history/page.tsx` | **super admin**. Release history import settings, re-run the automatic import for existing repositories |
+| `/admin/github-app` | `app/(dashboard)/admin/github-app/page.tsx` | **super admin**. Create the GitHub App (manifest flow) or enter it manually, remove it, enable webhooks; `?created=1` / `?error=<code>` after the callback |
+| `/admin/dependencies` | `app/(dashboard)/admin/dependencies/page.tsx` | **super admin**. Module switch, `deps-worker` heartbeat, sandbox tools, App state, counts |
 | `/login` | `app/login/page.tsx` | public. GitHub sign-in, error messages (`?error=InviteRequired`, `InviteInvalid`, …) |
 | `/invite/[token]` | `app/invite/[token]/page.tsx` | public. Accepts an invite: sets the cookie, then GitHub sign-in |
 | `GET /api/events/stream` | `app/api/events/stream/route.ts` | user. SSE relay of `user:{id}:events` (`runtime = "nodejs"`, `dynamic = "force-dynamic"`) |
 | `GET /api/health` | `app/api/health/route.ts` | public. Container healthcheck |
 | `/api/auth/*` | `app/api/auth/[...nextauth]/route.ts` | Auth.js handlers |
+| `GET /api/github-app/manifest/callback` | `app/api/github-app/manifest/callback/route.ts` | **super admin** (404 otherwise). Manifest code exchange, checks the state cookie |
+| `POST /api/github-app/webhook` | `app/api/github-app/webhook/route.ts` | public, `X-Hub-Signature-256` only. Enqueues `deps-scan`; no database writes ([dependencies.md](./dependencies.md#webhooks-part-e-optional)) |
 
 **Every page calls `requireUser()` or `requireSuperAdmin()` itself.** Layouts and pages render in parallel, so the
 layout's check does not protect the page.
@@ -58,7 +64,10 @@ File → exported actions:
 | `feed.ts` | `loadMoreReleasesAction` |
 | `release-state.ts` | `toggleReleaseReadAction`, `markAllReadAction` |
 | `tags.ts` | `createTagAction`, `updateTagAction`, `deleteTagAction`, `assignTagsAction` |
-| `notifications.ts` | `createNotificationRuleAction`, `toggleNotificationRuleAction`, `deleteNotificationRuleAction`, `sendTestNotificationAction` |
+| `notifications.ts` | `createNotificationRuleAction` (with `events`), `toggleNotificationRuleAction`, `updateNotificationRuleEventsAction`, `deleteNotificationRuleAction`, `sendTestNotificationAction` |
+| `dependencies.ts` | `addDependencyProjectsAction` (1–20 sources: subscription ids or `owner/name` / URLs; options `updateMode`, `notifyOnFirstScan`), `removeDependencyProjectAction`, `updateDependencyProjectSettingsAction` (claims / releases PR ownership, `CONFLICT` naming the owner), `triggerDependencyScanAction` (→ `QUEUED` / `COOLDOWN`, 5 min), `createDependencyPullRequestAction`, `ignoreDependencyAction` (matching rows become `IGNORED` at once; a range rule also queues a re-check), `removeIgnoreRuleAction` (queues a re-check that bypasses the cooldown: "Re-checking…"). Everything that queues work returns `UNAVAILABLE` while the module is off. Schemas in `lib/dependency-settings.ts` |
+| `github-app.ts` | `startGitHubAppManifestAction`, `saveGitHubAppSettingsAction`, `removeGitHubAppSettingsAction`, `enableGitHubAppWebhooksAction` (super admin; helpers in `server/github-app.ts`, schemas in `lib/github-app.ts`) |
+| `dependencies-admin.ts` | `setDepsEnabledAction` (super admin) |
 | `access.ts` | `setPublicRegistrationAction`, `createInviteAction`, `deleteInviteAction` (super admin) |
 | `email-settings.ts` | `saveSmtpSettingsAction`, `removeSmtpSettingsAction`, `sendSmtpTestEmailAction` (super admin) |
 | `auth.ts` | `signOutAction` |
@@ -116,6 +125,10 @@ Client usage pattern: call the action in `startTransition`, show `toast` from `s
 | `queries/repository-settings.ts` | `getRepositorySettings(userId, owner, name)` (`null` unless the user subscribes), `getRepositoryActivity(userId, repositoryId)` (activity grid rows through `visibleReleasesWhere`, newest 5 000 of the last 371 days, plus total and oldest date) |
 | `queries/notifications.ts` | `getNotificationRules` (masked), `MAX_NOTIFICATION_RULES = 25` |
 | `queries/access.ts` | `getInvites` (newest 100), `getMemberCount` |
+| `queries/dependencies.ts` | `getDependencyProjects`, `getAddableSubscriptions`, `getDependencyProject(userId, owner, name)` (`null` unless the user's), `getDependencyProjectForRepository` (the card on the repository settings page), `getAppRepoStatus` (App installed / owner of PRs; at most 2 GitHub calls per render), `checkRepoAccess(user, repo, "read" \| "write")`, `loadAppCredentials`, `planPullRequests` |
+| `queries/github-app.ts` | `getGitHubAppView` (never the key or secret), `isGitHubAppConfigured` |
+| `deps-status.ts` | `isDepsEnabled` (per request), `getDepsSidebarInfo` (link + outdated-projects badge), `readDepsWorkerStatus` (Redis heartbeat), `getDepsAdminView` |
+| `github-app.ts`, `github-app-webhook.ts`, `deps-webhook-queue.ts` | Manifest state cookie and callback; webhook verification and routing; the webhook's `deps-scan` producer |
 | `realtime.ts` | Redis connection (fail-fast, `maxRetriesPerRequest: 1`), `getRepoPollQueue`, `getReleaseBackfillQueue`, `publishToUser`, `createSubscriber`, `withRedisTimeout`, `isRealtimeConfigured` |
 | `backfill-queue.ts`, `repo-poll-queue.ts` | `enqueueReleaseBackfill`, `queueRepoImport` (priority poll for a tag or path import) |
 | `commit-states.ts` | `syncCommitStates` / `planCommitStates` (prune and seed the commit states of a user with `trackPaths`), `needsPathImport` |
@@ -168,6 +181,11 @@ React `cache`), `UnauthorizedError` and `ForbiddenError`. The JWT session carrie
   release content.
 - Instance-admin navigation lives in `components/layout/app-sidebar.tsx` (the **Instance** group) and the account menu
   in `top-navbar.tsx`. Both are gated by `isSuperAdmin`.
+- Dependencies: the sidebar shows **Dependencies** (with the count of projects that have outdated dependencies) only
+  while the module is on. The repository settings page has a small Dependencies card (add the repository as a project,
+  or a summary + link). `SseListener` handles `DEPS_SCAN_COMPLETED`, `DEPS_SCAN_FAILED` and
+  `DEPS_PULL_REQUEST_UPDATED` (toast + `router.refresh()`). The Add dialog only knows whether the App is configured;
+  per-repository installation errors come back from the server ("Install the RepoPulse GitHub App on X first").
 
 ## Tests
 

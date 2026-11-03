@@ -53,7 +53,7 @@ export async function loadSubscribers(tx: Tx, repositoryId: string): Promise<Sub
         select: {
           notificationRules: {
             where: { enabled: true },
-            select: { id: true, tagId: true, channel: true, onlyMajorReleases: true },
+            select: { id: true, tagId: true, channel: true, onlyMajorReleases: true, events: true },
           },
         },
       },

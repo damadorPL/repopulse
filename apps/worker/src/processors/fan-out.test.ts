@@ -24,7 +24,7 @@ function subscriber(userId: string, extra: Partial<FanOutSubscriber> = {}): FanO
 }
 
 function rule(id: string, extra: Partial<FanOutRule> = {}): FanOutRule {
-  return { id, tagId: null, channel: "DISCORD_WEBHOOK", onlyMajorReleases: false, ...extra };
+  return { id, tagId: null, channel: "DISCORD_WEBHOOK", onlyMajorReleases: false, events: ["RELEASES"], ...extra };
 }
 
 describe("selectFreshReleases", () => {
@@ -52,6 +52,12 @@ describe("ruleMatches", () => {
 
   it("applies untagged rules to every subscription", () => {
     expect(ruleMatches(rule("r"), [], minor)).toBe(true);
+  });
+
+  it("requires RELEASES in the rule's events (Slice 08)", () => {
+    expect(ruleMatches(rule("r", { events: ["DEPENDENCY_UPDATES"] }), [], major)).toBe(false);
+    expect(ruleMatches(rule("r", { events: [] }), [], major)).toBe(false);
+    expect(ruleMatches(rule("r", { events: ["DEPENDENCY_PULL_REQUESTS", "RELEASES"] }), [], major)).toBe(true);
   });
 
   it("requires the rule's tag on the subscription", () => {

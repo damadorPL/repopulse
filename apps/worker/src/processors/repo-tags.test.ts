@@ -50,7 +50,7 @@ function fakePrisma(options: { storedTagNames?: string[]; subscribers: Sub[] }) 
           includePrereleases: s.includePrereleases ?? false,
           trackMode: s.trackMode,
           tags: [],
-          user: { notificationRules: [{ id: `rule-${s.userId}`, tagId: null, channel: "DISCORD_WEBHOOK", onlyMajorReleases: false }] },
+          user: { notificationRules: [{ id: `rule-${s.userId}`, tagId: null, channel: "DISCORD_WEBHOOK", onlyMajorReleases: false, events: ["RELEASES"] }] },
         })),
       ),
     },

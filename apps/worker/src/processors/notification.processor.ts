@@ -10,6 +10,8 @@ const log = createLogger("notification-dispatch");
 export type NotificationSkipReason =
   | "RULE_GONE"
   | "RULE_DISABLED"
+  /** The rule no longer covers releases (Slice 08 `events`). */
+  | "EVENT_DISABLED"
   | "RELEASE_GONE"
   | "NOT_MAJOR"
   | "UNSUBSCRIBED"
@@ -63,6 +65,7 @@ export async function processNotification(job: Job<NotificationJobData>, deps: N
         destinationUrl: true,
         onlyMajorReleases: true,
         enabled: true,
+        events: true,
         tag: { select: { name: true, colorHex: true } },
       },
     }),
@@ -87,6 +90,7 @@ export async function processNotification(job: Job<NotificationJobData>, deps: N
 
   if (!rule || rule.userId !== userId || !user) return skip("RULE_GONE");
   if (!rule.enabled) return skip("RULE_DISABLED");
+  if (!rule.events.includes("RELEASES")) return skip("EVENT_DISABLED");
   if (!release) return skip("RELEASE_GONE");
   if (rule.onlyMajorReleases && release.semverType !== "MAJOR") return skip("NOT_MAJOR");
   if (!isDeliverableChannel(rule.channel)) return skip("UNSUPPORTED_CHANNEL");

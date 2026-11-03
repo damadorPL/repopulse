@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ChevronRightIcon, HistoryIcon, MailIcon, UsersIcon, type LucideIcon } from "lucide-react";
+import { BotIcon, ChevronRightIcon, HistoryIcon, MailIcon, PackageIcon, UsersIcon, type LucideIcon } from "lucide-react";
 import { prisma } from "@repopulse/db";
 import { getBackfillSettingsView } from "@/server/backfill-settings";
+import { isDepsEnabled } from "@/server/deps-status";
 import { getInvites, getMemberCount } from "@/server/queries/access";
+import { getGitHubAppView } from "@/server/queries/github-app";
 import { isPublicRegistrationOpen } from "@/server/registration";
 import { requireSuperAdmin } from "@/server/session";
 import { getSmtpSettingsView } from "@/server/smtp-settings";
@@ -46,15 +48,17 @@ function SectionCard({
 }
 
 export default async function AdminOverviewPage() {
-  await requireSuperAdmin();
+  const admin = await requireSuperAdmin();
 
-  const [publicRegistration, invites, memberCount, smtp, history, repositoryCount] = await Promise.all([
+  const [publicRegistration, invites, memberCount, smtp, history, repositoryCount, githubApp, depsEnabled] = await Promise.all([
     isPublicRegistrationOpen(),
     getInvites(),
     getMemberCount(),
     getSmtpSettingsView(),
     getBackfillSettingsView(),
     prisma.repository.count({ where: { subscriptions: { some: {} } } }),
+    getGitHubAppView(admin.githubLogin),
+    isDepsEnabled(),
   ]);
   const pendingInvites = invites.filter((invite) => invite.status === "pending").length;
   const value = (key: string) => history.find((s) => s.key === key)!.value;
@@ -101,6 +105,20 @@ export default async function AdminOverviewPage() {
               ? `${customCount} custom ${customCount === 1 ? "setting" : "settings"}; the rest from the environment or defaults.`
               : "From the environment or defaults; nothing customized yet."
           }
+        />
+        <SectionCard
+          href="/admin/github-app"
+          icon={BotIcon}
+          title="GitHub App"
+          status={githubApp.configured ? `${githubApp.slug}${githubApp.owner ? ` (owner: ${githubApp.owner})` : ""}` : "Not set up"}
+          details="Lets Dependencies open update pull requests and read private repositories."
+        />
+        <SectionCard
+          href="/admin/dependencies"
+          icon={PackageIcon}
+          title="Dependencies"
+          status={depsEnabled ? "Dependency checks are on" : "Dependency checks are off"}
+          details="Outdated npm, Bun and PyPI dependencies in members' own repositories, and the services that check them."
         />
       </ul>
 

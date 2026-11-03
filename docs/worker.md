@@ -2,7 +2,9 @@
 
 > **Summary:** one Node process running four BullMQ workers plus a health server on `:3001`. Entry point
 > `apps/worker/src/index.ts`; processors in `src/processors/`; queue construction in `src/queues/index.ts`. Names,
-> payloads and job options are shared with the web app through `@repopulse/queue`.
+> payloads and job options are shared with the web app through `@repopulse/queue`. The Dependencies module has its
+> own process, `apps/deps-worker` (queues `deps-*`, health `:3002`): see [dependencies.md](./dependencies.md). The two
+> workers share PostgreSQL and Redis but never import each other.
 
 ## Queues
 
@@ -66,7 +68,8 @@ Rules:
   - Anything else (network, 5xx, timeouts) is rethrown, so BullMQ retries it. Only the last attempt counts towards
     `errorCount`.
 - `loadSubscribers` (`repo-tags.ts`, shared by the release, tag and path steps) selects `notificationLevel` and
-  `snoozedUntil` with each subscription, so all three steps honor them.
+  `snoozedUntil` with each subscription, and each rule's `events`, so all three steps honor them. `ruleMatches` only
+  queues rules whose `events` contain `RELEASES` (Slice 08: a rule may cover only dependency events).
 - The pure decision logic lives in `fan-out.ts` (`selectFreshReleases`, `ruleMatches`, `passesNotificationLevel`,
   `isSnoozed`, `mayNotify`, `planFanOut`,
   `mergeFanOutPlans`, `rateLimitDelayMs`). Test it there.
@@ -83,7 +86,8 @@ Rules:
 - Publishes `HISTORY_BACKFILLED` to every subscriber. Pure logic is in `backfill-plan.ts`.
 
 ### `notification.processor.ts` → `processNotification`
-- Re-checks the rule against the current state: `RULE_GONE`, `RULE_DISABLED`, `RELEASE_GONE`, `NOT_MAJOR`,
+- Re-checks the rule against the current state: `RULE_GONE`, `RULE_DISABLED`, `EVENT_DISABLED` (`RELEASES` no
+  longer in the rule's `events`), `RELEASE_GONE`, `NOT_MAJOR`,
   `UNSUPPORTED_CHANNEL`, `UNSUBSCRIBED`, `TAG_REMOVED`, `SNOOZED`, `NOTIFICATION_LEVEL` (the subscription was snoozed
   or its level lowered after the fan-out) → `SKIPPED`.
 - Email rules: `toSmtpConfig(await loadSmtpSettings(prisma))` on **every job** (UI changes apply without a restart). An

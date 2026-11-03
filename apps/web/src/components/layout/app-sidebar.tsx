@@ -3,12 +3,13 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ActivityIcon, BellRingIcon, BoxesIcon, InboxIcon, PlusIcon, Settings2Icon, ShieldIcon } from "lucide-react";
+import { ActivityIcon, BellRingIcon, BoxesIcon, InboxIcon, PackageIcon, PlusIcon, Settings2Icon, ShieldIcon } from "lucide-react";
 import { TagDot } from "@/components/feed/tag-pill";
 import { ManageTagsModal } from "@/components/modals/manage-tags-modal";
 import { Button } from "@/components/ui/button";
 import { feedHref, parseFeedFilters } from "@/lib/feed-filters";
 import { cn } from "@/lib/utils";
+import type { DepsSidebarInfo } from "@/server/deps-status";
 import type { SidebarTag } from "@/server/queries/feed";
 
 function CountBadge({ count, accent = false }: { count: number; accent?: boolean }) {
@@ -59,10 +60,13 @@ export function AppSidebar({
   totalUnread,
   repositoryCount,
   isSuperAdmin = false,
+  dependencies,
 }: {
   tags: SidebarTag[];
   totalUnread: number;
   repositoryCount: number;
+  /** Slice 08: hidden while the module is off; the badge counts projects with outdated dependencies. */
+  dependencies?: DepsSidebarInfo;
   /** The super admin also sees the admin panel (instance settings: access, email, release history). */
   isSuperAdmin?: boolean;
 }) {
@@ -101,6 +105,16 @@ export function AppSidebar({
         >
           Tracked Repositories
         </NavLink>
+        {dependencies?.enabled ? (
+          <NavLink
+            href="/dependencies"
+            active={pathname === "/dependencies" || pathname.startsWith("/dependencies/")}
+            icon={<PackageIcon />}
+            badge={<CountBadge count={dependencies.outdatedProjects} />}
+          >
+            Dependencies
+          </NavLink>
+        ) : null}
       </div>
 
       <div className="grid gap-1">

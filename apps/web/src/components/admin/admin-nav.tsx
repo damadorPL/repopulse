@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { HistoryIcon, LayoutDashboardIcon, MailIcon, UsersIcon } from "lucide-react";
+import { BotIcon, HistoryIcon, LayoutDashboardIcon, MailIcon, PackageIcon, UsersIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /** The sections of the admin panel (super admin only). */
@@ -11,6 +11,8 @@ export const ADMIN_SECTIONS = [
   { href: "/admin/access", label: "Access", icon: UsersIcon, exact: false },
   { href: "/admin/email", label: "Email (SMTP)", icon: MailIcon, exact: false },
   { href: "/admin/history", label: "Release history", icon: HistoryIcon, exact: false },
+  { href: "/admin/github-app", label: "GitHub App", icon: BotIcon, exact: false },
+  { href: "/admin/dependencies", label: "Dependencies", icon: PackageIcon, exact: false },
 ] as const;
 
 export function AdminNav() {

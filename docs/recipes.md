@@ -77,6 +77,40 @@ For a removal, add the key to `OBSOLETE` in `sync-env.mjs`.
    `server/notification-destination.ts` if it is not a plain URL.
 6. Tests in `formatters.test.ts` and `dispatcher.test.ts`. Docs: [notifications.md](./notifications.md#channels).
 
+## Add a dependency ecosystem or package manager
+
+Background: [dependencies.md](./dependencies.md). Everything that parses or plans stays pure in `packages/deps`;
+anything that executes a tool goes to `apps/deps-sandbox`.
+
+**A package manager for an existing ecosystem** (e.g. a new npm-family tool):
+1. Enum value in `PackageManager` (schema + migration), `PackageManager` in `packages/deps/src/types.ts`, and
+   `PackageManagerValue` + `PACKAGE_MANAGER_LABELS` in `apps/web/src/lib/dependency-settings.ts`.
+2. Detection (`detect.ts`): its lockfile in `NPM_LOCKFILES` (order = precedence) or the pyproject rules,
+   `packageManagerFromField`. A lockfile reader in `src/lockfiles/<name>.ts` (name → version + format version, empty
+   map + warning on failure), wired into `readLockfile`, with fixtures in `lockfiles.test.ts`.
+3. Check only: return a reason from `manifestCheckOnlyReason` (`plan.ts`) and add a detection warning. Stop here.
+4. Lockfile regeneration: add it to `SANDBOX_PACKAGE_MANAGERS` (`sandbox-contract.ts`); in `apps/deps-sandbox/src/commands.ts`
+   `TOOL_NAMES`, `TOOL_FOR`, `LOCKFILE_NAMES`, the lockfile format constants, `buildCommands` (scripts off, lockfile
+   only, `LOCKFILE_ONLY` variant) and the tool-version checks; registry config files in `run-lock.ts`
+   (`RISKY_CONFIG_FILES`, `findConfigRegistries`) and in the worker's `*_REGISTRY_CONFIG_FILES` / workspace files
+   (`deps-update.processor.ts`); the pinned binary in `apps/deps-sandbox/Dockerfile` (verify every flag against it in
+   the built image). Worker side: `validateLockfile` (`sandbox-client.ts`) must read the new format back.
+5. Webhooks: its manifest / lockfile names in `isDependencyFilePath` (`apps/web/src/server/github-app-webhook.ts`).
+
+**A new ecosystem** (e.g. Cargo), on top of the steps above:
+1. Enum value in `DependencyEcosystem` (schema + migration), `types.ts` (`DependencyEcosystem`, a `RangeSyntax`,
+   `ecosystemOfSyntax`) and `DEPENDENCY_ECOSYSTEMS` in `lib/dependency-settings.ts` (plus the registry link there and
+   in `pull-request.ts`).
+2. Versions: a module in `src/versions/` (parse, compare, pre-release, satisfies, max satisfying, lower bound, bump
+   keeping the operator and precision), wired into `versions/index.ts`, fully unit-tested.
+3. Manifest parser (`src/manifests/`, located spans) and rewriter (`src/rewrite/`, span edits + structural re-check),
+   `manifestFormatOf` in `detect.ts`, and the rewrite dispatch in `deps-update.processor.ts`.
+4. Registry client in `src/registries/` (fixed host constant, `cachedGet` with ETag, publish dates, deprecated /
+   yanked, source repository URL), a `RegistryCacheNamespace`, and the switch in `fetchRegistryPackage`.
+5. If the sandbox must reach a new registry host: `deploy/deps-egress/squid.conf` (`registries` ACL) and
+   `DEFAULT_REGISTRY_HOSTS` in `run-lock.ts`. Document it in [deployment.md](./deployment.md).
+6. Update [dependencies.md](./dependencies.md#supported-ecosystems) and the changelog.
+
 ## Add a dashboard page
 
 1. `apps/web/src/app/(dashboard)/<route>/page.tsx`: `export const metadata = { title: "X · RepoPulse" }`, then

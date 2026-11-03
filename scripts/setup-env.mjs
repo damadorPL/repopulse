@@ -85,10 +85,23 @@ POLL_INTERVAL_CRON=*/30 * * * *
 # ALLOW_INTERNAL_WEBHOOK_HOSTS=false
 # Public URL for links in notifications (default: AUTH_URL / NEXTAUTH_URL).
 # APP_BASE_URL=https://repopulse.example.com
+
+# ─── Dependencies (deps-worker + deps-sandbox) ────────────────────────────
+# Bearer token between deps-worker and deps-sandbox (lockfile regeneration for update PRs).
+DEPS_SANDBOX_TOKEN=${hex32()}
+# Optional (defaults shown). With \`pnpm dev\` the sandbox listens on port 3003 (all interfaces) without
+# the container's isolation or the egress proxy: uncomment DEPS_SANDBOX_URL=http://127.0.0.1:3003 and
+# set DEPS_EGRESS_PROXY= (empty) to use it.
+# DEPS_SANDBOX_URL=http://deps-sandbox:3003
+# DEPS_SCAN_CRON=17 * * * *
+# DEPS_SCAN_CONCURRENCY=3
+# DEPS_UPDATE_CONCURRENCY=1
+# DEPS_HEALTH_PORT=3002
+# DEPS_SANDBOX_TIMEOUT_MS=300000
 `;
 
 writeFileSync(target, env, { mode: 0o600 });
-console.log(`✔ Wrote ${target} with fresh POSTGRES/REDIS passwords, AUTH_SECRET and TOKEN_ENCRYPTION_KEY.`);
+console.log(`✔ Wrote ${target} with fresh POSTGRES/REDIS passwords, AUTH_SECRET, TOKEN_ENCRYPTION_KEY and DEPS_SANDBOX_TOKEN.`);
 if (!githubId || !githubSecret) {
   console.log("  Next: fill in AUTH_GITHUB_ID and AUTH_GITHUB_SECRET from your GitHub OAuth App.");
 }

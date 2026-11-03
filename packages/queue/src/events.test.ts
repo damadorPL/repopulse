@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseRealtimeEvent, serializeRealtimeEvent, userEventsChannel, type RealtimeEvent } from "./events.js";
 import { applyBackfillOverrides, BACKFILL_DEFAULTS, readBackfillConfig } from "./backfill.js";
 import { notificationJobId, releaseBackfillJobId, repoPollJobId } from "./names.js";
+import { depsNotifyJobId, depsScanJobId, depsUpdateJobId } from "./deps.js";
 
 describe("userEventsChannel", () => {
   it("scopes the channel to the user", () => {
@@ -15,6 +16,14 @@ describe("job ids", () => {
     expect(notificationJobId("r1", "rel1")).toBe("notify-r1-rel1");
     expect(repoPollJobId("a")).not.toContain(":");
     expect(releaseBackfillJobId("clx123")).toBe("backfill-clx123");
+    expect(depsScanJobId("p1")).toBe("deps-scan-p1");
+    expect(depsUpdateJobId("p1", "major-react")).toBe("deps-update-p1-major-react");
+    expect(depsNotifyJobId({ ruleId: "r1", projectId: "p1", kind: "digest", scanId: "s1", updateIds: [] })).toBe(
+      "deps-notify-r1-s1",
+    );
+    expect(
+      depsNotifyJobId({ ruleId: "r1", projectId: "p1", kind: "pull_request", prId: "pr1", event: "edited", dedupKey: "a:b" }),
+    ).toBe("deps-notify-r1-pr1-a-b");
   });
 });
 
@@ -25,6 +34,27 @@ describe("parseRealtimeEvent", () => {
     { type: "SYNC_COMPLETED", repositoryId: "r", repositoryName: "a/b", result: "UPDATED", newReleases: 2 },
     { type: "SYNC_FAILED", repositoryId: "r", repositoryName: "a/b", reason: "RATE_LIMITED", message: "later" },
     { type: "HISTORY_BACKFILLED", repositoryId: "r", repositoryName: "a/b", added: 80 },
+    { type: "DEPS_SCAN_COMPLETED", projectId: "p", fullName: "a/b", outdated: 3, majors: 1 },
+    { type: "DEPS_SCAN_FAILED", projectId: "p", fullName: "a/b", message: "Install the GitHub App" },
+    {
+      type: "DEPS_PULL_REQUEST_UPDATED",
+      projectId: "p",
+      fullName: "a/b",
+      groupKey: "all",
+      state: "OPEN",
+      number: 12,
+      htmlUrl: "https://github.com/a/b/pull/12",
+    },
+    {
+      type: "DEPS_PULL_REQUEST_UPDATED",
+      projectId: "p",
+      fullName: "a/b",
+      groupKey: "major-react",
+      state: "FAILED",
+      number: null,
+      htmlUrl: null,
+      message: "No write access",
+    },
   ];
 
   it.each(events)("round-trips $type", (event) => {
@@ -42,6 +72,11 @@ describe("parseRealtimeEvent", () => {
     JSON.stringify({ type: "SYNC_FAILED", repositoryId: "r", repositoryName: "a/b", reason: "NOPE", message: "x" }),
     JSON.stringify({ type: "SYNC_STARTED", repositoryId: 1, repositoryName: "a/b" }),
     JSON.stringify({ type: "HISTORY_BACKFILLED", repositoryId: "r", repositoryName: "a/b", added: "80" }),
+    JSON.stringify({ type: "DEPS_SCAN_COMPLETED", projectId: "p", fullName: "a/b", outdated: -1, majors: 0 }),
+    JSON.stringify({ type: "DEPS_SCAN_COMPLETED", repositoryId: "r", repositoryName: "a/b", outdated: 1, majors: 0 }),
+    JSON.stringify({ type: "DEPS_SCAN_FAILED", projectId: "p", fullName: "a/b" }),
+    JSON.stringify({ type: "DEPS_PULL_REQUEST_UPDATED", projectId: "p", fullName: "a/b", groupKey: "all", state: "NOPE", number: 1, htmlUrl: null }),
+    JSON.stringify({ type: "DEPS_UNKNOWN", projectId: "p", fullName: "a/b" }),
   ])("rejects %s", (raw) => {
     expect(parseRealtimeEvent(raw)).toBeNull();
   });

@@ -5,6 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { ArrowLeftIcon, BellOffIcon, ExternalLinkIcon, RssIcon, StarIcon, TriangleAlertIcon } from "lucide-react";
 import { LocalDateTime, RelativeTime } from "@/components/feed/relative-time";
 import { RepoAvatar } from "@/components/feed/repo-avatar";
+import { RepositoryDependenciesCard } from "@/components/dependencies/repository-dependencies-card";
 import { ActivityGrid } from "@/components/repositories/activity-grid";
 import { ActivityStats } from "@/components/repositories/activity-stats";
 import { HistoryStatus } from "@/components/repositories/history-status";
@@ -19,6 +20,8 @@ import type { ActivitySource } from "@/lib/activity-grid";
 import { feedHref } from "@/lib/feed-filters";
 import { repoListHrefFrom } from "@/lib/repo-list-filters";
 import { formatVersionStatus } from "@/lib/version-compare";
+import { isDepsEnabled } from "@/server/deps-status";
+import { getDependencyProjectForRepository } from "@/server/queries/dependencies";
 import { getDashboardData } from "@/server/queries/feed";
 import { getRepositoryActivity, getRepositorySettings, parseRepoSegment } from "@/server/queries/repository-settings";
 import { requireUser } from "@/server/session";
@@ -67,7 +70,9 @@ export default async function RepositorySettingsPage({ params, searchParams }: {
     redirect(from ? `${path}?from=${encodeURIComponent(from)}` : path);
   }
 
-  const [activity, dashboard] = await Promise.all([getRepositoryActivity(user.id, repo.id), getDashboardData(user.id)]);
+  const [activity, dashboard, depsEnabled] = await Promise.all([getRepositoryActivity(user.id, repo.id), getDashboardData(user.id), isDepsEnabled()]);
+  // Slice 08: the "Dependencies" card, only while the module is on.
+  const dependencyProject = depsEnabled ? await getDependencyProjectForRepository(user.id, repo.id) : null;
   const unread = dashboard.unreadByRepository.find((r) => r.repositoryId === repo.id)?.unreadCount ?? 0;
   const tracksReleases = settings.trackMode !== "NONE";
   const sources: ActivitySource[] = [
@@ -222,6 +227,12 @@ export default async function RepositorySettingsPage({ params, searchParams }: {
               canLoadOlder={repo.history.status === "DONE" && repo.history.hasMore && repo.history.target < settings.hardCap}
             />
           </dl>
+        </Section>
+      ) : null}
+
+      {depsEnabled ? (
+        <Section id="dependencies" title="Dependencies" description="Outdated dependencies of this repository, if it is yours.">
+          <RepositoryDependenciesCard subscriptionId={settings.subscriptionId} fullName={repo.fullName} project={dependencyProject} />
         </Section>
       ) : null}
 

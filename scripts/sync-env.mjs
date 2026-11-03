@@ -4,6 +4,7 @@
 //   pnpm env:sync                      # updates .env.example and .env (if present)
 //   pnpm env:sync --check              # only reports what is missing; exit code 1 if anything is
 //   pnpm env:sync path/to/file.env     # specific files instead of the defaults
+import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,7 +14,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 /**
  * Each entry is inserted after the line defining `after` (or appended at the end of the file
  * when that key is missing). A key counts as present whether it is set or commented out
- * (`# KEY=`), so a deliberately disabled setting is never re-added.
+ * (`# KEY=`), so a deliberately disabled setting is never re-added. `lines` may be a function of
+ * `{ example }` (true for `*.example` files), so a real env file can get a generated secret.
  */
 const ADDITIONS = [
   {
@@ -66,6 +68,31 @@ const ADDITIONS = [
     after: "ALLOW_INTERNAL_WEBHOOK_HOSTS",
     lines: ["# Public URL for links in notifications (default: AUTH_URL / NEXTAUTH_URL).", "# APP_BASE_URL=https://repopulse.example.com"],
   },
+  // Slice 08: Dependencies (deps-worker + deps-sandbox).
+  {
+    key: "DEPS_SANDBOX_TOKEN",
+    after: "APP_BASE_URL",
+    lines: ({ example }) => [
+      "",
+      "# ─── Dependencies (deps-worker + deps-sandbox) ────────────────────────────",
+      "# Bearer token between deps-worker and deps-sandbox (lockfile regeneration for update PRs).",
+      "# Same value for both services, at least 16 characters. Generate with: openssl rand -hex 32",
+      `DEPS_SANDBOX_TOKEN=${example ? "" : randomBytes(32).toString("hex")}`,
+    ],
+  },
+  {
+    key: "DEPS_SANDBOX_URL",
+    after: "DEPS_SANDBOX_TOKEN",
+    lines: [
+      "# Optional (defaults shown). The per-project interval decides which projects the cron run checks.",
+      "# DEPS_SANDBOX_URL=http://deps-sandbox:3003",
+    ],
+  },
+  { key: "DEPS_SCAN_CRON", after: "DEPS_SANDBOX_URL", lines: ["# DEPS_SCAN_CRON=17 * * * *"] },
+  { key: "DEPS_SCAN_CONCURRENCY", after: "DEPS_SCAN_CRON", lines: ["# DEPS_SCAN_CONCURRENCY=3"] },
+  { key: "DEPS_UPDATE_CONCURRENCY", after: "DEPS_SCAN_CONCURRENCY", lines: ["# DEPS_UPDATE_CONCURRENCY=1"] },
+  { key: "DEPS_HEALTH_PORT", after: "DEPS_UPDATE_CONCURRENCY", lines: ["# DEPS_HEALTH_PORT=3002"] },
+  { key: "DEPS_SANDBOX_TIMEOUT_MS", after: "DEPS_HEALTH_PORT", lines: ["# DEPS_SANDBOX_TIMEOUT_MS=300000"] },
 ];
 
 /** Settings that are no longer read. Reported, never deleted: the file is yours. */
@@ -87,13 +114,14 @@ const files = explicitFiles.length
 const definesKey = (line, key) => new RegExp(`^\\s*(#\\s*)?${key}=`).test(line);
 
 /** Returns the updated text and the keys that were added. */
-function sync(text) {
+function sync(text, { example = false } = {}) {
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
   const lines = text.split(/\r?\n/);
   const added = [];
 
-  for (const { key, after, lines: block } of ADDITIONS) {
+  for (const { key, after, lines: entryLines } of ADDITIONS) {
     if (lines.some((line) => definesKey(line, key))) continue;
+    const block = typeof entryLines === "function" ? entryLines({ example }) : entryLines;
     const anchor = lines.findLastIndex((line) => definesKey(line, after));
     if (anchor === -1) {
       // Append before the trailing empty line produced by a final newline.
@@ -125,7 +153,7 @@ for (const file of files) {
     continue;
   }
 
-  const { text, added, obsolete } = sync(readFileSync(file, "utf8"));
+  const { text, added, obsolete } = sync(readFileSync(file, "utf8"), { example: file.endsWith(".example") });
   for (const line of obsolete) console.log(`! ${label}: no longer used: ${line}. You can delete these lines.`);
   if (added.length === 0) {
     console.log(`✔ ${label}: up to date`);

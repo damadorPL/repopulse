@@ -14,6 +14,7 @@ const RULE = {
   destinationUrl: "https://discord.com/api/webhooks/1/secret",
   onlyMajorReleases: true,
   enabled: true,
+  events: ["RELEASES"] as string[],
   tag: { name: "Critical", colorHex: "#EF4444" } as { name: string; colorHex: string } | null,
 };
 
@@ -105,6 +106,7 @@ describe("processNotification", () => {
     ["RULE_GONE", { rule: null }],
     ["RULE_GONE", { rule: { userId: "someone-else" } }],
     ["RULE_DISABLED", { rule: { enabled: false } }],
+    ["EVENT_DISABLED", { rule: { events: ["DEPENDENCY_UPDATES", "DEPENDENCY_PULL_REQUESTS"] } }],
     ["RELEASE_GONE", { release: null }],
     ["UNSUPPORTED_CHANNEL", { rule: { channel: "EMAIL_DIGEST" } }],
     ["UNSUBSCRIBED", { subscriptionTags: null }],

@@ -36,3 +36,22 @@ export {
   type SchedulerJobData,
 } from "./names.js";
 export { createRedisConnection, publishUserEvent, Redis, type RedisOptions } from "./redis.js";
+export {
+  DEFAULT_DEPS_SCAN_CRON,
+  DEPS_JOB_NAMES,
+  DEPS_NOTIFY_JOB_OPTIONS,
+  DEPS_QUEUE_NAMES,
+  DEPS_SCAN_JOB_OPTIONS,
+  DEPS_SCAN_PRIORITY,
+  DEPS_SCHEDULER_ID,
+  DEPS_UPDATE_JOB_OPTIONS,
+  DEPS_UPDATE_PRIORITY,
+  depsNotifyJobId,
+  depsScanJobId,
+  depsUpdateJobId,
+  type DepsNotifyJobData,
+  type DepsScanJobData,
+  type DepsScanTrigger,
+  type DepsSchedulerJobData,
+  type DepsUpdateJobData,
+} from "./deps.js";
