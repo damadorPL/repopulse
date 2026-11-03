@@ -140,7 +140,8 @@ services:
       APP_BASE_URL: ${SERVICE_URL_WEB}
       # Lockfile regeneration for update PRs. The token must be the one deps-sandbox gets.
       DEPS_SANDBOX_URL: ${DEPS_SANDBOX_URL:-http://deps-sandbox:3003}
-      DEPS_SANDBOX_TOKEN: ${DEPS_SANDBOX_TOKEN}
+      # Generated and stored by Coolify (magic variable), the same value for deps-worker and deps-sandbox.
+      DEPS_SANDBOX_TOKEN: ${SERVICE_PASSWORD_64_DEPSSANDBOX}
       DEPS_SCAN_CRON: ${DEPS_SCAN_CRON:-17 * * * *}
       DEPS_SCAN_CONCURRENCY: ${DEPS_SCAN_CONCURRENCY:-3}
       DEPS_UPDATE_CONCURRENCY: ${DEPS_UPDATE_CONCURRENCY:-1}
@@ -174,7 +175,8 @@ services:
     stop_grace_period: 30s
     environment:
       # Required, at least 16 characters (`pnpm env:setup` generates one). Same value as deps-worker's.
-      DEPS_SANDBOX_TOKEN: ${DEPS_SANDBOX_TOKEN}
+      # Generated and stored by Coolify (magic variable), the same value for deps-worker and deps-sandbox.
+      DEPS_SANDBOX_TOKEN: ${SERVICE_PASSWORD_64_DEPSSANDBOX}
       DEPS_SANDBOX_TIMEOUT_MS: ${DEPS_SANDBOX_TIMEOUT_MS:-300000}
     networks:
       - deps_sandbox

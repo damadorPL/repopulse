@@ -50,10 +50,13 @@ Startup order: `postgres` and `redis` healthy → `migrator` completed successfu
 - **MUST** use `SERVICE_URL_WEB` (with the scheme) for URLs. `SERVICE_FQDN_WEB` is a bare host in Coolify 4.5.
 - Migrations run automatically on every deploy. A failing migration blocks `web`, `worker` and `deps-worker` from
   starting, so test it locally first ([data-model.md](./data-model.md#migrations)).
-- **MUST** set `DEPS_SANDBOX_TOKEN` in Coolify (`openssl rand -hex 32`, Environment Variables of the application,
-  then redeploy). Compose has no `:?` guard for it: `deps-worker` starts without it (and refuses lockfile PRs), while
-  `deps-sandbox` restarts in a loop with `DEPS_SANDBOX_TOKEN must be set (at least 16 characters)` and Admin →
-  Dependencies shows "Sandbox unreachable".
+- The sandbox token comes from the Coolify magic variable `SERVICE_PASSWORD_64_DEPSSANDBOX`: Coolify generates it on
+  the first deploy, stores it, and passes the same value to `deps-worker` and `deps-sandbox` as `DEPS_SANDBOX_TOKEN`.
+  Nothing to set by hand. **MUST NOT** rename it (a new name generates a new value) or replace it with a plain
+  `${DEPS_SANDBOX_TOKEN}`: Coolify does not write unset variables to the runtime `.env`, and without a token
+  `deps-sandbox` restarts in a loop (`DEPS_SANDBOX_TOKEN must be set (at least 16 characters)`) and Admin →
+  Dependencies shows "Sandbox unreachable". Outside Coolify, set `SERVICE_PASSWORD_64_DEPSSANDBOX` yourself
+  (`.env.example` reuses `${DEPS_SANDBOX_TOKEN}`).
 - **MUST NOT** give `deps-sandbox` more environment, volumes, `env_file` or networks, or relax its hardening. It runs
   third-party package managers on untrusted repository files ([dependencies.md](./dependencies.md#rules)).
 - **MUST** keep `deps_sandbox` `internal: true`, and check after the first deploy that Coolify kept it (below).
@@ -110,13 +113,13 @@ Startup order: `postgres` and `redis` healthy → `migrator` completed successfu
 ## Local full-stack smoke test
 
 ```sh
-cp .env.example .env     # fill in the secrets; SERVICE_URL_WEB=http://localhost:3000
+cp .env.example .env     # fill in the secrets (incl. DEPS_SANDBOX_TOKEN); SERVICE_URL_WEB=http://localhost:3000
 docker compose -f docker-compose.coolify.yml up --build
 ```
 
 ## Upgrading to the Dependencies release (0.9.0)
 
-1. Set `DEPS_SANDBOX_TOKEN` in Coolify (`openssl rand -hex 32`).
+1. Nothing to set for the sandbox token: since 0.9.3 Coolify generates it (`SERVICE_PASSWORD_64_DEPSSANDBOX`).
 2. Deploy. The migrator applies `20261103090000_dependency_projects` and `20261103100000_github_app`; the three new
    services and the `deps_sandbox` network are created. Run the Coolify network check above.
 3. The module stays **off** until the super admin enables it in Admin → Dependencies. Existing notification rules keep

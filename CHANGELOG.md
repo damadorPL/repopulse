@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.3] — 2026-11-03 — Coolify-generated sandbox token
+
+**Upgrade notes**
+
+- Nothing to set: Coolify now generates the sandbox token on deploy. A `DEPS_SANDBOX_TOKEN` you added in Coolify
+  is no longer used by `docker-compose.coolify.yml` and can be removed.
+
+### Fixed
+- **"Sandbox unreachable" on Coolify**: the token was read from `${DEPS_SANDBOX_TOKEN}`, which Coolify only writes to
+  the runtime `.env` once someone sets it, so `deps-sandbox` restarted in a loop and lockfile pull requests stayed
+  disabled. `deps-worker` and `deps-sandbox` now get it from the Coolify magic variable
+  `SERVICE_PASSWORD_64_DEPSSANDBOX`, generated and stored by Coolify (the same value for both). `.env.example`,
+  `env:setup` and `env:sync` set it to `${DEPS_SANDBOX_TOKEN}` for local compose.
+
 ## [0.9.2] — 2026-11-03 — Sandbox environment isolation on Coolify
 
 **Upgrade notes**

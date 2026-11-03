@@ -81,8 +81,17 @@ const ADDITIONS = [
     ],
   },
   {
-    key: "DEPS_SANDBOX_URL",
+    key: "SERVICE_PASSWORD_64_DEPSSANDBOX",
     after: "DEPS_SANDBOX_TOKEN",
+    lines: [
+      "# docker-compose.coolify.yml passes SERVICE_PASSWORD_64_DEPSSANDBOX to both services: Coolify generates it",
+      "# automatically; for local compose it reuses DEPS_SANDBOX_TOKEN.",
+      "SERVICE_PASSWORD_64_DEPSSANDBOX=${DEPS_SANDBOX_TOKEN}",
+    ],
+  },
+  {
+    key: "DEPS_SANDBOX_URL",
+    after: "SERVICE_PASSWORD_64_DEPSSANDBOX",
     lines: [
       "# Optional (defaults shown). The per-project interval decides which projects the cron run checks.",
       "# DEPS_SANDBOX_URL=http://deps-sandbox:3003",

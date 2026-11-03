@@ -89,6 +89,9 @@ POLL_INTERVAL_CRON=*/30 * * * *
 # ─── Dependencies (deps-worker + deps-sandbox) ────────────────────────────
 # Bearer token between deps-worker and deps-sandbox (lockfile regeneration for update PRs).
 DEPS_SANDBOX_TOKEN=${hex32()}
+# docker-compose.coolify.yml passes SERVICE_PASSWORD_64_DEPSSANDBOX to both services: Coolify generates it
+# automatically; for local compose it reuses DEPS_SANDBOX_TOKEN.
+SERVICE_PASSWORD_64_DEPSSANDBOX=\${DEPS_SANDBOX_TOKEN}
 # Optional (defaults shown). With \`pnpm dev\` the sandbox listens on port 3003 (all interfaces) without
 # the container's isolation or the egress proxy: uncomment DEPS_SANDBOX_URL=http://127.0.0.1:3003 and
 # set DEPS_EGRESS_PROXY= (empty) to use it.
