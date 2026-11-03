@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.2] — 2026-11-03 — Sandbox environment isolation on Coolify
+
+**Upgrade notes**
+
+- Set `DEPS_SANDBOX_TOKEN` in Coolify (Environment Variables, `openssl rand -hex 32`) and redeploy if Admin →
+  Dependencies shows "Sandbox unreachable": without it `deps-sandbox` refuses to start.
+
+### Security
+- **`deps-sandbox` no longer sees the app's secrets on Coolify.** Coolify adds the application's whole `.env` to every
+  compose service, so the sandbox container started with the database, Redis, auth and encryption secrets in its
+  environment, readable by the package managers it runs. Its entrypoint now re-executes with an allowlisted
+  environment (`env -i`) before `tini` and the server start, and the healthcheck runs through `env -i` as well.
+
 ## [0.9.1] — 2026-11-03 — Coolify deploy fix for deps-egress
 
 ### Fixed

@@ -32,7 +32,12 @@ Startup order: `postgres` and `redis` healthy → `migrator` completed successfu
 - `deps-worker`: `DATABASE_URL`, `REDIS_URL`, `TOKEN_ENCRYPTION_KEY`, `ALLOW_INTERNAL_WEBHOOK_HOSTS`, `APP_BASE_URL`,
   `DEPS_SANDBOX_URL`, `DEPS_SANDBOX_TOKEN`, `DEPS_SCAN_CRON`, `DEPS_SCAN_CONCURRENCY`, `DEPS_UPDATE_CONCURRENCY`,
   `DEPS_HEALTH_PORT`.
-- `deps-sandbox`: **only** `DEPS_SANDBOX_TOKEN` and `DEPS_SANDBOX_TIMEOUT_MS`. No `env_file`, no volumes.
+- `deps-sandbox`: **only** `DEPS_SANDBOX_TOKEN` and `DEPS_SANDBOX_TIMEOUT_MS`. No `env_file`, no volumes. Coolify
+  still adds `env_file: .env` to every service of the compose file it generates, so the container *config* holds the
+  app's whole `.env`. The image's entrypoint (`apps/deps-sandbox/docker-entrypoint.sh`, PID 1) therefore `exec`s
+  `env -i` with an allowlist before `tini` and `node` start, and the healthcheck runs through `env -i` too: no
+  process inside the container ever has the database, Redis, auth or encryption secrets. A new sandbox variable
+  must be added to that allowlist.
 - No SMTP or GitHub App variables: the super admin sets SMTP in Admin → Email and the App in Admin → GitHub App.
 - Full list: [configuration.md](./configuration.md).
 
@@ -45,9 +50,10 @@ Startup order: `postgres` and `redis` healthy → `migrator` completed successfu
 - **MUST** use `SERVICE_URL_WEB` (with the scheme) for URLs. `SERVICE_FQDN_WEB` is a bare host in Coolify 4.5.
 - Migrations run automatically on every deploy. A failing migration blocks `web`, `worker` and `deps-worker` from
   starting, so test it locally first ([data-model.md](./data-model.md#migrations)).
-- **MUST** set `DEPS_SANDBOX_TOKEN` in Coolify (`openssl rand -hex 32`). Compose has no `:?` guard for it:
-  `deps-worker` starts without it (and refuses lockfile PRs), while `deps-sandbox` refuses to start and stays
-  unhealthy.
+- **MUST** set `DEPS_SANDBOX_TOKEN` in Coolify (`openssl rand -hex 32`, Environment Variables of the application,
+  then redeploy). Compose has no `:?` guard for it: `deps-worker` starts without it (and refuses lockfile PRs), while
+  `deps-sandbox` restarts in a loop with `DEPS_SANDBOX_TOKEN must be set (at least 16 characters)` and Admin →
+  Dependencies shows "Sandbox unreachable".
 - **MUST NOT** give `deps-sandbox` more environment, volumes, `env_file` or networks, or relax its hardening. It runs
   third-party package managers on untrusted repository files ([dependencies.md](./dependencies.md#rules)).
 - **MUST** keep `deps_sandbox` `internal: true`, and check after the first deploy that Coolify kept it (below).

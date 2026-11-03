@@ -105,9 +105,14 @@ ENV NODE_ENV=production \
     PYTHONDONTWRITEBYTECODE=1
 # Root-owned and read-only for the sandbox user. pnpm's relative node_modules symlinks stay valid.
 COPY --from=prod-deps --chown=root:root /app /app
+# Allowlisted environment for every process (Coolify injects the app's whole .env into each service).
+# `sed` strips CR in case the script was checked out with CRLF line endings.
+COPY --chown=root:root apps/deps-sandbox/docker-entrypoint.sh /usr/local/bin/deps-sandbox-entrypoint
+RUN sed -i 's/\r$//' /usr/local/bin/deps-sandbox-entrypoint && chmod 0555 /usr/local/bin/deps-sandbox-entrypoint
 USER sandbox
 EXPOSE 3003
+# `docker exec` (healthchecks) gets the container's full environment: drop it with `env -i` before node starts.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3003)+'/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
-ENTRYPOINT ["/usr/bin/tini", "--"]
+  CMD ["/usr/bin/env", "-i", "PATH=/usr/local/bin:/usr/bin:/bin", "node", "-e", "fetch('http://127.0.0.1:3003/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+ENTRYPOINT ["/usr/local/bin/deps-sandbox-entrypoint", "/usr/bin/tini", "--"]
 CMD ["node", "apps/deps-sandbox/dist/server.js"]
