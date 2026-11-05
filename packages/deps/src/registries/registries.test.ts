@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  cachedGet,
   createLimiter,
   createMemoryRegistryCache,
   mapWithConcurrency,
@@ -144,12 +145,54 @@ const SIMPLE = {
 };
 
 describe("PyPI registry", () => {
-  it("parses versions from file names", () => {
+  it("parses versions from file names including alternative archive extensions", () => {
     expect(versionFromFilename("Django-4.2.7-py3-none-any.whl", "django")).toBe("4.2.7");
+    expect(versionFromFilename("Django-4.2.7-bad.whl", "django")).toBeNull();
     expect(versionFromFilename("zope.interface-6.0.tar.gz", "zope-interface")).toBe("6.0");
     expect(versionFromFilename("my-old-pkg-1.0.zip", "my-old-pkg")).toBe("1.0");
     expect(versionFromFilename("pkg-1.0-py2.7.egg", "pkg")).toBe("1.0");
+    expect(versionFromFilename("pkg-1.2.tar.bz2", "pkg")).toBe("1.2");
+    expect(versionFromFilename("pkg-1.3.tar.xz", "pkg")).toBe("1.3");
+    expect(versionFromFilename("pkg-1.4.tgz", "pkg")).toBe("1.4");
+    expect(versionFromFilename("pkg-1.5.tar", "pkg")).toBe("1.5");
+    expect(versionFromFilename("pkg-1.6.exe", "pkg")).toBe("1.6");
+    expect(versionFromFilename("pkg-1.7.msi", "pkg")).toBe("1.7");
     expect(versionFromFilename("README", "pkg")).toBeNull();
+  });
+
+  it("handles partial yank filtering (keeps live files when at least one file is not yanked)", async () => {
+    const partialSimple = {
+      meta: { "api-version": "1.1" },
+      name: "pkg",
+      versions: ["1.0.0"],
+      files: [
+        {
+          filename: "pkg-1.0.0-py3-none-any.whl",
+          hashes: { sha256: "a".repeat(64) },
+          "requires-python": ">=3.7",
+          yanked: "bad wheel",
+          "upload-time": "2024-01-01T00:00:00Z",
+        },
+        {
+          filename: "pkg-1.0.0.tar.gz",
+          hashes: { sha256: "b".repeat(64) },
+          "requires-python": ">=3.9",
+          yanked: false,
+          "upload-time": "2024-01-02T00:00:00Z",
+        },
+      ],
+    };
+    const res = await fetchPypiPackage("pkg", {
+      fetch: fakeFetch((url) => (url.endsWith("/json") ? new Response("", { status: 404 }) : json(partialSimple))).fetch,
+    });
+    expect(res.found).toBe(true);
+    if (!res.found) return;
+    expect(res.package.versions[0]).toMatchObject({
+      version: "1.0.0",
+      yanked: false,
+      requiresPython: [">=3.9"],
+      sha256: ["b".repeat(64)],
+    });
   });
 
   it("reads PEP 691 JSON with PEP 700 times, yanked, requires-python and hashes", async () => {
@@ -186,15 +229,80 @@ describe("PyPI registry", () => {
 });
 
 describe("helpers", () => {
-  it("normalizes GitHub URLs", () => {
+  it("normalizes GitHub URLs and rejects . / .. repo segments", () => {
     expect(toGitHubRepoUrl("git+https://github.com/facebook/react.git")).toBe("https://github.com/facebook/react");
     expect(toGitHubRepoUrl("git@github.com:a/b.git")).toBe("https://github.com/a/b");
+    expect(toGitHubRepoUrl("ssh://git@github.com/a/b.git")).toBe("https://github.com/a/b");
     expect(toGitHubRepoUrl("git://github.com/a/b")).toBe("https://github.com/a/b");
     expect(toGitHubRepoUrl("github:a/b")).toBe("https://github.com/a/b");
     expect(toGitHubRepoUrl("a/b")).toBe("https://github.com/a/b");
     expect(toGitHubRepoUrl("https://github.com/a/b/tree/main/packages/x")).toBe("https://github.com/a/b");
+    expect(toGitHubRepoUrl("https://github.com/a/.")).toBeNull();
+    expect(toGitHubRepoUrl("https://github.com/a/..")).toBeNull();
+    expect(toGitHubRepoUrl("https://github.com/../b")).toBeNull();
     expect(toGitHubRepoUrl("https://gitlab.com/a/b")).toBeNull();
     expect(toGitHubRepoUrl(undefined)).toBeNull();
+  });
+
+  it("handles HTTP-date Retry-After, caller AbortSignal rethrow, corrupt derive wrapping, and memory cache TTL eviction", async () => {
+    const now = Date.parse("2026-11-05T12:00:00Z");
+    const retryDate = new Date(now + 45_000).toUTCString();
+    await expect(
+      cachedGet({
+        registry: "npm",
+        key: "k1",
+        url: "https://registry.npmjs.org/pkg",
+        accept: "application/json",
+        options: {
+          now: () => now,
+          fetch: fakeFetch(() => new Response("", { status: 503, headers: { "retry-after": retryDate } })).fetch,
+        },
+      }),
+    ).rejects.toMatchObject({
+      name: "RegistryUnavailableError",
+      status: 503,
+      retryAfterMs: 45_000,
+    });
+
+    const controller = new AbortController();
+    const abortErr = new DOMException("Caller aborted", "AbortError");
+    controller.abort(abortErr);
+    await expect(
+      cachedGet({
+        registry: "npm",
+        key: "k2",
+        url: "https://registry.npmjs.org/pkg",
+        accept: "application/json",
+        options: {
+          signal: controller.signal,
+          fetch: fakeFetch(() => {
+            throw abortErr;
+          }).fetch,
+        },
+      }),
+    ).rejects.toBe(abortErr);
+
+    await expect(
+      cachedGet({
+        registry: "npm",
+        key: "k3",
+        url: "https://registry.npmjs.org/pkg",
+        accept: "application/json",
+        options: {
+          fetch: fakeFetch(() => new Response("not-json", { status: 200 })).fetch,
+        },
+        derive: (body) => JSON.stringify(JSON.parse(body)),
+      }),
+    ).rejects.toBeInstanceOf(RegistryUnavailableError);
+
+    let clock = 1_000;
+    const mem = createMemoryRegistryCache(() => clock);
+    await mem.set("item", { body: "v", storedAt: clock }, 500);
+    expect(mem.size()).toBe(1);
+    expect(await mem.get("item")).not.toBeNull();
+    clock = 1_501;
+    expect(await mem.get("item")).toBeNull();
+    expect(mem.size()).toBe(0);
   });
 
   it("limits concurrency", async () => {

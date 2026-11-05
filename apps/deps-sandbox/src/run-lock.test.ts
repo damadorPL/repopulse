@@ -428,7 +428,7 @@ describe("runLock", () => {
     await expectNoJobDirs();
   });
 
-  it("refuses custom registries before running anything", async () => {
+  it("refuses custom registries before running anything (pyproject, pnpm-workspace, .yarnrc.yml, bunfig.toml, pip.conf, uv.toml)", async () => {
     const { spawn, calls } = fakeSpawn((_c, child) => child.exit(0));
     const result = await runLock(
       parse({
@@ -450,6 +450,48 @@ describe("runLock", () => {
       code: "UNSUPPORTED_REGISTRY",
       stderrTail: "custom package registry configured: pyproject.toml: [[tool.poetry.source]]",
     });
+
+    const cases: Array<{ pm: "PNPM" | "NPM" | "BUN" | "UV"; lock: string; files: Array<{ path: string; contentBase64: string }>; expected: string }> = [
+      {
+        pm: "PNPM",
+        lock: "pnpm-lock.yaml",
+        files: [file("package.json", PKG), file("pnpm-workspace.yaml", "packages:\n  - apps/*\nregistries:\n  default: https://registry.npmjs.org/\n")],
+        expected: "pnpm-workspace.yaml: registries",
+      },
+      {
+        pm: "NPM",
+        lock: "package-lock.json",
+        files: [file("package.json", PKG), file(".yarnrc.yml", "npmScopes:\n  acme:\n    npmRegistryServer: https://npm.acme.dev\n")],
+        expected: ".yarnrc.yml: npmRegistryServer; .yarnrc.yml: npmScopes",
+      },
+      {
+        pm: "BUN",
+        lock: "bun.lock",
+        files: [file("package.json", PKG), file("bunfig.toml", '[install.scopes]\nacme = "https://npm.acme.dev"\n')],
+        expected: "bunfig.toml: install.scopes",
+      },
+      {
+        pm: "UV",
+        lock: "uv.lock",
+        files: [
+          file("pyproject.toml", '[project]\nname = "x"\nversion = "1"\n'),
+          file("pip.conf", "[global]\nextra-index-url = https://pypi.acme.dev/simple\n"),
+          file("uv.toml", 'find-links = ["https://wheels.acme.dev"]\n'),
+        ],
+        expected: "pip.conf: index-url; uv.toml: index-url",
+      },
+    ];
+    for (const c of cases) {
+      const res = await runLock(
+        parse({ packageManager: c.pm, workdir: "", files: c.files, upgrade: [], expectLockfile: c.lock }),
+        options({ spawn }),
+      );
+      expect(res).toEqual({
+        ok: false,
+        code: "UNSUPPORTED_REGISTRY",
+        stderrTail: `custom package registry configured: ${c.expected}`,
+      });
+    }
     expect(calls).toHaveLength(0);
     await expectNoJobDirs();
   });
@@ -516,30 +558,44 @@ describe("runLock", () => {
     await expectNoJobDirs();
   });
 
-  it("Bun lockfileOnly: restores the manifests between update and install", async () => {
+  it("Bun lockfileOnly: restores the manifests between update and install, replacing any symlink without modifying its target", async () => {
+    const outsideTarget = path.join(tmpRoot, `outside-manifest-${Date.now()}.json`);
+    await fs.writeFile(outsideTarget, '{"untouched":true}');
     const manifestsSeen: string[] = [];
     const { spawn, calls } = fakeSpawn(async (call, child) => {
       const manifest = path.join(call.options.cwd, "package.json");
       manifestsSeen.push(await fs.readFile(manifest, "utf8"));
-      // `bun update` rewrites the range; the runner must undo it before `bun install`.
-      await fs.writeFile(manifest, JSON.stringify({ dependencies: { ms: "^2.1.3" } }));
+      if (call.args[0] === "update") {
+        // Simulate a tool replacing package.json with a symlink or modified file; restoreManifests must rm + wx it.
+        await fs.rm(manifest, { force: true });
+        try {
+          await fs.symlink(outsideTarget, manifest);
+        } catch {
+          await fs.writeFile(manifest, JSON.stringify({ dependencies: { ms: "^2.1.3" } }));
+        }
+      }
       await writes("bun.lock", '{\n  "lockfileVersion": 1,\n}\n')(call, child);
     });
     const original = JSON.stringify({ dependencies: { ms: "^2.0.0" } });
-    const result = await runLock(
-      parse({
-        packageManager: "BUN",
-        workdir: "",
-        files: [file("package.json", original), file("bun.lock", '{\n  "lockfileVersion": 1,\n}\n')],
-        upgrade: [{ name: "ms", version: "2.1.3" }],
-        lockfileOnly: true,
-        expectLockfile: "bun.lock",
-      }),
-      options({ spawn }),
-    );
-    expect(result.ok).toBe(true);
-    expect(calls.map((c) => c.args[0])).toEqual(["update", "install"]);
-    expect(manifestsSeen).toEqual([original, original]);
+    try {
+      const result = await runLock(
+        parse({
+          packageManager: "BUN",
+          workdir: "",
+          files: [file("package.json", original), file("bun.lock", '{\n  "lockfileVersion": 1,\n}\n')],
+          upgrade: [{ name: "ms", version: "2.1.3" }],
+          lockfileOnly: true,
+          expectLockfile: "bun.lock",
+        }),
+        options({ spawn }),
+      );
+      expect(result.ok).toBe(true);
+      expect(calls.map((c) => c.args[0])).toEqual(["update", "install"]);
+      expect(manifestsSeen).toEqual([original, original]);
+      expect(await fs.readFile(outsideTarget, "utf8")).toBe('{"untouched":true}');
+    } finally {
+      await fs.rm(outsideTarget, { force: true });
+    }
   });
 });
 

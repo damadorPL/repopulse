@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { GitHubRateLimitError, type CommitDetail, type PathCommitSummary } from "@repopulse/github";
-import { pollRepoPaths, tracksPaths } from "./repo-paths";
+import { planPathFanOut, pollRepoPaths, tracksPaths } from "./repo-paths";
 
 const REPO = { id: "repo1", owner: "acme", name: "widget", fullName: "acme/widget" };
 const DAY = 24 * 60 * 60 * 1000;
@@ -266,11 +266,97 @@ describe("pollRepoPaths", () => {
     expect(fetchCommits.mock.calls.map(([p]) => p.accessToken)).toEqual(["t1", "t2", "t2"]);
   });
 
-  it("does nothing without a subscriber watching paths", async () => {
+  it("does nothing without a subscriber watching paths or when the repository is missing", async () => {
     const db = fakePrisma({ subscribers: [{ userId: "u", trackMode: "NONE", trackPaths: true, watchedPaths: [] }, { userId: "r", trackMode: "RELEASES", watchedPaths: ["docs"] }] });
     const fetchCommits = vi.fn();
     expect(await pollRepoPaths({ prisma: db.prisma as never, fetchCommits }, REPO, TOKENS)).toBeNull();
     expect(fetchCommits).not.toHaveBeenCalled();
+
+    const invalidOnly = fakePrisma({ subscribers: [{ userId: "u", trackMode: "NONE", trackPaths: true, watchedPaths: ["/", "../bad", "   "] }] });
+    expect(await pollRepoPaths({ prisma: invalidOnly.prisma as never, fetchCommits }, REPO, TOKENS)).toBeNull();
+    expect(fetchCommits).not.toHaveBeenCalled();
+
+    const missingRepo = fakePrisma({ subscribers: [{ userId: "u", trackMode: "NONE", trackPaths: true, watchedPaths: ["docs"] }] });
+    missingRepo.prisma.repository.findUnique.mockResolvedValueOnce(null as never);
+    expect(await pollRepoPaths({ prisma: missingRepo.prisma as never, fetchCommits }, REPO, TOKENS)).toBeNull();
+    expect(fetchCommits).not.toHaveBeenCalled();
+  });
+
+  it("skips a commit whose short SHA collides with an already stored different commit", async () => {
+    const c1 = commit(1);
+    const collidingSha = c1.sha.slice(0, 7) + "b".repeat(33);
+    const db = fakePrisma({
+      polledPaths: ["docs"],
+      subscribers: [{ userId: "u", trackMode: "NONE", trackPaths: true, watchedPaths: ["docs", "./docs/"] }],
+      stored: [{ id: "existing-c1", tagName: short(1), tagSha: collidingSha, changedPaths: ["docs"], publishedAt: c1.committedDate }],
+    });
+    const fetchCommits = commitsByPath({ docs: [c1] });
+    const fetchDetail = detailStub();
+
+    const result = await pollRepoPaths({ prisma: db.prisma as never, fetchCommits, fetchDetail }, REPO, TOKENS);
+
+    expect(fetchDetail).not.toHaveBeenCalled();
+    expect(db.inserted).toEqual([]);
+    expect(result!.counts).toEqual({ paths: 1, received: 1, stored: 0, fresh: 0, imported: 0 });
+  });
+
+  it("returns null when token fallback fails with a non-401 error or no candidates exist", async () => {
+    const db = fakePrisma({ subscribers: [{ userId: "u", trackMode: "NONE", trackPaths: true, watchedPaths: ["docs"] }] });
+    const fetchCommits500 = vi.fn(async () => {
+      throw Object.assign(new Error("Server error"), { status: 500 });
+    });
+    expect(await pollRepoPaths({ prisma: db.prisma as never, fetchCommits: fetchCommits500 as never }, REPO, TOKENS)).toBeNull();
+    expect(fetchCommits500).toHaveBeenCalledTimes(1);
+
+    expect(await pollRepoPaths({ prisma: db.prisma as never, fetchCommits: commitsByPath({ docs: [] }) }, REPO, [])).toBeNull();
+  });
+});
+
+describe("planPathFanOut", () => {
+  it("classifies overlapping paths: newly created commit on both existing + new path is fresh; already stored commit on both is imported", () => {
+    const storedCommit = (id: string, day: number) => ({
+      id,
+      tagName: id,
+      tagSha: `${id}sha`,
+      changedPaths: ["old", "new"],
+      isPrerelease: false,
+      semverType: "OTHER" as const,
+      publishedAt: new Date(BASE + day * DAY),
+    });
+
+    const cFresh = storedCommit("c-fresh", 5);
+    const cImported = storedCommit("c-imported", 4);
+    const cUnwatched = storedCommit("c-other", 6);
+
+    const out = planPathFanOut({
+      subscribers: [
+        {
+          userId: "u1",
+          includePrereleases: false,
+          trackMode: "NONE",
+          trackPaths: true,
+          watchedPaths: ["old", "new"],
+          tagIds: [],
+          rules: [{ id: "r1", tagId: null, channel: "DISCORD_WEBHOOK", onlyMajorReleases: false, events: ["RELEASES"] }],
+        },
+      ],
+      commits: [
+        { stored: cFresh, matchedBy: new Set(["old", "new"]) },
+        { stored: cImported, matchedBy: new Set(["old", "new"]) },
+        { stored: cUnwatched, matchedBy: new Set(["unwatched"]) },
+      ],
+      createdIds: new Set(["c-fresh"]),
+      newlyAdded: new Set(["new"]),
+    });
+
+    expect([...out.freshIds]).toEqual(["c-fresh"]);
+    expect([...out.importedIds]).toEqual(["c-imported"]);
+    expect(out.plan.notifications).toEqual([{ ruleId: "r1", releaseId: "c-fresh", userId: "u1" }]);
+    expect(out.plan.states).toEqual([
+      { userId: "u1", releaseId: "c-fresh" },
+      { userId: "u1", releaseId: "c-imported" },
+    ]);
+    expect(out.readStates).toEqual([]);
   });
 });
 

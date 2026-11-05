@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ManifestRewriteError } from "./common.js";
+import { applyReplacements, assertSafeSpec, ManifestRewriteError } from "./common.js";
 import { rewritePackageJson } from "./package-json.js";
 import { rewritePyproject } from "./pyproject.js";
 import { normalizeSha256Hashes, rewriteRequirements } from "./requirements.js";
@@ -14,6 +14,30 @@ const expectCode = (fn: () => unknown, code: string): void => {
   }
   throw new Error("expected a ManifestRewriteError");
 };
+
+describe("common rewrite helpers", () => {
+  it("applyReplacements rejects overlapping spans with VERIFY_FAILED", () => {
+    expectCode(
+      () =>
+        applyReplacements(
+          "abcdef",
+          [
+            { span: { start: 1, end: 4 }, text: "BCD" },
+            { span: { start: 3, end: 5 }, text: "DE" },
+          ],
+          "file.txt",
+        ),
+      "VERIFY_FAILED",
+    );
+  });
+
+  it("assertSafeSpec rejects empty/whitespace and control characters", () => {
+    expectCode(() => assertSafeSpec("   ", "package.json", /["\\]/), "INVALID_VALUE");
+    expectCode(() => assertSafeSpec("1.0.0\u0000", "package.json", /["\\]/), "INVALID_VALUE");
+    expectCode(() => assertSafeSpec("1.0.0\u001f", "package.json", /["\\]/), "INVALID_VALUE");
+    expectCode(() => assertSafeSpec("1.0.0\u007f", "package.json", /["\\]/), "INVALID_VALUE");
+  });
+});
 
 describe("rewritePackageJson", () => {
   const text = `{\r\n  "name": "x",\r\n  "dependencies": {\r\n    "react": "^18.2.0",\r\n    "@scope/a": "~1.0.0"\r\n  },\r\n  "devDependencies": { "react": "^18.0.0" }\r\n}\r\n`;
@@ -75,11 +99,17 @@ describe("rewriteRequirements", () => {
     );
   });
 
-  it("keeps inline hash layout", () => {
+  it("keeps inline hash layout and single-hash continuation layout when expanding to multiple hashes", () => {
     const next = rewriteRequirements(`idna==3.4 --hash sha256:${A}\n`, [
       { name: "idna", kind: "PROD", group: "", from: "==3.4", to: "==3.10", hashes: [B, C] },
     ]);
     expect(next).toBe(`idna==3.10 --hash sha256:${B} --hash sha256:${C}\n`);
+
+    const singleContinued = `idna==3.4 \\\n    --hash=sha256:${A}\n`;
+    const expanded = rewriteRequirements(singleContinued, [
+      { name: "idna", kind: "PROD", group: "", from: "==3.4", to: "==3.10", hashes: [B, C] },
+    ]);
+    expect(expanded).toBe(`idna==3.10 \\\n    --hash=sha256:${B} \\\n    --hash=sha256:${C}\n`);
   });
 
   it("edits unhashed specifiers and leaves the rest untouched", () => {
@@ -143,5 +173,19 @@ requests = { version = "^2.31", extras = ["socks"] }
     expectCode(() => rewritePyproject(text, [{ name: "pytest", kind: "GROUP", group: "test", from: ">=8", to: ">=9" }]), "NOT_FOUND");
     expectCode(() => rewritePyproject(text, [{ name: "httpx", kind: "PROD", group: "", from: ">=0.1", to: ">=0.28" }]), "STALE");
     expectCode(() => rewritePyproject(text, [{ name: "httpx", kind: "PROD", group: "", from: ">=0.27,<1", to: '>=1"' }]), "INVALID_VALUE");
+  });
+
+  it("updates duplicate dependencies in the same group and rejects escaped strings with NOT_REWRITABLE", () => {
+    const dupToml = `[project]\nname = "demo"\ndependencies = [\n  "urllib3>=1.26 ; python_version < '3.10'",\n  "urllib3>=1.26 ; python_version >= '3.10'",\n]\n`;
+    const updated = rewritePyproject(dupToml, [{ name: "urllib3", kind: "PROD", group: "", from: ">=1.26", to: ">=2.2" }]);
+    expect(updated).toBe(
+      `[project]\nname = "demo"\ndependencies = [\n  "urllib3>=2.2 ; python_version < '3.10'",\n  "urllib3>=2.2 ; python_version >= '3.10'",\n]\n`,
+    );
+
+    const escapedToml = `[project]\nname = "demo"\ndependencies = ["httpx\\u003e=0.27"]\n`;
+    expectCode(
+      () => rewritePyproject(escapedToml, [{ name: "httpx", kind: "PROD", group: "", from: ">=0.27", to: ">=0.28" }]),
+      "NOT_REWRITABLE",
+    );
   });
 });

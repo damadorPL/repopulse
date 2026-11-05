@@ -1,11 +1,27 @@
-import { describe, expect, it } from "vitest";
-import { maskDestination } from "./channels.js";
+import nodemailer from "nodemailer";
+import { describe, expect, it, vi } from "vitest";
+import { channelLabel, maskDestination } from "./channels.js";
+import { NotificationDeliveryError } from "./errors.js";
 import { formatCustomWebhookPayload } from "./formatters/custom.js";
+import {
+  buildDependencyContext,
+  dependencyHeadline,
+  formatDependencyDiscordPayload,
+} from "./formatters/dependencies.js";
 import { DISCORD_DESCRIPTION_LIMIT, formatDiscordPayload } from "./formatters/discord.js";
-import { toSmtpConfig, renderReleaseEmail } from "./formatters/email.js";
+import { createSmtpSender, defaultSmtpFrom, renderReleaseEmail, toSmtpConfig } from "./formatters/email.js";
 import { buildGotifyRequest, buildNtfyRequest, encodeHeaderValue, resolveGotifyEndpoint } from "./formatters/ntfy-gotify.js";
 import { formatSlackPayload } from "./formatters/slack.js";
-import { cleanMarkdown, githubLinkLabel, markdownToEmailHtml, releaseKindLabel, markdownToSlack, truncateBytes, truncateText } from "./markdown.js";
+import {
+  cleanMarkdown,
+  githubLinkLabel,
+  markdownToEmailHtml,
+  markdownToSlack,
+  releaseKindLabel,
+  releaseSummary,
+  truncateBytes,
+  truncateText,
+} from "./markdown.js";
 import type { MessageContext, SemverType } from "./types.js";
 
 function context(overrides: { semverType?: SemverType; body?: string; tag?: { name: string; colorHex: string } | null } = {}): MessageContext {
@@ -91,9 +107,10 @@ describe("ntfy", () => {
     expect(buildNtfyRequest(context({ semverType: "PATCH" }), "https://ntfy.sh/alerts").headers.Priority).toBe("default");
   });
 
-  it("encodes non-ASCII header values and keeps the body under 4096 bytes", () => {
+  it("encodes non-ASCII header values, strips newlines, and keeps the body under 4096 bytes", () => {
     expect(encodeHeaderValue("Neue Version ✨")).toMatch(/^=\?UTF-8\?B\?.+\?=$/);
     expect(encodeHeaderValue("plain")).toBe("plain");
+    expect(encodeHeaderValue("line1\r\nline2\nline3")).toBe("line1 line2 line3");
     const request = buildNtfyRequest(context({ body: "🚀".repeat(3000) }), "https://ntfy.sh/alerts");
     expect(Buffer.byteLength(request.body)).toBeLessThanOrEqual(3800);
   });
@@ -111,8 +128,9 @@ describe("Gotify", () => {
     expect(JSON.parse(buildGotifyRequest(context({ semverType: "MINOR" }), "https://g.example/message?token=x").body).priority).toBe(5);
   });
 
-  it("appends /message to a bare server URL and requires a token", () => {
+  it("appends /message to a bare server URL without duplicating it, keeps other query params, and requires a token", () => {
     expect(resolveGotifyEndpoint("https://example.com/gotify/?token=t").url.href).toBe("https://example.com/gotify/message");
+    expect(resolveGotifyEndpoint("https://example.com/message/?token=t&foo=bar").url.href).toBe("https://example.com/message/?foo=bar");
     expect(() => resolveGotifyEndpoint("https://gotify.example.com/message")).toThrow(/application token/);
   });
 });
@@ -158,7 +176,59 @@ describe("email", () => {
     });
     // A password without a username is never sent.
     expect(toSmtpConfig({ ...base, smtpHost: "h", smtpPassword: "x" })?.pass).toBeUndefined();
-    expect(() => toSmtpConfig({ ...base, smtpHost: "h", smtpPort: 70000 })).toThrow(/not a valid port/);
+    expect(defaultSmtpFrom("smtp.example.com", "apikey")).toBe("RepoPulse <repopulse@smtp.example.com>");
+    for (const badPort of [0, -1, 70000, 587.5]) {
+      expect(() => toSmtpConfig({ ...base, smtpHost: "h", smtpPort: badPort })).toThrow(/not a valid port/);
+    }
+  });
+
+  it("reuses the SMTP transport until config changes and maps SMTP errors", async () => {
+    const sendMail = vi.fn<() => Promise<void>>(async () => {});
+    const close = vi.fn();
+    const createSpy = vi
+      .spyOn(nodemailer, "createTransport")
+      .mockImplementation(() => ({ sendMail, close }) as unknown as ReturnType<typeof nodemailer.createTransport>);
+
+    try {
+      const cfg1 = { host: "smtp1.test", port: 587, secure: false, user: "u", pass: "p", from: "r@test" };
+      createSmtpSender(cfg1);
+      const sender1Again = createSmtpSender(cfg1);
+      expect(createSpy).toHaveBeenCalledTimes(1);
+      expect(close).not.toHaveBeenCalled();
+
+      await sender1Again({ from: "r@test", to: "a@test", subject: "s", text: "t", html: "h" });
+      expect(sendMail).toHaveBeenCalledTimes(1);
+
+      const cfg2 = { ...cfg1, host: "smtp2.test" };
+      const sender2 = createSmtpSender(cfg2);
+      expect(createSpy).toHaveBeenCalledTimes(2);
+      expect(close).toHaveBeenCalledTimes(1);
+
+      sendMail.mockRejectedValueOnce(Object.assign(new Error("Invalid login"), { code: "EAUTH" }));
+      await expect(sender2({ from: "r@test", to: "a@test", subject: "s", text: "t", html: "h" })).rejects.toMatchObject({
+        name: "NotificationDeliveryError",
+        permanent: true,
+        message: expect.stringContaining("SMTP authentication failed"),
+      });
+
+      sendMail.mockRejectedValueOnce(Object.assign(new Error("Mailbox unavailable"), { responseCode: 550, response: "550 User unknown" }));
+      await expect(sender2({ from: "r@test", to: "a@test", subject: "s", text: "t", html: "h" })).rejects.toMatchObject({
+        permanent: true,
+        message: expect.stringContaining("550 User unknown"),
+      });
+
+      sendMail.mockRejectedValueOnce(Object.assign(new Error("Try again"), { responseCode: 421, response: "421 Service busy" }));
+      const transient = (await sender2({ from: "r@test", to: "a@test", subject: "s", text: "t", html: "h" }).catch((e: unknown) => e)) as NotificationDeliveryError;
+      expect(transient).toBeInstanceOf(NotificationDeliveryError);
+      expect(transient.permanent).toBe(false);
+
+      sendMail.mockRejectedValueOnce(Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }));
+      await expect(sender2({ from: "r@test", to: "a@test", subject: "s", text: "t", html: "h" })).rejects.toMatchObject({
+        permanent: false,
+      });
+    } finally {
+      createSpy.mockRestore();
+    }
   });
 });
 
@@ -194,27 +264,105 @@ describe("commit notifications", () => {
 });
 
 describe("markdown helpers", () => {
-  it("cleanMarkdown drops comments and tags but keeps text", () => {
+  it("cleanMarkdown drops comments and tags but keeps text, and releaseSummary falls back when empty", () => {
     expect(cleanMarkdown("<!-- hidden -->\r\n<details><summary>More</summary>\n\nText</details>")).toBe("More\n\nText");
+    expect(releaseSummary({ ...context().release, bodyMarkdown: "<!-- only comment -->   " })).toBe(
+      "_No release notes were published for this version._",
+    );
   });
 
-  it("truncateText never splits surrogate pairs and prefers word boundaries", () => {
+  it("formats releaseKindLabel and githubLinkLabel across sources and semver types", () => {
+    expect(releaseKindLabel({ source: "TAG", semverType: "OTHER" })).toBe("Git tag");
+    expect(releaseKindLabel({ source: "TAG", semverType: "MAJOR" })).toBe("Major tag");
+    expect(releaseKindLabel({ source: "RELEASE", semverType: "PRERELEASE" })).toBe("Pre-release");
+    expect(githubLinkLabel({ source: "TAG" })).toBe("View on GitHub");
+    expect(githubLinkLabel({ source: "RELEASE" })).toBe("Release notes on GitHub");
+  });
+
+  it("converts fenced code, images, strikethrough and quotes in markdownToSlack and markdownToEmailHtml", () => {
+    const slack = markdownToSlack("```ts\nconst x = a < b && c > d;\n```\n![logo](https://x.io/a.png)\n![](https://x.io/b.png)\n~~old~~\n> quote");
+    expect(slack).toContain("```const x = a &lt; b &amp;&amp; c &gt; d;```");
+    expect(slack).toContain("<https://x.io/a.png|logo>");
+    expect(slack).toContain("<https://x.io/b.png|image>");
+    expect(slack).toContain("~old~");
+    expect(slack).toContain("> quote");
+
+    const emailHtml = markdownToEmailHtml(
+      "# H1\n### H3\n1. first\n2) second\n> quoted\n`code` and *italic*\n```js\nunclosed <tag>",
+    );
+    expect(emailHtml).toContain("font-size:17px");
+    expect(emailHtml).toContain("font-size:15px");
+    expect(emailHtml).toContain("<li");
+    expect(emailHtml).toContain("<blockquote");
+    expect(emailHtml).toContain("<code");
+    expect(emailHtml).toContain("<em>italic</em>");
+    expect(emailHtml).toContain("unclosed &lt;tag&gt;</code></pre>");
+  });
+
+  it("truncateText and truncateBytes never split surrogate pairs or multi-byte characters", () => {
     expect(truncateText("hello world again", 13)).toBe("hello world…");
     const cut = truncateText("😀😀😀😀", 4);
     expect(cut).toBe("😀…");
     expect(truncateBytes("ééééé", 5)).toBe("é…");
+    const emojiBytes = truncateBytes("🚀".repeat(10), 10);
+    expect(Buffer.byteLength(emojiBytes, "utf8")).toBeLessThanOrEqual(10);
+    expect(emojiBytes).not.toContain("\uFFFD");
   });
 });
 
-describe("maskDestination", () => {
+describe("channels & maskDestination", () => {
   it.each([
     ["DISCORD_WEBHOOK", "https://discord.com/api/webhooks/123/abcdefghijkl", "discord.com/api/webhooks/123/abcd••••"],
     ["SLACK_WEBHOOK", "https://hooks.slack.com/services/T0/B0/XYZXYZXYZ", "hooks.slack.com/services/T0/B0/XYZ••••"],
     ["GOTIFY_WEBHOOK", "https://gotify.example.com/message?token=SECRET", "gotify.example.com/message?••••"],
     ["NTFY_WEBHOOK", "https://user:pass@ntfy.example.com/topic", "ntfy.example.com/t••••"],
+    ["NTFY_WEBHOOK", "https://ntfy.example.com/ab", "ntfy.example.com/••••"],
+    ["CUSTOM_WEBHOOK", "https://example.com/", "example.com"],
+    ["CUSTOM_WEBHOOK", "not a url", "Invalid URL"],
+    ["DISCORD_WEBHOOK", null, "—"],
     ["EMAIL_INSTANT", null, "Your account email"],
     ["EMAIL_INSTANT", "me@example.com", "me@example.com"],
+    ["EMAIL_DIGEST", "digest@example.com", "digest@example.com"],
   ])("%s %s", (channel, destination, expected) => {
     expect(maskDestination(channel, destination)).toBe(expected);
+  });
+
+  it("returns human labels for known and unknown channels", () => {
+    expect(channelLabel("DISCORD_WEBHOOK")).toBe("Discord");
+    expect(channelLabel("IN_APP")).toBe("In-app");
+    expect(channelLabel("EMAIL_DIGEST")).toBe("Email digest");
+    expect(channelLabel("CUSTOM_UNKNOWN")).toBe("CUSTOM_UNKNOWN");
+  });
+});
+
+describe("dependency formatter edge cases", () => {
+  it("handles empty updates, strips backticks in package names, and formats PR headline without number", () => {
+    const emptyCtx = buildDependencyContext(
+      {
+        project: { fullName: "acme/widget", url: "https://pulse.example.com/dependencies/acme/widget" },
+        kind: "digest",
+        updates: [],
+        rule: { channel: "DISCORD_WEBHOOK", destinationUrl: "https://discord.com/api/webhooks/1/x" },
+      },
+      "https://pulse.example.com",
+    );
+    expect(emptyCtx.highest).toBe("OTHER");
+    expect(emptyCtx.hasMajor).toBe(false);
+    expect(emptyCtx.total).toBe(0);
+    expect(formatDependencyDiscordPayload(emptyCtx).embeds[0]!.fields).toEqual([]);
+
+    const backtickCtx = buildDependencyContext(
+      {
+        project: { fullName: "acme/widget", url: "https://pulse.example.com/dependencies/acme/widget" },
+        kind: "pull_request",
+        updates: [{ name: "bad`pkg\nname", from: "1.0.0", to: "2.0.0", level: null, manifest: "package.json" }],
+        pullRequest: { event: "opened", number: null },
+        rule: { channel: "DISCORD_WEBHOOK", destinationUrl: "https://discord.com/api/webhooks/1/x" },
+      },
+      "https://pulse.example.com",
+    );
+    expect(dependencyHeadline(backtickCtx)).toBe("acme/widget: pull request opened");
+    const desc = formatDependencyDiscordPayload(backtickCtx).embeds[0]!.description;
+    expect(desc).toContain("- `badpkgname` 1.0.0 → 2.0.0 · Other · package.json");
   });
 });

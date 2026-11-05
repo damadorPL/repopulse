@@ -62,6 +62,15 @@ function deps(prisma: unknown, poll: typeof pollRepoReleases) {
 const notModified = vi.fn(async () => ({ status: "NOT_MODIFIED" as const, etag: '"old"', releases: [] as [], rateLimitRemaining: 4999 }));
 
 describe("processRepoPoll", () => {
+  it("skips repositories deleted before the job runs", async () => {
+    const { prisma } = fakePrisma();
+    prisma.repository.findUnique.mockResolvedValueOnce(null as never);
+    const d = deps(prisma, notModified);
+    expect(await processRepoPoll(job(), d)).toEqual({ status: "SKIPPED", reason: "REPOSITORY_GONE" });
+    expect(prisma.repository.update).not.toHaveBeenCalled();
+    expect(notModified).not.toHaveBeenCalled();
+  });
+
   it("skips repositories nobody subscribes to any more", async () => {
     const { prisma } = fakePrisma({ subscribers: 0 });
     const d = deps(prisma, notModified);
@@ -96,6 +105,25 @@ describe("processRepoPoll", () => {
     expect(poll.mock.calls.map(([p]) => p.accessToken)).toEqual(["plain:t1", "plain:t2"]);
   });
 
+  it("stops fallback immediately on a non-401 error and rethrows the final 401 if all candidates fail", async () => {
+    const { prisma } = fakePrisma({ tokens: [["u1", "t1"], ["u2", "t2"]] });
+    const serverErr = Object.assign(new Error("Internal Server Error"), { status: 500 });
+    const poll500 = vi.fn(async () => {
+      throw serverErr;
+    });
+
+    await expect(processRepoPoll(job(), deps(prisma, poll500 as never))).rejects.toBe(serverErr);
+    expect(poll500).toHaveBeenCalledTimes(1);
+
+    const authErr = Object.assign(new Error("Bad credentials"), { status: 401 });
+    const pollAll401 = vi.fn(async () => {
+      throw authErr;
+    });
+    const { prisma: prisma401 } = fakePrisma({ tokens: [["u1", "t1"]] });
+    await expect(processRepoPoll(job(), deps(prisma401, pollAll401 as never))).rejects.toBe(authErr);
+    expect(pollAll401.mock.calls.map(([p]) => p.accessToken)).toEqual(["plain:t1", undefined]);
+  });
+
   it("on a rate limit pauses the queue until the reset and re-queues the job", async () => {
     const { prisma, repo } = fakePrisma();
     const poll = vi.fn(async () => {
@@ -111,14 +139,26 @@ describe("processRepoPoll", () => {
     expect(d.redis.publish).toHaveBeenCalledWith("user:u1:events", expect.stringContaining('"reason":"RATE_LIMITED"'));
   });
 
-  it("on 404 increments errorCount and flags ERROR at the threshold", async () => {
+  it("on 404 increments errorCount, flags ERROR at the threshold, and notifies manual sync requester", async () => {
     const poll = vi.fn(async () => {
       throw new GitHubRepositoryNotFoundError("acme", "widget");
     });
 
     const below = fakePrisma({ errorCount: MAX_ERROR_COUNT - 2 });
-    expect(await processRepoPoll(job(), deps(below.prisma, poll as never))).toEqual({ status: "NOT_FOUND", errorCount: MAX_ERROR_COUNT - 1 });
+    const belowDeps = deps(below.prisma, poll as never);
+    expect(await processRepoPoll(job({ trigger: "manual", requestedByUserId: "u1" }), belowDeps)).toEqual({
+      status: "NOT_FOUND",
+      errorCount: MAX_ERROR_COUNT - 1,
+    });
     expect(below.repo.pollStatus).toBe("IDLE");
+    expect(belowDeps.redis.publish).toHaveBeenCalledWith(
+      "user:u1:events",
+      expect.stringContaining('"type":"SYNC_FAILED"'),
+    );
+    expect(belowDeps.redis.publish).toHaveBeenCalledWith(
+      "user:u1:events",
+      expect.stringContaining('"reason":"NOT_FOUND"'),
+    );
 
     const at = fakePrisma({ errorCount: MAX_ERROR_COUNT - 1 });
     expect(await processRepoPoll(job(), deps(at.prisma, poll as never))).toEqual({ status: "NOT_FOUND", errorCount: MAX_ERROR_COUNT });
@@ -131,7 +171,7 @@ describe("processRepoPoll", () => {
     expect(updates[0]).toEqual({ pollStatus: "POLLING", polledPaths: [] });
   });
 
-  it("rethrows other errors for BullMQ retries, counting only the final attempt", async () => {
+  it("rethrows other errors for BullMQ retries, counting only the final attempt and tolerating recordFailure errors", async () => {
     const poll = vi.fn(async () => {
       throw new Error("socket hang up");
     });
@@ -145,6 +185,15 @@ describe("processRepoPoll", () => {
     await expect(processRepoPoll(job({ requestedByUserId: "u1" }, 2), d)).rejects.toThrow("socket hang up");
     expect(last.repo.errorCount).toBe(1);
     expect(d.redis.publish).toHaveBeenCalledWith("user:u1:events", expect.stringContaining('"reason":"ERROR"'));
+
+    const failingUpdate = fakePrisma();
+    let updateCalls = 0;
+    failingUpdate.prisma.repository.update.mockImplementation(async () => {
+      updateCalls += 1;
+      if (updateCalls > 1) throw new Error("db connection lost");
+      return { errorCount: 0 };
+    });
+    await expect(processRepoPoll(job({}, 2), deps(failingUpdate.prisma, poll as never))).rejects.toThrow("socket hang up");
   });
 });
 
@@ -255,5 +304,239 @@ describe("processRepoPoll release → tag promotion", () => {
       ]),
     );
     expect(db.states).toHaveLength(5);
+  });
+
+  it("filters out already stored githubReleaseIds and recreated release tagNames", async () => {
+    const db = promotionDb();
+    db.prisma.release.findMany.mockImplementation(
+      async ({ where }: { where: { githubReleaseId?: unknown; tagName?: { in: string[] } } }) =>
+        where.githubReleaseId
+          ? [{ githubReleaseId: 100n } as never]
+          : [
+              { id: "relrow", tagName: "v1.9.0", source: "RELEASE" },
+              { id: "tagrow", tagName: "v2.0.0", source: "TAG" },
+            ],
+    );
+    const poll = vi.fn(async () => ({
+      status: "UPDATED" as const,
+      etag: '"new"',
+      releases: [
+        mapped(100, "v1.8.0", "2026-10-25T00:00:00Z"),
+        mapped(199, "v1.9.0", "2026-10-28T00:00:00Z"),
+        mapped(200, "v2.0.0", "2026-10-30T00:00:00Z"),
+        mapped(201, "v2.1.0", "2026-10-31T00:00:00Z"),
+      ],
+      rateLimitRemaining: 4000,
+    }));
+
+    const outcome = await processRepoPoll(job(), deps(db.prisma, poll as never));
+
+    expect(outcome).toMatchObject({ status: "UPDATED", received: 4, stored: 1, promoted: 1, fresh: 2 });
+    expect(db.prisma.release.createManyAndReturn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: [expect.objectContaining({ tagName: "v2.1.0", githubReleaseId: 201n })],
+      }),
+    );
+    expect(db.updatedRows).toHaveLength(1);
+    expect(db.updatedRows[0]!.id).toBe("tagrow");
+  });
+
+  it("inserts older historical releases from the poll page as read history without fanning out", async () => {
+    const db = promotionDb();
+    const poll = vi.fn(async () => ({
+      status: "UPDATED" as const,
+      etag: '"new"',
+      // Both older than newestKnownAt (2026-10-01T00:00:00Z).
+      releases: [mapped(90, "v0.9.0", "2026-09-15T00:00:00Z"), mapped(80, "v0.8.0", "2026-09-01T00:00:00Z")],
+      rateLimitRemaining: 4000,
+    }));
+
+    const outcome = await processRepoPoll(job(), deps(db.prisma, poll as never));
+
+    expect(outcome).toMatchObject({ status: "UPDATED", received: 2, stored: 2, promoted: 0, fresh: 0, notifications: 0 });
+    expect(db.states).toEqual([]);
+    expect(db.prisma.userReleaseState.createMany).not.toHaveBeenCalled();
+  });
+
+  it("dispatches NEW_RELEASE, SYNC_COMPLETED, and notification jobs, surviving Redis and queue errors", async () => {
+    const db = promotionDb();
+    db.prisma.userSubscription.findMany.mockImplementation(async (args: { select: Record<string, unknown> }) =>
+      "trackMode" in args.select
+        ? [
+            {
+              userId: "u1",
+              includePrereleases: false,
+              trackMode: "RELEASES",
+              tags: [],
+              user: {
+                notificationRules: [
+                  { id: "rule-1", tagId: null, channel: "DISCORD_WEBHOOK", onlyMajorReleases: false, events: ["RELEASES"] },
+                ],
+              },
+            },
+          ]
+        : [],
+    );
+    const poll = vi.fn(async () => ({
+      status: "UPDATED" as const,
+      etag: '"new"',
+      releases: [mapped(201, "v2.1.0", "2026-10-31T00:00:00Z")],
+      rateLimitRemaining: 4000,
+    }));
+    const d = deps(db.prisma, poll as never);
+    d.redis.publish.mockRejectedValueOnce(new Error("redis hiccup"));
+    d.notificationQueue.addBulk.mockRejectedValueOnce(new Error("queue down"));
+
+    const outcome = await processRepoPoll(job({ trigger: "manual", requestedByUserId: "u1" }), d);
+
+    expect(outcome).toMatchObject({ status: "UPDATED", stored: 1, fresh: 1, notifications: 1 });
+    expect(d.notificationQueue.addBulk).toHaveBeenCalledWith([
+      {
+        name: "dispatch-notification",
+        data: { ruleId: "rule-1", releaseId: "new-v2.1.0", userId: "u1" },
+        opts: { jobId: "notify-rule-1-new-v2.1.0" },
+      },
+    ]);
+    expect(d.redis.publish).toHaveBeenCalledWith(
+      "user:u1:events",
+      JSON.stringify({
+        type: "NEW_RELEASE",
+        repositoryId: "repo1",
+        repositoryName: "acme/widget",
+        tagName: "v2.1.0",
+        releaseId: "new-v2.1.0",
+      }),
+    );
+    expect(d.redis.publish).toHaveBeenCalledWith(
+      "user:u1:events",
+      JSON.stringify({
+        type: "SYNC_COMPLETED",
+        repositoryId: "repo1",
+        repositoryName: "acme/widget",
+        result: "UPDATED",
+        newReleases: 1,
+      }),
+    );
+  });
+
+  it("runs tag and path steps when main release poll returns 304 and reports UPDATED on SYNC_COMPLETED", async () => {
+    const repoUpdates: Array<Record<string, unknown>> = [];
+    const states: Array<{ userId: string; releaseId: string; isRead: boolean }> = [];
+    const prisma = {
+      repository: {
+        findUnique: vi.fn(async (args: { select: Record<string, unknown> }) =>
+          "_count" in args.select
+            ? {
+                ...REPO,
+                polledPaths: ["docs"],
+                _count: { subscriptions: 2 },
+                subscriptions: [
+                  { trackMode: "TAGS_AND_COMMITS", trackPaths: false },
+                  { trackMode: "NONE", trackPaths: true },
+                ],
+              }
+            : { polledPaths: ["docs"] },
+        ),
+        update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          repoUpdates.push(data);
+          return {};
+        }),
+      },
+      release: {
+        findFirst: vi.fn(async () => ({ publishedAt: new Date("2026-10-01T00:00:00Z") })),
+        findMany: vi.fn(async () => []),
+        createManyAndReturn: vi.fn(async ({ data }: { data: Array<{ tagName: string; publishedAt: Date; tagSha?: string; changedPaths?: string[] }> }) =>
+          data.map((r) => ({
+            id: `id-${r.tagName}`,
+            tagName: r.tagName,
+            tagSha: r.tagSha ?? null,
+            changedPaths: r.changedPaths ?? [],
+            isPrerelease: false,
+            semverType: "MINOR" as const,
+            publishedAt: r.publishedAt,
+          })),
+        ),
+      },
+      userSubscription: {
+        findMany: vi.fn(async (args: { select: Record<string, unknown> }) =>
+          "trackMode" in args.select
+            ? [
+                {
+                  userId: "u1",
+                  includePrereleases: false,
+                  trackMode: "TAGS_AND_COMMITS",
+                  trackPaths: true,
+                  watchedPaths: ["docs"],
+                  tags: [],
+                  user: { notificationRules: [] },
+                },
+              ]
+            : [{ userId: "u1", user: { githubAccessTokenEncrypted: "t1" } }],
+        ),
+      },
+      userReleaseState: {
+        findMany: vi.fn(async () => []),
+        createMany: vi.fn(async ({ data }: { data: typeof states }) => {
+          states.push(...data);
+          return { count: data.length };
+        }),
+      },
+      $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
+    };
+
+    const fetchTags = vi.fn(async () => [
+      {
+        name: "v1.1.0",
+        sha: "sha1100000",
+        commitUrl: "https://github.com/acme/widget/commit/sha1100000",
+        commitMessage: "Release 1.1.0",
+        commitDate: new Date("2026-10-20T00:00:00Z"),
+        message: null,
+        taggerDate: null,
+      },
+    ]);
+    const sha = "1234567".padEnd(40, "a");
+    const fetchPathCommits = vi.fn(async () => [
+      {
+        sha,
+        htmlUrl: `https://github.com/acme/widget/commit/${sha}`,
+        message: "docs update",
+        committedDate: new Date("2026-10-25T00:00:00Z"),
+        authorName: "Octo",
+        authorLogin: "octo",
+      },
+    ]);
+    const fetchCommitDetail = vi.fn(async () => ({
+      sha,
+      stats: { additions: 1, deletions: 0, total: 1 },
+      files: [{ filename: "docs/readme.md", status: "modified", additions: 1, deletions: 0 }],
+    }));
+
+    const d = {
+      ...deps(prisma, notModified),
+      fetchTags,
+      fetchPathCommits,
+      fetchCommitDetail,
+    };
+
+    const outcome = await processRepoPoll(job({ trigger: "manual", requestedByUserId: "u1" }), d);
+
+    expect(outcome).toEqual({
+      status: "NOT_MODIFIED",
+      tags: { received: 1, stored: 1, fresh: 1 },
+      paths: { paths: 1, received: 1, stored: 1, fresh: 1, imported: 0 },
+    });
+    // Preserves polledPaths when withPaths is true.
+    expect(repoUpdates[0]).toEqual({ pollStatus: "POLLING" });
+    expect(d.redis.publish).toHaveBeenCalledWith(
+      "user:u1:events",
+      JSON.stringify({
+        type: "SYNC_COMPLETED",
+        repositoryId: "repo1",
+        repositoryName: "acme/widget",
+        result: "UPDATED",
+        newReleases: 2,
+      }),
+    );
   });
 });

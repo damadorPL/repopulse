@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GitHubAppKeyUnreadableError } from "@repopulse/db";
-import { GitHubAppInstallationError } from "@repopulse/github";
+import { GitHubAppAuthError, GitHubAppInstallationError } from "@repopulse/github";
 import { GitHubAccess, PRIVATE_WITHOUT_APP_MESSAGE, TOKEN_REFRESH_MARGIN_MS } from "./github-access";
 
 const APP = { appId: 1, slug: "repopulse", clientId: null, owner: null, privateKey: "PEM", webhookSecret: null };
@@ -90,6 +90,40 @@ describe("GitHubAccess", () => {
   it("treats an undecryptable App key as no App", async () => {
     const { access } = setup({ app: new GitHubAppKeyUnreadableError() });
     expect(await access.app()).toBeNull();
+  });
+
+  it("handles strict vs non-strict installation() on GitHubAppAuthError and recreates appOctokit on key rotation", async () => {
+    let privateKey = "PEM-1";
+    const createAppOctokit = vi.fn(() => ({}) as never);
+    const getRepoInstallation = vi.fn(async () => {
+      if (privateKey === "BAD") throw new GitHubAppAuthError("bad key");
+      return { installationId: 9, accountLogin: "acme" };
+    });
+    const access = new GitHubAccess({
+      loadApp: async () => ({ ...APP, privateKey }),
+      github: {
+        createAppOctokit,
+        getRepoInstallation,
+        createInstallationToken: vi.fn() as never,
+      },
+    });
+
+    const app1 = (await access.app())!;
+    expect(await access.installation(app1, "acme", "widget")).toBe(9);
+    expect(await access.installation(app1, "acme", "widget")).toBe(9);
+    expect(createAppOctokit).toHaveBeenCalledTimes(1);
+
+    // Key rotation creates a new App Octokit and evicts the previous one
+    privateKey = "PEM-2";
+    const app2 = (await access.app())!;
+    expect(await access.installation(app2, "acme", "widget")).toBe(9);
+    expect(createAppOctokit).toHaveBeenCalledTimes(2);
+
+    // GitHubAppAuthError: returns null when strict is false/omitted, rethrows when strict is true
+    privateKey = "BAD";
+    const appBad = (await access.app())!;
+    expect(await access.installation(appBad, "acme", "widget")).toBeNull();
+    await expect(access.installation(appBad, "acme", "widget", { strict: true })).rejects.toBeInstanceOf(GitHubAppAuthError);
   });
 
   it("never logs tokens", async () => {

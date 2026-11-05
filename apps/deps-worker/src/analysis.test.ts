@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { analyzeProject, createSnapshotReader, lookupRegistries, planAnalysis } from "./analysis";
+import { MAX_MANIFEST_BYTES } from "@repopulse/deps";
+import { analyzeProject, capDependencies, createSnapshotReader, lookupRegistries, parseIgnoreRules, planAnalysis } from "./analysis";
 import { createFakeGitHub } from "./testing/fake-github";
 import { createFakePrisma, seed } from "./testing/fake-prisma";
 import { fakeAccess, fakeQueues, fakeRegistry, job, NOW, version } from "./testing/fixtures";
@@ -156,5 +157,86 @@ describe("registry safety at processor boundaries", () => {
     expect(registry).not.toHaveBeenCalled();
     expect(github.state.calls.filter((call) => call.startsWith("commitFiles"))).toEqual([]);
     expect(github.prs).toEqual([]);
+  });
+});
+
+describe("snapshot reader, lockCache, truncated trees, capDependencies, and parseIgnoreRules", () => {
+  it("createSnapshotReader memoizes reads, uses blobCache, and skips oversized or non-blob entries", async () => {
+    const entries = [
+      { path: "package.json", type: "blob" as const, sha: "sha-pkg", size: 20 },
+      { path: "huge.json", type: "blob" as const, sha: "sha-huge", size: MAX_MANIFEST_BYTES + 10 },
+      { path: "dir", type: "tree" as const, sha: "sha-dir", size: null },
+    ];
+    const readBlobs = vi.fn(async (refs: Array<{ path: string; sha: string }>) =>
+      refs.map((r) => ({ path: r.path, sha: r.sha, content: '{"name":"demo"}' })),
+    );
+    const cacheStore = new Map<string, string>();
+    const blobCache = {
+      get: vi.fn(async (sha: string) => cacheStore.get(sha) ?? null),
+      set: vi.fn(async (sha: string, text: string) => {
+        cacheStore.set(sha, text);
+      }),
+    };
+
+    const reader = createSnapshotReader(entries, readBlobs, blobCache);
+    expect(reader.sha("package.json")).toBe("sha-pkg");
+    expect(reader.sha("dir")).toBeNull();
+    expect(await reader.read("huge.json")).toBeNull();
+    expect(await reader.read("missing.json")).toBeNull();
+    expect(reader.downloaded).toBe(0);
+
+    expect(await reader.read("package.json")).toBe('{"name":"demo"}');
+    expect(await reader.read("package.json")).toBe('{"name":"demo"}');
+    expect(reader.downloaded).toBe(1);
+    expect(readBlobs).toHaveBeenCalledTimes(1);
+    expect(blobCache.set).toHaveBeenCalledWith("sha-pkg", '{"name":"demo"}');
+
+    // Second reader hits blobCache without calling readBlobs
+    const reader2 = createSnapshotReader(entries, readBlobs, blobCache);
+    expect(await reader2.read("package.json")).toBe('{"name":"demo"}');
+    expect(reader2.downloaded).toBe(0);
+  });
+
+  it("analyzeProject records truncated tree warning, uses lockCache, and capDependencies & parseIgnoreRules handle bounds", async () => {
+    const lockJson = JSON.stringify({
+      lockfileVersion: 3,
+      packages: { "": { dependencies: { a: "^1.0.0", b: "^2.0.0" } }, "node_modules/a": { version: "1.2.0" }, "node_modules/b": { version: "2.1.0" } },
+    });
+    const files: Record<string, string> = {
+      "package.json": npmManifest({ a: "^1.0.0", b: "^2.0.0" }),
+      "package-lock.json": lockJson,
+    };
+    const entries = Object.entries(files).map(([path, text]) => ({ path, type: "blob" as const, sha: `sha-${path}`, size: text.length }));
+    const readBlobs = vi.fn(async (refs: Array<{ path: string; sha: string }>) =>
+      refs.map(({ path, sha }) => ({ path, sha, content: files[path]! })),
+    );
+    const lockStore = new Map<string, { versions: Map<string, string>; formatVersion: string | null; warnings: string[] }>();
+    const lockCache = {
+      get: vi.fn(async (k: string) => lockStore.get(k) ?? null),
+      set: vi.fn(async (k: string, v: { versions: Map<string, string>; formatVersion: string | null; warnings: string[] }) => {
+        lockStore.set(k, v);
+      }),
+    };
+
+    const reader1 = createSnapshotReader(entries, readBlobs);
+    const analysis1 = await analyzeProject({ entries, manifestPaths: [], reader: reader1, lockCache, truncated: true });
+    expect(analysis1.warnings).toContain("The repository tree is too large: only part of it was searched for manifests");
+    expect(lockCache.set).toHaveBeenCalledTimes(1);
+    expect(analysis1.manifests[0]!.dependencies.map((d) => [d.dependency.name, d.currentVersion])).toEqual([
+      ["a", "1.2.0"],
+      ["b", "2.1.0"],
+    ]);
+
+    // Second run serves lockfile versions from lockCache without downloading package-lock.json
+    const reader2 = createSnapshotReader(entries, readBlobs);
+    await analyzeProject({ entries, manifestPaths: [], reader: reader2, lockCache });
+    expect(reader2.downloaded).toBe(1); // Only package.json downloaded
+
+    const capped = capDependencies(analysis1, 1);
+    expect(capped.manifests[0]!.dependencies).toHaveLength(1);
+    expect(capped.warnings.some((w) => w.includes("2 dependencies found; only the first 1 are checked"))).toBe(true);
+
+    expect(parseIgnoreRules([{ name: "react", versions: ">=19" }])).toEqual([{ name: "react", versions: ">=19" }]);
+    expect(parseIgnoreRules("corrupt")).toEqual([]);
   });
 });

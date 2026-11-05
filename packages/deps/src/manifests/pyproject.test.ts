@@ -104,12 +104,39 @@ describe("parsePyproject (Poetry)", () => {
   it("throws ManifestParseError on invalid TOML", () => {
     expect(() => parsePyproject("[project\nname=", "pyproject.toml")).toThrow(ManifestParseError);
   });
+
+  it("records warnings and unsupported reasons for Poetry path/url/missing/invalid version and unrecognized PEP 508", () => {
+    const edgeToml = `[project]
+name = "demo"
+dependencies = ["not a valid == requirement ???", "---invalid---"]
+
+[tool.poetry.dependencies]
+local_path = { path = "../local" }
+remote_url = { url = "https://example.com/pkg.whl" }
+local_file = { file = "dist/pkg.whl" }
+no_version = { extras = ["a"] }
+bad_version = { version = "invalid!" }
+bad_scalar = 123
+`;
+    const parsed = parsePyproject(edgeToml, "pyproject.toml");
+    const byName = new Map(parsed.dependencies.map((d) => [d.name, d]));
+    expect(byName.get("local-path")?.unsupportedReason).toBe("Local path dependency");
+    expect(byName.get("remote-url")?.unsupportedReason).toBe("URL dependency");
+    expect(byName.get("local-file")?.unsupportedReason).toBe("Local file dependency");
+    expect(byName.get("no-version")?.unsupportedReason).toBe("No version constraint");
+    expect(byName.get("bad-version")?.unsupportedReason).toBe("Invalid version constraint");
+    expect(byName.get("bad-scalar")?.unsupportedReason).toBe("Not a version constraint");
+    expect(parsed.warnings.some((w) => w.includes("unrecognized requirement"))).toBe(true);
+  });
 });
 
 describe("locateTomlStrings", () => {
   it("handles multi-line strings, array tables, dotted keys, dates and inline tables", () => {
     const text = `title = """multi
-line"""
+line with \\""" and "quotes""""
+literal_single = 'raw\\nstring'
+literal_multi = '''multi
+literal'''
 date = 1979-05-27 07:32:00Z
 a.b."c.d" = 'x'
 [[bin]]
@@ -128,6 +155,9 @@ inline = { k = { deep = "v" }, arr = [1, "two"] }
     expect(at(["bin", 1, "name"])).toBe("second");
     expect(at(["t", "inline", "k", "deep"])).toBe("v");
     expect(at(["t", "inline", "arr", 1])).toBe("two");
+    expect(at(["literal_single"])).toBe("raw\\nstring");
+    expect(located.get(tomlPathKey(["literal_single"]))!.plain).toBe(true);
+    expect(located.get(tomlPathKey(["literal_multi"]))!.plain).toBe(false);
     expect(located.get(tomlPathKey(["title"]))!.plain).toBe(false);
   });
 });

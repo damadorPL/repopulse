@@ -6,6 +6,7 @@ import {
   groupUpdates,
   ignorePatternMatches,
   ignoreRulesSchema,
+  isValidGroupKey,
   isValidIgnorePattern,
   requiresPythonOverlaps,
   selectTarget,
@@ -191,6 +192,33 @@ describe("selectTarget", () => {
     const [missing] = applyPolicy([{ dependency: npmDep("^1.0.0", "1.0.0"), candidates: null }], POLICY, NOW);
     expect(missing).toMatchObject({ status: "UNSUPPORTED_SOURCE", reason: "Not on the public registry" });
   });
+
+  it("handles current === null (no lower bound) and publishedAt: null with minReleaseAgeDays > 0", () => {
+    const noCurrent = selectTarget(
+      [v("1.0.0"), v("1.5.0")],
+      { ...npmDep("<2.0", null), ecosystem: "PYPI", rangeSyntax: "pep440" },
+      POLICY,
+      NOW,
+    );
+    expect(noCurrent).toMatchObject({
+      status: "UP_TO_DATE",
+      currentVersion: null,
+      latestVersion: "1.5.0",
+      reason: "No current version (no lockfile entry or lower bound)",
+    });
+
+    const nullPublished = selectTarget(
+      [v("1.0.0"), v("1.1.0", 0, { publishedAt: null })],
+      npmDep("^1.0.0", "1.0.0"),
+      { ...POLICY, minReleaseAgeDays: 7 },
+      NOW,
+    );
+    expect(nullPublished).toMatchObject({
+      status: "OUTDATED",
+      targetVersion: "1.1.0",
+      targetReleasedAt: null,
+    });
+  });
 });
 
 describe("ignore rules", () => {
@@ -249,11 +277,21 @@ describe("groupUpdates", () => {
     expect(groups.map((g) => g.groupKey)).toEqual(["npm-types-node", "pypi-django", "npm-axios", "npm-react"]);
   });
 
-  it("slugifies", () => {
+  it("slugifies and validates group keys at boundaries", () => {
     expect(slugifyGroupName("@types/node")).toBe("types-node");
     expect(slugifyGroupName("Zope.Interface")).toBe("zope-interface");
     expect(slugifyGroupName("@@@")).toBe("dep");
     expect(slugifyGroupName("a".repeat(100))).toHaveLength(60);
+
+    expect(isValidGroupKey("a")).toBe(true);
+    expect(isValidGroupKey("9")).toBe(true);
+    expect(isValidGroupKey("a".repeat(80))).toBe(true);
+    expect(isValidGroupKey("a".repeat(81))).toBe(false);
+    expect(isValidGroupKey("")).toBe(false);
+    expect(isValidGroupKey("-a")).toBe(false);
+    expect(isValidGroupKey("a-")).toBe(false);
+    expect(isValidGroupKey("A")).toBe(false);
+    expect(isValidGroupKey("a/b")).toBe(false);
   });
 });
 

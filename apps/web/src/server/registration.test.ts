@@ -13,7 +13,7 @@ const prisma = {
 };
 vi.mock("@repopulse/db", () => ({ prisma, INSTANCE_SETTINGS_ID: 1 }));
 
-const { admitGitHubUser, INVITE_INVALID_REDIRECT, INVITE_REQUIRED_REDIRECT } = await import("./registration");
+const { admitGitHubUser, findUsableInvite, INVITE_INVALID_REDIRECT, INVITE_REQUIRED_REDIRECT } = await import("./registration");
 const { generateInviteToken, hashInviteToken } = await import("./invite-tokens");
 
 const fields = {
@@ -121,5 +121,30 @@ describe("admitGitHubUser", () => {
     setup();
     prisma.instanceSettings.findUnique.mockResolvedValue(null);
     await expect(admitGitHubUser(fields, undefined)).resolves.toBe(true);
+  });
+});
+
+describe("findUsableInvite", () => {
+  it("skips the database query for malformed tokens and queries unused, unexpired invites for valid tokens", async () => {
+    await expect(findUsableInvite("bad-token")).resolves.toBeNull();
+    expect(prisma.invite.findFirst).not.toHaveBeenCalled();
+
+    const token = generateInviteToken();
+    const row = {
+      id: "inv1",
+      expiresAt: new Date("2026-12-01T00:00:00Z"),
+      createdBy: { name: "Admin", email: "admin@example.com" },
+    };
+    prisma.invite.findFirst.mockResolvedValueOnce(row);
+
+    await expect(findUsableInvite(token)).resolves.toEqual(row);
+    expect(prisma.invite.findFirst).toHaveBeenCalledWith({
+      where: {
+        tokenHash: hashInviteToken(token),
+        usedAt: null,
+        expiresAt: { gt: expect.any(Date) },
+      },
+      select: { id: true, expiresAt: true, createdBy: { select: { name: true, email: true } } },
+    });
   });
 });

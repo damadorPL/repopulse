@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { GitHubRateLimitError, type GitTag } from "@repopulse/github";
 import { mergeFanOutPlans, type StoredRelease } from "./fan-out";
-import { pollRepoTags } from "./repo-tags";
+import { loadSubscribers, pollRepoTags, tracksReleases, tracksTags, type SubscriberWithMode } from "./repo-tags";
 
 const REPO = { id: "repo1", owner: "acme", name: "widget", fullName: "acme/widget", htmlUrl: "https://github.com/acme/widget" };
 const DAY = 24 * 60 * 60 * 1000;
@@ -162,14 +162,106 @@ describe("pollRepoTags", () => {
     expect(db.repoUpdates).toEqual([]);
   });
 
-  it("falls back past a rejected (401) token", async () => {
+  it("falls back past a rejected (401) token and returns null when all user tokens fail with 401 without calling anonymously", async () => {
     const db = fakePrisma({ subscribers: [] });
     const fetchTags = vi.fn(async ({ accessToken }: { accessToken: string }) => {
       if (accessToken === "t1") throw Object.assign(new Error("Bad credentials"), { status: 401 });
       return [];
     });
-    await pollRepoTags({ prisma: db.prisma as never, fetchTags: fetchTags as never }, REPO, [{ userId: "u1", token: "t1" }, { userId: "u2", token: "t2" }], null);
+    const res = await pollRepoTags(
+      { prisma: db.prisma as never, fetchTags: fetchTags as never },
+      REPO,
+      [{ userId: "u1", token: "t1" }, { userId: "u2", token: "t2" }],
+      null,
+    );
     expect(fetchTags.mock.calls.map(([p]) => p.accessToken)).toEqual(["t1", "t2"]);
+    expect(res).toEqual({ received: 0, stored: 0, fresh: 0, plan: { states: [], deliveries: [], notifications: [] } });
+    expect(db.prisma.release.findMany).not.toHaveBeenCalled();
+
+    const all401 = vi.fn(async () => {
+      throw Object.assign(new Error("Bad credentials"), { status: 401 });
+    });
+    expect(
+      await pollRepoTags(
+        { prisma: db.prisma as never, fetchTags: all401 as never },
+        REPO,
+        [{ userId: "u1", token: "t1" }, { userId: "u2", token: "t2" }, { userId: null, token: undefined }],
+        null,
+      ),
+    ).toBeNull();
+    expect(all401.mock.calls.map(([p]) => (p as { accessToken?: string }).accessToken)).toEqual(["t1", "t2"]);
+  });
+
+  it("stores tags older than newestKnownAt as read history without fanning out", async () => {
+    const db = fakePrisma({ subscribers: [{ userId: "tagger", trackMode: "TAGS_AND_COMMITS" }] });
+    const fetchTags = vi.fn(async () => [tag(2), tag(1)]);
+    const result = await pollRepoTags(
+      { prisma: db.prisma as never, fetchTags, compare: compareStub() },
+      REPO,
+      TOKENS,
+      new Date(BASE + 10 * DAY),
+    );
+    expect(result).toEqual({ received: 2, stored: 2, fresh: 0, plan: { states: [], deliveries: [], notifications: [] } });
+    expect(db.states).toEqual([]);
+    expect(db.prisma.userSubscription.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("tracksTags, tracksReleases, and loadSubscribers", () => {
+  const base: SubscriberWithMode = {
+    userId: "u1",
+    includePrereleases: false,
+    trackMode: "RELEASES",
+    trackPaths: false,
+    watchedPaths: [],
+    tagIds: [],
+    rules: [],
+  };
+
+  it("distinguishes release and tag tracking modes", () => {
+    expect(tracksTags({ ...base, trackMode: "TAGS_AND_COMMITS" })).toBe(true);
+    expect(tracksTags({ ...base, trackMode: "RELEASES" })).toBe(false);
+    expect(tracksTags({ ...base, trackMode: "NONE" })).toBe(false);
+
+    expect(tracksReleases({ ...base, trackMode: "RELEASES" })).toBe(true);
+    expect(tracksReleases({ ...base, trackMode: "TAGS_AND_COMMITS" })).toBe(true);
+    expect(tracksReleases({ ...base, trackMode: "NONE" })).toBe(false);
+  });
+
+  it("maps subscription rows with default fallbacks in loadSubscribers", async () => {
+    const tx = {
+      userSubscription: {
+        findMany: vi.fn(async () => [
+          {
+            userId: "u1",
+            includePrereleases: true,
+            trackMode: "TAGS_AND_COMMITS",
+            trackPaths: true,
+            watchedPaths: null,
+            notificationLevel: null,
+            snoozedUntil: undefined,
+            tags: [{ tagId: "t1" }],
+            user: {
+              notificationRules: [{ id: "r1", tagId: "t1", channel: "DISCORD_WEBHOOK", onlyMajorReleases: true, events: ["RELEASES"] }],
+            },
+          },
+        ]),
+      },
+    };
+    const subs = await loadSubscribers(tx as never, "repo1");
+    expect(subs).toEqual([
+      {
+        userId: "u1",
+        includePrereleases: true,
+        trackMode: "TAGS_AND_COMMITS",
+        trackPaths: true,
+        watchedPaths: [],
+        notificationLevel: "ALL",
+        snoozedUntil: null,
+        tagIds: ["t1"],
+        rules: [{ id: "r1", tagId: "t1", channel: "DISCORD_WEBHOOK", onlyMajorReleases: true, events: ["RELEASES"] }],
+      },
+    ]);
   });
 });
 

@@ -37,9 +37,11 @@ function releaseRow(tagName: string, semverType: SemverType) {
 function fakePrisma(options: {
   rule?: Partial<typeof RULE> | null;
   release?: ReturnType<typeof releaseRow> | null;
+  user?: { id: string; email: string; name: string } | null;
   subscriptionTags?: string[] | null;
   subscription?: { notificationLevel?: string; snoozedUntil?: Date | null };
   smtpHost?: string | null;
+  smtpPasswordEncrypted?: string | null;
 }) {
   return {
     instanceSettings: {
@@ -48,13 +50,13 @@ function fakePrisma(options: {
         smtpPort: 587,
         smtpSecure: null,
         smtpUser: null,
-        smtpPasswordEncrypted: null,
+        smtpPasswordEncrypted: options.smtpPasswordEncrypted ?? null,
         smtpFrom: null,
       })),
     },
     notificationRule: { findUnique: vi.fn(async () => (options.rule === null ? null : { ...RULE, ...options.rule })) },
     release: { findUnique: vi.fn(async () => (options.release === undefined ? releaseRow("v2.0.0", "MAJOR") : options.release)) },
-    user: { findUnique: vi.fn(async () => ({ id: "u1", email: "dev@example.com", name: "Dev" })) },
+    user: { findUnique: vi.fn(async () => (options.user === undefined ? { id: "u1", email: "dev@example.com", name: "Dev" } : options.user)) },
     userSubscription: {
       findUnique: vi.fn(async () =>
         options.subscriptionTags === null
@@ -105,6 +107,7 @@ describe("processNotification", () => {
   it.each([
     ["RULE_GONE", { rule: null }],
     ["RULE_GONE", { rule: { userId: "someone-else" } }],
+    ["RULE_GONE", { user: null }],
     ["RULE_DISABLED", { rule: { enabled: false } }],
     ["EVENT_DISABLED", { rule: { events: ["DEPENDENCY_UPDATES", "DEPENDENCY_PULL_REQUESTS"] } }],
     ["RELEASE_GONE", { release: null }],
@@ -113,6 +116,14 @@ describe("processNotification", () => {
     ["TAG_REMOVED", { subscriptionTags: ["other"] }],
     ["SNOOZED", { subscription: { snoozedUntil: new Date(Date.now() + 60_000) } }],
     ["NOTIFICATION_LEVEL", { subscription: { notificationLevel: "NONE" } }],
+    [
+      "NOTIFICATION_LEVEL",
+      { rule: { onlyMajorReleases: false }, release: releaseRow("v2.1.0", "MINOR"), subscription: { notificationLevel: "MAJOR_ONLY" } },
+    ],
+    [
+      "NOTIFICATION_LEVEL",
+      { rule: { onlyMajorReleases: false }, release: releaseRow("v2.0.1", "PATCH"), subscription: { notificationLevel: "MINOR_AND_UP" } },
+    ],
   ] as const)("skips with %s", async (reason, options) => {
     const dispatch = delivered();
     const outcome = await processNotification(job(), { prisma: fakePrisma(options as never) as never, dispatch });
@@ -132,16 +143,37 @@ describe("processNotification", () => {
     expect((await processNotification(job("rel-v2.0.1"), { prisma: prisma as never, dispatch })).status).toBe("SENT");
   });
 
-  it("passes the SMTP settings saved in the UI to email rules only", async () => {
+  it("passes the SMTP settings saved in the UI to email rules only and forwards AbortSignal", async () => {
     const dispatch = delivered();
+    const controller = new AbortController();
     const email = fakePrisma({ rule: { channel: "EMAIL_INSTANT", destinationUrl: null }, smtpHost: "smtp.example.com" });
-    await processNotification(job(), { prisma: email as never, dispatch });
-    expect(dispatch.mock.calls[0]![1]).toMatchObject({ smtp: { host: "smtp.example.com", port: 587, from: "RepoPulse <repopulse@smtp.example.com>" } });
+    await processNotification(job(), { prisma: email as never, dispatch, signal: controller.signal });
+    expect(dispatch.mock.calls[0]![1]).toMatchObject({
+      smtp: { host: "smtp.example.com", port: 587, from: "RepoPulse <repopulse@smtp.example.com>" },
+      signal: controller.signal,
+    });
 
     const discord = fakePrisma({});
     await processNotification(job(), { prisma: discord as never, dispatch });
     expect(dispatch.mock.calls[1]![1]).toMatchObject({ smtp: null });
     expect(discord.instanceSettings.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("turns SmtpPasswordUnreadableError into UnrecoverableError and rethrows generic DB errors", async () => {
+    const dispatch = delivered();
+    const unreadable = fakePrisma({
+      rule: { channel: "EMAIL_INSTANT", destinationUrl: null },
+      smtpHost: "smtp.example.com",
+      smtpPasswordEncrypted: "not-valid-ciphertext",
+    });
+    const error = await processNotification(job(), { prisma: unreadable as never, dispatch }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(UnrecoverableError);
+    expect(dispatch).not.toHaveBeenCalled();
+
+    const dbErr = new Error("connection reset");
+    const brokenDb = fakePrisma({ rule: { channel: "EMAIL_INSTANT", destinationUrl: null } });
+    brokenDb.instanceSettings.findUnique.mockRejectedValueOnce(dbErr);
+    await expect(processNotification(job(), { prisma: brokenDb as never, dispatch })).rejects.toBe(dbErr);
   });
 
   it("turns permanent delivery failures into UnrecoverableError (no retries)", async () => {

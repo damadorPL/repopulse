@@ -122,6 +122,18 @@ describe("startGitHubAppManifestAction", () => {
     });
     expect(cookieStore.set).not.toHaveBeenCalled();
   });
+
+  it("returns UNAVAILABLE when buildAppManifest throws on an invalid APP_BASE_URL", async () => {
+    env.appBaseUrl = "not-a-valid-url";
+    const github = await import("@repopulse/github");
+    vi.spyOn(github, "buildAppManifest").mockImplementationOnce(() => {
+      throw new Error("Invalid URL");
+    });
+
+    const result = await startGitHubAppManifestAction({ organization: "" });
+    expect(result).toMatchObject({ ok: false, error: { code: "UNAVAILABLE" } });
+    expect(cookieStore.set).not.toHaveBeenCalled();
+  });
 });
 
 describe("saveGitHubAppSettingsAction", () => {
@@ -154,9 +166,21 @@ describe("saveGitHubAppSettingsAction", () => {
     expect(prisma.instanceSettings.upsert.mock.calls[1]![0].update).toMatchObject({ githubAppWebhookSecretEncrypted: null });
   });
 
-  it("rejects a slug that doesn't match the App GitHub returns", async () => {
+  it("rejects a slug or App ID that doesn't match the App GitHub returns", async () => {
     const result = await saveGitHubAppSettingsAction({ appId: 42, slug: "other-app", privateKey: PEM });
     expect(result).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect(prisma.instanceSettings.upsert).not.toHaveBeenCalled();
+
+    getAuthenticatedApp.mockResolvedValueOnce({
+      id: 99,
+      slug: "repopulse-test",
+      name: "RepoPulse (test)",
+      clientId: "Iv1.abc",
+      owner: "admin",
+      htmlUrl: "https://github.com/apps/repopulse-test",
+    });
+    const mismatchedId = await saveGitHubAppSettingsAction({ appId: 42, slug: "repopulse-test", privateKey: PEM });
+    expect(mismatchedId).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
     expect(prisma.instanceSettings.upsert).not.toHaveBeenCalled();
   });
 

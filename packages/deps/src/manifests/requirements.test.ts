@@ -91,11 +91,36 @@ describe("parseRequirements", () => {
     expect(hasPipCompileHeader("django==4\n")).toBe(false);
   });
 
-  it("reads pins", () => {
+  it("reads pins and prefers unmarked pins over marker-qualified pins", () => {
     expect([...readRequirementsPins("a==1.0\nb>=2\nC_d===3.0\n")]).toEqual([
       ["a", "1.0"],
       ["c-d", "3.0"],
     ]);
+    const multi = [
+      "foo==1.0 ; python_version < '3.10'",
+      "foo==2.0",
+      "foo==3.0 ; python_version >= '3.10'",
+      "bar==4.0 ; sys_platform == 'linux'",
+      "bar==5.0 ; sys_platform == 'win32'",
+    ].join("\n");
+    expect([...readRequirementsPins(multi)]).toEqual([
+      ["foo", "2.0"],
+      ["bar", "4.0"],
+    ]);
+  });
+
+  it("sets span to null when specifier spans a line continuation and warns on unterminated extras", () => {
+    const continued = parseRequirements("requests>=2.0,\\\n<3.0\n");
+    expect(continued.dependencies[0]).toMatchObject({
+      name: "requests",
+      declared: ">=2.0,<3.0",
+      span: null,
+      supported: true,
+    });
+
+    const badExtras = parseRequirements("requests[security>=2.0\n", "requirements.txt");
+    expect(badExtras.dependencies).toHaveLength(0);
+    expect(badExtras.warnings[0]).toMatch(/unterminated extras/);
   });
 });
 
@@ -131,8 +156,19 @@ describe("parseRequirementsTree", () => {
     expect(tree.dependencies.map((d) => d.name)).toEqual(["flask", "click"]);
   });
 
-  it("warns about missing includes", async () => {
+  it("warns about missing includes, invalid -r paths, and propagates nested -c constraints", async () => {
     const tree = await parseRequirementsTree("x.txt", async () => null, { text: "-r missing.txt\n" });
     expect(tree.warnings[0]).toMatch(/not found/);
+
+    const nestedFiles: Record<string, string> = {
+      "requirements.txt": "-r ../outside.txt\n-r https://example.com/reqs.txt\n-c constraints.txt\n",
+      "constraints.txt": "-r sub-constraints.txt\nurllib3==2.2.0\n",
+      "sub-constraints.txt": "certifi==2024.8.30\n",
+    };
+    const nestedTree = await parseRequirementsTree("requirements.txt", async (p) => nestedFiles[p] ?? null);
+    expect(nestedTree.dependencies).toHaveLength(0);
+    expect(nestedTree.constraints.get("urllib3")).toBe("2.2.0");
+    expect(nestedTree.constraints.get("certifi")).toBe("2024.8.30");
+    expect(nestedTree.warnings.filter((w) => w.includes("is outside the repository and skipped"))).toHaveLength(2);
   });
 });

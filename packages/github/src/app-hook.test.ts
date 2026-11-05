@@ -2,6 +2,7 @@ import { createHmac, generateKeyPairSync } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { getAppWebhookConfig, signWebhookPayload, updateAppWebhookConfig, verifyWebhookSignature } from "./app-hook.js";
 import { GitHubAppAuthError } from "./app.js";
+import { GitHubRateLimitError } from "./poller.js";
 
 const { privateKey } = generateKeyPairSync("rsa", {
   modulusLength: 2048,
@@ -69,8 +70,9 @@ describe("updateAppWebhookConfig", () => {
     expect(calls[0]?.body).not.toHaveProperty("secret");
   });
 
-  it("rejects non-https URLs and short secrets before any request", async () => {
+  it("rejects malformed or non-https URLs and short secrets before any request", async () => {
     const { fetch } = fakeFetch(() => json({}));
+    await expect(updateAppWebhookConfig(AUTH, { url: "not a url", contentType: "json" }, { fetch })).rejects.toThrow(/valid URL/);
     await expect(updateAppWebhookConfig(AUTH, { url: "http://x.example/hook", contentType: "json" }, { fetch })).rejects.toThrow(/https/);
     await expect(updateAppWebhookConfig(AUTH, { url: "https://x.example/hook", secret: "short", contentType: "json" }, { fetch })).rejects.toThrow(
       /16/,
@@ -89,11 +91,25 @@ describe("updateAppWebhookConfig", () => {
 });
 
 describe("getAppWebhookConfig", () => {
-  it("maps an unconfigured hook", async () => {
+  it("maps an unconfigured hook, unknown content_type, insecure_ssl '1', and 401/rate-limit errors", async () => {
     const { fetch, calls } = fakeFetch(() => json({ url: "", content_type: "form", insecure_ssl: 0 }));
     await expect(getAppWebhookConfig(AUTH, { fetch })).resolves.toEqual({ url: null, contentType: "form", hasSecret: false, insecureSsl: false });
     expect(calls[0]?.method).toBe("GET");
     expect(calls[0]?.url.pathname).toBe("/app/hook/config");
+
+    const { fetch: oddFetch } = fakeFetch(() => json({ url: "https://x.io/h", content_type: "xml", insecure_ssl: "1", secret: "***" }));
+    await expect(getAppWebhookConfig(AUTH, { fetch: oddFetch })).resolves.toEqual({
+      url: "https://x.io/h",
+      contentType: null,
+      hasSecret: true,
+      insecureSsl: true,
+    });
+
+    const { fetch: unauthFetch } = fakeFetch(() => json({ message: "Bad credentials" }, 401));
+    await expect(getAppWebhookConfig(AUTH, { fetch: unauthFetch })).rejects.toBeInstanceOf(GitHubAppAuthError);
+
+    const { fetch: rateFetch } = fakeFetch(() => json({ message: "rate limit" }, 429));
+    await expect(getAppWebhookConfig(AUTH, { fetch: rateFetch })).rejects.toBeInstanceOf(GitHubRateLimitError);
   });
 });
 
@@ -101,8 +117,9 @@ describe("verifyWebhookSignature", () => {
   const body = JSON.stringify({ zen: "Keep it logically awesome.", hook_id: 1 });
   const valid = `sha256=${createHmac("sha256", SECRET).update(body).digest("hex")}`;
 
-  it("accepts GitHub's signature for the raw body (string or Buffer)", () => {
+  it("accepts GitHub's signature for the raw body (string, Buffer, or padded with whitespace)", () => {
     expect(verifyWebhookSignature(body, valid, SECRET)).toBe(true);
+    expect(verifyWebhookSignature(body, `  ${valid} \n`, SECRET)).toBe(true);
     expect(verifyWebhookSignature(Buffer.from(body), valid, SECRET)).toBe(true);
     expect(verifyWebhookSignature(body, valid.toUpperCase().replace("SHA256=", "sha256="), SECRET)).toBe(true);
     expect(signWebhookPayload(body, SECRET)).toBe(valid);
@@ -125,6 +142,7 @@ describe("verifyWebhookSignature", () => {
     expect(verifyWebhookSignature(body, null, SECRET)).toBe(false);
     expect(verifyWebhookSignature(body, "", SECRET)).toBe(false);
     expect(verifyWebhookSignature(body, valid.replace("sha256=", "sha1="), SECRET)).toBe(false);
+    expect(verifyWebhookSignature(body, `sha256=${"z".repeat(64)}`, SECRET)).toBe(false);
     expect(verifyWebhookSignature(body, valid.slice(0, -2), SECRET)).toBe(false);
     expect(verifyWebhookSignature(body, `${valid}00`, SECRET)).toBe(false);
     expect(verifyWebhookSignature(body, valid, "")).toBe(false);

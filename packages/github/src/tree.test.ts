@@ -74,21 +74,23 @@ describe("fetchRepoTree", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("returns an empty tree for an empty repository", async () => {
-    const fetch = mockFetch((url) =>
-      url.pathname === "/repos/acme/widget"
-        ? json({ default_branch: "main" })
-        : json({ message: "Git Repository is empty." }, { status: 409 }),
-    );
-    expect(await fetchRepoTree({ owner: "acme", name: "widget", octokit: createOctokit({ fetch }) })).toEqual({
-      defaultBranch: "main",
-      dirs: [],
-      files: [],
-      truncated: false,
-    });
+  it("returns an empty tree for an empty repository or unborn default branch", async () => {
+    for (const status of [409, 404]) {
+      const fetch = mockFetch((url) =>
+        url.pathname === "/repos/acme/widget"
+          ? json({ default_branch: "main" })
+          : json({ message: "Empty or unborn" }, { status }),
+      );
+      expect(await fetchRepoTree({ owner: "acme", name: "widget", octokit: createOctokit({ fetch }) })).toEqual({
+        defaultBranch: "main",
+        dirs: [],
+        files: [],
+        truncated: false,
+      });
+    }
   });
 
-  it("maps a missing repository and rate limits", async () => {
+  it("maps a missing repository and rate limits on repo or tree fetch", async () => {
     const missing = mockFetch(() => json({ message: "Not Found" }, { status: 404 }));
     await expect(
       fetchRepoTree({ owner: "acme", name: "nope", octokit: createOctokit({ fetch: missing }) }),
@@ -99,6 +101,15 @@ describe("fetchRepoTree", () => {
     );
     await expect(
       fetchRepoTree({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: limited }) }),
+    ).rejects.toBeInstanceOf(GitHubRateLimitError);
+
+    const treeLimited = mockFetch((url) =>
+      url.pathname === "/repos/acme/widget"
+        ? json({ default_branch: "main" })
+        : json({ message: "rate limit" }, { status: 429 }),
+    );
+    await expect(
+      fetchRepoTree({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: treeLimited }) }),
     ).rejects.toBeInstanceOf(GitHubRateLimitError);
   });
 });

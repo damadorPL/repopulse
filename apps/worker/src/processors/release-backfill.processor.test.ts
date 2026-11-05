@@ -137,6 +137,53 @@ function deps(db: ReturnType<typeof fakeDb>, fetchPage: unknown, config: Partial
 }
 
 describe("processReleaseBackfill", () => {
+  it("skips vanished repositories and resets backfillStatus to NONE when no subscribers remain", async () => {
+    const gone = fakeDb({ stored: [1] });
+    gone.prisma.repository.findUnique.mockResolvedValueOnce(null as never);
+    const github = fakeGitHub(10);
+    expect(await processReleaseBackfill(job(), "token", deps(gone, github))).toEqual({
+      status: "SKIPPED",
+      reason: "REPOSITORY_GONE",
+    });
+    expect(gone.prisma.repository.update).not.toHaveBeenCalled();
+    expect(github).not.toHaveBeenCalled();
+
+    const empty = fakeDb({ stored: [1], subscribers: [] });
+    expect(await processReleaseBackfill(job(), "token", deps(empty, github))).toEqual({
+      status: "SKIPPED",
+      reason: "NO_SUBSCRIBERS",
+    });
+    expect(empty.repo.backfillStatus).toBe("NONE");
+    expect(github).not.toHaveBeenCalled();
+  });
+
+  it("short-circuits before fetching when storedCount already meets or exceeds the target", async () => {
+    const dbDone = fakeDb({ stored: range(100, 1), nextPage: 2, target: 100, backfilledAt: NOW });
+    const github = fakeGitHub(200);
+    const done = await processReleaseBackfill(job(), "token", deps(dbDone, github));
+    expect(done).toEqual({ status: "FINISHED", backfillStatus: "DONE", reason: "TARGET", added: 0, pages: 0 });
+    expect(dbDone.repo.backfillNextPage).toBe(2);
+    expect(github).not.toHaveBeenCalled();
+
+    const dbPartial = fakeDb({ stored: range(150, 1), nextPage: 3, target: 200, backfilledAt: NOW });
+    const partial = await processReleaseBackfill(job(), "token", deps(dbPartial, github, { hardCap: 150 }));
+    expect(partial).toEqual({ status: "FINISHED", backfillStatus: "PARTIAL", reason: "TARGET", added: 0, pages: 0 });
+    expect(dbPartial.repo.backfillNextPage).toBe(3);
+    expect(github).not.toHaveBeenCalled();
+  });
+
+  it("stops with MAX_AGE and keeps backfillNextPage on the current page when automatic backfill hits the age cutoff", async () => {
+    // Release id `id` is published at NOW - (300 - id) hours. With maxAgeDays = 10 (240 hours),
+    // cutoff is NOW - 240h, corresponding to id = 60.
+    // Page 1 of 100 releases has ids 100..1. Stored is 100..91 (10 releases).
+    // Releases 90..60 (31 releases) are >= cutoff; 59..1 are < cutoff.
+    const db = fakeDb({ stored: range(100, 91) });
+    const github = fakeGitHub(100);
+    const outcome = await processReleaseBackfill(job(), "token", deps(db, github, { maxAgeDays: 10 }));
+    expect(outcome).toEqual({ status: "FINISHED", backfillStatus: "DONE", reason: "MAX_AGE", added: 31, pages: 1 });
+    expect(db.repo).toMatchObject({ backfillStatus: "DONE", backfillNextPage: 1 });
+  });
+
   it("imports history up to the default target as read and tells every subscriber", async () => {
     // "Add repository" stored the newest 10 of 250.
     const db = fakeDb({ stored: range(250, 241) });
@@ -224,7 +271,7 @@ describe("processReleaseBackfill", () => {
     expect(db.repo.backfillStatus).toBe("ERROR");
   });
 
-  it("rethrows other errors for BullMQ retries and flags ERROR on the final attempt", async () => {
+  it("rethrows other errors for BullMQ retries and flags ERROR on the final attempt, surviving setStatus and publish failures", async () => {
     const error = new Error("socket hang up");
 
     const early = fakeDb({ stored: range(50, 41) });
@@ -234,6 +281,21 @@ describe("processReleaseBackfill", () => {
     const last = fakeDb({ stored: range(50, 41) });
     await expect(processReleaseBackfill(job(2), "token", deps(last, fakeGitHub(50, { error })))).rejects.toThrow(error);
     expect(last.repo.backfillStatus).toBe("ERROR");
+
+    const brokenStatus = fakeDb({ stored: range(50, 41) });
+    let updateCalls = 0;
+    brokenStatus.prisma.repository.update.mockImplementation(async () => {
+      updateCalls += 1;
+      if (updateCalls > 1) throw new Error("db down");
+      return brokenStatus.repo;
+    });
+    await expect(processReleaseBackfill(job(2), "token", deps(brokenStatus, fakeGitHub(50, { error })))).rejects.toThrow(error);
+
+    const publishFailDb = fakeDb({ stored: range(50, 41) });
+    const publishFailDeps = deps(publishFailDb, fakeGitHub(50));
+    publishFailDeps.redis.publish.mockRejectedValueOnce(new Error("redis down"));
+    const outcome = await processReleaseBackfill(job(), "token", publishFailDeps);
+    expect(outcome).toMatchObject({ status: "FINISHED", backfillStatus: "DONE", reason: "COMPLETE", added: 40 });
   });
 
   it("promotes a stored tag row instead of adding a second entry", async () => {

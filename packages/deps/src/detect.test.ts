@@ -260,12 +260,37 @@ describe("fixture repositories (§4 Part A)", () => {
     }
   });
 
-  it("packageManager field wins over lockfiles", async () => {
+  it("packageManager field wins over lockfiles and warns when declared manager lockfile is missing", async () => {
     const { result } = await scan(
       { "package.json": JSON.stringify({ packageManager: "yarn@4.1.0", dependencies: {} }), "pnpm-lock.yaml": PNPM_LOCK_V9 },
       ["yarn.lock"],
     );
     expect(result[0]!.manifest).toMatchObject({ packageManager: "YARN", lockfilePath: "yarn.lock" });
+
+    const mismatch = await scan({
+      "package.json": JSON.stringify({ packageManager: "pnpm@9.0.0", dependencies: { react: "^18.2.0" } }),
+      "package-lock.json": PACKAGE_LOCK_V3,
+    });
+    expect(mismatch.result[0]!.manifest).toMatchObject({
+      packageManager: "PNPM",
+      lockfilePath: null,
+    });
+    expect(mismatch.result[0]!.manifest.warnings[0]).toMatch(/packageManager is pnpm but only package-lock\.json exists/);
+  });
+
+  it("uv workspace respects exclude globs", async () => {
+    const { result } = await scan({
+      "pyproject.toml":
+        '[project]\nname = "root"\ndependencies = []\n[tool.uv.workspace]\nmembers = ["packages/*"]\nexclude = ["packages/excluded"]\n',
+      "packages/included/pyproject.toml": '[project]\nname = "included"\ndependencies = ["httpx>=0.27"]\n',
+      "packages/excluded/pyproject.toml": '[project]\nname = "excluded"\ndependencies = ["httpx>=0.27"]\n',
+      "uv.lock": UV_LOCK,
+    });
+    const byPath = new Map(result.map((r) => [r.manifest.path, r.manifest]));
+    expect(byPath.get("pyproject.toml")!.workspaceMembers).toEqual(["packages/included/pyproject.toml"]);
+    expect(byPath.get("packages/included/pyproject.toml")!.workspaceRoot).toBe("pyproject.toml");
+    expect(byPath.get("packages/excluded/pyproject.toml")!.workspaceRoot).toBeNull();
+    expect(byPath.get("packages/excluded/pyproject.toml")!.lockfilePath).toBeNull();
   });
 
   it("uv project", async () => {

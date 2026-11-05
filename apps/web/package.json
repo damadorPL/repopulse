@@ -1,6 +1,6 @@
 {
   "name": "@repopulse/web",
-  "version": "0.9.4.1",
+  "version": "0.9.4.2",
   "private": true,
   "scripts": {
     "dev": "next dev --port 3000",

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ManifestParseError } from "./errors.js";
+import { JsonScanError, jsonPathKey, locateJsonStrings, parseJsonWithTrailingCommas } from "./json-locate.js";
 import { parsePackageJson } from "./package-json.js";
 
 const TEXT = `{
@@ -76,5 +77,27 @@ describe("parsePackageJson", () => {
 
   it("reads the object form of workspaces", () => {
     expect(parsePackageJson(`{"workspaces":{"packages":["libs/*"]}}`).workspaces).toEqual(["libs/*"]);
+  });
+});
+
+describe("locateJsonStrings / parseJsonWithTrailingCommas", () => {
+  it("handles line and block comments when allowComments is true", () => {
+    const jsonc = `// header comment\n{\n  /* block comment */ "a": [1, /* inline */ "two",],\n  "b": true,\n}\n`;
+    const located = locateJsonStrings(jsonc, { allowComments: true, allowTrailingCommas: true });
+    const entry = located.locations.get(jsonPathKey(["a", 1]))!;
+    expect(jsonc.slice(entry.span.start, entry.span.end)).toBe("two");
+    expect(parseJsonWithTrailingCommas(jsonc)).toEqual({ a: [1, "two"], b: true });
+    expect(() => locateJsonStrings("/* unterminated", { allowComments: true })).toThrow(JsonScanError);
+    expect(() => locateJsonStrings("// comment\n{}", { allowComments: false })).toThrow(JsonScanError);
+  });
+
+  it("enforces trailing comma option and rejects malformed strings or trailing tokens", () => {
+    expect(() => locateJsonStrings(`{"a": 1,}`)).toThrow(JsonScanError);
+    expect(() => locateJsonStrings(`[1,]`)).toThrow(JsonScanError);
+    expect(locateJsonStrings(`{"a": "ok",}`, { allowTrailingCommas: true }).locations.has(jsonPathKey(["a"]))).toBe(true);
+    expect(() => locateJsonStrings(`{"a": "line\nbreak"}`)).toThrow(JsonScanError);
+    expect(() => locateJsonStrings(`{"a": "\\x"}`)).toThrow(JsonScanError);
+    expect(() => locateJsonStrings(`{"a": "\\u12"}`)).toThrow(JsonScanError);
+    expect(() => locateJsonStrings(`{"a": "ok"} extra`)).toThrow(JsonScanError);
   });
 });

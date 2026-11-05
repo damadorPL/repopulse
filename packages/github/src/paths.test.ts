@@ -7,6 +7,7 @@ import {
   commitMatchesPath,
   fetchCommitDetail,
   fetchCommitsForPath,
+  mapCommitListItem,
   mapPathCommit,
   MAX_WATCHED_PATH_LENGTH,
   normalizeWatchedPath,
@@ -52,11 +53,12 @@ describe("normalizeWatchedPath", () => {
     ["./docs/README.md", "docs/README.md"],
     ["././src", "src"],
     ["plugins/foo bar", "plugins/foo bar"],
+    [".../foo", ".../foo"],
   ])("normalizes %j to %j", (raw, expected) => {
     expect(normalizeWatchedPath(raw)).toBe(expected);
   });
 
-  it.each(["", "   ", "/", ".", "..", "./", "a/../b", "../etc", "a/./b", "a\\b", "a?b", "a#b", "a\u0000b", "a\tb"])(
+  it.each(["", "   ", "/", ".", "..", "./", "a/../b", "../etc", "a/./b", "a\\b", "a?b", "a#b", "a\u0000b", "a\tb", "a\u007fb", "a\u0080b"])(
     "rejects %j",
     (raw) => {
       expect(normalizeWatchedPath(raw)).toBeNull();
@@ -199,6 +201,40 @@ describe("fetchCommitDetail", () => {
       filesTruncated: true,
     });
   });
+
+  it("defaults missing stats and files, and maps 404/429 errors", async () => {
+    const emptyFetch = mockFetch(() => json({ sha: SHA }));
+    expect(await fetchCommitDetail({ owner: "acme", name: "widget", ref: SHA, octokit: createOctokit({ fetch: emptyFetch }) })).toEqual({
+      sha: SHA,
+      stats: { additions: 0, deletions: 0, total: 0 },
+      files: [],
+      filesTruncated: false,
+    });
+
+    const notFound = mockFetch(() => json({ message: "Not Found" }, { status: 404 }));
+    await expect(
+      fetchCommitDetail({ owner: "acme", name: "widget", ref: SHA, octokit: createOctokit({ fetch: notFound }) }),
+    ).rejects.toBeInstanceOf(GitHubRepositoryNotFoundError);
+
+    const rateLimited = mockFetch(() => json({ message: "rate limit" }, { status: 429 }));
+    await expect(
+      fetchCommitDetail({ owner: "acme", name: "widget", ref: SHA, octokit: createOctokit({ fetch: rateLimited }) }),
+    ).rejects.toBeInstanceOf(GitHubRateLimitError);
+  });
+});
+
+describe("mapCommitListItem", () => {
+  it("falls back to epoch 0 when dates are missing and null for whitespace author name", () => {
+    const item = mapCommitListItem({
+      sha: SHA,
+      html_url: "https://github.com/acme/widget/commit/x",
+      commit: { message: "msg", author: { name: "   ", date: null }, committer: null },
+      author: null,
+    });
+    expect(item.committedDate).toEqual(new Date(0));
+    expect(item.authorName).toBeNull();
+    expect(item.authorLogin).toBeNull();
+  });
 });
 
 describe("buildCommitChangelog", () => {
@@ -267,6 +303,42 @@ describe("buildCommitChangelog", () => {
       [],
     );
     expect(body).toContain("- `` weird`name `` (+0 / -0)");
+  });
+
+  it("handles empty files, filesTruncated, empty matchedPaths without detail, and previousFilename matching", () => {
+    const emptyFiles = buildCommitChangelog(summary(), { sha: SHA, stats: { additions: 0, deletions: 0, total: 0 }, files: [] }, []);
+    expect(emptyFiles).toContain("_No file changes listed._");
+    expect(emptyFiles).toContain("0 files changed");
+
+    const truncated = buildCommitChangelog(
+      summary(),
+      {
+        sha: SHA,
+        stats: { additions: 1, deletions: 0, total: 1 },
+        files: [{ filename: "a.ts", status: "modified", additions: 1, deletions: 0 }],
+        filesTruncated: true,
+      },
+      [],
+    );
+    expect(truncated).toContain("- …and more files");
+    expect(truncated).toContain("1+ files changed");
+
+    const noDetailEmptyPaths = buildCommitChangelog(summary(), null, []);
+    expect(noDetailEmptyPaths).toContain("### Watched paths\n\n_None._");
+
+    const renamedMatch = buildCommitChangelog(
+      summary(),
+      {
+        sha: SHA,
+        stats: { additions: 0, deletions: 0, total: 0 },
+        files: [
+          { filename: "other/x.ts", status: "modified", additions: 0, deletions: 0 },
+          { filename: "moved/y.ts", status: "renamed", additions: 0, deletions: 0, previousFilename: "watched/y.ts" },
+        ],
+      },
+      ["watched"],
+    );
+    expect(renamedMatch.indexOf("moved/y.ts")).toBeLessThan(renamedMatch.indexOf("other/x.ts"));
   });
 });
 

@@ -108,11 +108,26 @@ describe("buildPrBody", () => {
     expect(escapeMarkdownText("a|b *c* @d #1")).toBe("a\\|b \\*c\\* @&#8203;d #&#8203;1");
   });
 
-  it("stays below the GitHub size limit", () => {
+  it("stays below the GitHub size limit and collapses huge skipped lists", () => {
     const many = Array.from({ length: 3000 }, (_, i) => ({ ...react, name: `package-number-${i}`, manifestPath: `apps/app-${i}/package.json` }));
     const body = buildPrBody({ groupKey: "all", updates: many, projectUrl: "https://x" });
     expect(body.length).toBeLessThanOrEqual(PR_BODY_MAX_LENGTH);
     expect(body).toMatch(/…and \d+ more/);
     expect(body.endsWith("<!-- repopulse:deps:all -->")).toBe(true);
+
+    const manySkipped = Array.from({ length: 1000 }, (_, i) => ({
+      name: `skipped-pkg-${i}`,
+      manifestPath: `packages/pkg-${i}/package.json`,
+      reason: ` blocked by policy constraint ${"x".repeat(60)}`,
+    }));
+    const skippedBody = buildPrBody({
+      groupKey: "all",
+      updates: [react],
+      skipped: manySkipped,
+      projectUrl: "https://x",
+    });
+    expect(skippedBody.length).toBeLessThanOrEqual(PR_BODY_MAX_LENGTH);
+    expect(skippedBody).toContain("**Not included:** 1000 updates (see the project page).");
+    expect(skippedBody.endsWith("<!-- repopulse:deps:all -->")).toBe(true);
   });
 });

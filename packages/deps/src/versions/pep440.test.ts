@@ -83,9 +83,14 @@ describe("comparePep440", () => {
     expect(shuffled.sort(comparePep440)).toEqual(ordered);
   });
 
-  it("ignores trailing zeros", () => {
+  it("ignores trailing zeros and compares local version segments per PEP 440", () => {
     expect(comparePep440("1.0", "1.0.0")).toBe(0);
     expect(comparePep440("1.2", "1.10")).toBe(-1);
+    expect(comparePep440("1.0+1", "1.0+a")).toBe(1);
+    expect(comparePep440("1.0+a", "1.0+1")).toBe(-1);
+    expect(comparePep440("1.0+abc", "1.0+abc.0")).toBe(-1);
+    expect(comparePep440("1.0+abc.1", "1.0+abc")).toBe(1);
+    expect(comparePep440("1.0+abc", "1.0+abd")).toBe(-1);
   });
 });
 
@@ -192,6 +197,8 @@ describe("pep440BumpSpecifier", () => {
     [">=1,<2 || ^3", "3.5", "poetry", "unchanged"],
     [">=1,<2 || ^3", "4.0", "poetry", "blocked"],
     ["==1.0", "2.0rc1", "pep440", "==2.0rc1"],
+    [">=1!1.2", "1!1.4.0", "pep440", ">=1!1.4"],
+    ["==1!1.*", "1!2.0.0", "pep440", "==1!2.*"],
   ];
   for (const [declared, target, syntax, expected] of cases) {
     it(`${syntax} "${declared}" + ${target} → ${expected}`, () => {

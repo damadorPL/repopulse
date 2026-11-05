@@ -14,6 +14,7 @@ import {
   GitHubAppInstallationError,
   installUrl,
   permissionAtLeast,
+  rethrowAppError,
 } from "./app.js";
 import { createOctokit } from "./client.js";
 import { GitHubRateLimitError } from "./poller.js";
@@ -116,8 +117,21 @@ describe("getAuthenticatedApp", () => {
     }
   });
 
-  it("rejects an invalid App id", async () => {
-    await expect(getAuthenticatedApp({ appId: 0, privateKey })).rejects.toBeInstanceOf(GitHubAppAuthError);
+  it("rejects an invalid App id and redacts non-HTTP signing errors in rethrowAppError", async () => {
+    for (const badId of [0, -5, 1.5, Number.NaN]) {
+      await expect(getAuthenticatedApp({ appId: badId, privateKey })).rejects.toBeInstanceOf(GitHubAppAuthError);
+    }
+
+    const signingErr = (() => {
+      try {
+        rethrowAppError(new Error("signer leaked Material-XYZ"));
+      } catch (e) {
+        return e;
+      }
+    })();
+    expect(signingErr).toBeInstanceOf(GitHubAppAuthError);
+    expect((signingErr as Error).message).not.toContain("Material-XYZ");
+    expect((signingErr as Error).cause).toBeUndefined();
   });
 });
 
@@ -133,19 +147,39 @@ describe("convertAppManifest", () => {
     expect(converted).toMatchObject({ id: 4242, slug: APP.slug, clientId: "Iv23abc", clientSecret: "shh", webhookSecret: null, owner: "acme" });
   });
 
-  it("explains an expired or reused code", async () => {
+  it("explains an expired, reused or malformed code and maps rate limits", async () => {
     const { fetch } = fakeFetch(() => json({ message: "Not Found" }, { status: 404 }));
     await expect(convertAppManifest("abc", { fetch })).rejects.toBeInstanceOf(GitHubAppAuthError);
     await expect(convertAppManifest("../evil", { fetch })).rejects.toBeInstanceOf(GitHubAppAuthError);
+    await expect(convertAppManifest("", { fetch })).rejects.toBeInstanceOf(GitHubAppAuthError);
+    await expect(convertAppManifest("a".repeat(201), { fetch })).rejects.toBeInstanceOf(GitHubAppAuthError);
+
+    const { fetch: fetch422 } = fakeFetch(() => json({ message: "Unprocessable" }, { status: 422 }));
+    await expect(convertAppManifest("abc", { fetch: fetch422 })).rejects.toMatchObject({ name: "GitHubAppAuthError", status: 422 });
+
+    const { fetch: fetch429 } = fakeFetch(() => json({ message: "rate limit" }, { status: 429 }));
+    await expect(convertAppManifest("abc", { fetch: fetch429 })).rejects.toBeInstanceOf(GitHubRateLimitError);
   });
 });
 
 describe("getRepoInstallation", () => {
-  it("returns the installation id and account", async () => {
+  it("returns the installation id and account, falling back to slug or owner", async () => {
     const { fetch, calls } = fakeFetch(() => json({ id: 77, account: { login: "acme" } }));
     await expect(getRepoInstallation(AUTH, "acme", "widget", { fetch })).resolves.toEqual({ installationId: 77, accountLogin: "acme" });
     expect(calls[0]?.url.pathname).toBe("/repos/acme/widget/installation");
     expect(calls[0]?.headers.authorization).toMatch(/^bearer /i);
+
+    const { fetch: slugFetch } = fakeFetch(() => json({ id: 78, account: { slug: "acme-ent" } }));
+    await expect(getRepoInstallation(AUTH, "acme", "widget", { fetch: slugFetch })).resolves.toEqual({
+      installationId: 78,
+      accountLogin: "acme-ent",
+    });
+
+    const { fetch: nullAccountFetch } = fakeFetch(() => json({ id: 79, account: null }));
+    await expect(getRepoInstallation(AUTH, "fallback-owner", "widget", { fetch: nullAccountFetch })).resolves.toEqual({
+      installationId: 79,
+      accountLogin: "fallback-owner",
+    });
   });
 
   it("returns null when the App is not installed", async () => {
@@ -178,8 +212,8 @@ describe("createInstallationToken", () => {
     expect(calls[0]?.body).toEqual({ repository_ids: [123], permissions: { contents: "write", pull_requests: "write" } });
   });
 
-  it("maps a missing installation and ungranted permissions", async () => {
-    for (const status of [404, 422]) {
+  it("maps a missing installation, ungranted permissions, suspended 403 and rate-limited 403", async () => {
+    for (const status of [404, 422, 403]) {
       const { fetch } = fakeFetch(() => json({ message: "nope" }, { status }));
       const error = await createInstallationToken(AUTH, 77, { repositoryIds: [1], permissions: { contents: "read" } }, { fetch }).catch(
         (e: unknown) => e,
@@ -187,14 +221,22 @@ describe("createInstallationToken", () => {
       expect(error).toBeInstanceOf(GitHubAppInstallationError);
       expect((error as GitHubAppInstallationError).status).toBe(status);
     }
+
+    const { fetch: rateFetch } = fakeFetch(() =>
+      json({ message: "rate limit" }, { status: 403, headers: { "x-ratelimit-remaining": "0" } }),
+    );
+    await expect(
+      createInstallationToken(AUTH, 77, { repositoryIds: [1], permissions: { contents: "read" } }, { fetch: rateFetch }),
+    ).rejects.toBeInstanceOf(GitHubRateLimitError);
   });
 });
 
 describe("getCollaboratorPermission / permissionAtLeast", () => {
-  it("prefers role_name, falls back to permission for custom roles, null on 404", async () => {
+  it("prefers role_name, falls back to permission for custom roles or 'none', null on 404", async () => {
     const responses: Record<string, Response | (() => Response)> = {
       maintainer: () => json({ permission: "write", role_name: "maintain" }),
       custom: () => json({ permission: "write", role_name: "security-reviewer" }),
+      unknown: () => json({ permission: "weird", role_name: "weird" }),
       ghost: () => json({ message: "Not Found" }, { status: 404 }),
     };
     const { fetch, calls } = fakeFetch((call) => {
@@ -205,6 +247,7 @@ describe("getCollaboratorPermission / permissionAtLeast", () => {
     const octokit = createOctokit({ accessToken: "ghs_x", fetch });
     await expect(getCollaboratorPermission(octokit, "acme", "widget", "maintainer")).resolves.toBe("maintain");
     await expect(getCollaboratorPermission(octokit, "acme", "widget", "custom")).resolves.toBe("write");
+    await expect(getCollaboratorPermission(octokit, "acme", "widget", "unknown")).resolves.toBe("none");
     await expect(getCollaboratorPermission(octokit, "acme", "widget", "ghost")).resolves.toBeNull();
     expect(calls[0]?.url.pathname).toBe("/repos/acme/widget/collaborators/maintainer/permission");
   });
@@ -221,22 +264,34 @@ describe("getCollaboratorPermission / permissionAtLeast", () => {
 });
 
 describe("getUserLoginById", () => {
-  it("returns the current login, or null when the account is gone", async () => {
+  it("returns the current login, or null when the account is gone or id is invalid", async () => {
     const { fetch, calls } = fakeFetch((call) => (call.url.pathname === "/user/42" ? json({ login: "renamed" }) : json({}, { status: 404 })));
     const octokit = createOctokit({ fetch });
     await expect(getUserLoginById(octokit, "42")).resolves.toBe("renamed");
     await expect(getUserLoginById(octokit, 43)).resolves.toBeNull();
     await expect(getUserLoginById(octokit, "../x")).resolves.toBeNull();
+    await expect(getUserLoginById(octokit, "")).resolves.toBeNull();
+    await expect(getUserLoginById(octokit, -5)).resolves.toBeNull();
+    await expect(getUserLoginById(octokit, "1".repeat(21))).resolves.toBeNull();
     expect(calls).toHaveLength(2);
   });
 });
 
 describe("installUrl", () => {
-  it("pre-selects the repository only together with the owner account", () => {
-    expect(installUrl("repopulse-x")).toBe("https://github.com/apps/repopulse-x/installations/new");
+  it("pre-selects the repository only together with a valid owner account and encodes slug", () => {
+    expect(installUrl("repopulse x")).toBe("https://github.com/apps/repopulse%20x/installations/new");
     expect(installUrl("repopulse-x", 123)).toBe("https://github.com/apps/repopulse-x/installations/new");
+    expect(installUrl("repopulse-x", 123, 0)).toBe("https://github.com/apps/repopulse-x/installations/new");
+    expect(installUrl("repopulse-x", 123, -1)).toBe("https://github.com/apps/repopulse-x/installations/new");
+    expect(installUrl("repopulse-x", 123, 1.5)).toBe("https://github.com/apps/repopulse-x/installations/new");
     expect(installUrl("repopulse-x", 123, 9)).toBe(
       "https://github.com/apps/repopulse-x/installations/new/permissions?suggested_target_id=9&repository_ids%5B%5D=123",
+    );
+    expect(installUrl("repopulse-x", 0, 9)).toBe(
+      "https://github.com/apps/repopulse-x/installations/new/permissions?suggested_target_id=9",
+    );
+    expect(installUrl("repopulse-x", -10, 9)).toBe(
+      "https://github.com/apps/repopulse-x/installations/new/permissions?suggested_target_id=9",
     );
     expect(installUrl("repopulse-x", undefined, 9)).toBe(
       "https://github.com/apps/repopulse-x/installations/new/permissions?suggested_target_id=9",
@@ -245,7 +300,7 @@ describe("installUrl", () => {
 });
 
 describe("buildAppManifest / appManifestFormUrl", () => {
-  it("builds the manifest of §3.8.1", () => {
+  it("builds the manifest of §3.8.1 and rejects non-http(s) URLs", () => {
     expect(buildAppManifest({ appBaseUrl: "https://pulse.example.com/" })).toEqual({
       name: "RepoPulse (pulse.example.com)",
       url: "https://pulse.example.com",
@@ -257,13 +312,15 @@ describe("buildAppManifest / appManifestFormUrl", () => {
       default_permissions: { metadata: "read", contents: "write", pull_requests: "write" },
       default_events: [],
     });
+    expect(() => buildAppManifest({ appBaseUrl: "ftp://pulse.example.com" })).toThrow(/http\(s\)/);
   });
 
-  it("keeps App names within 34 characters", () => {
+  it("keeps App names within 34 characters including multi-byte code points", () => {
     const name = defaultAppName("https://releases.internal.very-long-company-name.example.com");
     expect(name.length).toBeLessThanOrEqual(34);
     expect(name).toMatch(/^RepoPulse \(releases\..*\)$/);
     expect(buildAppManifest({ appBaseUrl: "https://a.io", name: "x".repeat(50) }).name).toBe("x".repeat(34));
+    expect(buildAppManifest({ appBaseUrl: "https://a.io", name: "🚀".repeat(40) }).name).toBe("🚀".repeat(34));
     expect(buildAppManifest({ appBaseUrl: "https://a.io", name: "  " }).name).toBe("RepoPulse (a.io)");
   });
 

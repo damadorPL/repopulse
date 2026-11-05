@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { enableGitHubAppWebhooksInput, githubAppWebhookSettingsUrls, githubAppWebhookTarget } from "./github-app";
+import {
+  callbackErrorMessage,
+  enableGitHubAppWebhooksInput,
+  GITHUB_APP_CALLBACK_ERRORS,
+  githubAppPublicUrl,
+  githubAppSettingsUrl,
+  githubAppWebhookSettingsUrls,
+  githubAppWebhookTarget,
+} from "./github-app";
 
 describe("githubAppWebhookTarget", () => {
   it.each([
@@ -46,5 +54,30 @@ describe("githubAppWebhookSettingsUrls", () => {
       events: "https://github.com/settings/apps/repopulse/permissions",
       advanced: "https://github.com/settings/apps/repopulse/advanced",
     });
+  });
+});
+
+describe("callbackErrorMessage", () => {
+  it("returns null for undefined/empty, maps known error codes, and falls back to unknown", () => {
+    expect(callbackErrorMessage(undefined)).toBeNull();
+    expect(callbackErrorMessage("")).toBeNull();
+    expect(callbackErrorMessage("state")).toBe(GITHUB_APP_CALLBACK_ERRORS.state);
+    expect(callbackErrorMessage("rate_limited")).toBe(GITHUB_APP_CALLBACK_ERRORS.rate_limited);
+    expect(callbackErrorMessage("unexpected_code")).toBe(GITHUB_APP_CALLBACK_ERRORS.unknown);
+  });
+});
+
+describe("githubAppPublicUrl and githubAppSettingsUrl", () => {
+  it("builds public and personal/organization settings URLs", () => {
+    expect(githubAppPublicUrl("repopulse-app")).toBe("https://github.com/apps/repopulse-app");
+    expect(githubAppSettingsUrl("repopulse-app", "alice", false)).toBe(
+      "https://github.com/settings/apps/repopulse-app",
+    );
+    expect(githubAppSettingsUrl("repopulse-app", "acme-org", true)).toBe(
+      "https://github.com/organizations/acme-org/settings/apps/repopulse-app",
+    );
+    expect(githubAppSettingsUrl("repopulse-app", null, true)).toBe(
+      "https://github.com/settings/apps/repopulse-app",
+    );
   });
 });

@@ -1,7 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { createOctokit } from "./client.js";
 import { GitHubRateLimitError, GitHubRepositoryNotFoundError } from "./poller.js";
-import { buildTagChangelog, compareCommits, fetchRecentTags, mapTag, TAG_CHANGELOG_MAX_COMMITS, type GitTag } from "./tags.js";
+import {
+  buildTagChangelog,
+  compareCommits,
+  fetchRecentTags,
+  mapGraphqlTag,
+  mapTag,
+  subjectOf,
+  TAG_CHANGELOG_MAX_COMMITS,
+  type GitTag,
+} from "./tags.js";
 
 function json(body: unknown, init: { status?: number; headers?: Record<string, string> } = {}) {
   return new Response(JSON.stringify(body), {
@@ -102,6 +111,59 @@ describe("fetchRecentTags", () => {
     expect(error).toBeInstanceOf(GitHubRateLimitError);
     expect((error as GitHubRateLimitError).resetAt).toEqual(new Date(1798761600 * 1000));
   });
+
+  it("maps HTTP 404, 429 and 403 rate limits and rethrows unknown GraphQL errors", async () => {
+    const http404 = mockFetch(() => json({ message: "Not Found" }, { status: 404 }));
+    await expect(
+      fetchRecentTags({ owner: "acme", name: "widget", accessToken: "t", octokit: createOctokit({ fetch: http404 }) }),
+    ).rejects.toBeInstanceOf(GitHubRepositoryNotFoundError);
+
+    for (const [status, headers] of [
+      [429, {}],
+      [403, { "x-ratelimit-remaining": "0" }],
+    ] as const) {
+      const rateFetch = mockFetch(() => json({ message: "rate limit" }, { status, headers }));
+      await expect(
+        fetchRecentTags({ owner: "acme", name: "widget", accessToken: "t", octokit: createOctokit({ fetch: rateFetch }) }),
+      ).rejects.toBeInstanceOf(GitHubRateLimitError);
+    }
+
+    const unknownGql = mockFetch(() => json({ data: null, errors: [{ type: "FORBIDDEN", message: "Resource not accessible" }] }));
+    await expect(
+      fetchRecentTags({ owner: "acme", name: "widget", accessToken: "t", octokit: createOctokit({ fetch: unknownGql }) }),
+    ).rejects.toThrow(/Resource not accessible/);
+  });
+});
+
+describe("mapGraphqlTag & subjectOf", () => {
+  it("returns null for an annotated tag targeting a non-Commit and maps whitespace-only message to null", () => {
+    expect(
+      mapGraphqlTag({
+        name: "v1.0.0",
+        target: { __typename: "Tag", message: "tag tree", tagger: null, target: { __typename: "Tree" } },
+      }),
+    ).toBeNull();
+
+    const mapped = mapGraphqlTag({
+      name: "v1.0.0",
+      target: {
+        __typename: "Tag",
+        message: "   \n  ",
+        tagger: null,
+        target: commit("aaaaaaaaaa", "2026-10-01T00:00:00Z"),
+      },
+    });
+    expect(mapped?.message).toBeNull();
+    expect(mapped?.taggerDate).toBeNull();
+  });
+
+  it("truncates subjects over 200 chars and strips CRLF", () => {
+    expect(subjectOf("first line\r\nsecond line")).toBe("first line");
+    const long = "a".repeat(250);
+    const truncated = subjectOf(long);
+    expect(truncated).toHaveLength(200);
+    expect(truncated.endsWith("…")).toBe(true);
+  });
 });
 
 describe("compareCommits", () => {
@@ -181,6 +243,20 @@ describe("buildTagChangelog", () => {
     expect(buildTagChangelog(TAG, null)).toBe(
       "### Tagged commit\n\n- [`abcdef1`](https://github.com/acme/widget/commit/abcdef1234567) Bump version",
     );
+  });
+
+  it("handles 0 commits between tags and empty commit subject", () => {
+    const emptyCompare = buildTagChangelog(TAG, {
+      base: "v1.0.0",
+      htmlUrl: "https://github.com/acme/widget/compare/v1.0.0...v1.1.0",
+      totalCommits: 0,
+      commits: [],
+    });
+    expect(emptyCompare).toContain("_No commits between these tags._");
+    expect(emptyCompare).toContain("0 commits");
+
+    const blankSubject = buildTagChangelog({ ...TAG, commitMessage: "   " }, null);
+    expect(blankSubject).toContain("(no message)");
   });
 });
 

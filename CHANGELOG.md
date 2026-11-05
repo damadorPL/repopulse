@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.4.2] — 2026-11-05 — Comprehensive test suite expansion and hardening
+
+### Added
+- Expanded unit and integration test coverage across all workspace packages and services (`apps/web`, `apps/worker`, `apps/deps-worker`, `apps/deps-sandbox`, `packages/deps`, `packages/github`, `packages/notifications`, `packages/queue`, and `packages/db`).
+- Added tests for route handlers, server actions, processors, registry caches, rate limiters, sandbox execution guards, and edge cases.
+
 ## [0.9.4.1] — 2026-11-05 — Dependency updates and sandbox runtimes bump
 
 ### Changed

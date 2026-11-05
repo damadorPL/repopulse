@@ -1,10 +1,30 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@repopulse/db", () => ({ prisma: {}, INSTANCE_SETTINGS_ID: 1, loadDepsEnabled: vi.fn() }));
-vi.mock("@/server/queries/github-app", () => ({ isGitHubAppConfigured: vi.fn() }));
+const prisma = {
+  instanceSettings: { findUnique: vi.fn() },
+  dependencyProject: { count: vi.fn() },
+  user: { count: vi.fn() },
+  dependencyPullRequest: { count: vi.fn() },
+};
+const loadDepsEnabled = vi.fn();
+const isGitHubAppConfigured = vi.fn();
+
+vi.mock("@repopulse/db", () => ({ prisma, INSTANCE_SETTINGS_ID: 1, loadDepsEnabled }));
+vi.mock("@/server/queries/github-app", () => ({ isGitHubAppConfigured }));
 vi.mock("@/server/realtime", () => ({ getRedis: vi.fn(), isRealtimeConfigured: () => false, withRedisTimeout: vi.fn() }));
 
-const { lockfileRegenerationAvailable, parseDepsWorkerHeartbeat, readDepsWorkerStatus } = await import("./deps-status");
+const {
+  countOutdatedDependencyProjects,
+  getDepsAdminView,
+  getDepsSidebarInfo,
+  lockfileRegenerationAvailable,
+  parseDepsWorkerHeartbeat,
+  readDepsWorkerStatus,
+} = await import("./deps-status");
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe("parseDepsWorkerHeartbeat", () => {
   it("treats a missing or malformed heartbeat as not running", () => {
@@ -45,5 +65,42 @@ describe("lockfileRegenerationAvailable", () => {
     expect(lockfileRegenerationAvailable({ state: "running", at, sandbox: null })).toBe(false);
     expect(lockfileRegenerationAvailable({ state: "missing" })).toBe(false);
     expect(lockfileRegenerationAvailable({ state: "unknown" })).toBe(false);
+  });
+});
+
+describe("countOutdatedDependencyProjects and getDepsSidebarInfo", () => {
+  it("counts outdated projects scoped to the user and skips counting when disabled", async () => {
+    prisma.dependencyProject.count.mockResolvedValueOnce(3);
+    await expect(countOutdatedDependencyProjects("u1")).resolves.toBe(3);
+    expect(prisma.dependencyProject.count).toHaveBeenCalledWith({
+      where: { userId: "u1", updates: { some: { status: "OUTDATED" } } },
+    });
+
+    loadDepsEnabled.mockResolvedValueOnce(false);
+    await expect(getDepsSidebarInfo("u1")).resolves.toEqual({ enabled: false, outdatedProjects: 0 });
+
+    loadDepsEnabled.mockResolvedValueOnce(true);
+    prisma.dependencyProject.count.mockResolvedValueOnce(2);
+    await expect(getDepsSidebarInfo("u2")).resolves.toEqual({ enabled: true, outdatedProjects: 2 });
+  });
+});
+
+describe("getDepsAdminView", () => {
+  it("returns instance-wide numbers for the admin dependencies page", async () => {
+    prisma.instanceSettings.findUnique.mockResolvedValueOnce({ depsEnabled: true });
+    isGitHubAppConfigured.mockResolvedValueOnce(true);
+    prisma.dependencyProject.count.mockResolvedValueOnce(12).mockResolvedValueOnce(5);
+    prisma.user.count.mockResolvedValueOnce(4);
+    prisma.dependencyPullRequest.count.mockResolvedValueOnce(3);
+
+    await expect(getDepsAdminView()).resolves.toEqual({
+      enabled: true,
+      worker: { state: "unknown" },
+      appConfigured: true,
+      projects: 12,
+      users: 4,
+      outdatedProjects: 5,
+      openPullRequests: 3,
+    });
   });
 });

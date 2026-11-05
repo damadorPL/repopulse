@@ -58,15 +58,42 @@ describe("encryptToken / decryptToken", () => {
   });
 
   it("throws on malformed payloads", () => {
+    expect(() => decryptToken("")).toThrow(/format/);
     expect(() => decryptToken("not-a-token")).toThrow(/format/);
+    expect(() => decryptToken("a:b:c:d")).toThrow(/format/);
     expect(() => decryptToken("aa:bb:cc")).toThrow(/format/);
+    expect(() => decryptToken(`${"0".repeat(22)}:${"0".repeat(32)}:00`)).toThrow(/format/);
+    expect(() => decryptToken(`${"0".repeat(26)}:${"0".repeat(32)}:00`)).toThrow(/format/);
+    expect(() => decryptToken(`${"0".repeat(24)}:${"0".repeat(30)}:00`)).toThrow(/format/);
+    expect(() => decryptToken(`${"0".repeat(24)}:${"0".repeat(34)}:00`)).toThrow(/format/);
+    expect(() => decryptToken(`${"0".repeat(24)}:${"0".repeat(32)}:000`)).toThrow(/format/);
+    expect(() => decryptToken(`${"0".repeat(24)}:${"0".repeat(32)}:zz`)).toThrow(/format/);
     expect(() => decryptToken("zz".repeat(12) + ":" + "00".repeat(16) + ":00")).toThrow(/format/);
+    expect(() => decryptToken("00".repeat(12) + ":" + "zz".repeat(16) + ":00")).toThrow(/format/);
   });
 
-  it("rejects missing or invalid keys", () => {
+  it("throws on truncated ciphertext failing GCM authentication", () => {
+    const [iv, tag, enc] = encryptToken("secret-token").split(":") as [string, string, string];
+    expect(() => decryptToken(`${iv}:${tag}:${enc.slice(0, -2)}`)).toThrow();
+  });
+
+  it("accepts uppercase hex in key and ciphertext", () => {
+    const upperKey = TEST_KEY.toUpperCase();
+    process.env.TOKEN_ENCRYPTION_KEY = upperKey;
+    const cipherText = encryptToken("upper-test");
+    expect(decryptToken(cipherText.toUpperCase())).toBe("upper-test");
+  });
+
+  it("rejects missing or invalid keys on both encryptToken and decryptToken", () => {
+    const validCipher = encryptToken("x");
     delete process.env.TOKEN_ENCRYPTION_KEY;
     expect(() => encryptToken("x")).toThrow(/not set/);
-    process.env.TOKEN_ENCRYPTION_KEY = "abc123";
-    expect(() => encryptToken("x")).toThrow(/64-character/);
+    expect(() => decryptToken(validCipher)).toThrow(/not set/);
+
+    for (const badKey of ["abc123", "g".repeat(64), "a".repeat(62), "a".repeat(66)]) {
+      process.env.TOKEN_ENCRYPTION_KEY = badKey;
+      expect(() => encryptToken("x")).toThrow(/64-character/);
+      expect(() => decryptToken(validCipher)).toThrow(/64-character/);
+    }
   });
 });

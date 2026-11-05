@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { LockRequest } from "@repopulse/deps";
+import { MAX_LOCKFILE_BYTES, MAX_SANDBOX_BODY_BYTES, type LockRequest } from "@repopulse/deps";
 import {
   createSandboxClient,
   SandboxBusyError,
@@ -61,7 +61,7 @@ describe("createSandboxClient().lock", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("reports timeouts and unreachable sandboxes as retryable, without the token", async () => {
+  it("reports timeouts and unreachable sandboxes as retryable, without the token, and rethrows caller AbortSignal", async () => {
     const fetch = vi.fn(async () => {
       throw Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
     });
@@ -69,15 +69,64 @@ describe("createSandboxClient().lock", () => {
     const error = await client.lock(REQUEST).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(SandboxUnavailableError);
     expect((error as Error).message).not.toContain("very-secret");
+
+    const controller = new AbortController();
+    const abortErr = new DOMException("Worker shutting down", "AbortError");
+    controller.abort(abortErr);
+    const abortClient = createSandboxClient({
+      baseUrl: "http://s",
+      token: "t",
+      fetch: vi.fn(async () => {
+        throw abortErr;
+      }),
+    });
+    await expect(abortClient.lock(REQUEST, controller.signal)).rejects.toBe(abortErr);
+  });
+
+  it("rejects oversized requests (> MAX_SANDBOX_BODY_BYTES), oversized responses, and 503 non-JSON responses", async () => {
+    const fetch = respond(200, {});
+    const client = createSandboxClient({ baseUrl: "http://s", token: "t", fetch });
+    const hugeFiles = Array.from({ length: 12 }, (_, i) => ({
+      path: `p${i}/package.json`,
+      contentBase64: "A".repeat(4 * 1024 * 1024),
+    }));
+    await expect(client.lock({ ...REQUEST, files: hugeFiles })).rejects.toMatchObject({
+      name: "SandboxLockError",
+      code: "TOO_LARGE",
+    });
+    expect(Buffer.byteLength(JSON.stringify({ ...REQUEST, files: hugeFiles }))).toBeGreaterThan(MAX_SANDBOX_BODY_BYTES);
+    expect(fetch).not.toHaveBeenCalled();
+
+    // Decoded lockfile > MAX_LOCKFILE_BYTES
+    const hugeBase64 = Buffer.alloc(MAX_LOCKFILE_BYTES + 4, 65).toString("base64");
+    const oversizeDecoded = createSandboxClient({
+      baseUrl: "http://s",
+      token: "t",
+      fetch: respond(200, { ok: true, lockfile: { path: "package-lock.json", contentBase64: hugeBase64 } }),
+    });
+    await expect(oversizeDecoded.lock(REQUEST)).rejects.toMatchObject({
+      name: "SandboxLockError",
+      code: "INVALID_LOCKFILE",
+    });
+
+    // 503 with non-JSON or non-contract JSON maps to SandboxBusyError
+    const busyHtml = createSandboxClient({ baseUrl: "http://s", token: "t", fetch: respond(503, "Service Unavailable") });
+    await expect(busyHtml.lock(REQUEST)).rejects.toBeInstanceOf(SandboxBusyError);
+    const busyBadJson = createSandboxClient({ baseUrl: "http://s", token: "t", fetch: respond(503, { status: "busy" }) });
+    await expect(busyBadJson.lock(REQUEST)).rejects.toBeInstanceOf(SandboxBusyError);
   });
 });
 
 describe("createSandboxClient().health", () => {
-  it("returns the tools, or null when unreachable", async () => {
+  it("returns the tools, or null when unreachable, non-200, or invalid schema", async () => {
     const ok = createSandboxClient({ baseUrl: "http://s", token: "", fetch: respond(200, { status: "ok", tools: { npm: "11.0.0" } }) });
     expect(await ok.health()).toEqual({ status: "ok", tools: { npm: "11.0.0" } });
     const down = createSandboxClient({ baseUrl: "http://s", token: "", fetch: vi.fn(async () => Promise.reject(new Error("ECONNREFUSED"))) });
     expect(await down.health()).toBeNull();
+    const status500 = createSandboxClient({ baseUrl: "http://s", token: "", fetch: respond(500, { status: "ok", tools: {} }) });
+    expect(await status500.health()).toBeNull();
+    const badSchema = createSandboxClient({ baseUrl: "http://s", token: "", fetch: respond(200, { status: "wrong" }) });
+    expect(await badSchema.health()).toBeNull();
   });
 });
 

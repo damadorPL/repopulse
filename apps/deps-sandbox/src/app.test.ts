@@ -47,7 +47,7 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ DEPS_SANDBOX_TOKEN: "short" })).toThrow(/DEPS_SANDBOX_TOKEN/);
   });
 
-  it("reads defaults and overrides", () => {
+  it("reads defaults and overrides and rejects invalid PORT, DEPS_SANDBOX_TIMEOUT_MS, and DEPS_EGRESS_PROXY", () => {
     expect(loadConfig({ DEPS_SANDBOX_TOKEN: TOKEN })).toMatchObject({
       port: 3003,
       timeoutMs: 300_000,
@@ -56,8 +56,19 @@ describe("loadConfig", () => {
     expect(
       loadConfig({ DEPS_SANDBOX_TOKEN: TOKEN, PORT: "4000", DEPS_SANDBOX_TIMEOUT_MS: "5000", DEPS_EGRESS_PROXY: "" }),
     ).toMatchObject({ port: 4000, timeoutMs: 5000, proxy: null });
-    expect(() => loadConfig({ DEPS_SANDBOX_TOKEN: TOKEN, DEPS_SANDBOX_TIMEOUT_MS: "abc" })).toThrow();
-    expect(() => loadConfig({ DEPS_SANDBOX_TOKEN: TOKEN, DEPS_EGRESS_PROXY: "socks5://x:1" })).toThrow();
+    for (const badPort of ["-1", "65536", "abc", "3.14"]) {
+      expect(() => loadConfig({ DEPS_SANDBOX_TOKEN: TOKEN, PORT: badPort }), badPort).toThrow(/Invalid PORT/);
+    }
+    for (const badTimeout of ["abc", "999", "3600001"]) {
+      expect(() => loadConfig({ DEPS_SANDBOX_TOKEN: TOKEN, DEPS_SANDBOX_TIMEOUT_MS: badTimeout }), badTimeout).toThrow(
+        /Invalid DEPS_SANDBOX_TIMEOUT_MS/,
+      );
+    }
+    for (const badProxy of ["socks5://x:1", "https://proxy:3128", "not-a-url"]) {
+      expect(() => loadConfig({ DEPS_SANDBOX_TOKEN: TOKEN, DEPS_EGRESS_PROXY: badProxy }), badProxy).toThrow(
+        /DEPS_EGRESS_PROXY must be an http:\/\/ URL/,
+      );
+    }
   });
 });
 
@@ -73,11 +84,18 @@ describe("isAuthorized", () => {
 });
 
 describe("sandbox server", () => {
-  it("GET /health reports the tool versions without auth", async () => {
+  it("GET and HEAD /health report 200 without auth, and POST /health returns 405 with Allow: GET", async () => {
     const { base } = await start(async () => OK);
     const res = await fetch(`${base}/health`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ status: "ok", tools: TOOLS });
+
+    const headRes = await fetch(`${base}/health`, { method: "HEAD" });
+    expect(headRes.status).toBe(200);
+
+    const postRes = await fetch(`${base}/health`, { method: "POST" });
+    expect(postRes.status).toBe(405);
+    expect(postRes.headers.get("allow")).toBe("GET");
   });
 
   it("rejects requests without the right token", async () => {
@@ -105,11 +123,33 @@ describe("sandbox server", () => {
     expect(body.stderrTail).not.toContain("passwd");
   });
 
-  it("answers 413 for oversized bodies", async () => {
+  it("answers 413 for oversized bodies (with Content-Length and streaming without Content-Length)", async () => {
     const { base } = await start(async () => OK);
     const res = await post(base, "x".repeat(MAX_SANDBOX_BODY_BYTES + 1));
     expect(res.status).toBe(413);
     expect(await res.json()).toMatchObject({ ok: false, code: "TOO_LARGE" });
+
+    const chunk = new Uint8Array(1024 * 1024).fill(120);
+    let sent = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent > MAX_SANDBOX_BODY_BYTES) {
+          controller.close();
+          return;
+        }
+        controller.enqueue(chunk);
+        sent += chunk.byteLength;
+      },
+    });
+    const streamedRes = await fetch(`${base}/v1/lock`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
+      body: stream,
+      // @ts-expect-error Node fetch requires duplex: "half" for ReadableStream request bodies
+      duplex: "half",
+    });
+    expect(streamedRes.status).toBe(413);
+    expect(await streamedRes.json()).toMatchObject({ ok: false, code: "TOO_LARGE" });
   });
 
   it("runs one job at a time (503 BUSY) and returns job outcomes as 200", async () => {
@@ -163,6 +203,59 @@ describe("sandbox server", () => {
     expect(await res.json()).toMatchObject({ code: "BUSY" });
     await closing;
     expect(sandbox.server.listening).toBe(false);
+  });
+
+  it("returns 503 BUSY when shutting down and 500 INTERNAL when runLock throws or returns invalid schema", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const { sandbox, base } = await start(async () => {
+        throw new Error("boom");
+      });
+      const internalThrow = await post(base, REQUEST);
+      expect(internalThrow.status).toBe(500);
+      expect(await internalThrow.json()).toEqual({ ok: false, code: "INTERNAL", stderrTail: "" });
+
+      await sandbox.close();
+      current = null;
+
+      const invalidSandbox = createSandboxServer({
+        config: CONFIG,
+        tools: TOOLS,
+        runLock: async () => ({ ok: true, lockfile: { path: "../escape", contentBase64: "e30=" } }) as unknown as ParsedLockResponse,
+      });
+      current = invalidSandbox;
+      await new Promise<void>((resolve) => invalidSandbox.server.listen(0, "127.0.0.1", resolve));
+      const { port } = invalidSandbox.server.address() as AddressInfo;
+      const base2 = `http://127.0.0.1:${port}`;
+      const invalidRes = await post(base2, REQUEST);
+      expect(invalidRes.status).toBe(500);
+      expect(await invalidRes.json()).toEqual({ ok: false, code: "INTERNAL", stderrTail: "" });
+
+      // Directly invoke the request listener after close() sets shuttingDown = true.
+      await invalidSandbox.close();
+      current = null;
+      const req = new (await import("node:stream")).PassThrough() as unknown as import("node:http").IncomingMessage;
+      req.url = "/v1/lock";
+      req.method = "POST";
+      req.headers = { authorization: `Bearer ${TOKEN}` };
+      let status = 0;
+      let payload = "";
+      const res = {
+        headersSent: false,
+        writeHead(s: number) {
+          status = s;
+        },
+        end(b?: string) {
+          payload = b ?? "";
+        },
+      } as unknown as import("node:http").ServerResponse;
+      invalidSandbox.server.emit("request", req, res);
+      req.end();
+      await vi.waitFor(() => expect(status).toBe(503));
+      expect(JSON.parse(payload)).toEqual({ ok: false, code: "BUSY", stderrTail: "sandbox is shutting down" });
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 
   it("404s unknown routes", async () => {

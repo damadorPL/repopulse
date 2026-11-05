@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { UnrecoverableError } from "bullmq";
 import type { LockRequest } from "@repopulse/deps";
-import { GitHubAppAuthError } from "@repopulse/github";
+import { GitHubAppAuthError, GitHubRateLimitError, RefUpdateConflictError } from "@repopulse/github";
 import type { DepsUpdateJobData } from "@repopulse/queue";
 import { SandboxLockError, type SandboxClient } from "../sandbox-client";
 import { createFakeGitHub } from "../testing/fake-github";
@@ -137,6 +137,49 @@ describe("processDepsUpdate: server-side checks", () => {
     const { deps, prisma } = setup({ user: { githubLogin: "old-name" } });
     expect(await processDepsUpdate(updateJob(), deps)).toMatchObject({ status: "OPENED" });
     expect(prisma.user.rows[0]!.githubLogin).toBe("dev");
+  });
+
+  it("rejects invalid groupKey, empty default branch, retries RefUpdateConflictError once, rate-limits on GitHubRateLimitError, and handles closeEmptyGroup with no open PR or all-skipped updates", async () => {
+    const { deps, prisma, github, queues } = setup();
+
+    // 1. Invalid groupKey -> UnrecoverableError
+    await expect(processDepsUpdate(updateJob("../invalid"), deps)).rejects.toBeInstanceOf(UnrecoverableError);
+
+    // 2. Single retry on RefUpdateConflictError
+    const origCommit = github.raw.commitFiles;
+    const commitSpy = vi
+      .spyOn(github.raw, "commitFiles")
+      .mockRejectedValueOnce(new RefUpdateConflictError("refs/heads/repopulse/deps/all", 422, "conflict"))
+      .mockImplementation(origCommit);
+    expect(await processDepsUpdate(updateJob(), deps)).toMatchObject({ status: "OPENED" });
+    expect(commitSpy).toHaveBeenCalledTimes(2);
+    commitSpy.mockRestore();
+
+    // 3. GitHubRateLimitError pauses updateQueue
+    const origTree = github.raw.fetchGitTree;
+    vi.spyOn(github.raw, "fetchGitTree").mockRejectedValueOnce(new GitHubRateLimitError(new Date(NOW.getTime() + 120_000)));
+    await expect(processDepsUpdate(updateJob(), deps)).rejects.toMatchObject({ name: "RateLimitError" });
+    expect(queues.updateQueue.rateLimit).toHaveBeenCalledWith(121_000);
+
+    // 4. Empty repository (commitSha: null) -> UnrecoverableError
+    vi.spyOn(github.raw, "fetchGitTree").mockImplementationOnce(async (p) => ({ ...(await origTree(p)), commitSha: null }));
+    await expect(processDepsUpdate(updateJob(), deps)).rejects.toBeInstanceOf(UnrecoverableError);
+
+    // 5. closeEmptyGroup when no PR is open returns NOTHING_TO_DO
+    prisma.dependencyPullRequest.rows = [];
+    deps.registry = fakeRegistry({ "PYPI:requests": [version("2.31.0", 300)] });
+    expect(await processDepsUpdate(updateJob(), deps)).toEqual({ status: "NOTHING_TO_DO" });
+
+    // 6. All updates in group are manifest-only no-ops (range already satisfies target) -> closeEmptyGroup -> NOTHING_TO_DO
+    const noopCtx = setup({
+      files: { "requirements.txt": "requests>=2.31.0\n" },
+      project: { rangeStrategy: "LOCKFILE_ONLY" },
+      registry: fakeRegistry({ "PYPI:requests": [version("2.31.0", 300), version("2.32.3", 40)] }),
+    });
+    seedRows(noopCtx.prisma, { path: "requirements.txt", packageManager: "PIP", ecosystem: "PYPI" }, [
+      { name: "requests", declared: ">=2.31.0", currentVersion: "2.31.0", targetVersion: "2.32.3", level: "MINOR" },
+    ]);
+    expect(await processDepsUpdate(updateJob(), noopCtx.deps)).toEqual({ status: "NOTHING_TO_DO" });
   });
 });
 

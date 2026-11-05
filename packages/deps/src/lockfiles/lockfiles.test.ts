@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MAX_LOCKFILE_BYTES } from "../limits.js";
 import { readBunLock } from "./bun-lock.js";
+import { oversizeWarning, splitNameAtVersion } from "./common.js";
 import {
   BUN_LOCK,
   PACKAGE_LOCK_V3,
@@ -19,9 +20,27 @@ import { readYarnLock } from "./yarn-lock.js";
 
 const entries = (map: Map<string, string>): Array<[string, string]> => [...map].sort((a, b) => (a[0] < b[0] ? -1 : 1));
 
+describe("lockfile common helpers", () => {
+  it("oversizeWarning measures UTF-8 byte length for multi-byte strings > 20 MiB", () => {
+    const unitCount = Math.floor(MAX_LOCKFILE_BYTES / 3) + 10;
+    const multiByte = "€".repeat(unitCount);
+    expect(oversizeWarning(multiByte, "package-lock.json")).toMatch(/package-lock\.json is larger than 20 MiB/);
+    const asciiSameLength = "a".repeat(unitCount);
+    expect(oversizeWarning(asciiSameLength, "package-lock.json")).toBeNull();
+  });
+
+  it("splitNameAtVersion splits scoped and unscoped package descriptors", () => {
+    expect(splitNameAtVersion("@scope/pkg@1.2.3")).toEqual({ name: "@scope/pkg", version: "1.2.3" });
+    expect(splitNameAtVersion("lodash@4.17.21")).toEqual({ name: "lodash", version: "4.17.21" });
+    expect(splitNameAtVersion("@scope/pkg")).toBeNull();
+    expect(splitNameAtVersion("lodash")).toBeNull();
+    expect(splitNameAtVersion("")).toBeNull();
+  });
+});
+
 describe("readPackageLock", () => {
-  it("reads the root importer", () => {
-    const result = readPackageLock(PACKAGE_LOCK_V3);
+  it("reads the root importer and strips a UTF-8 BOM", () => {
+    const result = readPackageLock(`\uFEFF${PACKAGE_LOCK_V3}`);
     expect(result.formatVersion).toBe("3");
     expect(entries(result.versions)).toEqual([
       ["react", "18.2.0"],
@@ -73,9 +92,18 @@ describe("readPnpmLock", () => {
     expect(entries(readPnpmLock(old).versions)).toEqual([["a", "1.2.0"]]);
   });
 
-  it("strips suffixes", () => {
+  it("strips suffixes and skips non-registry protocols", () => {
     expect(stripPnpmVersionSuffix("1.2.3(react@18.2.0)(react-dom@18.2.0)")).toBe("1.2.3");
-    expect(stripPnpmVersionSuffix("link:../ui")).toBeNull();
+    expect(stripPnpmVersionSuffix("1.2.0_react@18.2.0")).toBe("1.2.0");
+    for (const protocol of ["link:../ui", "file:../pkg", "workspace:*", "git:github.com/a/b", "http://x/a.tgz", "https://x/a.tgz"]) {
+      expect(stripPnpmVersionSuffix(protocol), protocol).toBeNull();
+    }
+  });
+
+  it("warns when root YAML is not a mapping", () => {
+    const res = readPnpmLock("- item1\n- item2\n");
+    expect(res.versions.size).toBe(0);
+    expect(res.warnings[0]).toMatch(/pnpm-lock\.yaml could not be parsed \(not a YAML mapping\)/);
   });
 });
 
@@ -85,6 +113,32 @@ describe("readBunLock", () => {
     expect(root.formatVersion).toBe("1");
     expect(entries(root.versions)).toEqual([["typescript", "5.4.5"]]);
     expect(entries(readBunLock(BUN_LOCK, "apps/web").versions)).toEqual([["react", "18.2.0"]]);
+  });
+
+  it("skips non-registry protocols, aliases, and returns empty for unknown importer", () => {
+    const lock = JSON.stringify({
+      lockfileVersion: 1,
+      workspaces: {
+        "": {
+          dependencies: {
+            ok: "^1.0.0",
+            ws: "workspace:*",
+            gh: "github:a/b",
+            local: "file:../x",
+            aliased: "npm:real-pkg@^2.0.0",
+          },
+        },
+      },
+      packages: {
+        ok: ["ok@1.2.3"],
+        ws: ["ws@workspace:packages/ws"],
+        gh: ["gh@github:a/b#123"],
+        local: ["local@file:../x"],
+        aliased: ["real-pkg@2.1.0"],
+      },
+    });
+    expect(entries(readBunLock(lock, "").versions)).toEqual([["ok", "1.2.3"]]);
+    expect(readBunLock(lock, "apps/missing").versions.size).toBe(0);
   });
 
   it("warns on invalid text", () => {
@@ -116,6 +170,16 @@ describe("readYarnLock", () => {
       ["lodash", "4.17.21"],
     ]);
   });
+
+  it("falls back to single version when range spelling differs, but refuses multi-version fallback", () => {
+    const singleFallback = readYarnLock(YARN_CLASSIC, [{ name: "lodash", range: "^4.17.0" }]);
+    expect(singleFallback.versions.get("lodash")).toBe("4.17.21");
+
+    const multiClassic = `${YARN_CLASSIC}\nlodash@^3.0.0:\n  version "3.10.1"\n`;
+    const multiResult = readYarnLock(multiClassic, [{ name: "lodash", range: "^4.17.0" }]);
+    expect(multiResult.versions.has("lodash")).toBe(false);
+    expect(readYarnLock(multiClassic, [{ name: "lodash", range: "^4.17.21" }]).versions.get("lodash")).toBe("4.17.21");
+  });
 });
 
 describe("readUvLock / readPoetryLock", () => {
@@ -129,18 +193,72 @@ describe("readUvLock / readPoetryLock", () => {
     expect(entries(readUvLock(UV_LOCK, ["HTTPX"]).versions)).toEqual([["httpx", "0.27.0"]]);
   });
 
-  it("reads poetry.lock, skipping git sources", () => {
+  it("picks the highest PEP 440 version for forked resolutions and skips non-registry sources in uv.lock", () => {
+    const forkedUv = `version = 1
+[[package]]
+name = "urllib3"
+version = "2.2.1"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "urllib3"
+version = "1.26.18"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "local-pkg"
+version = "0.1.0"
+source = { editable = "." }
+
+[[package]]
+name = "git-pkg"
+version = "0.2.0"
+source = { git = "https://github.com/a/b.git" }
+`;
+    const result = readUvLock(forkedUv);
+    expect(entries(result.versions)).toEqual([["urllib3", "2.2.1"]]);
+  });
+
+  it("reads poetry.lock, skipping non-registry sources and picking the highest version on forks", () => {
     const result = readPoetryLock(POETRY_LOCK);
     expect(result.formatVersion).toBe("2.0");
     expect(entries(result.versions)).toEqual([
       ["django", "5.0.3"],
       ["requests", "2.31.0"],
     ]);
+
+    const forkedPoetry = `[[package]]
+name = "urllib3"
+version = "1.26.18"
+
+[[package]]
+name = "urllib3"
+version = "2.2.2"
+
+[[package]]
+name = "urllib3"
+version = "2.0.7"
+
+[[package]]
+name = "dir-pkg"
+version = "1.0.0"
+[package.source]
+type = "directory"
+url = "../dir-pkg"
+
+[[package]]
+name = "legacy-pkg"
+version = "3.0.0"
+[package.source]
+type = "legacy"
+url = "https://private.example.com/simple"
+`;
+    expect(entries(readPoetryLock(forkedPoetry).versions)).toEqual([["urllib3", "2.2.2"]]);
   });
 });
 
 describe("readLockfile", () => {
-  it("dispatches by file name", () => {
+  it("dispatches by file name and warns on unknown lockfile format", () => {
     const pnpm = readLockfile({
       packageManager: "PNPM",
       lockfilePath: "pnpm-lock.yaml",
@@ -167,5 +285,14 @@ describe("readLockfile", () => {
       dependencies: [{ name: "lodash", declared: "^4.17.21" }],
     });
     expect(yarn.versions.get("lodash")).toBe("4.17.21");
+    const unknown = readLockfile({
+      packageManager: "NPM",
+      lockfilePath: "custom.lock",
+      text: "{}",
+      importer: "",
+      dependencies: [],
+    });
+    expect(unknown.versions.size).toBe(0);
+    expect(unknown.warnings).toEqual(["custom.lock: unknown lockfile format"]);
   });
 });

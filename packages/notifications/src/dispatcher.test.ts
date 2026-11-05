@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildTestRelease, dispatchNotification, releaseReaderUrl, resolveAppBaseUrl } from "./dispatcher.js";
 import { NotificationDeliveryError, WebhookUrlError } from "./errors.js";
-import { postWebhook, type WebhookSender } from "./http.js";
+import { describeResponseBody, postWebhook, type WebhookSender } from "./http.js";
 import type { ResolveAll } from "./ssrf-guard.js";
 import type { DispatchInput, NotificationChannel } from "./types.js";
 
@@ -102,6 +102,11 @@ describe("postWebhook against a local server", () => {
         received.push({ url: req.url ?? "", headers: req.headers, body });
         if (req.url === "/ok") return void res.writeHead(204).end();
         if (req.url === "/gone") return void res.writeHead(404, { "content-type": "application/json" }).end('{"message":"Unknown Webhook","code":10015}');
+        if (req.url === "/bad") return void res.writeHead(400).end("bad request");
+        if (req.url === "/status-408") return void res.writeHead(408).end("timeout");
+        if (req.url === "/status-425") return void res.writeHead(425).end("too early");
+        if (req.url === "/status-429") return void res.writeHead(429).end("rate limited");
+        if (req.url === "/huge") return void res.writeHead(200).end("x".repeat(32 * 1024));
         if (req.url === "/busy") return void res.writeHead(503).end("try later");
         if (req.url === "/moved") return void res.writeHead(302, { location: "http://169.254.169.254/" }).end();
         if (req.url === "/slow") return void setTimeout(() => res.writeHead(200).end(), 2_000);
@@ -128,24 +133,64 @@ describe("postWebhook against a local server", () => {
     expect(last.headers["content-type"]).toBe("application/json");
   });
 
-  it("turns credentials in the URL into a Basic Authorization header", async () => {
+  it("turns credentials in the URL into a Basic Authorization header unless Authorization is already set", async () => {
     await postWebhook(
       { url: new URL(base.replace("http://", "http://alice:s%40cret@") + "/ok"), headers: {}, body: "x", service: "Test", destination: "hooks.test" },
       { policy: allowAll, resolveAll: localDns },
     );
     expect(received.at(-1)!.headers.authorization).toBe(`Basic ${Buffer.from("alice:s@cret").toString("base64")}`);
+
+    await postWebhook(
+      {
+        url: new URL(base.replace("http://", "http://alice:s%40cret@") + "/ok"),
+        headers: { Authorization: "Bearer custom-token" },
+        body: "x",
+        service: "Test",
+        destination: "hooks.test",
+      },
+      { policy: allowAll, resolveAll: localDns },
+    );
+    expect(received.at(-1)!.headers.authorization).toBe("Bearer custom-token");
   });
 
-  it("classifies failures as permanent (4xx, redirects) or transient (5xx, timeouts)", async () => {
+  it("classifies failures as permanent (400/404, redirects) or transient (408/425/429/5xx, timeouts, aborts, ECONNREFUSED) and caps response body at 16 KiB", async () => {
     const gone = (await send("/gone").catch((e: unknown) => e)) as NotificationDeliveryError;
     expect(gone).toMatchObject({ permanent: true, status: 404 });
     expect(gone.message).toBe("Test rejected the notification: HTTP 404 (Unknown Webhook).");
 
+    const huge = await send("/huge");
+    expect(huge.body).toHaveLength(16 * 1024);
+
+    await expect(send("/bad")).rejects.toMatchObject({ permanent: true, status: 400 });
+    await expect(send("/status-408")).rejects.toMatchObject({ permanent: false, status: 408 });
+    await expect(send("/status-425")).rejects.toMatchObject({ permanent: false, status: 425 });
+    await expect(send("/status-429")).rejects.toMatchObject({ permanent: false, status: 429 });
     await expect(send("/busy")).rejects.toMatchObject({ permanent: false, status: 503 });
     await expect(send("/moved")).rejects.toMatchObject({ permanent: true, status: 302 });
     const slow = (await send("/slow", { timeoutMs: 200 }).catch((e: unknown) => e)) as NotificationDeliveryError;
     expect(slow).toMatchObject({ permanent: false });
     expect(slow.message).toMatch(/timed out/);
+
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      postWebhook(
+        { url: new URL(`${base}/ok`), headers: {}, body: "x", service: "Test", destination: "hooks.test" },
+        { policy: allowAll, resolveAll: localDns, signal: controller.signal },
+      ),
+    ).rejects.toMatchObject({ permanent: false });
+
+    const closedServer = http.createServer();
+    await new Promise<void>((resolve) => closedServer.listen(0, "127.0.0.1", resolve));
+    const closedPort = (closedServer.address() as AddressInfo).port;
+    await new Promise<void>((resolve) => closedServer.close(() => resolve()));
+    const connRefused = (await postWebhook(
+      { url: new URL(`http://hooks.test:${closedPort}/ok`), headers: {}, body: "x", service: "Test", destination: "hooks.test" },
+      { policy: allowAll, resolveAll: localDns },
+    ).catch((e: unknown) => e)) as NotificationDeliveryError;
+    expect(connRefused).toMatchObject({ permanent: false });
+    expect(connRefused.message).toContain("ECONNREFUSED");
+    http.globalAgent.destroy();
   });
 
   it("refuses to connect when the host resolves to loopback without the opt-in", async () => {
@@ -171,5 +216,19 @@ describe("postWebhook against a local server", () => {
       ),
     ).rejects.toBeInstanceOf(WebhookUrlError);
     expect(received.length).toBe(before);
+  });
+});
+
+describe("describeResponseBody", () => {
+  it("extracts JSON message/error fields, ignores HTML, and truncates to 200 characters", () => {
+    expect(describeResponseBody("")).toBe("");
+    expect(describeResponseBody("   ")).toBe("");
+    expect(describeResponseBody(JSON.stringify({ error: "bad_token" }))).toBe("bad_token");
+    expect(describeResponseBody(JSON.stringify({ errorDescription: "invalid scope" }))).toBe("invalid scope");
+    expect(describeResponseBody(JSON.stringify({ error_description: "expired" }))).toBe("expired");
+    expect(describeResponseBody("<!DOCTYPE html><html><body>Error</body></html>")).toBe("");
+    expect(describeResponseBody("<html><body>Error</body></html>")).toBe("");
+    expect(describeResponseBody("first line\nsecond line")).toBe("first line");
+    expect(describeResponseBody("a".repeat(250))).toHaveLength(200);
   });
 });

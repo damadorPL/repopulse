@@ -73,6 +73,8 @@ describe("package name validation", () => {
       validateUpgrades("UV", [
         { name: "Typing_Extensions", version: "4.12.0" },
         { name: "typing-extensions", version: "4.13.0" },
+        { name: "typing.extensions", version: "4.14.0" },
+        { name: "typing--extensions", version: "4.15.0" },
       ]),
     ).toEqual([{ name: "Typing_Extensions", version: "4.12.0" }]);
     expect(codeOf(() => validateUpgrades("NPM", [{ name: "--global", version: "1.0.0" }]))).toBe("BAD_REQUEST");
@@ -122,7 +124,7 @@ describe("buildCommands", () => {
     ]);
   });
 
-  it("bun install, and update + manifest restore + install for lockfileOnly", () => {
+  it("bun install, and update + manifest restore + install for lockfileOnly (with --recursive in workspaces)", () => {
     expect(buildCommands({ packageManager: "BUN", upgrade: [], lockfileOnly: false }, plain)).toEqual([
       { command: "bun", args: ["install", "--lockfile-only", "--ignore-scripts", "--no-env-file"] },
     ]);
@@ -138,6 +140,12 @@ describe("buildCommands", () => {
         restoreManifests: true,
       },
     ]);
+    const wsSteps = buildCommands(
+      { packageManager: "BUN", upgrade: [{ name: "ms", version: "2.1.3" }], lockfileOnly: true },
+      { workspace: true },
+    );
+    expect(wsSteps[0]!.args).toEqual(["update", "--recursive", "--lockfile-only", "--ignore-scripts", "--no-env-file", "ms"]);
+    expect(wsSteps[1]).toMatchObject({ restoreManifests: true });
   });
 
   it("uv: one --upgrade-package name==version per upgrade", () => {
@@ -176,10 +184,16 @@ describe("buildCommands", () => {
     ).toEqual(["--no-plugins", "--no-interaction", "--no-ansi", "update", "--lock", "django"]);
   });
 
-  it("refuses lockfileOnly without names and names that look like flags", () => {
+  it("refuses lockfileOnly without names for NPM/PNPM/BUN/POETRY, allows it for UV, and refuses names that look like flags", () => {
     expect(codeOf(() => buildCommands({ packageManager: "NPM", upgrade: [], lockfileOnly: true }, plain))).toBe(
       "BAD_REQUEST",
     );
+    expect(codeOf(() => buildCommands({ packageManager: "POETRY", upgrade: [], lockfileOnly: true }, plain))).toBe(
+      "BAD_REQUEST",
+    );
+    expect(buildCommands({ packageManager: "UV", upgrade: [], lockfileOnly: true }, plain)).toEqual([
+      { command: "uv", args: ["lock"] },
+    ]);
     expect(
       codeOf(() =>
         buildCommands(
@@ -215,18 +229,27 @@ describe("tool version checks", () => {
     expect(rangeAllowsMajor("12.x", 12)).toBe(true);
   });
 
-  it("reads packageManager and devEngines.packageManager", () => {
+  it("reads packageManager and devEngines.packageManager (array, missing version, unknown manager)", () => {
     expect(
       declaredPackageManagers(
         JSON.stringify({
           packageManager: "pnpm@10.12.1+sha512.abc",
-          devEngines: { packageManager: [{ name: "pnpm", version: "^10" }] },
+          devEngines: {
+            packageManager: [{ name: "pnpm", version: "^10" }, { name: "npm" }, { name: "custom-pm", version: "1.0.0" }],
+          },
         }),
       ),
     ).toEqual([
       { name: "pnpm", version: "10.12.1" },
       { name: "pnpm", version: "^10" },
+      { name: "npm", version: "*" },
+      { name: "custom-pm", version: "1.0.0" },
     ]);
+    // Unknown manager in devEngines is ignored, missing version defaults to "*" which allows any installed major
+    const unknownAndWildcard = JSON.stringify({
+      devEngines: { packageManager: [{ name: "custom-pm", version: "99.0.0" }, { name: "npm" }] },
+    });
+    expect(codeOf(() => checkToolVersions({ packageManager: "NPM", packageJson: unknownAndWildcard }, TOOLS))).toBeNull();
   });
 
   it("refuses a packageManager major different from the installed tool", () => {

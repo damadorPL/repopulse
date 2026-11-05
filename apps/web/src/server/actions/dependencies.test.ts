@@ -169,12 +169,44 @@ describe("addDependencyProjectsAction", () => {
     expect(prisma.dependencyProject.create).not.toHaveBeenCalled();
   });
 
-  it("needs read access through the App for a private repository", async () => {
-    repoGet.mockResolvedValue(repoData(5, "acme/secret", true));
-    checkRepoAccess.mockResolvedValue({ ok: false, code: "CONFLICT", message: "Install the RepoPulse GitHub App on acme/secret first." });
+  it("needs read access through the App for a private repository, and falls back to the App when user token gets 404", async () => {
+    repoGet.mockResolvedValueOnce(repoData(5, "acme/secret", true));
+    checkRepoAccess.mockResolvedValueOnce({ ok: false, code: "CONFLICT", message: "Install the RepoPulse GitHub App on acme/secret first." });
     const result = await actions.addDependencyProjectsAction({ sources: [{ repoUrlOrSlug: "acme/secret" }] });
     expect(checkRepoAccess).toHaveBeenCalledWith(currentUser, expect.objectContaining({ githubRepoId: 5 }), "read");
     expect(result).toMatchObject({ ok: true, data: { added: [], failed: [{ source: "acme/secret" }] } });
+
+    // 404 on user token -> falls back to GitHub App installation token
+    const github = await import("@repopulse/github");
+    const queries = await import("@/server/queries/dependencies");
+    repoGet
+      .mockRejectedValueOnce(Object.assign(new Error("Not Found"), { status: 404, response: { headers: {} } }))
+      .mockResolvedValueOnce(repoData(6, "acme/private-app", true));
+    vi.mocked(queries.loadAppCredentials).mockResolvedValueOnce({
+      state: "ok",
+      app: { auth: { appId: 1, privateKey: "pem" }, slug: "app" },
+    });
+    vi.mocked(github.getRepoInstallation).mockResolvedValueOnce({ installationId: 77 } as never);
+    const appRequest = vi.fn(async () => ({ data: { token: "ghs_inst" } }));
+    vi.mocked(github.createAppOctokit).mockReturnValueOnce({ request: appRequest } as never);
+    checkRepoAccess.mockResolvedValueOnce({ ok: true, installationId: 77 });
+
+    const fallbackRes = await actions.addDependencyProjectsAction({ sources: [{ repoUrlOrSlug: "acme/private-app" }] });
+    expect(fallbackRes).toMatchObject({
+      ok: true,
+      data: { added: [{ fullName: "acme/private-app" }], failed: [] },
+    });
+    expect(appRequest).toHaveBeenCalledWith(
+      "POST /app/installations/{installation_id}/access_tokens",
+      expect.objectContaining({ installation_id: 77, repositories: ["private-app"] }),
+    );
+  });
+
+  it("maps P2002 unique constraint violations to CONFLICT", async () => {
+    repoGet.mockResolvedValueOnce(repoData(5, "acme/web"));
+    prisma.dependencyProject.create.mockRejectedValueOnce({ code: "P2002" });
+    const res = await actions.addDependencyProjectsAction({ sources: [{ repoUrlOrSlug: "acme/web" }] });
+    expect(res).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
   });
 
   it("reports repositories GitHub can't find", async () => {
@@ -392,7 +424,7 @@ describe("createDependencyPullRequestAction", () => {
     expect(queueAdd).toHaveBeenCalledTimes(1);
   });
 
-  it("enqueues deps-update with priority 1", async () => {
+  it("enqueues deps-update with priority 1 and takes over waiting/prioritized jobs", async () => {
     prisma.dependencyProject.findFirst.mockResolvedValue(prProject);
     expect(await actions.createDependencyPullRequestAction({ projectId: "p1", groupKey: "all" })).toEqual({ ok: true, data: { status: "QUEUED", groupKey: "all" } });
     expect(checkRepoAccess).toHaveBeenCalledWith(currentUser, expect.objectContaining({ githubRepoId: 5 }), "write");
@@ -402,6 +434,31 @@ describe("createDependencyPullRequestAction", () => {
       { projectId: "p1", groupKey: "all", trigger: "manual" },
       { jobId: "deps-update-p1-all", priority: 1 },
     );
+
+    const changePriority = vi.fn();
+    queueGetJob.mockResolvedValueOnce({ getState: vi.fn(async () => "waiting"), changePriority });
+    expect(await actions.createDependencyPullRequestAction({ projectId: "p1", groupKey: "all" })).toEqual({
+      ok: true,
+      data: { status: "QUEUED", groupKey: "all" },
+    });
+    expect(changePriority).toHaveBeenCalledWith({ priority: 1 });
+
+    // Also verify enqueueScan priority takeover on waiting/prioritized and delayed jobs
+    const scanUpdateData = vi.fn();
+    const scanChangePriority = vi.fn();
+    queueGetJob.mockResolvedValueOnce({ getState: vi.fn(async () => "prioritized"), updateData: scanUpdateData, changePriority: scanChangePriority });
+    prisma.dependencyProject.findFirst.mockResolvedValueOnce({ id: "p1", fullName: "acme/web", lastScannedAt: null });
+    await actions.triggerDependencyScanAction({ projectId: "p1" });
+    expect(scanUpdateData).toHaveBeenCalledWith({ projectId: "p1", trigger: "manual", requestedByUserId: "u1" });
+    expect(scanChangePriority).toHaveBeenCalledWith({ priority: 1 });
+
+    const delayedUpdateData = vi.fn();
+    const delayedChangePriority = vi.fn();
+    queueGetJob.mockResolvedValueOnce({ getState: vi.fn(async () => "delayed"), updateData: delayedUpdateData, changePriority: delayedChangePriority });
+    prisma.dependencyProject.findFirst.mockResolvedValueOnce({ id: "p1", fullName: "acme/web", lastScannedAt: null });
+    await actions.triggerDependencyScanAction({ projectId: "p1" });
+    expect(delayedUpdateData).toHaveBeenCalledTimes(1);
+    expect(delayedChangePriority).not.toHaveBeenCalled();
   });
 });
 
@@ -410,6 +467,7 @@ describe("ignore rules", () => {
     { id: "d1", name: "react", targetVersion: "18.3.0", latestVersion: "19.0.0", manifest: { ecosystem: "NPM", packageManager: "PNPM" } },
     { id: "d2", name: "react-dom", targetVersion: "18.3.0", latestVersion: "19.0.0", manifest: { ecosystem: "NPM", packageManager: "PNPM" } },
     { id: "d3", name: "Django", targetVersion: null, latestVersion: "5.1", manifest: { ecosystem: "PYPI", packageManager: "UV" } },
+    { id: "d4", name: "fastapi", targetVersion: "0.115.2", latestVersion: "0.115.2", manifest: { ecosystem: "PYPI", packageManager: "POETRY" } },
   ];
 
   it("adds a rule and marks the matching stored rows IGNORED at once", async () => {
@@ -426,7 +484,7 @@ describe("ignore rules", () => {
     });
   });
 
-  it("matches globs and version ranges in the row's own syntax, then re-checks", async () => {
+  it("matches globs and version ranges in the row's own syntax (including Poetry caret syntax), then re-checks", async () => {
     prisma.dependencyProject.findFirst.mockResolvedValue({ id: "p1", ignoreRules: [] });
     prisma.dependencyUpdate.findMany.mockResolvedValue(rows);
     await actions.ignoreDependencyAction({ projectId: "p1", name: "react*", versions: ">=19" });
@@ -441,6 +499,12 @@ describe("ignore rules", () => {
     await actions.ignoreDependencyAction({ projectId: "p1", name: "django", versions: ">=5" });
     expect(prisma.dependencyUpdate.updateMany).toHaveBeenLastCalledWith({
       where: { projectId: "p1", id: { in: ["d3"] } },
+      data: { status: "IGNORED", targetVersion: null },
+    });
+
+    await actions.ignoreDependencyAction({ projectId: "p1", name: "fastapi", versions: "^0.115.0" });
+    expect(prisma.dependencyUpdate.updateMany).toHaveBeenLastCalledWith({
+      where: { projectId: "p1", id: { in: ["d4"] } },
       data: { status: "IGNORED", targetVersion: null },
     });
     expect(queueAdd).toHaveBeenCalledWith("deps-scan", "scan-dependency-project", expect.objectContaining({ trigger: "manual" }), expect.anything());

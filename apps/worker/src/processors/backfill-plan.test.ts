@@ -94,6 +94,20 @@ describe("planBackfillPage", () => {
     expect(plan.stop).toEqual({ status: "DONE", reason: "MAX_AGE" });
   });
 
+  it("prefers TARGET over MAX_AGE when the in-range releases also reach the target, and clamps room to 0 when storedCount > target", () => {
+    const cutoff = new Date(NOW.getTime() - 365 * DAY);
+    const releases = [rel(5, 300), rel(4, 364), rel(3, 366)];
+    const plan = planBackfillPage(input({ page: 2, releases, storedCount: 98, target: 100, cutoff }));
+    expect(ids(plan.insert)).toEqual([5, 4]);
+    expect(plan.nextPage).toBe(2);
+    expect(plan.stop).toEqual({ status: "DONE", reason: "TARGET" });
+
+    const overTarget = planBackfillPage(input({ page: 2, releases, storedCount: 120, target: 100 }));
+    expect(overTarget.insert).toEqual([]);
+    expect(overTarget.nextPage).toBe(2);
+    expect(overTarget.stop).toEqual({ status: "DONE", reason: "TARGET" });
+  });
+
   it("is idempotent: a fully stored page inserts nothing", () => {
     const releases = page(100, 3, 1);
     const plan = planBackfillPage(input({ releases, storedIds: new Set(releases.map((r) => r.githubReleaseId)), storedCount: 3 }));
@@ -103,7 +117,8 @@ describe("planBackfillPage", () => {
 });
 
 describe("targets and cutoffs", () => {
-  it("clamps the target to the hard cap", () => {
+  it("clamps the target to [0, hard cap]", () => {
+    expect(effectiveTarget(-50, 1000)).toBe(0);
     expect(effectiveTarget(1200, 1000)).toBe(1000);
     expect(effectiveTarget(300, 1000)).toBe(300);
   });

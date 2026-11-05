@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { needsPathImport, planCommitStates } from "./commit-states";
+import { describe, expect, it, vi } from "vitest";
+import { needsPathImport, planCommitStates, syncCommitStates } from "./commit-states";
 
 const commit = (id: string, ...changedPaths: string[]) => ({ id, changedPaths });
 
@@ -30,5 +30,42 @@ describe("needsPathImport", () => {
     expect(needsPathImport(["docs"], { polledPaths: [], lastPathsPolledAt: null })).toBe(true);
     expect(needsPathImport(["docs", "src"], { polledPaths: ["docs"], lastPathsPolledAt: new Date() })).toBe(true);
     expect(needsPathImport(["docs"], { polledPaths: ["docs", "src"], lastPathsPolledAt: new Date() })).toBe(false);
+  });
+});
+
+describe("syncCommitStates", () => {
+  it("prunes non-matching states and creates unread/read states inside the transaction", async () => {
+    const tx = {
+      release: {
+        findMany: vi.fn(async () => [
+          commit("c3", "packages/db/index.ts"),
+          commit("c2", "README.md"),
+          commit("c1", "packages/db/schema.prisma"),
+        ]),
+      },
+      userReleaseState: {
+        findMany: vi.fn(async () => [{ releaseId: "c2" }]),
+        deleteMany: vi.fn(),
+        createMany: vi.fn(),
+      },
+    };
+
+    const plan = await syncCommitStates(tx as never, "u1", "repo1", ["packages/db"]);
+    expect(plan).toEqual({
+      unread: ["c3", "c1"],
+      read: [],
+      prune: ["c2"],
+      matching: 2,
+    });
+    expect(tx.userReleaseState.deleteMany).toHaveBeenCalledWith({
+      where: { userId: "u1", releaseId: { in: ["c2"] } },
+    });
+    expect(tx.userReleaseState.createMany).toHaveBeenCalledWith({
+      data: [
+        { userId: "u1", releaseId: "c3", isRead: false },
+        { userId: "u1", releaseId: "c1", isRead: false },
+      ],
+      skipDuplicates: true,
+    });
   });
 });

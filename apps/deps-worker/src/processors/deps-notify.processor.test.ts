@@ -83,12 +83,34 @@ describe("processDepsNotify", () => {
     expect(dispatch.mock.calls[0]![0].pullRequest).toMatchObject({ event: "access_lost" });
   });
 
-  it("fails permanently on a permanent delivery error and retries transient ones", async () => {
+  it("fails permanently on a permanent delivery error or unreadable SMTP password, retries transient ones, and skips PROJECT_GONE / PULL_REQUEST_GONE", async () => {
     const { deps, dispatch } = setup();
     dispatch.mockRejectedValueOnce(new NotificationDeliveryError("Discord rejected the webhook (HTTP 404).", { permanent: true }));
     await expect(processDepsNotify(job(digest()), deps)).rejects.toBeInstanceOf(UnrecoverableError);
     dispatch.mockRejectedValueOnce(new NotificationDeliveryError("HTTP 502", { permanent: false }));
     await expect(processDepsNotify(job(digest()), deps)).rejects.not.toBeInstanceOf(UnrecoverableError);
+
+    //PROJECT_GONE and PULL_REQUEST_GONE skip reasons
+    expect(await processDepsNotify(job({ ...digest(), projectId: "missing-project" }), deps)).toEqual({
+      status: "SKIPPED",
+      reason: "PROJECT_GONE",
+    });
+    expect(await processDepsNotify(job({ ...prEvent("opened"), prId: "missing-pr" }), deps)).toEqual({
+      status: "SKIPPED",
+      reason: "PULL_REQUEST_GONE",
+    });
+
+    // SmtpPasswordUnreadableError on EMAIL_INSTANT channel -> permanent failure -> UnrecoverableError
+    const emailCtx = setup({ rule: { channel: "EMAIL_INSTANT", destinationUrl: null } });
+    emailCtx.prisma.instanceSettings.rows[0] = {
+      ...emailCtx.prisma.instanceSettings.rows[0],
+      smtpHost: "smtp.example.com",
+      smtpPort: 587,
+      smtpFrom: "noreply@example.com",
+      smtpUser: "user",
+      smtpPasswordEncrypted: "corrupt-ciphertext",
+    };
+    await expect(processDepsNotify(job(digest()), emailCtx.deps)).rejects.toBeInstanceOf(UnrecoverableError);
   });
 });
 

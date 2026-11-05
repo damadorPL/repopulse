@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { createOctokit, GITHUB_USER_AGENT } from "./client.js";
+import { createOctokit, getRateLimitInfo, GITHUB_USER_AGENT, isGitHubHttpError } from "./client.js";
 import {
   fetchReleasesPage,
   GitHubRateLimitError,
   GitHubRepositoryNotFoundError,
   hasNextLink,
+  INITIAL_RELEASES_LIMIT,
+  mapRelease,
   pollRepoReleases,
   validateAndFetchRepo,
 } from "./poller.js";
@@ -249,5 +251,109 @@ describe("fetchReleasesPage", () => {
     );
     expect(error).toBeInstanceOf(GitHubRateLimitError);
     expect((error as GitHubRateLimitError).resetAt).toEqual(new Date(1798761600 * 1000));
+  });
+});
+
+describe("getRateLimitInfo & isGitHubHttpError", () => {
+  it("handles undefined, empty, array, numeric, and non-numeric headers", () => {
+    expect(getRateLimitInfo(undefined)).toEqual({ limit: null, remaining: null, resetAt: null });
+    expect(getRateLimitInfo({})).toEqual({ limit: null, remaining: null, resetAt: null });
+    expect(
+      getRateLimitInfo({
+        "x-ratelimit-limit": ["5000", "100"],
+        "x-ratelimit-remaining": 42,
+        "x-ratelimit-reset": "1700000000",
+      }),
+    ).toEqual({
+      limit: 5000,
+      remaining: 42,
+      resetAt: new Date(1700000000 * 1000),
+    });
+    expect(
+      getRateLimitInfo({
+        "x-ratelimit-limit": "",
+        "x-ratelimit-remaining": "not-a-number",
+        "x-ratelimit-reset": null,
+      }),
+    ).toEqual({ limit: null, remaining: null, resetAt: null });
+  });
+
+  it("checks whether an error has a numeric status", () => {
+    expect(isGitHubHttpError(null)).toBe(false);
+    expect(isGitHubHttpError(undefined)).toBe(false);
+    expect(isGitHubHttpError("404")).toBe(false);
+    expect(isGitHubHttpError(404)).toBe(false);
+    expect(isGitHubHttpError({})).toBe(false);
+    expect(isGitHubHttpError({ status: "404" })).toBe(false);
+    expect(isGitHubHttpError({ status: 404 })).toBe(true);
+  });
+});
+
+describe("edge cases in mapRelease, hasNextLink, validateAndFetchRepo & pollRepoReleases", () => {
+  it("mapRelease falls back to created_at, tag_name on whitespace name, and empty body", () => {
+    const mapped = mapRelease(
+      release(7, "v1.0.0", {
+        name: "   ",
+        body: null,
+        published_at: null,
+        created_at: "2026-09-15T00:00:00Z",
+      }),
+    );
+    expect(mapped.title).toBe("v1.0.0");
+    expect(mapped.bodyMarkdown).toBe("");
+    expect(mapped.publishedAt).toEqual(new Date("2026-09-15T00:00:00Z"));
+  });
+
+  it("GitHubRateLimitError formats message with and without resetAt", () => {
+    const withoutReset = new GitHubRateLimitError(null);
+    expect(withoutReset.resetAt).toBeNull();
+    expect(withoutReset.message).toBe("GitHub API rate limit exceeded.");
+  });
+
+  it("hasNextLink supports array header values", () => {
+    expect(hasNextLink(['<https://x?page=1>; rel="prev"', '<https://x?page=3>; rel="next"'])).toBe(true);
+    expect(hasNextLink(['<https://x?page=1>; rel="prev"'])).toBe(false);
+  });
+
+  it("validateAndFetchRepo caps published releases at INITIAL_RELEASES_LIMIT and maps empty avatar_url to null", async () => {
+    const fetch = mockFetch((url) => {
+      if (url.pathname === "/repos/acme/widget") {
+        return json({
+          id: 42,
+          name: "widget",
+          full_name: "acme/widget",
+          description: null,
+          html_url: "https://github.com/acme/widget",
+          stargazers_count: 0,
+          owner: { login: "acme", avatar_url: "" },
+        });
+      }
+      const releases = Array.from({ length: 15 }, (_, i) => release(i + 1, `v1.0.${i}`));
+      return json(releases);
+    });
+    const result = await validateAndFetchRepo("acme", "widget", undefined, { octokit: createOctokit({ fetch }) });
+    expect(result.repository.avatarUrl).toBeNull();
+    expect(result.etag).toBeNull();
+    expect(result.releases).toHaveLength(INITIAL_RELEASES_LIMIT);
+  });
+
+  it("pollRepoReleases handles 304 without lastEtag, 200 without ETag, and 404/429 errors", async () => {
+    const notModFetch = mockFetch(() => new Response(null, { status: 304 }));
+    const notMod = await pollRepoReleases({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: notModFetch }) });
+    expect(notMod).toEqual({ status: "NOT_MODIFIED", etag: null, releases: [], rateLimitRemaining: null });
+
+    const okNoEtagFetch = mockFetch(() => json([release(1, "v1.0.0")]));
+    const updated = await pollRepoReleases({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: okNoEtagFetch }) });
+    expect(updated.etag).toBeNull();
+
+    const notFoundFetch = mockFetch(() => json({ message: "Not Found" }, { status: 404 }));
+    await expect(pollRepoReleases({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: notFoundFetch }) })).rejects.toBeInstanceOf(
+      GitHubRepositoryNotFoundError,
+    );
+
+    const rateLimitFetch = mockFetch(() => json({ message: "Too Many Requests" }, { status: 429 }));
+    await expect(pollRepoReleases({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: rateLimitFetch }) })).rejects.toBeInstanceOf(
+      GitHubRateLimitError,
+    );
   });
 });

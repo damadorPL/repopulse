@@ -332,5 +332,63 @@ describe("processDepsScan", () => {
     prisma.dependencyPullRequest.rows.push({ id: "pr1", projectId: "p1", groupKey: "all", branch: "repopulse/deps/all", number: 9, htmlUrl: "u", state: "OPEN", headSha: "x", targets: ["requirements.txt#requests@2.32.3"] });
     deps.github = { ...(deps.github as object), getPullRequestState: async () => null } as never;
     expect(await processDepsScan(scanJob(), deps)).toMatchObject({ autoUpdates: 0 });
+
+    // An open PR whose group vanished (e.g. "major-old") gets queued so deps-update can close it.
+    prisma.dependencyPullRequest.rows.push({
+      id: "pr2",
+      projectId: "p1",
+      groupKey: "major-old",
+      branch: "repopulse/deps/major-old",
+      number: 10,
+      htmlUrl: "u2",
+      state: "OPEN",
+      headSha: "y",
+      targets: ["requirements.txt#old@2.0.0"],
+    });
+    queues.updateQueue.addBulk.mockClear();
+    expect(await processDepsScan(scanJob(), deps)).toMatchObject({ autoUpdates: 1 });
+    expect(queues.updateQueue.addBulk).toHaveBeenCalledWith([
+      expect.objectContaining({ data: { projectId: "p1", groupKey: "major-old", trigger: "auto" } }),
+    ]);
+  });
+
+  it("handles 401 token invalidation/fallback, repository ID mismatch (NOT_FOUND), and newly-private repo (PRIVATE_WITHOUT_APP)", async () => {
+    const { deps, prisma, github } = setup({ app: true, installed: true });
+    const invalidateSpy = vi.spyOn(deps.access, "invalidate");
+    const origFetch = github.api.fetchGitTree;
+
+    // 1. 401 on app token invalidates installation cache; fallback from oauth -> anonymous succeeds on 401
+    github.api.fetchGitTree = vi.fn(async () => {
+      throw Object.assign(new Error("Bad credentials"), { status: 401 });
+    });
+    await expect(processDepsScan(scanJob(), deps)).rejects.toThrow("Bad credentials");
+    expect(invalidateSpy).toHaveBeenCalledWith(7);
+
+    // Fallback from oauth (401) to anonymous (200)
+    prisma.user.rows[0]!.githubAccessTokenEncrypted = "enc";
+    deps.access = fakeAccess(github, { app: false, installed: false });
+    let calls = 0;
+    github.api.fetchGitTree = vi.fn(async (params: { octokit?: unknown; owner: string; name: string }) => {
+      calls++;
+      if (calls === 1) throw Object.assign(new Error("Bad oauth token"), { status: 401 });
+      return origFetch(params);
+    });
+    expect(await processDepsScan(scanJob(), deps)).toMatchObject({ status: "SCANNED" });
+    expect(calls).toBe(2);
+
+    // 2. Repository ID mismatch -> NOT_FOUND
+    github.api.fetchGitTree = vi.fn(async (params: { octokit?: unknown; owner: string; name: string }) => {
+      const snap = await origFetch(params);
+      return { ...snap, repository: { ...snap.repository, id: 9999 } };
+    });
+    expect(await processDepsScan(scanJob(), deps)).toEqual({ status: "NOT_FOUND", errorCount: 1 });
+
+    // 3. Newly-private repo read with non-App token -> PRIVATE_WITHOUT_APP and sets isPrivate: true
+    github.api.fetchGitTree = vi.fn(async (params: { octokit?: unknown; owner: string; name: string }) => {
+      const snap = await origFetch(params);
+      return { ...snap, repository: { ...snap.repository, isPrivate: true } };
+    });
+    expect(await processDepsScan(scanJob(), deps)).toEqual({ status: "PRIVATE_WITHOUT_APP" });
+    expect(prisma.dependencyProject.rows[0]!.isPrivate).toBe(true);
   });
 });
