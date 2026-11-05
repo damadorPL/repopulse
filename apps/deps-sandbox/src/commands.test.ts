@@ -13,7 +13,7 @@ import {
   type ToolVersions,
 } from "./commands.js";
 
-const TOOLS: ToolVersions = { npm: "12.2.1", pnpm: "12.14.0", bun: "1.4.3", uv: "0.13.1", poetry: "2.5.1" };
+const TOOLS: ToolVersions = { npm: "12.2.2", pnpm: "12.16.1", bun: "1.4.4", uv: "0.13.7", poetry: "2.5.1" };
 
 function codeOf(fn: () => unknown): string | null {
   try {
@@ -286,16 +286,16 @@ describe("tool version checks", () => {
 describe("tool detection", () => {
   it("parses --version outputs and marks failures as missing", async () => {
     const { detectToolVersions, parseVersionOutput } = await import("./tools.js");
-    expect(parseVersionOutput("uv 0.13.1 (316c827e0 2026-10-14 x86_64-unknown-linux-gnu)")).toBe("0.13.1");
+    expect(parseVersionOutput("uv 0.13.7 (316c827e0 2026-11-03 x86_64-unknown-linux-gnu)")).toBe("0.13.7");
     expect(parseVersionOutput("Poetry (version 2.5.1)")).toBe("2.5.1");
-    expect(parseVersionOutput("12.14.0\n")).toBe("12.14.0");
+    expect(parseVersionOutput("12.16.1\n")).toBe("12.16.1");
     expect(parseVersionOutput("nothing")).toBeNull();
     const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const tools = await detectToolVersions(async (tool) => {
       if (tool === "poetry") throw new Error("ENOENT");
-      return tool === "uv" ? "uv 0.13.1" : "1.2.3\n";
+      return tool === "uv" ? "uv 0.13.7" : "1.2.3\n";
     });
-    expect(tools).toEqual({ npm: "1.2.3", pnpm: "1.2.3", bun: "1.2.3", uv: "0.13.1", poetry: "missing" });
+    expect(tools).toEqual({ npm: "1.2.3", pnpm: "1.2.3", bun: "1.2.3", uv: "0.13.7", poetry: "missing" });
     errors.mockRestore();
   });
 });

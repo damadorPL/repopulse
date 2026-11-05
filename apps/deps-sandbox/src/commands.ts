@@ -4,7 +4,7 @@
  * Pure: no I/O. Every command is an argument array (never a shell string), and every package name that reaches a
  * command line is validated first, so nothing from the request can be parsed as a flag.
  *
- * Every command below was run end to end in the built image (npm 12.2.1, pnpm 12.14.0, Bun 1.4.3, uv 0.13.1,
+ * Every command below was run end to end in the built image (npm 12.2.2, pnpm 12.16.1, Bun 1.4.4, uv 0.13.7,
  * Poetry 2.5.1, see the Dockerfile pins) through the egress proxy. Re-check them when bumping a pin.
  */
 import type { LockErrorCode, SandboxPackageManager } from "@repopulse/deps/sandbox-contract";
@@ -158,7 +158,7 @@ export function buildCommands(input: CommandInput, ctx: CommandContext): Command
       const flags = ["--lockfile-only", "--ignore-scripts", "--ignore-pnpmfile"];
       if (input.lockfileOnly) {
         // `--no-save` keeps the package.json ranges (and so the lockfile specifiers) unchanged. pnpm 12's
-        // `update` rejects `--no-frozen-lockfile` (verified against 12.14.0).
+        // `update` rejects `--no-frozen-lockfile` (verified against 12.16.1).
         const recursive = ctx.workspace ? ["--recursive"] : [];
         return [{ command: "pnpm", args: ["update", ...recursive, "--no-save", ...flags, ...names] }];
       }

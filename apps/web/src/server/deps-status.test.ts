@@ -41,7 +41,7 @@ describe("readDepsWorkerStatus", () => {
 describe("lockfileRegenerationAvailable", () => {
   it("needs a running deps-worker whose last sandbox probe succeeded", () => {
     const at = new Date("2026-11-03T10:00:00.000Z");
-    expect(lockfileRegenerationAvailable({ state: "running", at, sandbox: { status: "ok", tools: { npm: "12.2.1" } } })).toBe(true);
+    expect(lockfileRegenerationAvailable({ state: "running", at, sandbox: { status: "ok", tools: { npm: "12.2.2" } } })).toBe(true);
     expect(lockfileRegenerationAvailable({ state: "running", at, sandbox: null })).toBe(false);
     expect(lockfileRegenerationAvailable({ state: "missing" })).toBe(false);
     expect(lockfileRegenerationAvailable({ state: "unknown" })).toBe(false);

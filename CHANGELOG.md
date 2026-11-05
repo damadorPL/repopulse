@@ -6,12 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.4.1] — 2026-11-05 — Dependency updates and sandbox runtimes bump
+
 ### Changed
 - Updated dependencies across workspace packages to their latest releases:
-  - `bullmq` 6.5.3 → 6.5.4 (`apps/web`, `apps/deps-worker`, `apps/worker`, `packages/queue`)
-  - `lucide-react` 1.66.0 → 1.67.0 (`apps/web`)
-  - `next` 16.4.4 → 16.4.5 (`apps/web`)
-  - `@tailwindcss/postcss` and `tailwindcss` 4.3.3 → 4.3.4 (`apps/web`)
+  - `bullmq` 6.5.4 → 6.7.0 (`apps/web`, `apps/deps-worker`, `apps/worker`, `packages/queue`)
+  - `lucide-react` 1.67.0 → 1.69.0 (`apps/web`)
+- Updated `deps-sandbox` container runtime tool pins to their latest releases:
+  - `npm` 12.2.1 → 12.2.2
+  - `pnpm` 12.14.0 → 12.16.1 (aligned with monorepo base and `packageManager`)
+  - `Bun` 1.4.3 → 1.4.4
+  - `uv` 0.13.1 → 0.13.7 (with updated AMD64 and ARM64 sha256 checksums)
 
 ## [0.9.4] — 2026-11-03 — Security and reliability fixes
 

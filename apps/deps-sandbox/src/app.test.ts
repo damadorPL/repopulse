@@ -6,7 +6,7 @@ import { createSandboxServer, isAuthorized, loadConfig, type SandboxConfig, type
 import type { ToolVersions } from "./commands.js";
 
 const TOKEN = "a".repeat(64);
-const TOOLS: ToolVersions = { npm: "12.2.1", pnpm: "12.14.0", bun: "1.4.3", uv: "0.13.1", poetry: "missing" };
+const TOOLS: ToolVersions = { npm: "12.2.2", pnpm: "12.16.1", bun: "1.4.4", uv: "0.13.7", poetry: "missing" };
 const CONFIG: SandboxConfig = { port: 0, token: TOKEN, tmpRoot: "/tmp", timeoutMs: 60_000, proxy: null };
 
 const REQUEST = {

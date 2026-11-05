@@ -37,12 +37,12 @@ FROM node:26-trixie-slim AS runner
 
 # Pinned tool versions (each released at least two weeks before it was pinned). The tool-version checks in
 # src/commands.ts (lockfile formats, packageManager majors) assume these majors: re-check them on every bump.
-ARG NPM_VERSION=12.2.1
-ARG PNPM_VERSION=12.14.0
-ARG BUN_VERSION=1.4.3
-ARG UV_VERSION=0.13.1
-ARG UV_SHA256_AMD64=eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220
-ARG UV_SHA256_ARM64=9041c73c99fdc5892cf128140beb354eca9231d502068cc36e6cb53a8e59ad14
+ARG NPM_VERSION=12.2.2
+ARG PNPM_VERSION=12.16.1
+ARG BUN_VERSION=1.4.4
+ARG UV_VERSION=0.13.7
+ARG UV_SHA256_AMD64=c5221ff41b7892bfc223543883600125f6a47fe845093e0f5bdff4f359196d83
+ARG UV_SHA256_ARM64=71279f8d3c67241e807b9d8db872d1bf541579fb9f08b7d1eb1682196d1e57dc
 ARG POETRY_VERSION=2.5.1
 ARG TARGETARCH
 
