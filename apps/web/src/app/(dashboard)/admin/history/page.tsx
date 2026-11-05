@@ -1,15 +1,22 @@
 import type { Metadata } from "next";
 import { BackfillSettingsForm } from "@/components/admin/backfill-settings-form";
-import { countReapplyCandidates, getBackfillSettingsView } from "@/server/backfill-settings";
+import { GitHubQuotaCard } from "@/components/admin/github-quota-card";
+import { getBackfillSettingsView, getReapplyCandidates } from "@/server/backfill-settings";
+import { getGitHubQuotaView } from "@/server/queries/github-quota";
 import { requireSuperAdmin } from "@/server/session";
 
 export const metadata: Metadata = { title: "Release history · Admin · RepoPulse" };
 
 export default async function AdminHistoryPage() {
-  await requireSuperAdmin();
+  const admin = await requireSuperAdmin();
   const settings = await getBackfillSettingsView();
   const defaultTarget = settings.find((s) => s.key === "defaultTarget")!.value;
-  const reapplyCandidates = await countReapplyCandidates(defaultTarget);
+  const minQuota = settings.find((s) => s.key === "minQuota")!.value;
+
+  const [candidates, quotaResult] = await Promise.all([
+    getReapplyCandidates(defaultTarget),
+    getGitHubQuotaView(admin),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -22,7 +29,9 @@ export default async function AdminHistoryPage() {
         </p>
       </div>
 
-      <BackfillSettingsForm settings={settings} reapplyCandidates={reapplyCandidates} />
+      <GitHubQuotaCard initialQuota={quotaResult} minQuota={minQuota} />
+
+      <BackfillSettingsForm settings={settings} candidates={candidates} />
 
       <p className="text-xs text-muted-foreground">
         Git tags (“Releases + tags”) and commits of watched files and folders have no history import: each poll reads the

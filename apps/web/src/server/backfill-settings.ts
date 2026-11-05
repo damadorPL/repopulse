@@ -99,3 +99,56 @@ export function reapplyCandidatesWhere(defaultTarget: number): Prisma.Repository
 export async function countReapplyCandidates(defaultTarget: number): Promise<number> {
   return prisma.repository.count({ where: reapplyCandidatesWhere(defaultTarget) });
 }
+
+export interface ReapplyCandidate {
+  id: string;
+  fullName: string;
+  avatarUrl: string | null;
+  releaseCount: number;
+  backfillTarget: number;
+  backfillNextPage: number | null;
+  missingReleases: number;
+  oldestRelease: { tagName: string; publishedAt: Date } | null;
+}
+
+export async function getReapplyCandidates(defaultTarget: number): Promise<ReapplyCandidate[]> {
+  const where = reapplyCandidatesWhere(defaultTarget);
+  const repositories = await prisma.repository.findMany({
+    where,
+    select: {
+      id: true,
+      fullName: true,
+      avatarUrl: true,
+      backfillTarget: true,
+      backfillNextPage: true,
+      _count: {
+        select: {
+          releases: { where: { isDraft: false, source: "RELEASE" } },
+        },
+      },
+      releases: {
+        where: { isDraft: false, source: "RELEASE" },
+        orderBy: [{ publishedAt: "asc" }, { id: "asc" }],
+        take: 1,
+        select: { tagName: true, publishedAt: true },
+      },
+    },
+    orderBy: { fullName: "asc" },
+  });
+
+  return repositories.map((repo) => {
+    const releaseCount = repo._count.releases;
+    const missingReleases = Math.max(0, defaultTarget - releaseCount);
+    const oldestRelease = repo.releases[0] ?? null;
+    return {
+      id: repo.id,
+      fullName: repo.fullName,
+      avatarUrl: repo.avatarUrl,
+      releaseCount,
+      backfillTarget: repo.backfillTarget,
+      backfillNextPage: repo.backfillNextPage,
+      missingReleases,
+      oldestRelease,
+    };
+  });
+}

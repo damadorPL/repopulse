@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.4.3] — 2026-11-05 — Release history candidates and GitHub API quota display
+
+### Added
+- **Release history candidate repositories and missing count:** In Admin → Release history ("Apply to existing repositories"), listed tracked repositories that have older releases remaining on GitHub, showing their stored releases count, oldest stored release tag and date, and how many releases are missing to reach the automatic target.
+- **GitHub API quota card:** Added a dedicated card in Admin → Release history displaying live remaining quota, hourly limit, requests used, reset time (with countdown), status relative to the minimum quota threshold (`minQuota`), and a refresh button.
+
 ## [0.9.4.2] — 2026-11-05 — Comprehensive test suite expansion and hardening
 
 ### Added

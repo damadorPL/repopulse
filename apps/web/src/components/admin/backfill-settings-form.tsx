@@ -1,16 +1,19 @@
 "use client";
 
 import { useState, useTransition, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LoaderCircleIcon, RotateCcwIcon, SaveIcon } from "lucide-react";
 import { toast } from "sonner";
+import { RelativeTime } from "@/components/feed/relative-time";
+import { RepoAvatar } from "@/components/feed/repo-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { reapplyBackfillSettingsAction, saveBackfillSettingsAction, type BackfillSettingsInput } from "@/server/actions/backfill-settings";
-import type { BackfillSettingView } from "@/server/backfill-settings";
+import type { BackfillSettingView, ReapplyCandidate } from "@/server/backfill-settings";
 
 type Key = BackfillSettingView["key"];
 
@@ -61,7 +64,15 @@ function toDraft(settings: BackfillSettingView[]): Draft {
   return Object.fromEntries(settings.map((s) => [s.key, s.override === null ? "" : String(s.override)])) as Draft;
 }
 
-export function BackfillSettingsForm({ settings, reapplyCandidates }: { settings: BackfillSettingView[]; reapplyCandidates: number }) {
+export function BackfillSettingsForm({
+  settings,
+  candidates = [],
+  reapplyCandidates,
+}: {
+  settings: BackfillSettingView[];
+  candidates?: ReapplyCandidate[];
+  reapplyCandidates?: number;
+}) {
   const router = useRouter();
   const [saved, setSaved] = useState(settings);
   const [draft, setDraft] = useState<Draft>(() => toDraft(settings));
@@ -73,6 +84,13 @@ export function BackfillSettingsForm({ settings, reapplyCandidates }: { settings
   const byKey = new Map(saved.map((s) => [s.key, s]));
   const savedDraft = toDraft(saved);
   const dirty = (Object.keys(draft) as Key[]).some((key) => draft[key].trim() !== savedDraft[key]);
+
+  const candidateCount = candidates.length > 0 ? candidates.length : (reapplyCandidates ?? 0);
+  const rawTarget = draft.defaultTarget.trim();
+  const effectiveTarget = rawTarget !== "" && Number.isInteger(Number(rawTarget)) && Number(rawTarget) >= 0
+    ? Number(rawTarget)
+    : (byKey.get("defaultTarget")?.value ?? 100);
+  const totalMissing = candidates.reduce((sum, c) => sum + Math.max(0, effectiveTarget - c.releaseCount), 0);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -213,27 +231,96 @@ export function BackfillSettingsForm({ settings, reapplyCandidates }: { settings
         </div>
       </form>
 
-      <section aria-labelledby="reapply-heading" className="space-y-3 rounded-lg border bg-card p-4 sm:p-5">
-        <div className="grid gap-1">
-          <h3 id="reapply-heading" className="font-medium">
-            Apply to existing repositories
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            New settings apply to repositories added from now on. To give repositories already imported the new automatic
-            target and age limit, re-run their automatic import.{" "}
-            <span className="tabular-nums">
-              {reapplyCandidates === 0
-                ? "No repository has older releases left to import right now."
-                : `${numberFormat.format(reapplyCandidates)} ${reapplyCandidates === 1 ? "repository has" : "repositories have"} older releases on GitHub.`}
-            </span>{" "}
-            Imported history stays read and sends no notifications.
-          </p>
+      <section aria-labelledby="reapply-heading" className="space-y-4 rounded-lg border bg-card p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="grid gap-1">
+            <h3 id="reapply-heading" className="font-medium">
+              Apply to existing repositories
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              New settings apply to repositories added from now on. To give repositories already imported the new automatic
+              target and age limit, re-run their automatic import.{" "}
+              <span className="tabular-nums">
+                {candidateCount === 0
+                  ? "No repository has older releases left to import right now."
+                  : `${numberFormat.format(candidateCount)} ${candidateCount === 1 ? "repository has" : "repositories have"} older releases on GitHub.`}
+              </span>{" "}
+              {candidates.length > 0 && totalMissing > 0 ? (
+                <span className="tabular-nums">
+                  Across these repositories, approximately {numberFormat.format(totalMissing)} releases are missing to reach the target of {numberFormat.format(effectiveTarget)}.
+                </span>
+              ) : null}
+              {" "}Imported history stays read and sends no notifications.
+            </p>
+          </div>
+          {candidates.length > 0 ? (
+            <Badge variant="outline" className="tabular-nums font-mono text-xs">
+              {candidateCount} {candidateCount === 1 ? "repo" : "repos"} · {numberFormat.format(totalMissing)} missing
+            </Badge>
+          ) : null}
         </div>
+
+        {candidates.length > 0 ? (
+          <div className="rounded-md border bg-muted/20">
+            <div className="flex items-center justify-between border-b px-3.5 py-2 text-xs font-medium text-muted-foreground">
+              <span>Repository</span>
+              <div className="flex items-center gap-6">
+                <span className="hidden sm:inline">Stored</span>
+                <span>Missing releases</span>
+              </div>
+            </div>
+            <ul className="divide-y max-h-72 overflow-y-auto">
+              {candidates.map((repo) => {
+                const missing = Math.max(0, effectiveTarget - repo.releaseCount);
+                return (
+                  <li key={repo.id} className="flex items-center justify-between gap-3 px-3.5 py-2.5 hover:bg-muted/30">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <RepoAvatar src={repo.avatarUrl} name={repo.fullName.split("/")[1] ?? repo.fullName} className="size-6 text-[10px]" />
+                      <div className="min-w-0">
+                        <Link href={`/repositories/${repo.fullName}`} className="truncate font-medium text-sm hover:underline block">
+                          {repo.fullName}
+                        </Link>
+                        {repo.oldestRelease ? (
+                          <p className="text-[11px] text-muted-foreground truncate">
+                            oldest: <span className="font-mono text-foreground/80">{repo.oldestRelease.tagName}</span>
+                            {" · "}<RelativeTime date={repo.oldestRelease.publishedAt} />
+                          </p>
+                        ) : (
+                          <p className="text-[11px] text-muted-foreground italic">no releases stored yet</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4 shrink-0">
+                      <span className="text-xs text-muted-foreground tabular-nums hidden sm:inline">
+                        {numberFormat.format(repo.releaseCount)} stored
+                      </span>
+                      {missing > 0 ? (
+                        <Badge variant="outline" className="font-mono text-xs text-amber-700 dark:text-amber-400 bg-amber-500/10 border-amber-500/20 tabular-nums">
+                          +{numberFormat.format(missing)} missing
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary" className="font-mono text-xs tabular-nums" title={`Has reached target of ${effectiveTarget} releases; more older releases exist on GitHub`}>
+                          At target ({numberFormat.format(effectiveTarget)})
+                        </Badge>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : (
+          <div className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
+            No repository has older releases left to import right now.
+          </div>
+        )}
+
         {confirmingReapply ? (
           <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed p-3 text-sm">
             <span className="mr-auto">
-              Re-run the automatic import for {numberFormat.format(reapplyCandidates)}{" "}
-              {reapplyCandidates === 1 ? "repository" : "repositories"}? This uses GitHub API quota.
+              Re-run the automatic import for {numberFormat.format(candidateCount)}{" "}
+              {candidateCount === 1 ? "repository" : "repositories"}
+              {totalMissing > 0 ? ` (~${numberFormat.format(totalMissing)} releases missing)` : ""}? This uses GitHub API quota.
             </span>
             <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmingReapply(false)} disabled={reapplying}>
               Cancel
@@ -249,7 +336,7 @@ export function BackfillSettingsForm({ settings, reapplyCandidates }: { settings
             variant="outline"
             size="sm"
             onClick={() => setConfirmingReapply(true)}
-            disabled={reapplyCandidates === 0 || dirty || saving}
+            disabled={candidateCount === 0 || dirty || saving}
             title={dirty ? "Save your changes first." : undefined}
           >
             Re-run automatic import…
