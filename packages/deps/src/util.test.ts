@@ -112,6 +112,20 @@ describe("workspaceGlobToRegExp and matchesWorkspaceGlobs", () => {
     expect(matchesWorkspaceGlobs("packages/internal-public", globs)).toBe(true);
     expect(matchesWorkspaceGlobs("apps/web", globs)).toBe(false);
   });
+
+  it("evaluates deeply repeated wildcard globs in linear time without regex backtracking", () => {
+    const start = Date.now();
+    const deepDir = `${"a/".repeat(24)}a`;
+    const deepGlob = `${"**/".repeat(15)}z`;
+    expect(matchesWorkspaceGlobs(deepDir, [deepGlob])).toBe(false);
+    expect(workspaceGlobToRegExp(deepGlob).test(deepDir)).toBe(false);
+
+    const starDir = "a".repeat(30);
+    const starGlob = `${"*a".repeat(15)}*z`;
+    expect(matchesWorkspaceGlobs(starDir, [starGlob])).toBe(false);
+    expect(workspaceGlobToRegExp(starGlob).test(starDir)).toBe(false);
+    expect(Date.now() - start).toBeLessThan(200);
+  });
 });
 
 describe("other util helpers", () => {

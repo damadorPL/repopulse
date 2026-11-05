@@ -91,11 +91,19 @@ function npmConfig(path: string, text: string, policy: RegistryPolicy): void {
 }
 
 function pythonSettings(data: Record<string, unknown>, policy: RegistryPolicy): void {
-  for (const key of ["index-url", "index_url", "default-index", "index"]) {
+  const defaultKeys = ["index-url", "index_url", "default-index", "index"] as const;
+  let seenDefault = false;
+  let anyCustomDefault = false;
+  for (const key of defaultKeys) {
     const value = data[key];
-    if (value === undefined || (key === "index" && Array.isArray(value))) continue;
-    policy.customDefault = !publicRegistry(value, "PYPI");
+    if (value === undefined || (key === "index" && (Array.isArray(value) || isRecord(value)))) continue;
+    seenDefault = true;
+    const values = Array.isArray(value) ? value : [value];
+    if (values.length === 0 || values.some((entry) => !publicRegistry(entry, "PYPI"))) {
+      anyCustomDefault = true;
+    }
   }
+  if (seenDefault) policy.customDefault = anyCustomDefault;
   for (const key of ["extra-index-url", "extra_index_url", "find-links", "find_links"]) {
     const value = data[key];
     if (value !== undefined) {
@@ -119,7 +127,6 @@ function pythonSettings(data: Record<string, unknown>, policy: RegistryPolicy): 
       }
     }
   }
-  if (isRecord(data.pip)) pythonSettings(data.pip, policy);
 }
 
 function pythonConfig(path: string, text: string, policy: RegistryPolicy): void {
@@ -137,15 +144,40 @@ function pythonConfig(path: string, text: string, policy: RegistryPolicy): void 
   }
   const data = parseToml(text);
   pythonSettings(data, policy);
+  if (isRecord(data.pip)) {
+    const pipPolicy = emptyPolicy();
+    pythonSettings(data.pip, pipPolicy);
+    if (pipPolicy.customDefault) policy.customDefault = true;
+    if (pipPolicy.additional) policy.additional = true;
+    if (pipPolicy.unreadable) policy.unreadable = true;
+    for (const pkg of pipPolicy.packages) policy.packages.add(pkg);
+  }
   if (isRecord(data.repositories) && Object.keys(data.repositories).length) policy.additional = true;
   const tool = isRecord(data.tool) ? data.tool : null;
-  if (tool && isRecord(tool.uv)) pythonSettings(tool.uv, policy);
+  if (tool && isRecord(tool.uv)) {
+    pythonSettings(tool.uv, policy);
+    if (isRecord(tool.uv.pip)) {
+      const pipPolicy = emptyPolicy();
+      pythonSettings(tool.uv.pip, pipPolicy);
+      if (pipPolicy.customDefault) policy.customDefault = true;
+      if (pipPolicy.additional) policy.additional = true;
+      if (pipPolicy.unreadable) policy.unreadable = true;
+      for (const pkg of pipPolicy.packages) policy.packages.add(pkg);
+    }
+  }
   const poetry = tool && isRecord(tool.poetry) ? tool.poetry : null;
   if (poetry && Array.isArray(poetry.source)) {
     for (const source of poetry.source) {
       if (!isRecord(source) || (!publicRegistry(source.url, "PYPI") && source.priority !== "explicit")) policy.additional = true;
     }
   }
+}
+
+function policyFamily(ecosystem: DependencyEcosystem, file: string): string {
+  if (ecosystem === "NPM") return file === ".bunfig.toml" ? "bunfig.toml" : file;
+  if (file === "pip.conf" || file === "pip.ini") return "pip";
+  if (file === "pyproject.toml" || file === "uv.toml") return "uv";
+  return file;
 }
 
 /** Missing text for an existing config fails closed; reasons never expose URLs or credentials. */
@@ -156,12 +188,13 @@ export function applyRegistryPolicy<T extends ParsedDependency>(params: {
   files: ReadonlyMap<string, string | null>;
 }): T[] {
   // Different package managers can read different configuration formats. A public .npmrc must not clear
-  // a private Yarn/Bun setting. Resolve ancestor overrides within each format, then combine conservatively.
+  // a private Yarn/Bun setting, and a public pip.conf must not clear a private pyproject.toml/uv.toml setting.
+  // Resolve ancestor overrides within each format family, then combine conservatively.
   const policies = new Map<string, RegistryPolicy>();
   for (const path of registryConfigPaths(params.path, params.ecosystem)) {
     if (!params.files.has(path)) continue;
     const file = basename(path);
-    const family = params.ecosystem === "PYPI" ? "python" : file === ".bunfig.toml" ? "bunfig.toml" : file;
+    const family = policyFamily(params.ecosystem, file);
     let policy = policies.get(family);
     if (!policy) { policy = emptyPolicy(); policies.set(family, policy); }
     const text = params.files.get(path);

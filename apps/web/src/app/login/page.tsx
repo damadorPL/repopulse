@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth, signIn } from "@/lib/auth";
+import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { isPublicRegistrationOpen } from "@/server/registration";
 
 export const metadata: Metadata = { title: "Sign in · RepoPulse" };
@@ -12,11 +13,6 @@ const ERROR_MESSAGES: Record<string, string> = {
   InviteRequired: "RepoPulse is invite-only. Ask the super admin for an invite link to create an account.",
   InviteInvalid: "That invite link is invalid, has already been used, or has expired. Ask for a new one.",
 };
-
-/** Only allow same-origin relative paths as a post-login destination. */
-function safeCallbackUrl(value: string | undefined): string {
-  return value && value.startsWith("/") && !value.startsWith("//") ? value : "/";
-}
 
 type SearchParams = Promise<{ callbackUrl?: string | string[]; error?: string | string[] }>;
 

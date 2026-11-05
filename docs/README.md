@@ -2,7 +2,7 @@
 
 > **Audience:** coding agents and new contributors. Each file is self-contained: it starts with a summary and the
 > files it covers, then lists rules (**MUST / MUST NOT**), then the details. Paths are relative to the repo root.
-> **Version documented:** 0.9.4.3 (see [`CHANGELOG.md`](../CHANGELOG.md)).
+> **Version documented:** 0.9.5 (see [`CHANGELOG.md`](../CHANGELOG.md)).
 
 RepoPulse is a self-hosted tracker for GitHub releases and changelogs. Users sign in with GitHub and subscribe to
 repositories. A background worker polls GitHub, stores new releases, marks them unread for every subscriber, pushes

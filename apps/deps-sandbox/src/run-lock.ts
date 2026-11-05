@@ -73,13 +73,24 @@ const DEFAULT_REGISTRY_HOSTS = new Set([
 
 /** Whether a config value points at a default public registry (anything else counts as a custom registry). */
 function isDefaultRegistryValue(value: string): boolean {
-  const match = /https?:\/\/[^\s"',}\]]+/i.exec(value);
-  if (!match) return false;
-  try {
-    return DEFAULT_REGISTRY_HOSTS.has(new URL(match[0]).hostname.toLowerCase());
-  } catch {
-    return false;
-  }
+  const matches = value.match(/https?:\/\/[^\s"',}\]]+/gi);
+  if (!matches || matches.length === 0) return false;
+  return matches.every((raw) => {
+    try {
+      const url = new URL(raw);
+      return (
+        url.protocol === "https:" &&
+        !url.port &&
+        !url.username &&
+        !url.password &&
+        !url.search &&
+        !url.hash &&
+        DEFAULT_REGISTRY_HOSTS.has(url.hostname.toLowerCase())
+      );
+    } catch {
+      return false;
+    }
+  });
 }
 
 /** Registry / index settings in a stripped config file (returns what was found, for the stderr tail). */
@@ -108,11 +119,17 @@ export function findConfigRegistries(basename: string, text: string): string[] {
     presence(/^\s*npmScopes\s*:/, "npmScopes");
   } else if (basename === "bunfig.toml" || basename === ".bunfig.toml") {
     valueCheck(/^\s*registry\s*=\s*(.*)$/, "install.registry");
-    presence(/^\s*\[\s*install\s*\.\s*scopes\s*\]/, "install.scopes");
+    presence(/^\s*\[\s*install\s*\.\s*scopes(?:\s*\.|\s*\])|^\s*scopes\s*=/, "install.scopes");
   } else if (basename === "pip.conf" || basename === "pip.ini" || basename === "uv.toml") {
-    valueCheck(/^\s*(index-url|extra-index-url|find-links)\s*=\s*(.*)$/, "index-url");
+    valueCheck(
+      /^\s*(index-url|index_url|default-index|default_index|extra-index-url|extra_index_url|find-links|find_links)\s*=\s*(.*)$/,
+      "index-url",
+    );
     presence(/^\s*\[\[?\s*index\s*\]\]?/, "[[index]]");
     presence(/^\s*index\s*=/, "index");
+    if (basename === "uv.toml") {
+      presence(/^\s*\[\s*sources(?:\s*\.|\s*\])|^\s*sources\s*=/, "sources");
+    }
   } else if (basename === "poetry.toml") {
     presence(/^\s*\[\s*repositories\b/, "repositories");
   }
@@ -156,11 +173,19 @@ export function findPyprojectRegistries(text: string): string[] {
   const check = (key: string, value: string) => {
     if (/^tool\.uv\.index(?:\.|$)/.test(key)) found.add("[tool.uv.index]");
     else if (/^tool\.poetry\.source(?:\.|$)/.test(key)) found.add("[[tool.poetry.source]]");
-    else if (/^tool\.uv(?:\.pip)?\.(?:index-url|extra-index-url|find-links)$/.test(key)) {
+    else if (
+      /^tool\.uv(?:\.pip)?\.(?:index-url|index_url|default-index|default_index|extra-index-url|extra_index_url|find-links|find_links)$/.test(
+        key,
+      )
+    ) {
       if (!isDefaultRegistryValue(value)) found.add(key);
+    } else if (/^tool\.uv\.sources(?:\.|$)/.test(key) && /\bindex\s*=/.test(value)) {
+      found.add("[tool.uv.sources]");
     } else if (
       /^tool(?:\.uv(?:\.pip)?|\.poetry)?$/.test(key) &&
-      /\b(?:index|index-url|extra-index-url|find-links|source)\s*=/.test(value)
+      /\b(?:index|index-url|index_url|default-index|default_index|extra-index-url|extra_index_url|find-links|find_links|source)\s*=/.test(
+        value,
+      )
     ) {
       found.add(`${key} (inline table)`);
     }
@@ -191,13 +216,18 @@ export function findPyprojectRegistries(text: string): string[] {
   return [...found];
 }
 
-/** Top-level `registry` / `registries` keys in pnpm-workspace.yaml (pnpm ≥ 10 reads settings from it). */
+/** Top-level `registry`, `registries`, or `@scope:registry` keys in pnpm-workspace.yaml (pnpm ≥ 10 reads settings from it). */
 export function findPnpmWorkspaceRegistries(text: string): string[] {
   const found: string[] = [];
   for (const line of text.split(/\r?\n/)) {
-    const match = /^(registry|registries)\s*:\s*(.*)$/.exec(line);
+    if (/^\s*#/.test(line)) continue;
+    const match = /^\s*["']?((?:@[^:"'\s]+:)?registry|registries)["']?\s*:\s*(.*)$/.exec(line);
     if (!match) continue;
-    if (match[1] === "registries" || !isDefaultRegistryValue(match[2] ?? "")) found.push(match[1]!);
+    const key = match[1]!;
+    const label = key.startsWith("@") ? "registries" : key;
+    if (label === "registries" || !isDefaultRegistryValue(match[2] ?? "")) {
+      if (!found.includes(label)) found.push(label);
+    }
   }
   return found;
 }

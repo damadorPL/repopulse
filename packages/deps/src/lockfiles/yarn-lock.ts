@@ -46,7 +46,7 @@ export function readYarnLock(
     const byDescriptor = new Map<string, string>();
     let formatVersion: string;
     if (isBerry) {
-      const data: unknown = parseYaml(text, { uniqueKeys: false });
+      const data: unknown = parseYaml(text, { maxAliasCount: 100, uniqueKeys: false });
       if (!isRecord(data)) throw new Error("not a YAML mapping");
       const metadata = isRecord(data.__metadata) ? data.__metadata : {};
       formatVersion = `berry/${metadata.version === undefined ? "unknown" : String(metadata.version)}`;

@@ -34,7 +34,7 @@ export async function ownerHasPermission(
     await saveLogin(login);
   }
   let permission = await github.getCollaboratorPermission(octokit, repo.owner, repo.name, login);
-  if (permission === null) {
+  if (!permissionAtLeast(permission, min)) {
     const fresh = await github.getUserLoginById(octokit, user.githubId);
     if (fresh && fresh !== login) {
       await saveLogin(fresh);

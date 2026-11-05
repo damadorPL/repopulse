@@ -242,7 +242,7 @@ function workspaceGlobs(pkg: Record<string, unknown> | null): string[] {
 function pnpmWorkspaceGlobs(text: string | null): string[] {
   if (text === null) return [];
   try {
-    const data: unknown = parseYaml(text);
+    const data: unknown = parseYaml(text, { maxAliasCount: 50 });
     if (!isRecord(data) || !Array.isArray(data.packages)) return [];
     return data.packages.filter((glob): glob is string => typeof glob === "string");
   } catch {

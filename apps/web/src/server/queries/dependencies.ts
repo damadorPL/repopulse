@@ -503,7 +503,7 @@ export async function checkRepoAccess(
     );
     const octokit = createOctokit({ accessToken: token, fetch });
     let permission = user.githubLogin ? await getCollaboratorPermission(octokit, repo.owner, repo.name, user.githubLogin) : null;
-    if (permission === null) {
+    if (!permissionAtLeast(permission, min)) {
       // Logins can change: re-resolve it from the immutable id and try once more.
       const login = await getUserLoginById(octokit, user.githubId);
       if (login && login !== user.githubLogin) {

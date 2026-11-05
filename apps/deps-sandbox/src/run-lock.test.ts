@@ -10,6 +10,7 @@ import {
   buildSandboxEnv,
   defaultSpawn,
   findConfigRegistries,
+  findPnpmWorkspaceRegistries,
   findPyprojectRegistries,
   prepareFiles,
   runLock,
@@ -168,6 +169,17 @@ describe("findPyprojectRegistries", () => {
     expect(findPyprojectRegistries('[tool.uv.pip]\nextra-index-url = ["https://x/simple"]\n')).toEqual([
       "tool.uv.pip.extra-index-url",
     ]);
+    expect(
+      findPyprojectRegistries(
+        '[tool.uv]\nextra-index-url = ["https://pypi.org/simple", "https://pypi.acme.dev/simple"]\n',
+      ),
+    ).toEqual(["tool.uv.extra-index-url"]);
+    expect(findPyprojectRegistries('[tool.uv]\ndefault-index = "https://pypi.acme.dev/simple"\n')).toEqual([
+      "tool.uv.default-index",
+    ]);
+    expect(findPyprojectRegistries('[tool.uv.sources]\ninternal-pkg = { index = "acme" }\n')).toEqual([
+      "[tool.uv.sources]",
+    ]);
   });
 
   it("ignores defaults, comments and multi-line strings", () => {
@@ -189,11 +201,23 @@ describe("findPyprojectRegistries", () => {
 });
 
 describe("findConfigRegistries", () => {
-  it("handles .yarnrc, uv.toml and poetry.toml", () => {
+  it("handles .yarnrc, bunfig.toml, pnpm-workspace.yaml, uv.toml and poetry.toml", () => {
     expect(findConfigRegistries(".yarnrc", 'registry "https://npm.acme.dev"\n')).toEqual(["registry"]);
+    expect(findConfigRegistries("bunfig.toml", '[install.scopes."@acme"]\nurl = "https://npm.acme.dev"\n')).toEqual([
+      "install.scopes",
+    ]);
+    expect(findConfigRegistries("bunfig.toml", '[install]\nscopes = { "@acme" = "https://npm.acme.dev" }\n')).toEqual([
+      "install.scopes",
+    ]);
     expect(findConfigRegistries("uv.toml", '[[index]]\nurl = "https://x"\n')).toEqual(["[[index]]"]);
+    expect(findConfigRegistries("uv.toml", '[sources]\ninternal-pkg = { index = "acme" }\n')).toEqual(["sources"]);
+    expect(findConfigRegistries("uv.toml", 'extra_index_url = ["https://pypi.acme.dev/simple"]\n')).toEqual([
+      "index-url",
+    ]);
     expect(findConfigRegistries("poetry.toml", "[repositories.acme]\nurl = 'x'\n")).toEqual(["repositories"]);
     expect(findConfigRegistries(".npmrc", "; registry=https://evil\n")).toEqual([]);
+    expect(findPnpmWorkspaceRegistries('"@acme:registry": "https://npm.acme.dev"\n')).toEqual(["registries"]);
+    expect(findPnpmWorkspaceRegistries('"registry": "https://npm.acme.dev"\n')).toEqual(["registry"]);
   });
 });
 

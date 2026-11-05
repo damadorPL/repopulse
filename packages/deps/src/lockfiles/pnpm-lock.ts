@@ -19,7 +19,7 @@ export function stripPnpmVersionSuffix(version: string): string | null {
  */
 export function readPnpmLock(text: string, importer = ".", path = "pnpm-lock.yaml"): LockfileVersions {
   return guardLockfile(text, path, () => {
-    const data: unknown = parseYaml(text, { maxAliasCount: -1, uniqueKeys: false });
+    const data: unknown = parseYaml(text, { maxAliasCount: 100, uniqueKeys: false });
     if (!isRecord(data)) throw new Error("not a YAML mapping");
     const formatVersion = data.lockfileVersion === undefined ? null : String(data.lockfileVersion);
     const importerKey = importer === "" ? "." : importer;

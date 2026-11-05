@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.5] — 2026-11-05 — Security hardening and vulnerability mitigations
+
+### Security
+- Harden custom registry and index detection in `deps-sandbox` (`bunfig.toml` scoped tables, `pnpm-workspace.yaml` scoped/quoted registry keys, `uv.toml`/`pyproject.toml` `default-index`, `[sources]`, underscore keys, and multi-URL lists).
+- Separate Python registry policy families (`pyproject.toml`/`uv.toml` vs `pip.conf`/`pip.ini`) and prevent public default index overrides from clearing private default index policies in `@repopulse/deps`.
+- Bound YAML alias expansion (`maxAliasCount`) when parsing `pnpm-lock.yaml`, Berry `yarn.lock`, and `pnpm-workspace.yaml`.
+- Eliminate superlinear regex backtracking in `workspaceGlobToRegExp` / `matchesWorkspaceGlobs` for untrusted workspace globs.
+- Reject backslash-prefixed and non-local `callbackUrl` values on `/login` (`safeCallbackUrl`), and add baseline security headers in `next.config.ts`.
+- Re-resolve collaborator login from immutable `githubId` whenever permission checks fail (not only on HTTP 404).
+
 ## [0.9.4.3] — 2026-11-05 — Release history candidates and GitHub API quota display
 
 ### Added

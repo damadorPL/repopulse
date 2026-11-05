@@ -105,6 +105,14 @@ describe("readPnpmLock", () => {
     expect(res.versions.size).toBe(0);
     expect(res.warnings[0]).toMatch(/pnpm-lock\.yaml could not be parsed \(not a YAML mapping\)/);
   });
+
+  it("rejects excessive YAML alias expansion in pnpm-lock.yaml", () => {
+    const aliases = Array.from({ length: 120 }, (_, i) => `  pkg-${i}: *a`).join("\n");
+    const bomb = `lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      a: &a 1.0.0\n${aliases}\n`;
+    const res = readPnpmLock(bomb);
+    expect(res.versions.size).toBe(0);
+    expect(res.warnings[0]).toMatch(/pnpm-lock\.yaml could not be parsed/);
+  });
 });
 
 describe("readBunLock", () => {

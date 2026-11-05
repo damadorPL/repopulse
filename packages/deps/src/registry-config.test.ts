@@ -185,4 +185,28 @@ priority = "${priority}"
       expect(check("PYPI", { "pyproject.toml": nonExplicit }, ["requests"])).toEqual({ requests: false });
     }
   });
+
+  it("does not allow a public pip.conf or [tool.uv.pip] section to clear a private pyproject.toml / uv.toml default index", () => {
+    expect(
+      check(
+        "PYPI",
+        {
+          "pyproject.toml": '[tool.uv]\nindex-url = "https://pypi.internal.example/simple"\n',
+          "pip.conf": "[global]\nindex-url = https://pypi.org/simple\n",
+        },
+        ["internal-pkg"],
+      ),
+    ).toEqual({ "internal-pkg": false });
+
+    expect(
+      check(
+        "PYPI",
+        {
+          "pyproject.toml":
+            '[tool.uv]\ndefault-index = "https://pypi.internal.example/simple"\n[tool.uv.pip]\nindex-url = "https://pypi.org/simple"\n',
+        },
+        ["internal-pkg"],
+      ),
+    ).toEqual({ "internal-pkg": false });
+  });
 });
