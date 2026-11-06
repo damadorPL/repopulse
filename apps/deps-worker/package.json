@@ -17,7 +17,7 @@
     "@repopulse/github": "workspace:*",
     "@repopulse/notifications": "workspace:*",
     "@repopulse/queue": "workspace:*",
-    "bullmq": "6.7.0",
+    "bullmq": "6.7.1",
     "ioredis": "6.0.0"
   },
   "devDependencies": {
