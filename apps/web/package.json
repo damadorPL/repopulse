@@ -16,7 +16,7 @@
     "@repopulse/github": "workspace:*",
     "@repopulse/notifications": "workspace:*",
     "@repopulse/queue": "workspace:*",
-    "bullmq": "6.7.1",
+    "bullmq": "6.7.2",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "date-fns": "4.4.0",

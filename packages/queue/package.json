@@ -26,7 +26,7 @@
     "lint": "eslint . --max-warnings 0"
   },
   "dependencies": {
-    "bullmq": "6.7.1",
+    "bullmq": "6.7.2",
     "ioredis": "6.0.0"
   },
   "devDependencies": {
