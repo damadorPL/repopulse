@@ -6,17 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.5.1] — 2026-11-10 — Dependency updates across workspace packages
+
 ### Added
 - Added `scripts/check-updates.mjs` and `pnpm deps:check` script to scan all monorepo dependencies against the npm registry.
 
 ### Changed
 - Updated dependencies across workspace packages to their latest releases:
-  - `bullmq` 6.7.1 → 6.7.2 (`apps/web`, `apps/deps-worker`, `apps/worker`, `packages/queue`)
-  - `lucide-react` 1.69.0 → 1.70.0 (`apps/web`)
-  - `@tailwindcss/postcss` and `tailwindcss` 4.3.4 → 4.3.5 (`apps/web`)
-  - `nodemailer` 10.3.1 → 10.4.0 (`packages/notifications`)
-  - `typescript-eslint` 8.72.1 → 8.72.2 (root)
-  - `postcss-selector-parser` 6.1.5 → 6.1.6 override (`pnpm-workspace.yaml`)
+  - `bullmq` 6.7.2 → 6.7.3 (`apps/web`, `apps/deps-worker`, `apps/worker`, `packages/queue`)
+  - `lucide-react` 1.70.0 → 1.71.0 (`apps/web`)
+  - `next` 16.4.5 → 16.4.6 (`apps/web`)
+  - `nodemailer` 10.4.0 → 10.5.0 (`packages/notifications`)
 
 ## [0.9.5] — 2026-11-05 — Security hardening and vulnerability mitigations
 

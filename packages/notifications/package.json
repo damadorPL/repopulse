@@ -26,7 +26,7 @@
     "lint": "eslint . --max-warnings 0"
   },
   "dependencies": {
-    "nodemailer": "10.4.0"
+    "nodemailer": "10.5.0"
   },
   "devDependencies": {
     "@repopulse/tsconfig": "workspace:*",
