@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+### Changed
+- Updated dependencies across workspace packages to their latest releases:
+  - `bullmq` 6.7.3 → 6.7.4 (`apps/web`, `apps/deps-worker`, `apps/worker`, `packages/queue`)
+  - `lucide-react` 1.71.0 → 1.72.0 (`apps/web`)
+
 ## [0.9.5.1] — 2026-11-10 — Dependency updates across workspace packages
 
 ### Added

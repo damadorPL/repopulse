@@ -231,8 +231,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/queue
       bullmq:
-        specifier: 6.7.3
-        version: 6.7.3(ioredis@6.0.0)(pg@8.23.1)
+        specifier: 6.7.4
+        version: 6.7.4(ioredis@6.0.0)(pg@8.23.1)
       ioredis:
         specifier: 6.0.0
         version: 6.0.0
@@ -271,8 +271,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/queue
       bullmq:
-        specifier: 6.7.3
-        version: 6.7.3(ioredis@6.0.0)(pg@8.23.1)
+        specifier: 6.7.4
+        version: 6.7.4(ioredis@6.0.0)(pg@8.23.1)
       class-variance-authority:
         specifier: 0.7.1
         version: 0.7.1
@@ -286,8 +286,8 @@ importers:
         specifier: 6.0.0
         version: 6.0.0
       lucide-react:
-        specifier: 1.71.0
-        version: 1.71.0(@types/react@19.3.0)(react@19.3.1)
+        specifier: 1.72.0
+        version: 1.72.0(@types/react@19.3.0)(react@19.3.1)
       next:
         specifier: 16.4.6
         version: 16.4.6(@babel/core@7.29.13)(@types/node@26.6.6)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -377,8 +377,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/queue
       bullmq:
-        specifier: 6.7.3
-        version: 6.7.3(ioredis@6.0.0)(pg@8.23.1)
+        specifier: 6.7.4
+        version: 6.7.4(ioredis@6.0.0)(pg@8.23.1)
       ioredis:
         specifier: 6.0.0
         version: 6.0.0
@@ -505,8 +505,8 @@ importers:
   packages/queue:
     dependencies:
       bullmq:
-        specifier: 6.7.3
-        version: 6.7.3(ioredis@6.0.0)(pg@8.23.1)
+        specifier: 6.7.4
+        version: 6.7.4(ioredis@6.0.0)(pg@8.23.1)
       ioredis:
         specifier: 6.0.0
         version: 6.0.0
@@ -2669,8 +2669,8 @@ packages:
     engines: {node: ^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7}
     hasBin: true
 
-  bullmq@6.7.3:
-    resolution: {integrity: sha512-0ROchqVhgJw2ajv62GrN1cGMpDabxpTJAp5ZDlm/qL7f+B+CdFJAcu70U3zbD/D3hc6NZxbdHvRMPTC0aEl77A==}
+  bullmq@6.7.4:
+    resolution: {integrity: sha512-wSNRD2kUE+sqNV42MQLiwtOPgwJmhiZlZ0X5zYBYXRkmok6YKJMf9IXfYLCu7DI4/txNTBlT2g2NHfRW/PxCvw==}
     engines: {node: '>=14.18.0'}
     peerDependencies:
       bullmq-otel: '>=2.0.0'
@@ -3316,8 +3316,8 @@ packages:
     resolution: {integrity: sha512-5J9ysMYUpYIg9RF2vJpy9SinEmSviFSe0GyPpCQ4L5QSkLAgeLXlTAOu2ZwWUU5m+0SBl6gUU1R1ZQB3aKypfA==}
     engines: {bun: '>=1.0.0', deno: '>=1.30.0', node: '>=8.0.0'}
 
-  lucide-react@1.71.0:
-    resolution: {integrity: sha512-8YtvF+bqT/EMqAXU7kWvYdRu+TV9j4kS1eIS7IbN1j1Z1DgupbrTL0nDIygdqgBDTD7AJPP607VdVgzDTar4zA==}
+  lucide-react@1.72.0:
+    resolution: {integrity: sha512-fbF5i1GU8GODETa3Q7rXqrJrcx3iPYrQtxthom103zGx+Z0BGwKYAW9s+9435ohYJ7hQm0av0PoZcqI1CRwNrg==}
     peerDependencies:
       '@types/react': '*'
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
@@ -3538,6 +3538,7 @@ packages:
 
   node-abort-controller@3.1.1:
     resolution: {integrity: sha512-AGK2yQKIjRuqnc6VkX2Xj5d+QW8xZ87pa1UK6yA6ouUyuxfHuMP6umE5QK7UmTeOAymo+Zx1Fxiuw9rVx8taHQ==}
+    deprecated: This package is no longer needed on supported Node.js versions. Node.js 16+ includes AbortController and AbortSignal as built-in globals. All Node.js versions requiring this polyfill are end-of-life. Use the built-in globals instead.
 
   node-gyp-build-optional-packages@5.2.2:
     resolution: {integrity: sha512-s+w+rBWnpTMwSFbaE0UXsRlg7hU4FjekKU4eyAih5T8nJuNZT1nNsskXpxmeqSK9UzkBl6UgRlnKc8hz8IEqOw==}
@@ -6233,7 +6234,7 @@ snapshots:
       node-releases: 2.0.63
       update-browserslist-db: 1.3.4(browserslist@4.29.5)
 
-  bullmq@6.7.3(ioredis@6.0.0)(pg@8.23.1):
+  bullmq@6.7.4(ioredis@6.0.0)(pg@8.23.1):
     dependencies:
       cron-parser: 5.10.4
       msgpackr: 2.1.4
@@ -6873,7 +6874,7 @@ snapshots:
 
   lru.min@1.1.5: {}
 
-  lucide-react@1.71.0(@types/react@19.3.0)(react@19.3.1):
+  lucide-react@1.72.0(@types/react@19.3.0)(react@19.3.1):
     dependencies:
       react: 19.3.1
     optionalDependencies:
