@@ -40,7 +40,7 @@ minimumReleaseAgeExclude:
   - '@tailwindcss/postcss@4.3.5'
   - lucide-react@1.72.0
   - tailwindcss@4.3.5
-  - bullmq@6.7.4
+  - bullmq@6.7.5
   - '@typescript-eslint/eslint-plugin@8.72.2'
   - '@typescript-eslint/parser@8.72.2'
   - '@typescript-eslint/project-service@8.72.2'
