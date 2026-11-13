@@ -208,7 +208,7 @@ lockfile groups while the `deps-worker` heartbeat shows no reachable sandbox.
 | Poetry | `poetry --no-plugins --no-interaction --no-ansi lock` | `poetry … update --lock <names>` |
 
 Image pins (`apps/deps-sandbox/Dockerfile`, `node:26-trixie-slim`, Python 3.13, `tini`, uid 10001): npm 12.2.2,
-pnpm 12.16.1, Bun 1.4.4, uv 0.13.7, Poetry 2.5.1. Re-check `commands.ts` (flags, lockfile format constants) on every
+pnpm 12.18.0, Bun 1.4.4, uv 0.13.8, Poetry 2.5.1. Re-check `commands.ts` (flags, lockfile format constants) on every
 bump.
 
 ## Supported ecosystems

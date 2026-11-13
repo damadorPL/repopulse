@@ -23,7 +23,7 @@ import {
   type SpawnOptions,
 } from "./run-lock.js";
 
-const TOOLS: ToolVersions = { npm: "12.2.2", pnpm: "12.16.1", bun: "1.4.4", uv: "0.13.7", poetry: "2.5.1" };
+const TOOLS: ToolVersions = { npm: "12.2.2", pnpm: "12.18.0", bun: "1.4.4", uv: "0.13.8", poetry: "2.5.1" };
 const b64 = (text: string) => Buffer.from(text, "utf8").toString("base64");
 const file = (p: string, content: string) => ({ path: p, contentBase64: b64(content) });
 const parse = (req: LockRequest) => lockRequestSchema.parse(req);

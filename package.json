@@ -16,6 +16,7 @@
     "env:setup": "node scripts/setup-env.mjs",
     "env:sync": "node scripts/sync-env.mjs",
     "deps:check": "node scripts/check-updates.mjs",
+    "deps:sandbox:check": "node scripts/check-sandbox-updates.mjs",
     "services:up": "docker compose -f docker-compose.dev.yml up -d --wait",
     "services:down": "docker compose -f docker-compose.dev.yml down"
   },

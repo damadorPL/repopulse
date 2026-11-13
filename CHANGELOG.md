@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.5.3] — 2026-11-13 — Sandbox runtime updates and check script
+
+### Added
+- Added `scripts/check-sandbox-updates.mjs` and `pnpm deps:sandbox:check` script to check pinned `deps-sandbox` runtime versions (`npm`, `pnpm`, `bun`, `poetry`, `uv`) against upstream registries and releases.
+
+### Changed
+- Updated `deps-sandbox` container runtime tool pins to their latest releases:
+  - `pnpm` 12.16.1 → 12.18.0
+  - `uv` 0.13.7 → 0.13.8 (with updated AMD64 and ARM64 sha256 checksums)
+
 ## [0.9.5.2] — 2026-11-13 — Dependency PR actions, pnpm 12 lockfile fixes, and dependency updates
 
 ### Added
