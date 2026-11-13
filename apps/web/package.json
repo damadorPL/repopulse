@@ -1,6 +1,6 @@
 {
   "name": "@repopulse/web",
-  "version": "0.9.5.1",
+  "version": "0.9.5.2",
   "private": true,
   "scripts": {
     "dev": "next dev --port 3000",
@@ -16,7 +16,7 @@
     "@repopulse/github": "workspace:*",
     "@repopulse/notifications": "workspace:*",
     "@repopulse/queue": "workspace:*",
-    "bullmq": "6.7.5",
+    "bullmq": "6.7.6",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "date-fns": "4.4.0",

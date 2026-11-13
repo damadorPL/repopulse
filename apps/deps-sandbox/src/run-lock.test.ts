@@ -12,6 +12,7 @@ import {
   findConfigRegistries,
   findPnpmWorkspaceRegistries,
   findPyprojectRegistries,
+  hasPnpmPackageManagerDependencies,
   prepareFiles,
   runLock,
   sanitizeOutput,
@@ -284,8 +285,11 @@ describe("buildSandboxEnv", () => {
         HTTPS_PROXY: "http://deps-egress:3128",
         CI: "1",
         npm_config_ignore_scripts: "true",
+        pnpm_config_ignore_scripts: "true",
+        pnpm_config_pm_on_fail: "ignore",
         UV_NO_BUILD: "1",
       });
+      expect(buildSandboxEnv("/tmp/lock-1", { proxy: null, pnpmPmOnFail: "warn" }).pnpm_config_pm_on_fail).toBe("warn");
       for (const [key, value] of Object.entries(env)) {
         if (/_DIR$|^npm_config_cache$|^TMPDIR$|^XDG_/.test(key)) expect(value.startsWith(path.join("/tmp/lock-1"))).toBe(true);
       }
@@ -294,6 +298,20 @@ describe("buildSandboxEnv", () => {
       delete process.env.GITHUB_TOKEN;
       delete process.env.DEPS_SANDBOX_TOKEN;
     }
+  });
+
+  it("hasPnpmPackageManagerDependencies detects packageManagerDependencies only in the boot document", () => {
+    expect(hasPnpmPackageManagerDependencies("lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies: {}\n")).toBe(false);
+    expect(
+      hasPnpmPackageManagerDependencies(
+        "---\nlockfileVersion: '9.0'\nimporters:\n  .:\n    packageManagerDependencies:\n      pnpm:\n        specifier: 12.16.1\n---\nlockfileVersion: '9.0'\n",
+      ),
+    ).toBe(true);
+    expect(
+      hasPnpmPackageManagerDependencies(
+        "---\nlockfileVersion: '9.0'\nimporters:\n  .: {}\n---\nlockfileVersion: '9.0'\n  packageManagerDependencies:\n    pnpm: 12.16.1\n",
+      ),
+    ).toBe(false);
   });
 });
 
@@ -355,6 +373,55 @@ describe("runLock", () => {
     expect(calls[0]!.args).toEqual(
       expect.arrayContaining(["--ignore-scripts", "--ignore-pnpmfile", "--lockfile-only"]),
     );
+    expect(calls[0]!.options.env.pnpm_config_pm_on_fail).toBe("ignore");
+  });
+
+  it("sets pnpm_config_pm_on_fail=warn when input pnpm-lock.yaml has packageManagerDependencies and ignore otherwise", async () => {
+    const multiDoc = [
+      "---",
+      "lockfileVersion: '9.0'",
+      "importers:",
+      "  .:",
+      "    packageManagerDependencies:",
+      "      pnpm:",
+      "        specifier: 12.16.1",
+      "        version: 12.16.1",
+      "---",
+      "lockfileVersion: '9.0'",
+      "importers:",
+      "  .: {}",
+      "",
+    ].join("\n");
+    const singleDoc = "lockfileVersion: '9.0'\nimporters:\n  .: {}\n";
+
+    const multiRun = fakeSpawn(writes("pnpm-lock.yaml", multiDoc));
+    const multiRes = await runLock(
+      parse({
+        packageManager: "PNPM",
+        workdir: "",
+        files: [file("package.json", PKG), file("pnpm-lock.yaml", multiDoc)],
+        upgrade: [],
+        expectLockfile: "pnpm-lock.yaml",
+      }),
+      options({ spawn: multiRun.spawn }),
+    );
+    expect(multiRes.ok).toBe(true);
+    expect(multiRun.calls[0]!.options.env.pnpm_config_pm_on_fail).toBe("warn");
+    expect(multiRun.calls[0]!.options.env.pnpm_config_ignore_scripts).toBe("true");
+
+    const singleRun = fakeSpawn(writes("pnpm-lock.yaml", singleDoc));
+    const singleRes = await runLock(
+      parse({
+        packageManager: "PNPM",
+        workdir: "",
+        files: [file("package.json", PKG), file("pnpm-lock.yaml", singleDoc)],
+        upgrade: [],
+        expectLockfile: "pnpm-lock.yaml",
+      }),
+      options({ spawn: singleRun.spawn }),
+    );
+    expect(singleRes.ok).toBe(true);
+    expect(singleRun.calls[0]!.options.env.pnpm_config_pm_on_fail).toBe("ignore");
   });
 
   it("returns COMMAND_FAILED with a sanitized tail", async () => {

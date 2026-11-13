@@ -238,9 +238,12 @@ export function lockfileFormat(pm: SandboxPackageManager, content: string): stri
     case "NPM":
       match = /"lockfileVersion"\s*:\s*(\d+)/.exec(head);
       break;
-    case "PNPM":
-      match = /^lockfileVersion:\s*['"]?([0-9][0-9.]*)['"]?\s*$/m.exec(head);
-      break;
+    case "PNPM": {
+      const matches = [...content.matchAll(/^lockfileVersion:[ \t]*['"]?([0-9][0-9.]*)['"]?[ \t]*$/gm)];
+      if (matches.length === 0) return null;
+      const first = matches[0]![1]!;
+      return matches.every((m) => m[1] === first) ? first : null;
+    }
     case "BUN":
       match = /"lockfileVersion"\s*:\s*(\d+)/.exec(head);
       break;

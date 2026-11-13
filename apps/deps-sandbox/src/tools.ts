@@ -18,8 +18,8 @@ export type VersionRunner = (tool: ToolName) => Promise<string>;
 
 /**
  * `<tool> --version` from an empty dir. Run from the app dir, pnpm would read the monorepo's own `packageManager`
- * field and try to download that pnpm version (and hang on the blocked network), hence also the
- * `manage_package_manager_versions=false` setting, as in the jobs.
+ * field and try to download that pnpm version (and hang on the blocked network), hence `pm_on_fail=ignore`
+ * (pnpm 11+) and `manage_package_manager_versions=false` (older pnpm), as in the jobs.
  */
 const defaultRunner: VersionRunner = (tool) =>
   new Promise<string>((resolve, reject) => {
@@ -36,6 +36,7 @@ const defaultRunner: VersionRunner = (tool) =>
         CI: "1",
         npm_config_manage_package_manager_versions: "false",
         pnpm_config_manage_package_manager_versions: "false",
+        pnpm_config_pm_on_fail: "ignore",
       },
     });
     let output = "";

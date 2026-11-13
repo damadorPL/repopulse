@@ -83,6 +83,14 @@ export interface DependencyProjectListItem {
   outdated: LevelCounts;
   openPullRequests: Array<{ id: string; number: number; htmlUrl: string; groupKey: string }>;
   updateMode: DepsUpdateMode;
+  groupMode: DepsGroupMode;
+  maxOpenPrs: number;
+  prOwner: PrOwnerView;
+  manifests: Array<Pick<DependencyManifestView, "id" | "path" | "ecosystem" | "packageManager" | "lockfilePath">>;
+  outdatedUpdates: Array<
+    Pick<DependencyUpdateView, "manifestId" | "manifestPath" | "ecosystem" | "name" | "currentVersion" | "targetVersion" | "level" | "status">
+  >;
+  pullRequests: Array<Pick<DependencyPullRequestView, "groupKey" | "number" | "htmlUrl" | "state">>;
   lastScannedAt: Date | null;
   scanStatus: DepsScanStatus;
   scanError: string | null;
@@ -97,18 +105,30 @@ export async function getDependencyProjects(userId: string): Promise<DependencyP
       orderBy: { fullName: "asc" },
       select: {
         id: true,
+        githubRepoId: true,
         owner: true,
         name: true,
         fullName: true,
         isPrivate: true,
         repositoryId: true,
         updateMode: true,
+        groupMode: true,
+        maxOpenPrs: true,
         lastScannedAt: true,
         scanStatus: true,
         scanError: true,
+        prOwnership: { select: { projectId: true } },
         repository: { select: { avatarUrl: true } },
-        manifests: { select: { packageManager: true } },
-        pullRequests: { where: { state: "OPEN" }, orderBy: { openedAt: "asc" }, select: { id: true, number: true, htmlUrl: true, groupKey: true } },
+        manifests: { select: { id: true, path: true, ecosystem: true, packageManager: true, lockfilePath: true } },
+        updates: {
+          where: { status: "OUTDATED" },
+          orderBy: [{ name: "asc" }, { kind: "asc" }],
+          select: { manifestId: true, name: true, currentVersion: true, targetVersion: true, level: true, status: true },
+        },
+        pullRequests: {
+          orderBy: { openedAt: "asc" },
+          select: { id: true, number: true, htmlUrl: true, groupKey: true, state: true },
+        },
       },
     }),
     prisma.dependencyUpdate.groupBy({
@@ -118,6 +138,23 @@ export async function getDependencyProjects(userId: string): Promise<DependencyP
     }),
     prisma.userSubscription.findMany({ where: { userId }, select: { repositoryId: true } }),
   ]);
+
+  const unownedRepoIds = [
+    ...new Set(
+      projects
+        .filter((project) => project.updateMode !== "NOTIFY" && !project.prOwnership && typeof project.githubRepoId === "number")
+        .map((project) => project.githubRepoId),
+    ),
+  ];
+  const owners =
+    unownedRepoIds.length > 0
+      ? await prisma.dependencyPrOwner.findMany({
+          where: { githubRepoId: { in: unownedRepoIds } },
+          select: { githubRepoId: true, projectId: true, project: { select: { user: { select: { githubLogin: true, name: true } } } } },
+        })
+      : [];
+  const ownerByRepoId = new Map(owners.map((owner) => [owner.githubRepoId, owner]));
+
   const tracked = new Set(subscriptions.map((s) => s.repositoryId));
   const outdated = new Map<string, LevelCounts>();
   for (const row of counts) {
@@ -125,22 +162,64 @@ export async function getDependencyProjects(userId: string): Promise<DependencyP
     addLevel(entry, row.level, row._count._all);
     outdated.set(row.projectId, entry);
   }
-  return projects.map((project) => ({
-    id: project.id,
-    owner: project.owner,
-    name: project.name,
-    fullName: project.fullName,
-    avatarUrl: ownerAvatar(project.owner, project.repository?.avatarUrl),
-    isPrivate: project.isPrivate,
-    packageManagers: [...new Set(project.manifests.map((m) => m.packageManager))].sort(),
-    outdated: outdated.get(project.id) ?? emptyCounts(),
-    openPullRequests: project.pullRequests,
-    updateMode: project.updateMode,
-    lastScannedAt: project.lastScannedAt,
-    scanStatus: project.scanStatus,
-    scanError: project.scanError,
-    tracked: project.repositoryId !== null && tracked.has(project.repositoryId),
-  }));
+  return projects.map((project) => {
+    const manifestById = new Map(project.manifests.map((m) => [m.id ?? m.packageManager, m]));
+    const ownerRecord = project.prOwnership ? null : ownerByRepoId.get(project.githubRepoId);
+    const prOwner: PrOwnerView = project.prOwnership
+      ? { kind: "self" }
+      : ownerRecord
+        ? ownerRecord.projectId === project.id
+          ? { kind: "self" }
+          : { kind: "other", ownerName: userDisplayName(ownerRecord.project.user) }
+        : { kind: "none" };
+    return {
+      id: project.id,
+      owner: project.owner,
+      name: project.name,
+      fullName: project.fullName,
+      avatarUrl: ownerAvatar(project.owner, project.repository?.avatarUrl),
+      isPrivate: project.isPrivate,
+      packageManagers: [...new Set(project.manifests.map((m) => m.packageManager))].sort(),
+      outdated: outdated.get(project.id) ?? emptyCounts(),
+      openPullRequests: project.pullRequests
+        .filter((pr) => (pr.state ?? "OPEN") === "OPEN")
+        .map((pr) => ({ id: pr.id, number: pr.number, htmlUrl: pr.htmlUrl, groupKey: pr.groupKey })),
+      updateMode: project.updateMode,
+      groupMode: project.groupMode ?? "SEPARATE_MAJORS",
+      maxOpenPrs: project.maxOpenPrs ?? 5,
+      prOwner,
+      manifests: project.manifests.map((m) => ({
+        id: m.id ?? m.packageManager,
+        path: m.path ?? "",
+        ecosystem: m.ecosystem ?? "NPM",
+        packageManager: m.packageManager,
+        lockfilePath: m.lockfilePath ?? null,
+      })),
+      outdatedUpdates: (project.updates ?? []).map((u) => {
+        const manifest = manifestById.get(u.manifestId);
+        return {
+          manifestId: u.manifestId,
+          manifestPath: manifest?.path ?? "",
+          ecosystem: manifest?.ecosystem ?? "NPM",
+          name: u.name,
+          currentVersion: u.currentVersion,
+          targetVersion: u.targetVersion,
+          level: u.level,
+          status: u.status,
+        };
+      }),
+      pullRequests: project.pullRequests.map((pr) => ({
+        groupKey: pr.groupKey,
+        number: pr.number,
+        htmlUrl: pr.htmlUrl,
+        state: pr.state ?? "OPEN",
+      })),
+      lastScannedAt: project.lastScannedAt,
+      scanStatus: project.scanStatus,
+      scanError: project.scanError,
+      tracked: project.repositoryId !== null && tracked.has(project.repositoryId),
+    };
+  });
 }
 
 export interface AddableSubscription {
@@ -546,6 +625,16 @@ export interface PlannedPullRequest {
   disabledReason: string | null;
 }
 
+export interface PlanPullRequestsInput {
+  settings: Pick<DependencyProjectSettings, "updateMode" | "groupMode" | "maxOpenPrs">;
+  prOwner: PrOwnerView;
+  manifests: Array<Pick<DependencyManifestView, "id" | "path" | "ecosystem" | "packageManager" | "lockfilePath">>;
+  updates: Array<
+    Pick<DependencyUpdateView, "manifestId" | "manifestPath" | "ecosystem" | "name" | "currentVersion" | "targetVersion" | "level" | "status">
+  >;
+  pullRequests: Array<Pick<DependencyPullRequestView, "groupKey" | "number" | "htmlUrl" | "state">>;
+}
+
 /**
  * The planned update pull requests of a project: `groupUpdates` over its `OUTDATED` rows, each with
  * `groupCapability` (lockfile regeneration is available when the deps-worker heartbeat reports a reachable
@@ -554,7 +643,7 @@ export interface PlannedPullRequest {
  * owned by another project, check-only package manager, an edited PR, no free slot.
  */
 export function planPullRequests(
-  project: DependencyProjectDetail,
+  project: PlanPullRequestsInput,
   app: AppRepoStatus,
   options: { lockfileRegeneration: boolean },
 ): PlannedPullRequest[] {
@@ -589,4 +678,33 @@ export function planPullRequests(
       disabledReason,
     };
   });
+}
+
+/**
+ * Planned update pull requests for a `/dependencies` list row, without making per-repository GitHub
+ * API calls on list render (installation & write access are verified on click).
+ */
+export function planListPullRequests(
+  project: DependencyProjectListItem,
+  options: { appConfigured: boolean; lockfileRegeneration: boolean },
+): PlannedPullRequest[] {
+  if (project.updateMode === "NOTIFY") return [];
+  const app: AppRepoStatus = options.appConfigured
+    ? { state: "unknown", message: "" }
+    : { state: "not_configured" };
+  return planPullRequests(
+    {
+      settings: {
+        updateMode: project.updateMode,
+        groupMode: project.groupMode,
+        maxOpenPrs: project.maxOpenPrs,
+      },
+      prOwner: project.prOwner,
+      manifests: project.manifests,
+      updates: project.outdatedUpdates,
+      pullRequests: project.pullRequests,
+    },
+    app,
+    { lockfileRegeneration: options.lockfileRegeneration },
+  );
 }

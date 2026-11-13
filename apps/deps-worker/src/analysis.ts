@@ -157,7 +157,7 @@ async function readCurrentVersions(
     return { versions: new Map(), formatVersion: null, warnings: [`${lockfilePath} could not be read (larger than 20 MiB?): current versions are taken from the declared ranges`] };
   }
   const result = readLockfile({ ...input, text });
-  if (key && lockCache) await lockCache.set(key, result);
+  if (key && lockCache && result.warnings.length === 0) await lockCache.set(key, result);
   return result;
 }
 

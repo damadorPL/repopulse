@@ -239,4 +239,81 @@ describe("snapshot reader, lockCache, truncated trees, capDependencies, and pars
     expect(parseIgnoreRules([{ name: "react", versions: ">=19" }])).toEqual([{ name: "react", versions: ">=19" }]);
     expect(parseIgnoreRules("corrupt")).toEqual([]);
   });
+
+  it("analyzes multi-document pnpm-lock.yaml cleanly and does not cache lockfile reads with warnings", async () => {
+    const multiDocPnpmLock = [
+      "---",
+      "lockfileVersion: '9.0'",
+      "importers:",
+      "  .:",
+      "    configDependencies: {}",
+      "    packageManagerDependencies:",
+      "      pnpm:",
+      "        specifier: 12.16.1",
+      "        version: 12.16.1",
+      "---",
+      "lockfileVersion: '9.0'",
+      "importers:",
+      "  .:",
+      "    devDependencies:",
+      "      typescript:",
+      "        specifier: 7.0.2",
+      "        version: 7.0.2",
+      "  apps/web:",
+      "    dependencies:",
+      "      react:",
+      "        specifier: 19.0.0",
+      "        version: 19.0.0",
+      "",
+    ].join("\n");
+
+    const okFiles: Record<string, string> = {
+      "package.json": JSON.stringify({ packageManager: "pnpm@12.16.1", devDependencies: { typescript: "7.0.2" } }),
+      "pnpm-workspace.yaml": "packages:\n  - 'apps/*'\n",
+      "apps/web/package.json": JSON.stringify({ dependencies: { react: "19.0.0" } }),
+      "pnpm-lock.yaml": multiDocPnpmLock,
+    };
+    const okEntries = Object.entries(okFiles).map(([path, text]) => ({
+      path,
+      type: "blob" as const,
+      sha: `sha-${path}`,
+      size: text.length,
+    }));
+    const okReader = createSnapshotReader(okEntries, async (refs) =>
+      refs.map(({ path, sha }) => ({ path, sha, content: okFiles[path]! })),
+    );
+    const lockStore = new Map<string, { versions: Map<string, string>; formatVersion: string | null; warnings: string[] }>();
+    const lockCache = {
+      get: vi.fn(async (k: string) => lockStore.get(k) ?? null),
+      set: vi.fn(async (k: string, v: { versions: Map<string, string>; formatVersion: string | null; warnings: string[] }) => {
+        lockStore.set(k, v);
+      }),
+    };
+
+    const okAnalysis = await analyzeProject({ entries: okEntries, manifestPaths: [], reader: okReader, lockCache });
+    expect(okAnalysis.manifests.map((m) => [m.detected.path, m.lockfileFormatVersion, m.warnings, m.dependencies.map((d) => [d.dependency.name, d.currentVersion])])).toEqual([
+      ["apps/web/package.json", "9.0", [], [["react", "19.0.0"]]],
+      ["package.json", "9.0", [], [["typescript", "7.0.2"]]],
+    ]);
+    expect(lockCache.set).toHaveBeenCalledTimes(2);
+
+    // Unparsable lockfile emits warning and is NOT cached in lockCache
+    lockCache.set.mockClear();
+    const badFiles: Record<string, string> = {
+      "package.json": npmManifest({ a: "^1.0.0" }),
+      "package-lock.json": "{not json",
+    };
+    const badEntries = Object.entries(badFiles).map(([path, text]) => ({
+      path,
+      type: "blob" as const,
+      sha: `bad-${path}`,
+      size: text.length,
+    }));
+    const badReader = createSnapshotReader(badEntries, async (refs) =>
+      refs.map(({ path, sha }) => ({ path, sha, content: badFiles[path]! })),
+    );
+    const badAnalysis = await analyzeProject({ entries: badEntries, manifestPaths: [], reader: badReader, lockCache });
+    expect(badAnalysis.manifests[0]!.warnings[0]).toMatch(/could not be parsed/);
+    expect(lockCache.set).not.toHaveBeenCalled();
+  });
 });

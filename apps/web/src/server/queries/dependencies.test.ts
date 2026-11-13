@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const prisma = {
   dependencyProject: { findMany: vi.fn(), findFirst: vi.fn() },
   dependencyUpdate: { groupBy: vi.fn() },
-  dependencyPrOwner: { findUnique: vi.fn() },
+  dependencyPrOwner: { findUnique: vi.fn(), findMany: vi.fn() },
   userSubscription: { findMany: vi.fn() },
   repository: { findUnique: vi.fn() },
   user: { update: vi.fn(() => Promise.resolve()) },
@@ -32,6 +32,7 @@ beforeEach(() => {
   prisma.dependencyUpdate.groupBy.mockResolvedValue([]);
   prisma.userSubscription.findMany.mockResolvedValue([]);
   prisma.dependencyPrOwner.findUnique.mockResolvedValue(null);
+  prisma.dependencyPrOwner.findMany.mockResolvedValue([]);
   loadGitHubAppSettings.mockResolvedValue({ appId: 1, slug: "repopulse", privateKey: "pem" });
   github.getRepoInstallation.mockResolvedValue({ installationId: 9, accountLogin: "acme" });
   github.createInstallationToken.mockResolvedValue({ token: "t", expiresAt: new Date() });
@@ -68,6 +69,82 @@ describe("getDependencyProjects", () => {
     expect(prisma.dependencyUpdate.groupBy).toHaveBeenCalledWith(expect.objectContaining({ where: { status: "OUTDATED", project: { userId: "u1" } } }));
     expect(prisma.userSubscription.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: "u1" } }));
     expect(project).toMatchObject({ packageManagers: ["PNPM", "UV"], outdated: { major: 2, minor: 0, patch: 1, other: 4 }, tracked: true });
+    expect(queries.planListPullRequests(project!, { appConfigured: true, lockfileRegeneration: true })).toEqual([]);
+  });
+
+  it("plans single and multi-group PRs, filters openPullRequests to OPEN, and resolves external PR owners", async () => {
+    prisma.dependencyProject.findMany.mockResolvedValue([
+      {
+        id: "p1",
+        githubRepoId: 10,
+        owner: "acme",
+        name: "web",
+        fullName: "acme/web",
+        isPrivate: false,
+        repositoryId: null,
+        updateMode: "MANUAL_PR",
+        groupMode: "SEPARATE_MAJORS",
+        maxOpenPrs: 5,
+        lastScannedAt: new Date(),
+        scanStatus: "IDLE",
+        scanError: null,
+        prOwnership: { projectId: "p1" },
+        repository: null,
+        manifests: [{ id: "m1", path: "package.json", ecosystem: "NPM", packageManager: "PNPM", lockfilePath: "pnpm-lock.yaml" }],
+        updates: [
+          { manifestId: "m1", name: "react", currentVersion: "18.0.0", targetVersion: "18.3.0", level: "MINOR", status: "OUTDATED" },
+          { manifestId: "m1", name: "vite", currentVersion: "5.0.0", targetVersion: "6.0.0", level: "MAJOR", status: "OUTDATED" },
+        ],
+        pullRequests: [
+          { id: "pr1", number: 12, htmlUrl: "https://github.com/acme/web/pull/12", groupKey: "all", state: "OPEN" },
+          { id: "pr2", number: 13, htmlUrl: "https://github.com/acme/web/pull/13", groupKey: "major-vite", state: "EDITED" },
+        ],
+      },
+      {
+        id: "p2",
+        githubRepoId: 20,
+        owner: "acme",
+        name: "api",
+        fullName: "acme/api",
+        isPrivate: false,
+        repositoryId: null,
+        updateMode: "AUTO_PR",
+        groupMode: "SINGLE",
+        maxOpenPrs: 5,
+        lastScannedAt: new Date(),
+        scanStatus: "IDLE",
+        scanError: null,
+        prOwnership: null,
+        repository: null,
+        manifests: [{ id: "m2", path: "package.json", ecosystem: "NPM", packageManager: "NONE", lockfilePath: null }],
+        updates: [{ manifestId: "m2", name: "zod", currentVersion: "3.0.0", targetVersion: "3.1.0", level: "MINOR", status: "OUTDATED" }],
+        pullRequests: [],
+      },
+    ]);
+    prisma.dependencyPrOwner.findMany.mockResolvedValue([
+      { githubRepoId: 20, projectId: "p-other", project: { user: { githubLogin: "bob", name: null } } },
+    ]);
+
+    const [p1, p2] = await queries.getDependencyProjects("u1");
+    expect(p1!.openPullRequests).toEqual([{ id: "pr1", number: 12, htmlUrl: "https://github.com/acme/web/pull/12", groupKey: "all" }]);
+    expect(prisma.dependencyPrOwner.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { githubRepoId: { in: [20] } } }),
+    );
+
+    const p1Plans = queries.planListPullRequests(p1!, { appConfigured: true, lockfileRegeneration: true });
+    expect(p1Plans.map((p) => [p.groupKey, p.disabledReason])).toEqual([
+      ["all", null],
+      ["major-vite", "Someone else pushed to this pull request, so RepoPulse no longer updates it."],
+    ]);
+    expect(queries.planListPullRequests(p1!, { appConfigured: true, lockfileRegeneration: false })[0]!.disabledReason).toContain(
+      "pnpm-lock.yaml",
+    );
+    expect(queries.planListPullRequests(p1!, { appConfigured: false, lockfileRegeneration: true })[0]!.disabledReason).toContain(
+      "not set up",
+    );
+
+    const p2Plans = queries.planListPullRequests(p2!, { appConfigured: true, lockfileRegeneration: true });
+    expect(p2Plans[0]!.disabledReason).toContain("bob");
   });
 });
 

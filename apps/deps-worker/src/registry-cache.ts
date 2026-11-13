@@ -56,6 +56,7 @@ export interface LockfileCache {
 }
 
 export const BLOB_CACHE_TTL_SECONDS = 7 * 24 * 3600;
+export const LOCKFILE_CACHE_VERSION = 2;
 
 export function lockfileCacheKey(
   lockfileSha: string,
@@ -63,7 +64,7 @@ export function lockfileCacheKey(
   dependencies: ReadonlyArray<{ name: string; declared: string }>,
 ): string {
   const digest = createHash("sha1")
-    .update(JSON.stringify([importer, dependencies.map((d) => [d.name, d.declared])]))
+    .update(JSON.stringify([LOCKFILE_CACHE_VERSION, importer, dependencies.map((d) => [d.name, d.declared])]))
     .digest("hex");
   return `${lockfileSha}-${digest}`;
 }

@@ -6,6 +6,7 @@ import {
   BUN_LOCK,
   PACKAGE_LOCK_V3,
   PNPM_LOCK_V9,
+  PNPM_LOCK_V9_MULTI_DOC,
   POETRY_LOCK,
   UV_LOCK,
   YARN_BERRY,
@@ -112,6 +113,60 @@ describe("readPnpmLock", () => {
     const res = readPnpmLock(bomb);
     expect(res.versions.size).toBe(0);
     expect(res.warnings[0]).toMatch(/pnpm-lock\.yaml could not be parsed/);
+  });
+
+  it("reads multi-document pnpm-lock.yaml (boot/env doc + project doc) without shadowing root importer", () => {
+    const root = readPnpmLock(PNPM_LOCK_V9_MULTI_DOC, ".");
+    expect(root.warnings).toEqual([]);
+    expect(root.formatVersion).toBe("9.0");
+    expect(entries(root.versions)).toEqual([["typescript", "5.4.5"]]);
+
+    const web = readPnpmLock(PNPM_LOCK_V9_MULTI_DOC, "apps/web");
+    expect(web.warnings).toEqual([]);
+    expect(web.formatVersion).toBe("9.0");
+    expect(entries(web.versions)).toEqual([
+      ["react", "18.2.0"],
+      ["react-dom", "18.2.0"],
+    ]);
+  });
+
+  it("rejects syntax errors, non-mappings, empty streams, too many documents, and alias bombs across multi-doc pnpm-lock.yaml", () => {
+    const validDoc = "lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      a: 1.0.0\n";
+
+    // Syntax error in doc 0 or doc 1
+    for (const bad of [`---\n[unclosed\n---\n${validDoc}`, `---\n${validDoc}---\n[unclosed\n`]) {
+      const res = readPnpmLock(bad);
+      expect(res.versions.size).toBe(0);
+      expect(res.formatVersion).toBeNull();
+      expect(res.warnings[0]).toMatch(/pnpm-lock\.yaml could not be parsed/);
+    }
+
+    // Non-mapping YAML in doc 0 or doc 1
+    for (const nonMap of [`---\n- item\n---\n${validDoc}`, `---\n${validDoc}---\n- item\n`]) {
+      const res = readPnpmLock(nonMap);
+      expect(res.versions.size).toBe(0);
+      expect(res.warnings[0]).toMatch(/pnpm-lock\.yaml could not be parsed \(not a YAML mapping\)/);
+    }
+
+    // Empty stream
+    for (const empty of ["", "# comment only\n"]) {
+      const res = readPnpmLock(empty);
+      expect(res.versions.size).toBe(0);
+      expect(res.warnings[0]).toMatch(/pnpm-lock\.yaml could not be parsed \(not a YAML mapping\)/);
+    }
+
+    // Too many documents (> 10)
+    const manyDocs = Array.from({ length: 11 }, () => `---\n${validDoc}`).join("\n");
+    const manyRes = readPnpmLock(manyDocs);
+    expect(manyRes.versions.size).toBe(0);
+    expect(manyRes.warnings[0]).toMatch(/too many YAML documents/);
+
+    // Alias bomb in doc 0 followed by valid doc 1
+    const aliases = Array.from({ length: 120 }, (_, i) => `  pkg-${i}: *a`).join("\n");
+    const doc0Bomb = `---\nlockfileVersion: '9.0'\na: &a 1.0.0\n${aliases}\n---\n${validDoc}`;
+    const doc0BombRes = readPnpmLock(doc0Bomb);
+    expect(doc0BombRes.versions.size).toBe(0);
+    expect(doc0BombRes.warnings[0]).toMatch(/pnpm-lock\.yaml could not be parsed/);
   });
 });
 

@@ -663,8 +663,102 @@ export async function triggerDependencyScanAction(input: { projectId: string }):
 }
 
 // ---------------------------------------------------------------------------
-// createDependencyPullRequestAction
+// createDependencyPullRequestAction & createProjectDependencyPullRequestsAction
 // ---------------------------------------------------------------------------
+
+export interface CreateProjectPullRequestsResult {
+  status: "QUEUED";
+  groupKeys: string[];
+}
+
+async function enqueueUpdateGroup(queue: Queue<DepsUpdateJobData>, projectId: string, groupKey: string): Promise<void> {
+  const jobId = depsUpdateJobId(projectId, groupKey);
+  const existing = await queue.getJob(jobId);
+  if (!existing) {
+    await queue.add(DEPS_JOB_NAMES.update, { projectId, groupKey, trigger: "manual" }, { jobId, priority: DEPS_UPDATE_PRIORITY.manual });
+    return;
+  }
+  const state = await existing.getState();
+  if (state === "waiting" || state === "prioritized") await existing.changePriority({ priority: DEPS_UPDATE_PRIORITY.manual });
+}
+
+async function loadPrOwnedProject(userId: string, projectId: string) {
+  const project = await prisma.dependencyProject.findFirst({
+    where: { id: projectId, userId },
+    select: {
+      id: true,
+      owner: true,
+      name: true,
+      githubRepoId: true,
+      updateMode: true,
+      groupMode: true,
+      maxOpenPrs: true,
+      prOwnership: { select: { projectId: true } },
+      pullRequests: { select: { groupKey: true, state: true } },
+      updates: {
+        where: { status: "OUTDATED" },
+        select: {
+          name: true,
+          level: true,
+          manifest: { select: { path: true, ecosystem: true, packageManager: true, lockfilePath: true } },
+        },
+      },
+    },
+  });
+  if (!project) return { ok: false as const, error: fail("NOT_FOUND", "Project not found.") };
+  if (!(await isDepsEnabled())) return { ok: false as const, error: fail("UNAVAILABLE", DISABLED_MESSAGE) };
+  if (project.updateMode === "NOTIFY") {
+    return { ok: false as const, error: fail("CONFLICT", "This project only notifies. Choose a pull request mode in its settings first.") };
+  }
+  if (!project.prOwnership) {
+    const owner = await prisma.dependencyPrOwner.findUnique({
+      where: { githubRepoId: project.githubRepoId },
+      select: { project: { select: { user: { select: { githubLogin: true, name: true } } } } },
+    });
+    return {
+      ok: false as const,
+      error: fail(
+        "CONFLICT",
+        owner
+          ? new PrOwnerConflictError(userDisplayName(owner.project.user)).message
+          : "This project doesn't manage pull requests for the repository. Save a pull request mode again in its settings.",
+      ),
+    };
+  }
+
+  const groups = groupUpdates(
+    project.updates.map((u) => ({ ecosystem: u.manifest.ecosystem, name: u.name, manifestPath: u.manifest.path, level: u.level, manifest: u.manifest })),
+    project.groupMode,
+    project.maxOpenPrs,
+  );
+  const prByGroup = new Map(project.pullRequests.map((pr) => [pr.groupKey, pr]));
+  return { ok: true as const, project, groups, prByGroup };
+}
+
+type PrOwnedGroup = Extract<Awaited<ReturnType<typeof loadPrOwnedProject>>, { ok: true }>["groups"][number];
+
+function groupDisabledMessage(
+  group: PrOwnedGroup,
+  prState: string | undefined,
+  maxOpenPrs: number,
+  lockfileRegeneration: boolean,
+): string | null {
+  if (prState === "EDITED") {
+    return "Someone else pushed to this pull request, so RepoPulse no longer updates it.";
+  }
+  const hasOpenPr = prState === "OPEN";
+  if (!hasOpenPr && !group.hasPrSlot) {
+    return `All ${maxOpenPrs} pull request slots are taken. Merge or close one, or raise the limit.`;
+  }
+  const manifests = [...new Map(group.updates.map((u) => [u.manifest.path, u.manifest])).values()];
+  const capability = groupCapability(
+    manifests.map((m) => ({ path: m.path, packageManager: m.packageManager, lockfilePath: m.lockfilePath })),
+    // The worker refuses lockfile groups while the sandbox is unreachable: say so now instead of queueing.
+    { lockfileRegeneration },
+  );
+  if (!capability.canCreatePr) return capability.reason ?? "This group can't get a pull request.";
+  return null;
+}
 
 /**
  * "Create PR" / "Update PR" for one planned group. Re-checks everything the button showed: the mode
@@ -683,85 +777,74 @@ export async function createDependencyPullRequestAction(input: {
     const { projectId, groupKey } = parsed.data;
     if (!isValidGroupKey(groupKey)) return fail("INVALID_INPUT", "Unknown pull request group.");
 
-    const project = await prisma.dependencyProject.findFirst({
-      where: { id: projectId, userId: user.id },
-      select: {
-        id: true,
-        owner: true,
-        name: true,
-        githubRepoId: true,
-        updateMode: true,
-        groupMode: true,
-        maxOpenPrs: true,
-        prOwnership: { select: { projectId: true } },
-        pullRequests: { where: { state: "OPEN" }, select: { groupKey: true } },
-        updates: {
-          where: { status: "OUTDATED" },
-          select: {
-            name: true,
-            level: true,
-            manifest: { select: { path: true, ecosystem: true, packageManager: true, lockfilePath: true } },
-          },
-        },
-      },
-    });
-    if (!project) return fail("NOT_FOUND", "Project not found.");
-    if (!(await isDepsEnabled())) return fail("UNAVAILABLE", DISABLED_MESSAGE);
-    if (project.updateMode === "NOTIFY") {
-      return fail("CONFLICT", "This project only notifies. Choose a pull request mode in its settings first.");
-    }
-    if (!project.prOwnership) {
-      const owner = await prisma.dependencyPrOwner.findUnique({
-        where: { githubRepoId: project.githubRepoId },
-        select: { project: { select: { user: { select: { githubLogin: true, name: true } } } } },
-      });
-      return fail(
-        "CONFLICT",
-        owner
-          ? new PrOwnerConflictError(userDisplayName(owner.project.user)).message
-          : "This project doesn't manage pull requests for the repository. Save a pull request mode again in its settings.",
-      );
-    }
+    const loaded = await loadPrOwnedProject(user.id, projectId);
+    if (!loaded.ok) return loaded.error;
+    const { project, groups, prByGroup } = loaded;
 
-    const groups = groupUpdates(
-      project.updates.map((u) => ({ ecosystem: u.manifest.ecosystem, name: u.name, manifestPath: u.manifest.path, level: u.level, manifest: u.manifest })),
-      project.groupMode,
-      project.maxOpenPrs,
-    );
     const group = groups.find((g) => g.groupKey === groupKey);
     if (!group) return fail("NOT_FOUND", "Nothing to update in this group any more. Check the project again.");
-    const hasOpenPr = project.pullRequests.some((pr) => pr.groupKey === groupKey);
-    if (!hasOpenPr && !group.hasPrSlot) {
-      return fail("CONFLICT", `All ${project.maxOpenPrs} pull request slots are taken. Merge or close one, or raise the limit.`);
-    }
-    const manifests = [...new Map(group.updates.map((u) => [u.manifest.path, u.manifest])).values()];
-    const capability = groupCapability(
-      manifests.map((m) => ({ path: m.path, packageManager: m.packageManager, lockfilePath: m.lockfilePath })),
-      // The worker refuses lockfile groups while the sandbox is unreachable: say so now instead of queueing.
-      { lockfileRegeneration: await readLockfileRegenerationAvailable() },
-    );
-    if (!capability.canCreatePr) return fail("CONFLICT", capability.reason ?? "This group can't get a pull request.");
+    const pr = prByGroup.get(groupKey);
+    const disabled = groupDisabledMessage(group, pr?.state, project.maxOpenPrs, await readLockfileRegenerationAvailable());
+    if (disabled) return fail("CONFLICT", disabled);
 
     const access = await checkRepoAccess(user, project, "write");
     if (!access.ok) return fail(access.code, access.message);
 
     if (!isRealtimeConfigured()) throw new RealtimeUnavailableError("Background jobs are not configured (REDIS_URL is not set).");
     const queue = getDepsUpdateQueue();
-    const jobId = depsUpdateJobId(project.id, groupKey);
-    await withRedisTimeout(
-      (async () => {
-        const existing = await queue.getJob(jobId);
-        if (!existing) {
-          await queue.add(DEPS_JOB_NAMES.update, { projectId: project.id, groupKey, trigger: "manual" }, { jobId, priority: DEPS_UPDATE_PRIORITY.manual });
-          return;
-        }
-        const state = await existing.getState();
-        if (state === "waiting" || state === "prioritized") await existing.changePriority({ priority: DEPS_UPDATE_PRIORITY.manual });
-      })(),
-    );
+    await withRedisTimeout(enqueueUpdateGroup(queue, project.id, groupKey));
     return ok({ status: "QUEUED", groupKey });
   } catch (error) {
     return toDependencyActionError(error, "createDependencyPullRequestAction");
+  }
+}
+
+/**
+ * "Create PRs" / "Update PRs" for every eligible planned group of a project (from `/dependencies`
+ * or the multi-group popover): enforces PR mode, PR ownership, per-group slot/capability/EDITED checks,
+ * and a single collaborator `write` check before queueing `deps-update` at priority 1.
+ */
+export async function createProjectDependencyPullRequestsAction(input: {
+  projectId: string;
+}): Promise<ActionResult<CreateProjectPullRequestsResult>> {
+  try {
+    const user = await getCurrentUserOrThrow();
+    const parsed = projectIdInput.safeParse(input);
+    if (!parsed.success) return invalidInput(parsed.error);
+
+    const loaded = await loadPrOwnedProject(user.id, parsed.data.projectId);
+    if (!loaded.ok) return loaded.error;
+    const { project, groups, prByGroup } = loaded;
+
+    if (groups.length === 0) {
+      return fail("NOT_FOUND", "Nothing to update in this project any more. Check the project again.");
+    }
+
+    const lockfileRegeneration = await readLockfileRegenerationAvailable();
+    const eligible: string[] = [];
+    let firstDisabledReason: string | null = null;
+    for (const group of groups) {
+      const disabled = groupDisabledMessage(group, prByGroup.get(group.groupKey)?.state, project.maxOpenPrs, lockfileRegeneration);
+      if (disabled) {
+        firstDisabledReason ??= disabled;
+        continue;
+      }
+      eligible.push(group.groupKey);
+    }
+
+    if (eligible.length === 0) {
+      return fail("CONFLICT", firstDisabledReason ?? "No pull request group can be updated right now.");
+    }
+
+    const access = await checkRepoAccess(user, project, "write");
+    if (!access.ok) return fail(access.code, access.message);
+
+    if (!isRealtimeConfigured()) throw new RealtimeUnavailableError("Background jobs are not configured (REDIS_URL is not set).");
+    const queue = getDepsUpdateQueue();
+    await withRedisTimeout(Promise.all(eligible.map((groupKey) => enqueueUpdateGroup(queue, project.id, groupKey))));
+    return ok({ status: "QUEUED", groupKeys: eligible });
+  } catch (error) {
+    return toDependencyActionError(error, "createProjectDependencyPullRequestsAction");
   }
 }
 

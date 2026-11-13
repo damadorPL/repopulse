@@ -1,9 +1,11 @@
-/** `pnpm-lock.yaml` reader (v6 – v9 importer layout, plus the older `specifiers` layout). */
-import { parse as parseYaml } from "yaml";
+/** `pnpm-lock.yaml` reader (v6 – v9 importer layout, plus the older `specifiers` layout and pnpm 11+ multi-document streams). */
+import { parseAllDocuments } from "yaml";
 import { isRecord } from "../util.js";
 import { guardLockfile, type LockfileVersions } from "./common.js";
 
 const DEPENDENCY_KEYS = ["dependencies", "devDependencies", "optionalDependencies"] as const;
+const MAX_PNPM_LOCK_DOCUMENTS = 10;
+const MAX_ALIAS_COUNT = 100;
 
 /** `1.2.3(react@18.2.0)` / `1.2.3_react@18.2.0` → `1.2.3`; `link:` / `file:` → `null`. */
 export function stripPnpmVersionSuffix(version: string): string | null {
@@ -16,11 +18,21 @@ export function stripPnpmVersionSuffix(version: string): string | null {
 /**
  * Resolved versions of the direct dependencies of `importer` (path relative to the lockfile directory; `"."` or
  * `""` = root). Lockfiles without `importers` (single project, pnpm < 7) are read from the top level.
+ * Multi-document lockfiles (pnpm 11+ boot/env doc followed by the project lockfile) read the final document.
  */
 export function readPnpmLock(text: string, importer = ".", path = "pnpm-lock.yaml"): LockfileVersions {
   return guardLockfile(text, path, () => {
-    const data: unknown = parseYaml(text, { maxAliasCount: 100, uniqueKeys: false });
-    if (!isRecord(data)) throw new Error("not a YAML mapping");
+    const docs = parseAllDocuments(text, { uniqueKeys: false });
+    if (docs.length === 0) throw new Error("not a YAML mapping");
+    if (docs.length > MAX_PNPM_LOCK_DOCUMENTS) throw new Error("too many YAML documents");
+    const parsedDocs: Record<string, unknown>[] = [];
+    for (const doc of docs) {
+      if (doc.errors.length > 0) throw doc.errors[0]!;
+      const parsed: unknown = doc.toJS({ maxAliasCount: MAX_ALIAS_COUNT });
+      if (!isRecord(parsed)) throw new Error("not a YAML mapping");
+      parsedDocs.push(parsed);
+    }
+    const data = parsedDocs[parsedDocs.length - 1]!;
     const formatVersion = data.lockfileVersion === undefined ? null : String(data.lockfileVersion);
     const importerKey = importer === "" ? "." : importer;
     let entry: unknown;

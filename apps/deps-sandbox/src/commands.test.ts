@@ -290,6 +290,8 @@ describe("tool version checks", () => {
     expect(check("NPM", '{\n  "name": "x",\n  "lockfileVersion": 3,\n}')).toBe(null);
     expect(check("PNPM", "lockfileVersion: '6.0'\n")).toBe("UNSUPPORTED_TOOL_VERSION");
     expect(check("PNPM", "---\nlockfileVersion: '9.0'\n\nimporters: {}\n")).toBe(null);
+    expect(check("PNPM", "---\nlockfileVersion: '9.0'\n---\nlockfileVersion: '9.0'\n")).toBe(null);
+    expect(check("PNPM", "---\nlockfileVersion: '9.0'\n---\nlockfileVersion: '6.0'\n")).toBe("UNSUPPORTED_TOOL_VERSION");
     expect(check("BUN", '{\n  "lockfileVersion": 1,\n  "workspaces": {}\n}')).toBe(null);
     expect(check("BUN", '{\n  "lockfileVersion": 0,\n}')).toBe("UNSUPPORTED_TOOL_VERSION");
     expect(check("UV", "version = 1\nrevision = 3\nrequires-python = \">=3.12\"\n")).toBe(null);
@@ -301,6 +303,18 @@ describe("tool version checks", () => {
 
   it("lockfileFormat reads each format", () => {
     expect(lockfileFormat("PNPM", "---\nlockfileVersion: '9.0'\n")).toBe("9.0");
+    expect(
+      lockfileFormat(
+        "PNPM",
+        "---\nlockfileVersion: '9.0'\nimporters:\n  .:\n    packageManagerDependencies: {}\n---\nlockfileVersion: '9.0'\nimporters:\n  .: {}\n",
+      ),
+    ).toBe("9.0");
+    expect(
+      lockfileFormat(
+        "PNPM",
+        "---\nlockfileVersion: '9.0'\n---\nlockfileVersion: '6.0'\n",
+      ),
+    ).toBeNull();
     expect(lockfileFormat("NPM", '{"lockfileVersion": 2}')).toBe("2");
     expect(lockfileFormat("POETRY", 'x\n[metadata]\nlock-version = "2.1"\n')).toBe("2.1");
   });

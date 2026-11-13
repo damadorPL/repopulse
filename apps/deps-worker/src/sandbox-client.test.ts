@@ -152,4 +152,45 @@ describe("validateLockfile", () => {
   ])("rejects %s", (_label, result, message) => {
     expect(() => validateLockfile(result, expectation)).toThrow(message);
   });
+
+  it("accepts a regenerated multi-document pnpm-lock.yaml", () => {
+    const multiDocPnpm = [
+      "---",
+      "lockfileVersion: '9.0'",
+      "importers:",
+      "  .:",
+      "    configDependencies: {}",
+      "    packageManagerDependencies:",
+      "      pnpm:",
+      "        specifier: 12.16.1",
+      "        version: 12.16.1",
+      "---",
+      "lockfileVersion: '9.0'",
+      "importers:",
+      "  .:",
+      "    dependencies:",
+      "      zod:",
+      "        specifier: 4.6.7",
+      "        version: 4.6.7",
+      "",
+    ].join("\n");
+    expect(() =>
+      validateLockfile(
+        { path: "pnpm-lock.yaml", text: multiDocPnpm },
+        {
+          packageManager: "PNPM",
+          expectLockfile: "pnpm-lock.yaml",
+          inputFormatVersion: "9.0",
+          importers: [
+            {
+              importer: ".",
+              ecosystem: "NPM",
+              dependencies: [{ name: "zod", declared: "4.6.7" }],
+              expected: [{ name: "zod", version: "4.6.7" }],
+            },
+          ],
+        },
+      ),
+    ).not.toThrow();
+  });
 });

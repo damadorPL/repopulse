@@ -6,9 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.5.2] — 2026-11-13 — Dependency PR actions, pnpm 12 lockfile fixes, and dependency updates
+
+### Added
+- Added a "Create PR" / "Update PR" action (with a multi-group PR chooser and batch action when multiple groups are planned) directly on project rows in the `/dependencies` window next to "Check now".
+
+### Fixed
+- Support pnpm 11/12 multi-document `pnpm-lock.yaml` files (with `packageManagerDependencies` / `configDependencies` boot documents) when scanning projects and validating regenerated lockfiles.
+- Avoid caching failed lockfile parses in Redis and bump the lockfile-read cache key so previously failed scans recover immediately on re-check.
+- Set `pnpm_config_pm_on_fail` and `pnpm_config_ignore_scripts` in `deps-sandbox` for pnpm 12 compatibility without downloading external pnpm binaries or stripping existing `packageManagerDependencies` sections.
+
 ### Changed
 - Updated dependencies across workspace packages to their latest releases:
-  - `bullmq` 6.7.3 → 6.7.5 (`apps/web`, `apps/deps-worker`, `apps/worker`, `packages/queue`)
+  - `bullmq` 6.7.3 → 6.7.6 (`apps/web`, `apps/deps-worker`, `apps/worker`, `packages/queue`)
   - `lucide-react` 1.71.0 → 1.72.0 (`apps/web`)
 
 ## [0.9.5.1] — 2026-11-10 — Dependency updates across workspace packages

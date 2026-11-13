@@ -293,6 +293,20 @@ export interface SandboxEnvOptions {
   proxy: string | null;
   /** `PATH` for the child (the server's own PATH). */
   path?: string;
+  /** pnpm 11+ `pmOnFail`: `"warn"` preserves existing `packageManagerDependencies` without downloading; `"ignore"` omits it. */
+  pnpmPmOnFail?: "ignore" | "warn";
+}
+
+/**
+ * Whether the first YAML document of `pnpm-lock.yaml` already tracks `packageManagerDependencies`.
+ * Only the boot document (bounded to 64 KiB before the second `---` separator) is checked.
+ */
+export function hasPnpmPackageManagerDependencies(lockfileText: string): boolean {
+  const head = lockfileText.slice(0, 64 * 1024);
+  const start = head.startsWith("---") ? 3 : 0;
+  const secondDoc = head.indexOf("\n---", start);
+  const firstDoc = secondDoc === -1 ? head : head.slice(0, secondDoc);
+  return /^[ \t]+packageManagerDependencies[ \t]*:/m.test(firstDoc);
 }
 
 /**
@@ -315,7 +329,7 @@ export function buildSandboxEnv(jobDir: string, opts: SandboxEnvOptions): Record
     XDG_CACHE_HOME: cache,
     XDG_DATA_HOME: path.join(home, ".local", "share"),
     XDG_STATE_HOME: path.join(home, ".local", "state"),
-    // npm (pnpm also reads npm_config_*): no scripts, no user / global npmrc, cache in the job dir.
+    // npm (and older pnpm): no scripts, no user / global npmrc, cache in the job dir.
     npm_config_ignore_scripts: "true",
     npm_config_userconfig: path.join(home, ".npmrc"),
     npm_config_globalconfig: path.join(home, "npmrc-global"),
@@ -323,9 +337,11 @@ export function buildSandboxEnv(jobDir: string, opts: SandboxEnvOptions): Record
     npm_config_update_notifier: "false",
     npm_config_audit: "false",
     npm_config_fund: "false",
-    // pnpm: never download another pnpm version for the `packageManager` field; store in the job dir.
+    // pnpm: never download another pnpm version for `packageManager`, disable scripts (pnpm 11+ ignores npm_config_*), store in job dir.
     npm_config_manage_package_manager_versions: "false",
     pnpm_config_manage_package_manager_versions: "false",
+    pnpm_config_pm_on_fail: opts.pnpmPmOnFail ?? "ignore",
+    pnpm_config_ignore_scripts: "true",
     pnpm_config_store_dir: path.join(cache, "pnpm-store"),
     pnpm_config_cache_dir: path.join(cache, "pnpm"),
     // Bun
@@ -720,7 +736,9 @@ export async function runLock(request: ParsedLockRequest, options: RunLockOption
     await writeTree(treeRoot, prepared.files);
     const cwd = request.workdir === "" ? treeRoot : resolveInside(treeRoot, request.workdir);
 
-    const env = buildSandboxEnv(jobDir, { proxy: options.proxy, path: options.pathEnv ?? process.env.PATH });
+    const pnpmPmOnFail =
+      pm === "PNPM" && inputLockfile && hasPnpmPackageManagerDependencies(inputLockfile.toString("utf8")) ? "warn" : "ignore";
+    const env = buildSandboxEnv(jobDir, { proxy: options.proxy, path: options.pathEnv ?? process.env.PATH, pnpmPmOnFail });
     await options.onPrepared?.({ jobDir, treeRoot, cwd });
 
     // ---- run

@@ -58,6 +58,68 @@ packages:
     resolution: {integrity: sha512-abc}
 `;
 
+export const PNPM_LOCK_V9_MULTI_DOC = `---
+lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    configDependencies: {}
+    packageManagerDependencies:
+      pnpm:
+        specifier: 12.16.1
+        version: 12.16.1
+
+packages:
+
+  '@pnpm/exe.linux-x64@12.16.1':
+    resolution: {integrity: sha512-exe}
+
+  pnpm@12.16.1:
+    resolution: {integrity: sha512-pnpm}
+
+snapshots:
+
+  '@pnpm/exe.linux-x64@12.16.1':
+    optional: true
+
+  pnpm@12.16.1:
+    optionalDependencies:
+      '@pnpm/exe.linux-x64': 12.16.1
+
+---
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    devDependencies:
+      typescript:
+        specifier: ^5.4.0
+        version: 5.4.5
+
+  apps/web:
+    dependencies:
+      '@repo/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      react:
+        specifier: ^18.2.0
+        version: 18.2.0
+      react-dom:
+        specifier: ^18.2.0
+        version: 18.2.0(react@18.2.0)
+
+packages:
+
+  react@18.2.0:
+    resolution: {integrity: sha512-abc}
+`;
+
 export const BUN_LOCK = `{
   "lockfileVersion": 1,
   "workspaces": {

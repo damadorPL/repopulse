@@ -8,12 +8,13 @@ import { AddDependencyProjectsDialog } from "@/components/dependencies/add-depen
 import { CheckNowButton } from "@/components/dependencies/check-now-button";
 import { DependencyListToolbar } from "@/components/dependencies/dependency-list-toolbar";
 import { DepsDisabledNotice, DepsWorkerMissingNotice, OutdatedCounts } from "@/components/dependencies/deps-notices";
+import { ProjectPullRequestButton } from "@/components/dependencies/project-pull-request-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { applyDependencyListFilters, dependencyListHref, dependencyProjectHref, parseDependencyListFilters } from "@/lib/dependency-list-filters";
 import { PACKAGE_MANAGER_LABELS, updateModeLabel } from "@/lib/dependency-settings";
-import { isDepsEnabled, readDepsWorkerStatus } from "@/server/deps-status";
-import { getAddableSubscriptions, getDependencyProjects } from "@/server/queries/dependencies";
+import { isDepsEnabled, lockfileRegenerationAvailable, readDepsWorkerStatus } from "@/server/deps-status";
+import { getAddableSubscriptions, getDependencyProjects, planListPullRequests } from "@/server/queries/dependencies";
 import { isGitHubAppConfigured } from "@/server/queries/github-app";
 import { requireUser } from "@/server/session";
 
@@ -48,6 +49,7 @@ export default async function DependenciesPage({ searchParams }: { searchParams:
   const shown = applyDependencyListFilters(projects, filters);
   const remaining = MAX_DEPENDENCY_PROJECTS_PER_USER - projects.length;
   const justInstalled = query.installed === "1";
+  const lockfileRegeneration = lockfileRegenerationAvailable(worker);
 
   const addButton = (
     <AddDependencyProjectsDialog subscriptions={addable} appConfigured={appConfigured} remaining={remaining}>
@@ -108,6 +110,7 @@ export default async function DependenciesPage({ searchParams }: { searchParams:
           {shown.map((project) => {
             const href = dependencyProjectHref(project.fullName, filters);
             const busy = project.scanStatus === "QUEUED" || project.scanStatus === "SCANNING";
+            const plans = planListPullRequests(project, { appConfigured, lockfileRegeneration });
             return (
               <li key={project.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
                 <div className="flex min-w-0 flex-1 items-start gap-3">
@@ -177,7 +180,13 @@ export default async function DependenciesPage({ searchParams }: { searchParams:
                     </dl>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 sm:shrink-0">
+                <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+                  <ProjectPullRequestButton
+                    projectId={project.id}
+                    fullName={project.fullName}
+                    updateMode={project.updateMode}
+                    plans={plans}
+                  />
                   <CheckNowButton projectId={project.id} fullName={project.fullName} busy={busy} />
                 </div>
               </li>

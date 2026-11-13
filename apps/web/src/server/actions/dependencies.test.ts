@@ -394,6 +394,14 @@ describe("createDependencyPullRequestAction", () => {
     expect(await actions.createDependencyPullRequestAction({ projectId: "p1", groupKey: "Bad:Key" })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
   });
 
+  it("refuses EDITED pull requests", async () => {
+    prisma.dependencyProject.findFirst.mockResolvedValue({ ...prProject, pullRequests: [{ groupKey: "all", state: "EDITED" }] });
+    const result = await actions.createDependencyPullRequestAction({ projectId: "p1", groupKey: "all" });
+    expect(result).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
+    if (!result.ok) expect(result.error.message).toContain("Someone else pushed");
+    expect(queueAdd).not.toHaveBeenCalled();
+  });
+
   it("refuses check-only package managers and missing write access", async () => {
     prisma.dependencyProject.findFirst.mockResolvedValueOnce({
       ...prProject,
@@ -459,6 +467,106 @@ describe("createDependencyPullRequestAction", () => {
     await actions.triggerDependencyScanAction({ projectId: "p1" });
     expect(delayedUpdateData).toHaveBeenCalledTimes(1);
     expect(delayedChangePriority).not.toHaveBeenCalled();
+  });
+});
+
+describe("createProjectDependencyPullRequestsAction", () => {
+  const baseProject = {
+    id: "p1",
+    owner: "acme",
+    name: "web",
+    githubRepoId: 5,
+    updateMode: "MANUAL_PR",
+    groupMode: "SEPARATE_MAJORS",
+    maxOpenPrs: 2,
+    prOwnership: { projectId: "p1" },
+    pullRequests: [],
+    updates: [
+      { name: "react", level: "MINOR", manifest: { path: "package.json", ecosystem: "NPM", packageManager: "NONE", lockfilePath: null } },
+      { name: "vite", level: "MAJOR", manifest: { path: "package.json", ecosystem: "NPM", packageManager: "NONE", lockfilePath: null } },
+      { name: "zod", level: "MAJOR", manifest: { path: "package.json", ecosystem: "NPM", packageManager: "NONE", lockfilePath: null } },
+    ],
+  };
+
+  it("validates input, checks module status, and scopes to the signed-in user", async () => {
+    expect(await actions.createProjectDependencyPullRequestsAction({ projectId: "" })).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_INPUT" },
+    });
+
+    prisma.dependencyProject.findFirst.mockResolvedValueOnce(null);
+    expect(await actions.createProjectDependencyPullRequestsAction({ projectId: "theirs" })).toMatchObject({
+      ok: false,
+      error: { code: "NOT_FOUND" },
+    });
+    expect(prisma.dependencyProject.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "theirs", userId: "u1" } }));
+
+    prisma.dependencyProject.findFirst.mockResolvedValueOnce(baseProject);
+    isDepsEnabled.mockResolvedValueOnce(false);
+    expect(await actions.createProjectDependencyPullRequestsAction({ projectId: "p1" })).toMatchObject({
+      ok: false,
+      error: { code: "UNAVAILABLE" },
+    });
+  });
+
+  it("refuses NOTIFY mode and PR ownership conflicts", async () => {
+    prisma.dependencyProject.findFirst.mockResolvedValueOnce({ ...baseProject, updateMode: "NOTIFY" });
+    expect(await actions.createProjectDependencyPullRequestsAction({ projectId: "p1" })).toMatchObject({
+      ok: false,
+      error: { code: "CONFLICT" },
+    });
+
+    prisma.dependencyProject.findFirst.mockResolvedValueOnce({ ...baseProject, prOwnership: null });
+    prisma.dependencyPrOwner.findUnique.mockResolvedValueOnce({ project: { user: { githubLogin: "bob", name: null } } });
+    const conflict = await actions.createProjectDependencyPullRequestsAction({ projectId: "p1" });
+    expect(conflict).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
+    if (!conflict.ok) expect(conflict.error.message).toContain("bob");
+    expect(queueAdd).not.toHaveBeenCalled();
+  });
+
+  it("returns NOT_FOUND when nothing is outdated and CONFLICT when every group is blocked", async () => {
+    prisma.dependencyProject.findFirst.mockResolvedValueOnce({ ...baseProject, updates: [] });
+    expect(await actions.createProjectDependencyPullRequestsAction({ projectId: "p1" })).toMatchObject({
+      ok: false,
+      error: { code: "NOT_FOUND" },
+    });
+
+    prisma.dependencyProject.findFirst.mockResolvedValueOnce({
+      ...baseProject,
+      updates: [{ name: "react", level: "MINOR", manifest: { path: "package.json", ecosystem: "NPM", packageManager: "PNPM", lockfilePath: "pnpm-lock.yaml" } }],
+    });
+    readLockfileRegenerationAvailable.mockResolvedValueOnce(false);
+    const blocked = await actions.createProjectDependencyPullRequestsAction({ projectId: "p1" });
+    expect(blocked).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
+    if (!blocked.ok) expect(blocked.error.message).toContain("pnpm-lock.yaml");
+    expect(checkRepoAccess).not.toHaveBeenCalled();
+    expect(queueAdd).not.toHaveBeenCalled();
+  });
+
+  it("enqueues all eligible groups with a single write check and skips EDITED or slot-limited groups", async () => {
+    prisma.dependencyProject.findFirst.mockResolvedValueOnce({
+      ...baseProject,
+      pullRequests: [{ groupKey: "major-vite", state: "EDITED" }],
+    });
+    const result = await actions.createProjectDependencyPullRequestsAction({ projectId: "p1" });
+    // maxOpenPrs=2 gives slots to "all" and "major-vite"; "major-vite" is EDITED, "major-zod" has no slot.
+    expect(result).toEqual({ ok: true, data: { status: "QUEUED", groupKeys: ["all"] } });
+    expect(checkRepoAccess).toHaveBeenCalledTimes(1);
+    expect(checkRepoAccess).toHaveBeenCalledWith(currentUser, expect.objectContaining({ githubRepoId: 5 }), "write");
+    expect(queueAdd).toHaveBeenCalledTimes(1);
+    expect(queueAdd).toHaveBeenCalledWith(
+      "deps-update",
+      "update-dependency-group",
+      { projectId: "p1", groupKey: "all", trigger: "manual" },
+      { jobId: "deps-update-p1-all", priority: 1 },
+    );
+
+    vi.clearAllMocks();
+    prisma.dependencyProject.findFirst.mockResolvedValueOnce(baseProject);
+    const multi = await actions.createProjectDependencyPullRequestsAction({ projectId: "p1" });
+    expect(multi).toEqual({ ok: true, data: { status: "QUEUED", groupKeys: ["all", "major-vite"] } });
+    expect(checkRepoAccess).toHaveBeenCalledTimes(1);
+    expect(queueAdd).toHaveBeenCalledTimes(2);
   });
 });
 
