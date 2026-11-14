@@ -11,7 +11,7 @@
 
 # ---- Build stages: same shape as apps/worker/Dockerfile ----------------------------------------------------------
 FROM node:26-trixie-slim AS base
-RUN npm install -g pnpm@12.16.1 turbo@2.11.10
+RUN npm install -g pnpm@12.16.1 turbo@2.11.11
 WORKDIR /app
 
 # Stage 1: prune the monorepo down to @repopulse/deps-sandbox and its workspace deps

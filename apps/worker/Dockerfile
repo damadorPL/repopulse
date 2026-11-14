@@ -4,7 +4,7 @@
 #   docker build -f apps/worker/Dockerfile -t repopulse-worker .        # runner (default)
 FROM node:26-alpine AS base
 RUN apk add --no-cache libc6-compat openssl
-RUN npm install -g pnpm@12.16.1 turbo@2.11.10
+RUN npm install -g pnpm@12.16.1 turbo@2.11.11
 WORKDIR /app
 
 # ---- Stage 1: prune the monorepo down to @repopulse/worker and its workspace deps

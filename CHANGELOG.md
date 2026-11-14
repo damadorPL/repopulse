@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.5.4] — 2026-11-14 — Dependency updates across workspace packages
+
+### Changed
+- Updated dependencies across workspace packages to their latest releases:
+  - `eslint` 10.14.0 → 10.15.0 (`package.json`)
+  - `lucide-react` 1.72.0 → 1.73.0 (`apps/web`)
+  - `postcss` 8.5.32 → 8.5.33 (`apps/web`)
+  - Updated builder image stages to `turbo@2.11.11` across Dockerfiles (`apps/deps-sandbox/Dockerfile`, `apps/deps-worker/Dockerfile`, `apps/web/Dockerfile`, `apps/worker/Dockerfile`)
+
 ## [0.9.5.3] — 2026-11-13 — Sandbox runtime updates and check script
 
 ### Added
