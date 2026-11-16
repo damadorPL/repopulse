@@ -43,17 +43,17 @@ minimumReleaseAgeExclude:
   - eslint@10.15.0
   - tailwindcss@4.3.5
   - bullmq@6.7.6
-  - '@typescript-eslint/eslint-plugin@8.72.2'
-  - '@typescript-eslint/parser@8.72.2'
-  - '@typescript-eslint/project-service@8.72.2'
-  - '@typescript-eslint/scope-manager@8.72.2'
-  - '@typescript-eslint/tsconfig-utils@8.72.2'
-  - '@typescript-eslint/type-utils@8.72.2'
-  - '@typescript-eslint/types@8.72.2'
-  - '@typescript-eslint/typescript-estree@8.72.2'
-  - '@typescript-eslint/utils@8.72.2'
-  - '@typescript-eslint/visitor-keys@8.72.2'
-  - typescript-eslint@8.72.2
+  - '@typescript-eslint/eslint-plugin@8.72.2 || 8.73.0'
+  - '@typescript-eslint/parser@8.72.2 || 8.73.0'
+  - '@typescript-eslint/project-service@8.72.2 || 8.73.0'
+  - '@typescript-eslint/scope-manager@8.72.2 || 8.73.0'
+  - '@typescript-eslint/tsconfig-utils@8.72.2 || 8.73.0'
+  - '@typescript-eslint/type-utils@8.72.2 || 8.73.0'
+  - '@typescript-eslint/types@8.72.2 || 8.73.0'
+  - '@typescript-eslint/typescript-estree@8.72.2 || 8.73.0'
+  - '@typescript-eslint/utils@8.72.2 || 8.73.0'
+  - '@typescript-eslint/visitor-keys@8.72.2 || 8.73.0'
+  - typescript-eslint@8.72.2 || 8.73.0
   - nodemailer@10.6.0
   - '@turbo/darwin-64@2.11.11'
   - '@turbo/darwin-arm64@2.11.11'

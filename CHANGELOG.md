@@ -6,8 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.5.5] — 2026-11-16 — Dependency updates across workspace packages
+
 ### Changed
 - Updated dependencies across workspace packages to their latest releases:
+  - `typescript-eslint` 8.72.2 → 8.73.0 (`package.json`)
   - `nodemailer` 10.5.0 → 10.6.0 (`packages/notifications`)
 
 ## [0.9.5.4] — 2026-11-14 — Dependency updates across workspace packages
