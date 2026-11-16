@@ -54,7 +54,7 @@ minimumReleaseAgeExclude:
   - '@typescript-eslint/utils@8.72.2'
   - '@typescript-eslint/visitor-keys@8.72.2'
   - typescript-eslint@8.72.2
-  - nodemailer@10.5.0
+  - nodemailer@10.6.0
   - '@turbo/darwin-64@2.11.11'
   - '@turbo/darwin-arm64@2.11.11'
   - '@turbo/linux-64@2.11.11'

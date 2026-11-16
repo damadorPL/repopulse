@@ -6,6 +6,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+### Changed
+- Updated dependencies across workspace packages to their latest releases:
+  - `nodemailer` 10.5.0 → 10.6.0 (`packages/notifications`)
+
 ## [0.9.5.4] — 2026-11-14 — Dependency updates across workspace packages
 
 ### Changed

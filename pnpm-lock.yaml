@@ -486,8 +486,8 @@ importers:
   packages/notifications:
     dependencies:
       nodemailer:
-        specifier: 10.5.0
-        version: 10.5.0
+        specifier: 10.6.0
+        version: 10.6.0
     devDependencies:
       '@repopulse/tsconfig':
         specifier: workspace:*
@@ -3555,8 +3555,8 @@ packages:
     resolution: {integrity: sha512-6li2QanLsAXpIH2R6j77MzRyvOyrvdTqlKtO4CgBdHGNvN99ZZfyxszHc5o5+IZBWD5u6Hzwg83JoGXmqZNG9Q==}
     engines: {node: '>=18'}
 
-  nodemailer@10.5.0:
-    resolution: {integrity: sha512-L/w/HH5MqpzMDuZD7fQdt/+KqymuvrpaApaIjAH2XA3ILePwlcvXCVVvP75xVrXCEt2ggK2marrrHHFB5Qu0kA==}
+  nodemailer@10.6.0:
+    resolution: {integrity: sha512-jWanL7D9GD3jvUDYKmoC5rWTiG8MnBgnN2yV68bgMKip1zUJhiSTyz7Eg+18y8sk5OvdVDzws5nZK5arSI4f5Q==}
     engines: {node: '>=20.0.0'}
 
   oauth4webapi@3.8.8:
@@ -3651,10 +3651,6 @@ packages:
 
   postcss@8.5.23:
     resolution: {integrity: sha512-g50586zr4bZmwFiTlflMu8E0bDTb5I5gertgwAKmsdUlTQIhZtunzUlD1WSzwcVWPoAVpsrA6vlfCD7oXvRwgg==}
-    engines: {node: ^10 || ^12 || >=14}
-
-  postcss@8.5.32:
-    resolution: {integrity: sha512-LJlKCCAUFKOuZxipUdYw1NzIITEsPcgyOG9LkvRJvuKj/bRzbuRY0ARXvL0pWGpsZvn8jku+LMep2eU0seHp8g==}
     engines: {node: ^10 || ^12 || >=14}
 
   postcss@8.5.33:
@@ -7341,7 +7337,7 @@ snapshots:
 
   node-releases@2.0.63: {}
 
-  nodemailer@10.5.0: {}
+  nodemailer@10.6.0: {}
 
   oauth4webapi@3.8.8: {}
 
@@ -7438,12 +7434,6 @@ snapshots:
       util-deprecate: 1.0.2
 
   postcss@8.5.23:
-    dependencies:
-      nanoid: 3.3.20
-      picocolors: 1.1.1
-      source-map-js: 1.2.2
-
-  postcss@8.5.32:
     dependencies:
       nanoid: 3.3.20
       picocolors: 1.1.1
@@ -7987,7 +7977,7 @@ snapshots:
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.7
-      postcss: 8.5.32
+      postcss: 8.5.33
       rolldown: 1.2.18
       tinyglobby: 0.2.17
     optionalDependencies:
