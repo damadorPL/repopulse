@@ -6,6 +6,7 @@ import { createSmtpSender, renderReleaseEmail, type MailSender, type SmtpConfig 
 import { buildGotifyRequest, buildNtfyRequest, type PreparedRequest } from "./formatters/ntfy-gotify.js";
 import { formatSlackPayload } from "./formatters/slack.js";
 import { DEFAULT_TIMEOUT_MS, postWebhook, type WebhookSender } from "./http.js";
+import { trimTrailingChar } from "./markdown.js";
 import { internalHostsPolicyFromEnv, type InternalHostsPolicy, type ResolveAll } from "./ssrf-guard.js";
 import type { DispatchInput, MessageContext } from "./types.js";
 
@@ -43,7 +44,7 @@ export interface DispatchResult {
 export function resolveAppBaseUrl(env: Record<string, string | undefined> = process.env): string {
   const raw = (env.APP_BASE_URL || env.AUTH_URL || env.NEXTAUTH_URL || "http://localhost:3000").trim();
   const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-  return withScheme.replace(/\/+$/, "");
+  return trimTrailingChar(withScheme, "/");
 }
 
 /** The feed with the release's changelog drawer open (`?release=` is read by the dashboard). */
@@ -75,7 +76,7 @@ export async function dispatchNotification(input: DispatchInput, options: Dispat
     });
   }
   const destination = maskDestination(channel, rule.destinationUrl);
-  const appBaseUrl = (options.appBaseUrl ?? resolveAppBaseUrl(env)).replace(/\/+$/, "");
+  const appBaseUrl = trimTrailingChar(options.appBaseUrl ?? resolveAppBaseUrl(env), "/");
   const ctx: MessageContext = {
     ...input,
     appBaseUrl,

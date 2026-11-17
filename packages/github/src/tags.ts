@@ -2,6 +2,7 @@ import type { Octokit } from "@octokit/rest";
 import { createOctokit, getRateLimitInfo, isGitHubHttpError, type ResponseHeaders } from "./client.js";
 import { classifySemver, type SemverType } from "./parser.js";
 import { GitHubRateLimitError, GitHubRepositoryNotFoundError } from "./poller.js";
+import { trimTrailingChar } from "./text.js";
 
 /** Tags read per poll (the tag counterpart of `RELEASES_PAGE_SIZE`). */
 export const TAGS_PAGE_SIZE = 20;
@@ -289,7 +290,7 @@ export function mapTag(tag: GitTag, repoHtmlUrl: string, bodyMarkdown: string): 
     tagName: tag.name,
     title: (tag.message ? subjectOf(tag.message) : "") || tag.name,
     bodyMarkdown,
-    htmlUrl: `${repoHtmlUrl.replace(/\/+$/, "")}/releases/tag/${encodeURIComponent(tag.name)}`,
+    htmlUrl: `${trimTrailingChar(repoHtmlUrl, "/")}/releases/tag/${encodeURIComponent(tag.name)}`,
     isPrerelease: semverType === "PRERELEASE",
     isDraft: false,
     semverType,

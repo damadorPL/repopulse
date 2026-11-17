@@ -3,6 +3,7 @@ import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
 import { GITHUB_USER_AGENT, isGitHubHttpError } from "./client.js";
 import { rethrowRateLimit, toRateLimitError } from "./git-write.js";
+import { trimTrailingChar } from "./text.js";
 
 /**
  * GitHub App helpers (Slice 08, Part B). The App gives RepoPulse scoped write access (contents + pull
@@ -337,7 +338,7 @@ export function defaultAppName(appBaseUrl: string): string {
 
 /** The manifest of §3.8.1 (`POST https://github.com/settings/apps/new`, form field `manifest`). */
 export function buildAppManifest(opts: { appBaseUrl: string; name?: string }): Record<string, unknown> {
-  const base = opts.appBaseUrl.trim().replace(/\/+$/, "");
+  const base = trimTrailingChar(opts.appBaseUrl.trim(), "/");
   const parsed = new URL(base);
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new Error("APP_BASE_URL must be an http(s) URL.");
   const name = opts.name?.trim() ? truncateName(opts.name) : defaultAppName(base);

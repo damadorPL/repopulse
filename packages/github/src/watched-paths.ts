@@ -1,3 +1,5 @@
+import { trimChar } from "./text.js";
+
 /**
  * Watched path helpers ("Files / folders" tracking, Slice 06). Pure and browser-safe (no Octokit),
  * so client forms import them through `@repopulse/github/watched-paths`.
@@ -23,7 +25,7 @@ export function normalizeWatchedPath(raw: string): string | null {
   if (FORBIDDEN_CHARACTERS.test(trimmed)) return null;
   let path = trimmed.replace(/\/{2,}/g, "/");
   while (path.startsWith("./")) path = path.slice(2);
-  path = path.replace(/^\/+/, "").replace(/\/+$/, "");
+  path = trimChar(path, "/");
   if (path === "" || path.length > MAX_WATCHED_PATH_LENGTH) return null;
   if (path.split("/").some((segment) => segment === "." || segment === "..")) return null;
   return path;

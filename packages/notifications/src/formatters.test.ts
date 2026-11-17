@@ -266,6 +266,7 @@ describe("commit notifications", () => {
 describe("markdown helpers", () => {
   it("cleanMarkdown drops comments and tags but keeps text, and releaseSummary falls back when empty", () => {
     expect(cleanMarkdown("<!-- hidden -->\r\n<details><summary>More</summary>\n\nText</details>")).toBe("More\n\nText");
+    expect(cleanMarkdown("<!-<!-- nested -->---><<script>script>Hello<br />1 < 2")).toBe("Hello\n1 < 2");
     expect(releaseSummary({ ...context().release, bodyMarkdown: "<!-- only comment -->   " })).toBe(
       "_No release notes were published for this version._",
     );

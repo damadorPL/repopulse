@@ -14,6 +14,7 @@ import {
 import { createSmtpSender } from "./formatters/email.js";
 import type { PreparedRequest } from "./formatters/ntfy-gotify.js";
 import { DEFAULT_TIMEOUT_MS, postWebhook } from "./http.js";
+import { trimTrailingChar } from "./markdown.js";
 import { internalHostsPolicyFromEnv } from "./ssrf-guard.js";
 
 function jsonRequest(url: string, payload: unknown): PreparedRequest {
@@ -45,7 +46,7 @@ export async function dispatchDependencyNotification(
     });
   }
   const destination = maskDestination(channel, rule.destinationUrl);
-  const appBaseUrl = (options.appBaseUrl ?? resolveAppBaseUrl(env)).replace(/\/+$/, "");
+  const appBaseUrl = trimTrailingChar(options.appBaseUrl ?? resolveAppBaseUrl(env), "/");
   const ctx = buildDependencyContext(input, appBaseUrl);
 
   if (channel === "EMAIL_INSTANT") {

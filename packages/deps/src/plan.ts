@@ -17,7 +17,7 @@ import type {
   RangeSyntax,
   SemverType,
 } from "./types.js";
-import { normalizePypiName } from "./util.js";
+import { normalizePypiName, trimChar } from "./util.js";
 import {
   bumpRange,
   compareVersions,
@@ -405,12 +405,8 @@ export interface UpdateGroup<T extends GroupableUpdate> {
 
 /** `@types/node` → `types-node`; `[a-z0-9-]`, at most 60 characters, never empty. */
 export function slugifyGroupName(name: string): string {
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60)
-    .replace(/-+$/g, "");
+  const collapsed = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const slug = trimChar(trimChar(collapsed, "-").slice(0, 60), "-");
   return slug === "" ? "dep" : slug;
 }
 

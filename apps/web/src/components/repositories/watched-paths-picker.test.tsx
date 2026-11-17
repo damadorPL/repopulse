@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { isExpandedCombobox, WatchedPathsPicker } from "./watched-paths-picker";
+import { isExpandedCombobox, rootLabel, WatchedPathsPicker } from "./watched-paths-picker";
 
 vi.mock("@/server/actions/repositories", () => ({ listRepositoryPathsAction: vi.fn() }));
 
@@ -36,5 +36,16 @@ describe("isExpandedCombobox", () => {
     expect(isExpandedCombobox(element({ role: "combobox", "aria-expanded": "false" }))).toBe(false);
     expect(isExpandedCombobox(element({ role: "button", "aria-expanded": "true" }))).toBe(false);
     expect(isExpandedCombobox(null)).toBe(false);
+  });
+});
+
+describe("rootLabel", () => {
+  it("extracts the repository name from slugs and GitHub URLs", () => {
+    expect(rootLabel(null)).toBe("root");
+    expect(rootLabel("acme/widget")).toBe("widget");
+    expect(rootLabel("https://github.com/acme/widget")).toBe("widget");
+    expect(rootLabel("https://www.github.com/acme/widget/releases")).toBe("widget");
+    expect(rootLabel("github.com/acme/widget")).toBe("widget");
+    expect(rootLabel("git@github.com:acme/widget")).toBe("widget");
   });
 });

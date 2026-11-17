@@ -1,4 +1,5 @@
 import semver from "semver";
+import { trimTrailingChar } from "./text.js";
 
 /** Mirrors the `SemverType` enum in `@repopulse/db` (kept local so this package has no Prisma dependency). */
 export type SemverType = "MAJOR" | "MINOR" | "PATCH" | "PRERELEASE" | "OTHER";
@@ -24,7 +25,7 @@ const GITHUB_HOST_RE = /^(?:www\.)?github\.com$/i;
 const SSH_RE = /^git@github\.com:(.+)$/i;
 
 function stripSuffixes(path: string): string {
-  return path.replace(/\/+$/, "").replace(/\.git$/i, "").replace(/\/+$/, "");
+  return trimTrailingChar(trimTrailingChar(path, "/").replace(/\.git$/i, ""), "/");
 }
 
 /**

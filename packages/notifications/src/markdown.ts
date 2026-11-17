@@ -30,14 +30,107 @@ export function githubLinkLabel(release: Pick<NotificationReleaseInput, "source"
   return release.source === "TAG" ? "View on GitHub" : "Release notes on GitHub";
 }
 
+/** Trims all trailing occurrences of `char` (single character) without regex backtracking. */
+export function trimTrailingChar(value: string, char: string): string {
+  let end = value.length;
+  while (end > 0 && value.charAt(end - 1) === char) end--;
+  return end === value.length ? value : value.slice(0, end);
+}
+
+const BLOCK_HTML_TAGS = new Set([
+  "p",
+  "div",
+  "details",
+  "summary",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "ul",
+  "ol",
+  "li",
+  "table",
+  "tr",
+]);
+
+function isAsciiLetter(code: number): boolean {
+  return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+}
+
+function isTagNameChar(code: number): boolean {
+  return isAsciiLetter(code) || (code >= 48 && code <= 57) || code === 45;
+}
+
+function isAsciiWhitespace(code: number): boolean {
+  return code === 32 || code === 9 || code === 10 || code === 11 || code === 12 || code === 13;
+}
+
+function stripHtmlOnce(text: string): string {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    const lt = text.indexOf("<", i);
+    if (lt === -1) {
+      out += text.slice(i);
+      break;
+    }
+    out += text.slice(i, lt);
+
+    if (text.startsWith("<!--", lt)) {
+      const end = text.indexOf("-->", lt + 4);
+      if (end !== -1) {
+        i = end + 3;
+        continue;
+      }
+    }
+
+    let pos = lt + 1;
+    const isClosing = text.charCodeAt(pos) === 47;
+    if (isClosing) pos++;
+    if (pos < text.length && isAsciiLetter(text.charCodeAt(pos))) {
+      const nameStart = pos;
+      pos++;
+      while (pos < text.length && isTagNameChar(text.charCodeAt(pos))) pos++;
+      const tagName = text.slice(nameStart, pos).toLowerCase();
+      const afterName = pos < text.length ? text.charCodeAt(pos) : -1;
+      if (text.charCodeAt(pos - 1) !== 45 && afterName !== 95) {
+        if (tagName === "br" && !isClosing) {
+          let brPos = pos;
+          while (brPos < text.length && isAsciiWhitespace(text.charCodeAt(brPos))) brPos++;
+          if (text.charCodeAt(brPos) === 47) brPos++;
+          if (text.charCodeAt(brPos) === 62) {
+            out += "\n";
+            i = brPos + 1;
+            continue;
+          }
+        }
+        const close = text.indexOf(">", pos);
+        if (close !== -1) {
+          if (BLOCK_HTML_TAGS.has(tagName)) out += "\n";
+          i = close + 1;
+          continue;
+        }
+      }
+    }
+
+    out += "<";
+    i = lt + 1;
+  }
+  return out;
+}
+
 /** Normalizes line endings, drops HTML comments and tags (keeping their text) and squeezes blank lines. */
 export function cleanMarkdown(markdown: string): string {
-  return markdown
-    .replace(/\r\n?/g, "\n")
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/?(?:p|div|details|summary|h[1-6]|ul|ol|li|table|tr)\b[^>]*>/gi, "\n")
-    .replace(/<\/?[a-z][a-z0-9-]*\b[^>]*>/gi, "")
+  let text = markdown.replace(/\r\n?/g, "\n");
+  let prev: string;
+  do {
+    prev = text;
+    text = stripHtmlOnce(text);
+  } while (text !== prev);
+
+  return text
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();

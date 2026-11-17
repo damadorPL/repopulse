@@ -31,7 +31,7 @@ export function npmUnsupportedReason(spec: string): string | null {
   ];
   for (const [prefix, reason] of prefixes) if (lower.startsWith(prefix)) return reason;
   if (value.startsWith(".") || value.startsWith("/") || value.startsWith("~/")) return "Local path dependency";
-  if (/^[^@\s]+\/[^\s]+$/.test(value) && !/^[<>=~^\d]/.test(value)) return "GitHub dependency";
+  if (/^[^@/\s]+\/\S+$/.test(value) && !/^[<>=~^\d]/.test(value)) return "GitHub dependency";
   if (semver.validRange(value, RANGE_OPTIONS) === null) return "Not a semver range (dist-tag or unknown spec)";
   return null;
 }

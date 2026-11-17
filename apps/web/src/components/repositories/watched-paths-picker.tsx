@@ -40,8 +40,35 @@ const TREE_CACHE_TTL_MS = 5 * 60_000;
 
 const treeCache = new Map<string, { at: number; promise: Promise<ActionResult<RepoTree>> }>();
 
+function trimTrailingSlash(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charAt(end - 1) === "/") end--;
+  return end === value.length ? value : value.slice(0, end);
+}
+
 function treeKey(repo: string): string {
-  return repo.trim().toLowerCase().replace(/\.git$/, "").replace(/\/+$/, "");
+  return trimTrailingSlash(repo.trim().toLowerCase().replace(/\.git$/, ""));
+}
+
+export function rootLabel(repo: string | null): string {
+  if (!repo) return "root";
+  const trimmed = repo.trim();
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const segments = new URL(trimmed).pathname.split("/").filter(Boolean);
+      return segments[1] || "root";
+    } catch {
+      return "root";
+    }
+  }
+  const colon = trimmed.indexOf(":");
+  const slug = colon !== -1 ? trimmed.slice(colon + 1) : trimmed;
+  const segments = slug.split("/").filter(Boolean);
+  const first = segments[0]?.toLowerCase();
+  if (first === "github.com" || first === "www.github.com") {
+    return segments[2] || "root";
+  }
+  return segments[1] || "root";
 }
 
 /** One request per repository per few minutes, shared by every picker on the page. Failures aren't cached. */
@@ -457,7 +484,7 @@ export function WatchedPathsPicker({
               onClick={() => setFolder("")}
               className={cn("rounded px-1 hover:bg-accent", folder === "" && "font-medium")}
             >
-              {repo ? (repo.replace(/^.*github\.com\//, "").split("/")[1] ?? "root") : "root"}
+              {rootLabel(repo)}
             </button>
             {folderSegments.map((segment, position) => {
               const path = folderSegments.slice(0, position + 1).join("/");

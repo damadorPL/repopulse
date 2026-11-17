@@ -10,7 +10,8 @@ const MAX_ALIAS_COUNT = 100;
 /** `1.2.3(react@18.2.0)` / `1.2.3_react@18.2.0` → `1.2.3`; `link:` / `file:` → `null`. */
 export function stripPnpmVersionSuffix(version: string): string | null {
   if (/^(?:link|file|workspace|git|https?):/.test(version)) return null;
-  const withoutPeers = version.replace(/\(.*$/, "");
+  const paren = version.indexOf("(");
+  const withoutPeers = paren === -1 ? version : version.slice(0, paren);
   const underscore = withoutPeers.indexOf("_");
   return underscore === -1 ? withoutPeers : withoutPeers.slice(0, underscore);
 }

@@ -6,9 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.6] — 2026-11-17 — CodeQL security fixes and dependency updates
+
+### Changed
+- Updated dependencies across workspace packages to their latest releases:
+  - `bullmq` 6.7.6 → 6.7.7 (`apps/deps-worker`, `apps/web`, `apps/worker`, `packages/queue`)
+  - `lucide-react` 1.73.0 → 1.74.0 (`apps/web`)
+- Updated `deps-sandbox` container runtime tool pin:
+  - `pnpm` 12.18.0 → 12.21.0
+
+### Fixed
+
+- Hardening across `@repopulse/deps`, `@repopulse/github`, `@repopulse/notifications`, and `@repopulse/web` by replacing polynomial trailing-character and overlapping regexes with linear string trimming, running HTML comment/tag stripping in `cleanMarkdown` to a fixed point without regexes, and extracting repository display names without an unanchored hostname regex.
+
 ## [0.9.5.5] — 2026-11-16 — Dependency updates across workspace packages
 
 ### Changed
+
 - Updated dependencies across workspace packages to their latest releases:
   - `typescript-eslint` 8.72.2 → 8.73.0 (`package.json`)
   - `nodemailer` 10.5.0 → 10.6.0 (`packages/notifications`)
@@ -16,6 +30,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 ## [0.9.5.4] — 2026-11-14 — Dependency updates across workspace packages
 
 ### Changed
+
 - Updated dependencies across workspace packages to their latest releases:
   - `eslint` 10.14.0 → 10.15.0 (`package.json`)
   - `lucide-react` 1.72.0 → 1.73.0 (`apps/web`)
@@ -25,9 +40,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 ## [0.9.5.3] — 2026-11-13 — Sandbox runtime updates and check script
 
 ### Added
+
 - Added `scripts/check-sandbox-updates.mjs` and `pnpm deps:sandbox:check` script to check pinned `deps-sandbox` runtime versions (`npm`, `pnpm`, `bun`, `poetry`, `uv`) against upstream registries and releases.
 
 ### Changed
+
 - Updated `deps-sandbox` container runtime tool pins to their latest releases:
   - `pnpm` 12.16.1 → 12.18.0
   - `uv` 0.13.7 → 0.13.8 (with updated AMD64 and ARM64 sha256 checksums)
@@ -35,14 +52,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 ## [0.9.5.2] — 2026-11-13 — Dependency PR actions, pnpm 12 lockfile fixes, and dependency updates
 
 ### Added
+
 - Added a "Create PR" / "Update PR" action (with a multi-group PR chooser and batch action when multiple groups are planned) directly on project rows in the `/dependencies` window next to "Check now".
 
 ### Fixed
+
 - Support pnpm 11/12 multi-document `pnpm-lock.yaml` files (with `packageManagerDependencies` / `configDependencies` boot documents) when scanning projects and validating regenerated lockfiles.
 - Avoid caching failed lockfile parses in Redis and bump the lockfile-read cache key so previously failed scans recover immediately on re-check.
 - Set `pnpm_config_pm_on_fail` and `pnpm_config_ignore_scripts` in `deps-sandbox` for pnpm 12 compatibility without downloading external pnpm binaries or stripping existing `packageManagerDependencies` sections.
 
 ### Changed
+
 - Updated dependencies across workspace packages to their latest releases:
   - `bullmq` 6.7.3 → 6.7.6 (`apps/web`, `apps/deps-worker`, `apps/worker`, `packages/queue`)
   - `lucide-react` 1.71.0 → 1.72.0 (`apps/web`)
@@ -50,9 +70,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 ## [0.9.5.1] — 2026-11-10 — Dependency updates across workspace packages
 
 ### Added
+
 - Added `scripts/check-updates.mjs` and `pnpm deps:check` script to scan all monorepo dependencies against the npm registry.
 
 ### Changed
+
 - Updated dependencies across workspace packages to their latest releases:
   - `bullmq` 6.7.2 → 6.7.3 (`apps/web`, `apps/deps-worker`, `apps/worker`, `packages/queue`)
   - `lucide-react` 1.70.0 → 1.71.0 (`apps/web`)
@@ -62,6 +84,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 ## [0.9.5] — 2026-11-05 — Security hardening and vulnerability mitigations
 
 ### Security
+
 - Harden custom registry and index detection in `deps-sandbox` (`bunfig.toml` scoped tables, `pnpm-workspace.yaml` scoped/quoted registry keys, `uv.toml`/`pyproject.toml` `default-index`, `[sources]`, underscore keys, and multi-URL lists).
 - Separate Python registry policy families (`pyproject.toml`/`uv.toml` vs `pip.conf`/`pip.ini`) and prevent public default index overrides from clearing private default index policies in `@repopulse/deps`.
 - Bound YAML alias expansion (`maxAliasCount`) when parsing `pnpm-lock.yaml`, Berry `yarn.lock`, and `pnpm-workspace.yaml`.
@@ -72,18 +95,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 ## [0.9.4.3] — 2026-11-05 — Release history candidates and GitHub API quota display
 
 ### Added
+
 - **Release history candidate repositories and missing count:** In Admin → Release history ("Apply to existing repositories"), listed tracked repositories that have older releases remaining on GitHub, showing their stored releases count, oldest stored release tag and date, and how many releases are missing to reach the automatic target.
 - **GitHub API quota card:** Added a dedicated card in Admin → Release history displaying live remaining quota, hourly limit, requests used, reset time (with countdown), status relative to the minimum quota threshold (`minQuota`), and a refresh button.
 
 ## [0.9.4.2] — 2026-11-05 — Comprehensive test suite expansion and hardening
 
 ### Added
+
 - Expanded unit and integration test coverage across all workspace packages and services (`apps/web`, `apps/worker`, `apps/deps-worker`, `apps/deps-sandbox`, `packages/deps`, `packages/github`, `packages/notifications`, `packages/queue`, and `packages/db`).
 - Added tests for route handlers, server actions, processors, registry caches, rate limiters, sandbox execution guards, and edge cases.
 
 ## [0.9.4.1] — 2026-11-05 — Dependency updates and sandbox runtimes bump
 
 ### Changed
+
 - Updated dependencies across workspace packages to their latest releases:
   - `bullmq` 6.5.4 → 6.7.0 (`apps/web`, `apps/deps-worker`, `apps/worker`, `packages/queue`)
   - `lucide-react` 1.67.0 → 1.69.0 (`apps/web`)
@@ -101,11 +127,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
   and `20261103131000_dependency_notification_outbox`. No environment changes.
 
 ### Security
+
 - Serialize first-account registration so concurrent sign-ins cannot create multiple super admins.
 - Mark dependencies using custom registries or repository sources unsupported before public registry lookups,
   including manifest-only update pull requests.
 
 ### Fixed
+
 - Recover dependency update pull requests after a failure between pushing the bot branch and saving its state,
   while preserving protection for human edits.
 - Recheck automatic/manual mode and PR slots when queued dependency update jobs execute.
@@ -115,6 +143,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 - Preserve search text and current filters when a pending debounced search overlaps sort or filter changes.
 
 ### Changed
+
 - Run actual ESLint checks in workspace lint tasks instead of completing without linting any source files.
 
 ## [0.9.3] — 2026-11-03 — Coolify-generated sandbox token
@@ -125,6 +154,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
   is no longer used by `docker-compose.coolify.yml` and can be removed.
 
 ### Fixed
+
 - **"Sandbox unreachable" on Coolify**: the token was read from `${DEPS_SANDBOX_TOKEN}`, which Coolify only writes to
   the runtime `.env` once someone sets it, so `deps-sandbox` restarted in a loop and lockfile pull requests stayed
   disabled. `deps-worker` and `deps-sandbox` now get it from the Coolify magic variable
@@ -139,6 +169,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
   Dependencies shows "Sandbox unreachable": without it `deps-sandbox` refuses to start.
 
 ### Security
+
 - **`deps-sandbox` no longer sees the app's secrets on Coolify.** Coolify adds the application's whole `.env` to every
   compose service, so the sandbox container started with the database, Redis, auth and encryption secrets in its
   environment, readable by the package managers it runs. Its entrypoint now re-executes with an allowlisted
@@ -147,6 +178,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 ## [0.9.1] — 2026-11-03 — Coolify deploy fix for deps-egress
 
 ### Fixed
+
 - **Coolify deploy of `deps-egress`**: the container failed to start ("Are you trying to mount a directory onto a
   file") because Coolify keeps no repository files on the host, so the `squid.conf` bind mount had an empty directory
   as its source. `squid.conf` is now baked into a small image built from the pinned Squid image
@@ -170,6 +202,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
   and update pull requests also need the RepoPulse GitHub App (Admin → GitHub App).
 
 ### Added
+
 - **Dependencies: projects and checks** (Part A). A new **Dependencies** page lists your own repositories ("projects"),
   separate from tracked repositories: add them from your tracked repositories (up to 20 at once), by URL, or from a
   repository's settings page. A new `deps-worker` service detects `package.json`, `pyproject.toml` and
@@ -200,6 +233,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
   instance-wide counts.
 
 ### Changed
+
 - **Notification rules choose their events**: Releases, Dependency updates and Dependency pull requests. Existing
   rules cover releases only; edit a rule's events from Settings → Notifications. A rule limited to a tag can only
   notify about releases.
@@ -213,6 +247,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
   get the defaults (not pinned, no note, notification level "All updates", not snoozed, no version).
 
 ### Added
+
 - **Repository settings page** (`/repositories/<owner>/<name>`): every setting of a tracked repository in one place,
   with a header (sync, open in feed, pin), tracking, tags, notifications & feed, release history and a danger zone.
   The URL is case-insensitive and redirects to the canonical casing; a repository you don't track shows a "Not
@@ -233,6 +268,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
   settings page show "N releases behind · M major", and feed cards of newer releases are marked "Newer than yours".
 
 ### Changed
+
 - The tracking controls (release mode select, "Files / folders" popover) moved from the repository cards to the
   settings page, where the path editor is shown inline. Cards show a read-only tracking summary that links to it, and
   their title now opens the settings page (a new feed icon opens the repository in the feed).
@@ -244,7 +280,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
   - `vitest` 5.0.5 → 5.1.0 (`apps/web`, `apps/worker`, `packages/{db,github,notifications,queue}`)
   - Switched `apps/web/vitest.config.ts` JSX configuration to `oxc: { jsx: { runtime: "automatic" } }` for compatibility with Vitest 5.1.0 and Vite 8 Oxc transformation.
 
-
 ## [0.7.1] — 2026-11-01 — Admin panel
 
 **Upgrade notes**
@@ -255,6 +290,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 - `/settings/access` and `/settings/email` moved to `/admin/access` and `/admin/email`; the old URLs redirect.
 
 ### Added
+
 - **Admin panel** (`/admin`, super admin only): one place for every instance setting, with tabs for Overview, Access,
   Email (SMTP) and Release history. The overview shows members, tracked repositories and pending invites, plus the
   state of each section. The sidebar and the account menu now have a single **Admin** entry instead of the
@@ -274,6 +310,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
   subscriptions keep tracking only their paths.
 
 ### Added
+
 - **Track releases and files / folders at once.** "Files / folders" is no longer a separate mode: it can be combined
   with "Releases only" or "Releases + tags" on the same repository.
   - Add dialog: the three tracking cards are now checkboxes. "Releases only" and "Releases + tags" exclude each other,
@@ -283,9 +320,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
     **Stop watching paths** button. Choosing "No releases" without watched paths asks for paths first.
 
 ### Changed
+
 - The sidebar section and the manage dialog are now called **Tags** (was "Categories / Tags" and "Categories & tags").
 
 ### Fixed
+
 - Repository cards line up again: the description always takes two lines ("No description" when empty) and the
   details sit on fixed rows (stars, latest and unread / sync status / history / tracking mode) instead of wrapping to
   two to four lines depending on content. Long release tags are truncated, with the full tag on hover.
@@ -297,6 +336,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 - No migrations or environment changes. Redeploy to pick up the new images.
 
 ### Added
+
 - **Theme switcher** in the account menu (avatar, top right): System / Light / Dark. "System" follows the OS setting
   as before. The choice is stored per browser in a `theme` cookie and applied while the page is server-rendered, so
   there is no flash of the wrong theme. Toasts follow the selected theme too.
@@ -322,6 +362,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
   and `UserSubscription.watchedPaths`. No environment changes.
 
 ### Added
+
 - **"Files / folders" tracking mode** (Slice 06) for repositories without releases or tags, and for monorepos where only
   some paths matter. Watch up to 10 repo-relative files or folders (e.g. `CHANGELOG.md, packages/cli`): every commit
   on the default branch that changes one of them becomes a feed entry with a **Commit** badge, titled with the commit
@@ -342,6 +383,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
   custom webhook payload has `release.source = "COMMIT"`.
 
 ### Fixed
+
 - Tag tracking compared new tags against the newest stored row of any source. It now ignores commit rows, which would
   otherwise push genuinely new tags into read history.
 
@@ -352,6 +394,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 - No migrations or environment changes. Redeploy to pick up the new images.
 
 ### Security
+
 - `postcss-selector-parser` is forced to 6.1.5 through `overrides` in `pnpm-workspace.yaml`, fixing
   [GHSA-rj75-hqrm-r3gf](https://github.com/advisories/GHSA-rj75-hqrm-r3gf) (quadratic selector parsing, CPU
   exhaustion). `@tailwindcss/typography` 0.5.20, its latest release, pins the affected 6.0.10. The parser only runs
@@ -364,6 +407,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 - No migrations or environment changes. Redeploy to pick up the new images.
 
 ### Changed
+
 - Updated dependencies to their latest stable releases (versions stay pinned exactly):
   - `bullmq` 6.3.16 → 6.5.3 (`@repopulse/queue`, web, worker)
   - `nodemailer` 10.1.2 → 10.3.1 (`@repopulse/notifications`)
@@ -384,6 +428,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
   local compose, run `pnpm env:sync`, which adds it and lists the old keys you can delete.
 
 ### Added
+
 - **Super admin and instance settings.**
   - Migration `20261101150000_super_admin_smtp_settings`: `User.isAdmin` is renamed to `User.isSuperAdmin`, and
     `InstanceSettings` gets `smtpHost`, `smtpPort`, `smtpSecure`, `smtpUser`, `smtpPasswordEncrypted` and `smtpFrom`.
@@ -461,6 +506,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
   loads `.env` files) and the worker `dev` script (`--env-file-if-exists`).
 
 ### Changed
+
 - `@repopulse/notifications` no longer reads `SMTP_*` from the environment. `dispatchNotification()` takes the SMTP
   settings as an option (`smtp`), built with `toSmtpConfig()`. `readSmtpConfig()` and `isSmtpConfigured()` are replaced
   by `toSmtpConfig()`, `defaultSmtpFrom()` and the `StoredSmtpSettings` type.
@@ -471,11 +517,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
   only reports them and never deletes anything.
 
 ### Removed
+
 - The `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_SECURE` and `SMTP_FROM` environment variables. They are
   gone from `.env.example`, `pnpm env:setup` and both services in `docker-compose.coolify.yml`. **Upgrading:** if you
   used email, re-enter the values in Settings → Email after deploying. Until then, email rules fail and are not retried.
 
 ### Fixed
+
 - Deploy: `docker-compose.coolify.yml` sets `NEXTAUTH_URL` and `APP_BASE_URL` from `SERVICE_URL_WEB` instead of
   `SERVICE_FQDN_WEB`. Coolify 4.5 gives `SERVICE_FQDN_WEB` as a bare host without the scheme, which broke the
   sign-in callback URL and the links in notifications. `.env.example` and `pnpm env:setup` use `SERVICE_URL_WEB` too, and
@@ -484,6 +532,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 - In the add-rule form, the Channel and Repositories fields are aligned to the top.
 
 ### Security
+
 - Webhook destinations pass the SSRF guard twice: when a rule is created, and again inside the socket's DNS lookup on
   every delivery, so DNS rebinding can't slip past it. Private and loopback addresses need `ALLOW_INTERNAL_WEBHOOK_HOSTS`.
   Link-local and cloud metadata addresses are always blocked.
@@ -498,6 +547,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 Details: [`slice_04_implementation_summary.md`](./PRD/slice_04_implementation_summary.md)
 
 ### Added
+
 - **`@repopulse/queue`** workspace package: queue and job names, job payload types, jobId helpers, default job options, the Redis connection
   factory and the `RealtimeEvent` contract (`NEW_RELEASE`, `SYNC_STARTED`, `SYNC_COMPLETED`, `SYNC_FAILED`) on `user:{userId}:events`.
 - **Background worker** (`apps/worker`, `bullmq@6.3.16`, `ioredis@6.0.0`):
@@ -513,6 +563,7 @@ Details: [`slice_04_implementation_summary.md`](./PRD/slice_04_implementation_su
   - `SseListener` shows toasts for new releases and sync results and refreshes the dashboard without a reload.
 
 ### Changed
+
 - "Sync now" (`triggerManualRepoSyncAction`) enqueues a priority `repo-poll` job instead of polling inline. It returns `QUEUED` or `COOLDOWN`, and the
   result arrives over SSE. A new `UNAVAILABLE` error code covers Redis being unreachable.
 - `pollRepoReleases()` accepts an `AbortSignal`.
@@ -525,6 +576,7 @@ Details: [`slice_04_implementation_summary.md`](./PRD/slice_04_implementation_su
 Details: [`slice_03_implementation_summary.md`](./PRD/slice_03_implementation_summary.md)
 
 ### Added
+
 - **Dashboard UI** (`apps/web`, Tailwind CSS v4, shadcn/ui on `radix-ui`, light/dark):
   - The sidebar has All Releases (with an unread badge), Unread Only and Tracked Repositories, plus tags with color dots and unread counts.
   - The top bar has a debounced search, an unread bell with a per-repository breakdown, Add Repo and an account menu.
@@ -549,10 +601,12 @@ Details: [`slice_03_implementation_summary.md`](./PRD/slice_03_implementation_su
 - 58 Vitest tests for apps/web, including XSS sanitization of release notes.
 
 ### Changed
+
 - The Slice 02 temporary home page is replaced by the `(dashboard)` route group.
 - Action result helpers moved to `server/action-result.ts`, and repository actions now revalidate the whole dashboard layout.
 
 ### Security
+
 - Release notes pass through `rehype-raw` → `rehype-sanitize` (GitHub allow-list) → `rehype-highlight` on the server. Scripts, event handlers,
   `javascript:`/`data:` URLs, iframes, styles and forms are stripped, and the raw body is never sent to the client.
 - Every action is scoped to the signed-in user: tags, subscriptions and read state can only belong to the current user.
@@ -562,6 +616,7 @@ Details: [`slice_03_implementation_summary.md`](./PRD/slice_03_implementation_su
 Details: [`slice_02_implementation_summary.md`](./PRD/slice_02_implementation_summary.md)
 
 ### Added
+
 - **`@repopulse/github`** workspace package (ESM, `@octokit/rest@22.0.1`, `semver@7.8.5`):
   - `parseRepoInput()` accepts `owner/repo`, `github.com/owner/repo(.git)`, full `https://github.com/...` URLs
     (deep links such as `/releases/tag/...` included) and `git@github.com:owner/repo.git`; throws
@@ -587,9 +642,11 @@ Details: [`slice_02_implementation_summary.md`](./PRD/slice_02_implementation_su
 - README section on creating the GitHub OAuth App.
 
 ### Changed
+
 - `turbo.json`: `dev` now depends on `^build`, so workspace packages' `dist` exists before `next dev` starts.
 
 ### Security
+
 - The GitHub access token is never stored in the session cookie; only the internal `userId` is.
 - Draft releases are never ingested. Repository data is shared across subscribers, and drafts are only visible to tokens with push access.
 - Tags passed to `addRepositoryAction` are attached only if owned by the current user.
@@ -598,6 +655,7 @@ Details: [`slice_02_implementation_summary.md`](./PRD/slice_02_implementation_su
 ## [0.1.0] — 2026-10-31 — Slice 01: Monorepo, database & Coolify foundation
 
 ### Added
+
 - Turborepo + pnpm workspace (`apps/web`, `apps/worker`, `packages/db`, `packages/tsconfig`), Node ≥ 24, TypeScript 7.
 - `@repopulse/db`: Prisma 7 schema (users, repositories, releases, subscriptions, tags, read state, notification
   rules), initial migration, singleton client via `@prisma/adapter-pg`, AES-256-GCM `encryptToken` / `decryptToken`
