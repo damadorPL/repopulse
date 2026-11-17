@@ -6,13 +6,16 @@ Self-hostable GitHub release & changelog tracker — Turborepo + pnpm monorepo d
 | --- | --- |
 | `apps/web` | Next.js (App Router) UI + API, GitHub sign-in (Auth.js v5), `GET /api/health` |
 | `apps/worker` | BullMQ worker: cron scheduler, ETag-aware repository poller (releases + optional Git tags), release-history backfill, notification delivery, `GET :3001/health` |
+| `apps/deps-worker` | BullMQ worker for the Dependencies module: cron scheduler, npm/Bun/PyPI dependency scanner, notification delivery, update PRs via GitHub App, `GET :3002/health` |
+| `apps/deps-sandbox` | Isolated HTTP lockfile-regeneration sandbox for `npm`, `pnpm`, `Bun`, `uv` and `Poetry` (`GET :3003/health`, routed through `deploy/deps-egress` in Coolify) |
 | `packages/db` | Prisma schema, migrations, singleton client, AES-256-GCM token crypto |
-| `packages/github` | Octokit wrapper, repo-input parser, SemVer classifier, ETag-aware release polling, GraphQL tag reader + commit compare |
+| `packages/deps` | Pure-TypeScript manifest/lockfile parsers, npm/PyPI registry clients, update planner, PR helpers and sandbox contract |
+| `packages/github` | Octokit wrapper, repo-input parser, SemVer classifier, ETag-aware release polling, GraphQL tag reader, commit compare, GitHub App + Git Data API helpers |
 | `packages/queue` | Shared BullMQ queue names, job payloads, Redis connection factory and the SSE event contract |
 | `packages/notifications` | Discord, Slack, ntfy, Gotify, SMTP email and custom-webhook formatters, `dispatchNotification()`, SSRF guard for webhook URLs |
 | `packages/tsconfig` | Shared TypeScript configs |
 
-Documentation: [`docs/`](./docs/README.md) covers architecture, data model, web app, worker, packages,
+Documentation: [`docs/`](./docs/README.md) covers architecture, data model, web app, worker, dependencies, packages,
 notifications, auth, configuration, development, deployment and recipes, written for coding agents and contributors.
 [`AGENTS.md`](./AGENTS.md) is the agent entry point. Release history: [`CHANGELOG.md`](./CHANGELOG.md).
 
@@ -27,7 +30,7 @@ pnpm env:setup            # once: writes a git-ignored .env with generated secre
 pnpm services:up          # Postgres + Redis on localhost (docker-compose.dev.yml)
 pnpm db:migrate:deploy    # apply migrations
 pnpm dev                  # http://localhost:3000
-pnpm typecheck && pnpm test && pnpm build
+pnpm typecheck && pnpm lint && pnpm test && pnpm build
 ```
 
 After pulling a slice that introduces new settings, run `pnpm env:sync`. It adds any missing keys to `.env.example`
@@ -65,6 +68,8 @@ all instance settings, under **Instance** in the sidebar:
   single-use, expire after 1, 7 or 30 days and can be revoked. Only a SHA-256 of each token is stored, so a link is
   shown once. Existing members can always sign in.
 - **Settings → Email** (`/settings/email`): the SMTP server for email notifications (see below).
+- **Admin → Dependencies** & **Admin → Release history**: enable the optional Dependencies module (and configure its
+  GitHub App for update PRs), or tune/apply release-history backfill and inspect GitHub API quota.
 
 ### Notifications
 
@@ -81,7 +86,7 @@ Users add rules under **Settings → Notifications** (`/settings/notifications`)
 - Links in notifications use `APP_BASE_URL` (compose sets it from `SERVICE_URL_WEB`), falling back to `AUTH_URL`.
 
 Startup order: `postgres` + `redis` healthy → `migrator` runs `prisma migrate deploy` and exits 0 →
-`web` and `worker` start.
+`web`, `worker` and `deps-worker` start (`deps-sandbox` runs on an internal network whose only outbound route is `deps-egress`).
 
 Local smoke test of the full stack:
 
