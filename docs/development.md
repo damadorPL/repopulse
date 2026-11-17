@@ -87,4 +87,7 @@ the `tsc` executable on TypeScript 7. Keep both aliases pinned when updating lin
 - Conventional Commits: `feat: …`, `fix(web): …`, `fix(deploy): …`, `docs: …`.
 - Work happens on `main`. To publish, commit on `main`, merge `origin/main` if it moved (`git pull --no-rebase
   origin main`), then push. No feature branches or PRs.
+- Bumping `version` in `apps/web/package.json` (with matching notes in `CHANGELOG.md`) on `main` triggers
+  [`.github/workflows/release.yml`](../.github/workflows/release.yml), which creates the `v<version>` tag and GitHub
+  Release automatically.
 - Agents commit or push **only when asked**, and never stage `.env*` files.
