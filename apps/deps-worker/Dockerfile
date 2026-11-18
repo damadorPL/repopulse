@@ -8,7 +8,7 @@
 # this image has no migrator stage.
 FROM node:26-alpine AS base
 RUN apk add --no-cache libc6-compat openssl
-RUN npm install -g pnpm@12.16.1 turbo@2.11.11
+RUN npm install -g pnpm@12.16.1 turbo@2.11.12
 WORKDIR /app
 
 # ---- Stage 1: prune the monorepo down to @repopulse/deps-worker and its workspace deps

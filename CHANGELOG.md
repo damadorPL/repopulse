@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.6.1] — 2026-11-18 — Dependency and sandbox runtime updates
+
+### Changed
+- Updated dependencies across workspace packages to their latest releases:
+  - `turbo` 2.11.11 → 2.11.12 (`package.json`, Dockerfile builder stages)
+  - `lucide-react` 1.74.0 → 1.75.0 (`apps/web`)
+  - `vitest` 5.1.0 → 5.1.1 across workspace packages
+- Updated `deps-sandbox` container runtime tool pins:
+  - `npm` 12.2.2 → 12.2.3
+  - `uv` 0.13.8 → 0.13.9
+
 ## [0.9.6] — 2026-11-17 — CodeQL security fixes and dependency updates
 
 ### Changed

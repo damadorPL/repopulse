@@ -18,11 +18,11 @@ minimumReleaseAgeExclude:
   - '@next/swc-linux-x64-musl@16.4.6'
   - '@next/swc-win32-arm64-msvc@16.4.6'
   - '@next/swc-win32-x64-msvc@16.4.6'
-  - '@vitest/mocker@5.1.0'
-  - '@vitest/spy@5.1.0'
+  - '@vitest/mocker@5.1.1'
+  - '@vitest/spy@5.1.1'
   - next@16.4.6
   - semver@7.8.6
-  - vitest@5.1.0
+  - vitest@5.1.1
   - '@tailwindcss/node@4.3.5'
   - '@tailwindcss/oxide-android-arm64@4.3.5'
   - '@tailwindcss/oxide-darwin-arm64@4.3.5'
@@ -38,7 +38,7 @@ minimumReleaseAgeExclude:
   - '@tailwindcss/oxide-win32-x64-msvc@4.3.5'
   - '@tailwindcss/oxide@4.3.5'
   - '@tailwindcss/postcss@4.3.5'
-  - lucide-react@1.74.0
+  - lucide-react@1.75.0
   - postcss@8.5.33
   - eslint@10.15.0
   - tailwindcss@4.3.5
@@ -55,13 +55,13 @@ minimumReleaseAgeExclude:
   - '@typescript-eslint/visitor-keys@8.72.2 || 8.73.0'
   - typescript-eslint@8.72.2 || 8.73.0
   - nodemailer@10.6.0
-  - '@turbo/darwin-64@2.11.11'
-  - '@turbo/darwin-arm64@2.11.11'
-  - '@turbo/linux-64@2.11.11'
-  - '@turbo/linux-arm64@2.11.11'
-  - '@turbo/windows-64@2.11.11'
-  - '@turbo/windows-arm64@2.11.11'
-  - turbo@2.11.11
+  - '@turbo/darwin-64@2.11.12'
+  - '@turbo/darwin-arm64@2.11.12'
+  - '@turbo/linux-64@2.11.12'
+  - '@turbo/linux-arm64@2.11.12'
+  - '@turbo/windows-64@2.11.12'
+  - '@turbo/windows-arm64@2.11.12'
+  - turbo@2.11.12
   - '@eslint/config-array@0.23.6'
 overrides:
   # @tailwindcss/typography 0.5.20 pins 6.0.10, which is affected by GHSA-rj75-hqrm-r3gf (fixed in 6.1.5+).

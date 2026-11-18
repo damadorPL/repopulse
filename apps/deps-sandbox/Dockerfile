@@ -11,7 +11,7 @@
 
 # ---- Build stages: same shape as apps/worker/Dockerfile ----------------------------------------------------------
 FROM node:26-trixie-slim AS base
-RUN npm install -g pnpm@12.16.1 turbo@2.11.11
+RUN npm install -g pnpm@12.16.1 turbo@2.11.12
 WORKDIR /app
 
 # Stage 1: prune the monorepo down to @repopulse/deps-sandbox and its workspace deps
@@ -37,12 +37,12 @@ FROM node:26-trixie-slim AS runner
 
 # Pinned tool versions (each released at least two weeks before it was pinned). The tool-version checks in
 # src/commands.ts (lockfile formats, packageManager majors) assume these majors: re-check them on every bump.
-ARG NPM_VERSION=12.2.2
+ARG NPM_VERSION=12.2.3
 ARG PNPM_VERSION=12.21.0
 ARG BUN_VERSION=1.4.4
-ARG UV_VERSION=0.13.8
-ARG UV_SHA256_AMD64=5acfd9177cfecf0bf87578f059728215ccc884388988f55f7a65041b57387d91
-ARG UV_SHA256_ARM64=74f2f5c6024d397481db228db8fc25eed420db192243f88438c118e7e013e585
+ARG UV_VERSION=0.13.9
+ARG UV_SHA256_AMD64=a7fbaff2b9a271d85c1bdb540941090fd1ce011797b4abeb48e4dcd39c2471d5
+ARG UV_SHA256_ARM64=0797542018e541a9288855df555c8077eed06f7a47d206362030480e8ecc9f3d
 ARG POETRY_VERSION=2.5.1
 ARG TARGETARCH
 
