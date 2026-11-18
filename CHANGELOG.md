@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.6.2] — 2026-11-18 — Dependency updates and update check script improvements
+
+### Changed
+
+- Updated dependencies and pinned builder tools to their latest releases:
+  - `pnpm` 12.16.1 → 12.21.0 (`package.json` `packageManager`, Dockerfile builder stages)
+  - `turbo` 2.11.12 → 2.11.13 (`package.json`, Dockerfile builder stages)
+- Extended `scripts/check-updates.mjs` to also check `optionalDependencies`, root `packageManager`, and `npm install -g` pins in `apps/*/Dockerfile` and `deploy/*/Dockerfile`.
+
 ## [0.9.6.1] — 2026-11-18 — Dependency and sandbox runtime updates
 
 ### Changed

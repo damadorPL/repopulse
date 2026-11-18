@@ -29,10 +29,15 @@ const outdatedOnly = args.has("--outdated-only");
 const outputJson = args.has("--json");
 const noFail = args.has("--no-fail");
 
-/** Find all package.json files in monorepo, ignoring node_modules, dist, .next */
-function findPackageJsonFiles(dir) {
+/** Find all files matching a filename in a directory, ignoring node_modules, dist, .next */
+function findFilesNamed(dir, filename) {
   const results = [];
-  const entries = readdirSync(dir, { withFileTypes: true });
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return results;
+  }
 
   for (const entry of entries) {
     if (entry.name === "node_modules" || entry.name === "dist" || entry.name === ".next" || entry.name.startsWith(".")) {
@@ -40,8 +45,8 @@ function findPackageJsonFiles(dir) {
     }
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      results.push(...findPackageJsonFiles(fullPath));
-    } else if (entry.isFile() && entry.name === "package.json") {
+      results.push(...findFilesNamed(fullPath, filename));
+    } else if (entry.isFile() && entry.name === filename) {
       results.push(fullPath);
     }
   }
@@ -50,19 +55,44 @@ function findPackageJsonFiles(dir) {
 
 const packageJsonFiles = [
   path.join(root, "package.json"),
-  ...findPackageJsonFiles(path.join(root, "apps")),
-  ...findPackageJsonFiles(path.join(root, "packages")),
+  ...findFilesNamed(path.join(root, "apps"), "package.json"),
+  ...findFilesNamed(path.join(root, "packages"), "package.json"),
+];
+
+const dockerfilePaths = [
+  ...findFilesNamed(path.join(root, "apps"), "Dockerfile"),
+  ...findFilesNamed(path.join(root, "deploy"), "Dockerfile"),
 ];
 
 // Map: pkgName -> Map<version, Set<consumer>>
 const externalPackages = new Map();
+
+function recordPackage(pkgName, version, consumer) {
+  if (!externalPackages.has(pkgName)) {
+    externalPackages.set(pkgName, new Map());
+  }
+  const versionMap = externalPackages.get(pkgName);
+  if (!versionMap.has(version)) {
+    versionMap.set(version, new Set());
+  }
+  versionMap.get(version).add(consumer);
+}
 
 for (const filePath of packageJsonFiles) {
   try {
     const content = JSON.parse(readFileSync(filePath, "utf8"));
     const consumerName = content.name || path.relative(root, filePath);
 
-    for (const depType of ["dependencies", "devDependencies", "peerDependencies"]) {
+    if (typeof content.packageManager === "string" && content.packageManager.includes("@")) {
+      const atIdx = content.packageManager.lastIndexOf("@");
+      const pmName = content.packageManager.slice(0, atIdx);
+      const pmVersion = content.packageManager.slice(atIdx + 1).split("+")[0];
+      if (pmName && pmVersion) {
+        recordPackage(pmName, pmVersion, `${consumerName} (packageManager)`);
+      }
+    }
+
+    for (const depType of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
       const deps = content[depType];
       if (!deps || typeof deps !== "object") continue;
 
@@ -84,18 +114,37 @@ for (const filePath of packageJsonFiles) {
           }
         }
 
-        if (!externalPackages.has(actualName)) {
-          externalPackages.set(actualName, new Map());
-        }
-        const versionMap = externalPackages.get(actualName);
-        if (!versionMap.has(actualVersion)) {
-          versionMap.set(actualVersion, new Set());
-        }
-        versionMap.get(actualVersion).add(consumerName);
+        recordPackage(actualName, actualVersion, consumerName);
       }
     }
   } catch (err) {
     console.error(`Failed to parse ${filePath}: ${err.message}`);
+  }
+}
+
+for (const filePath of dockerfilePaths) {
+  try {
+    const content = readFileSync(filePath, "utf8");
+    const relPath = path.relative(root, filePath).replaceAll("\\", "/");
+    // Match `npm install -g pkg@version ...` (single-line or backslash-continued)
+    const normalized = content.replace(/\\\r?\n/g, " ");
+    const installRegex = /\bnpm\s+(?:install|i)\s+[^\n]*?-g\s+([^\n&|;]+)/g;
+    for (const match of normalized.matchAll(installRegex)) {
+      const tokens = match[1].trim().split(/\s+/);
+      for (const token of tokens) {
+        if (token.startsWith("-")) continue;
+        const clean = token.replace(/^["']|["']$/g, "");
+        const lastAt = clean.lastIndexOf("@");
+        if (lastAt <= 0) continue;
+        const pkgName = clean.slice(0, lastAt);
+        const version = clean.slice(lastAt + 1);
+        // Skip shell variable substitutions like ${NPM_VERSION} (checked by check-sandbox-updates.mjs)
+        if (!version || version.includes("$")) continue;
+        recordPackage(pkgName, version, relPath);
+      }
+    }
+  } catch (err) {
+    console.error(`Failed to read ${filePath}: ${err.message}`);
   }
 }
 

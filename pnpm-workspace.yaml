@@ -55,13 +55,13 @@ minimumReleaseAgeExclude:
   - '@typescript-eslint/visitor-keys@8.72.2 || 8.73.0'
   - typescript-eslint@8.72.2 || 8.73.0
   - nodemailer@10.6.0
-  - '@turbo/darwin-64@2.11.12'
-  - '@turbo/darwin-arm64@2.11.12'
-  - '@turbo/linux-64@2.11.12'
-  - '@turbo/linux-arm64@2.11.12'
-  - '@turbo/windows-64@2.11.12'
-  - '@turbo/windows-arm64@2.11.12'
-  - turbo@2.11.12
+  - '@turbo/darwin-64@2.11.12 || 2.11.13'
+  - '@turbo/darwin-arm64@2.11.12 || 2.11.13'
+  - '@turbo/linux-64@2.11.12 || 2.11.13'
+  - '@turbo/linux-arm64@2.11.12 || 2.11.13'
+  - '@turbo/windows-64@2.11.12 || 2.11.13'
+  - '@turbo/windows-arm64@2.11.12 || 2.11.13'
+  - turbo@2.11.12 || 2.11.13
   - '@eslint/config-array@0.23.6'
 overrides:
   # @tailwindcss/typography 0.5.20 pins 6.0.10, which is affected by GHSA-rj75-hqrm-r3gf (fixed in 6.1.5+).
