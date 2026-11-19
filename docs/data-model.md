@@ -1,6 +1,6 @@
 # Data model
 
-> **Summary:** PostgreSQL 16 through Prisma 7. The schema is `packages/db/prisma/schema.prisma`, migrations are in
+> **Summary:** PostgreSQL 18 through Prisma 7. The schema is `packages/db/prisma/schema.prisma`, migrations are in
 > `packages/db/prisma/migrations/`, and the client is generated into `packages/db/src/generated/prisma` (git-ignored)
 > and exported from `@repopulse/db`.
 

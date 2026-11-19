@@ -6,7 +6,10 @@ name: repopulse-dev
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # PostgreSQL 18 with PG 16 binaries bundled so existing PG 16 dev volumes upgrade automatically on first boot.
+    build:
+      context: ./deploy/postgres
+      dockerfile: Dockerfile
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-repopulse}
@@ -15,15 +18,16 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-repopulse} -d ${POSTGRES_DB:-repopulse}"]
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 60s
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     restart: unless-stopped
     # Same as production: noeviction is required for BullMQ.
     command: redis-server --appendonly yes --maxmemory-policy noeviction --requirepass ${REDIS_PASSWORD:?run `pnpm env:setup` to create .env}

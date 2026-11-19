@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.7] — 2026-11-19 — PostgreSQL 18, Redis 8, and dependency updates
+
+### Changed
+
+- Upgraded PostgreSQL from `16-alpine` to `18-alpine3.23` (`deploy/postgres/Dockerfile`) and updated the Docker volume mount from `/var/lib/postgresql/data` to `/var/lib/postgresql` in `docker-compose.coolify.yml` and `docker-compose.dev.yml`:
+  - Bundled PG 16 binaries and an automatic upgrade entrypoint (`deploy/postgres/docker-entrypoint-upgrade.sh`) so existing PG 16 volumes upgrade automatically in-place via `pg_upgrade` (copy mode) on first boot while keeping the original cluster at `/var/lib/postgresql/16-pre-upgrade` as a backup.
+- Upgraded Redis from `redis:7-alpine` to `redis:8-alpine` in `docker-compose.coolify.yml` and `docker-compose.dev.yml`.
+- Updated dependencies across workspace packages to their latest releases:
+  - `bullmq` 6.7.7 → 6.7.8 (`apps/deps-worker`, `apps/web`, `apps/worker`, `packages/queue`)
+  - `lucide-react` 1.75.0 → 1.76.0 (`apps/web`)
+- Updated `deps-sandbox` container runtime tool pin:
+  - `bun` 1.4.4 → 1.4.5
+
 ## [0.9.6.2] — 2026-11-18 — Dependency updates and update check script improvements
 
 ### Changed

@@ -9,22 +9,26 @@ x-redis-url: &redis-url redis://:${REDIS_PASSWORD}@redis:6379
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # PostgreSQL 18 with PG 16 binaries bundled so existing PG 16 volumes upgrade automatically on first boot.
+    build:
+      context: ./deploy/postgres
+      dockerfile: Dockerfile
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-repopulse}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-repopulse}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-repopulse} -d ${POSTGRES_DB:-repopulse}"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 60s
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     restart: unless-stopped
     # CRITICAL: maxmemory-policy noeviction is required for BullMQ stability
     command: redis-server --appendonly yes --maxmemory-policy noeviction --requirepass ${REDIS_PASSWORD}

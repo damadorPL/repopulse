@@ -39,7 +39,7 @@ FROM node:26-trixie-slim AS runner
 # src/commands.ts (lockfile formats, packageManager majors) assume these majors: re-check them on every bump.
 ARG NPM_VERSION=12.2.3
 ARG PNPM_VERSION=12.21.0
-ARG BUN_VERSION=1.4.4
+ARG BUN_VERSION=1.4.5
 ARG UV_VERSION=0.13.9
 ARG UV_SHA256_AMD64=a7fbaff2b9a271d85c1bdb540941090fd1ce011797b4abeb48e4dcd39c2471d5
 ARG UV_SHA256_ARM64=0797542018e541a9288855df555c8077eed06f7a47d206362030480e8ecc9f3d
