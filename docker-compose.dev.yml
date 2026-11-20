@@ -6,7 +6,7 @@ name: repopulse-dev
 
 services:
   postgres:
-    # PostgreSQL 18 with PG 16 binaries bundled so existing PG 16 dev volumes upgrade automatically on first boot.
+    # PostgreSQL 19 with PG 16 and 18 binaries bundled so existing PG 16/18 dev volumes upgrade automatically on first boot.
     build:
       context: ./deploy/postgres
       dockerfile: Dockerfile

@@ -9,7 +9,7 @@
 
 | Service | Image / build | Purpose | Health |
 | --- | --- | --- | --- |
-| `postgres` | `deploy/postgres/Dockerfile` (`postgres:18-alpine3.23` with PG 16 binaries bundled for automatic in-place upgrade), volume `postgres_data:/var/lib/postgresql` | State | `pg_isready` (`start_period: 60s`) |
+| `postgres` | `deploy/postgres/Dockerfile` (`postgres:19-alpine3.24` with PG 16 and 18 binaries bundled for automatic in-place upgrade), volume `postgres_data:/var/lib/postgresql` | State | `pg_isready` (`start_period: 60s`) |
 | `redis` | `redis:8-alpine`, `--appendonly yes --maxmemory-policy noeviction --requirepass`, volume `redis_data` | BullMQ + Pub/Sub. **`noeviction` is required by BullMQ** | `redis-cli ping` |
 | `migrator` | `apps/worker/Dockerfile` target `migrator` | `prisma migrate deploy`, then exits 0 (`restart: "no"`) | — |
 | `web` | `apps/web/Dockerfile` (standalone Next output, `node apps/web/server.js`, user `nextjs`, `HOSTNAME="::"`) | UI and SSE on 3000 | `wget localhost:3000/api/health` |
@@ -117,14 +117,14 @@ cp .env.example .env     # fill in the secrets (incl. DEPS_SANDBOX_TOKEN); SERVI
 docker compose -f docker-compose.coolify.yml up --build
 ```
 
-## Upgrading PostgreSQL 16 → 18 and Redis 7 → 8
+## Upgrading PostgreSQL 16/18 → 19 and Redis 7 → 8
 
 - **Redis 7 → 8:** upgrades in-place automatically on deploy (Redis 8 reads Redis 7 RDB/AOF files directly).
-- **PostgreSQL 16 → 18:** `deploy/postgres/Dockerfile` bundles PostgreSQL 16 and 18 binaries from the same Alpine release (`alpine3.23`). On first boot with an existing PG 16 `postgres_data` volume (now mounted at `/var/lib/postgresql` instead of `/var/lib/postgresql/data`):
-  1. `docker-entrypoint-upgrade.sh` detects the PG 16 cluster at `/var/lib/postgresql/PG_VERSION`, moves it aside to `/var/lib/postgresql/16-pre-upgrade`, runs crash recovery, inspects its superuser/encoding/locale/checksum settings, and runs `pg_upgrade` in copy mode into `/var/lib/postgresql/18/docker`.
+- **PostgreSQL 16/18 → 19:** `deploy/postgres/Dockerfile` bundles PostgreSQL 16, 18, and 19 binaries from the same Alpine release (`alpine3.24`). On first boot with an existing PG 16 or PG 18 `postgres_data` volume (mounted at `/var/lib/postgresql`):
+  1. `docker-entrypoint-upgrade.sh` detects either a PG 18 cluster at `/var/lib/postgresql/18/docker` (moved aside to `/var/lib/postgresql/18-pre-upgrade`) or a legacy PG 16 cluster at `/var/lib/postgresql/PG_VERSION` (moved aside to `/var/lib/postgresql/16-pre-upgrade`), runs crash recovery, inspects its superuser/encoding/locale/checksum settings, and runs `pg_upgrade` in copy mode into `/var/lib/postgresql/19/docker`.
   2. Existing `pg_hba.conf` rules are preserved, and the upgraded cluster is activated atomically before handing off to the official `docker-entrypoint.sh`.
-  3. The original PG 16 cluster is left intact at `/var/lib/postgresql/16-pre-upgrade` as a backup. Once you have verified the deployment, you can optionally reclaim disk space by running `rm -rf /var/lib/postgresql/16-pre-upgrade` inside the `postgres` container.
-  4. On fresh installs or subsequent restarts, the entrypoint sees `/var/lib/postgresql/18/docker/PG_VERSION` (or an empty volume) and hands off immediately to `docker-entrypoint.sh`.
+  3. The original PG 16 or PG 18 cluster is left intact at `/var/lib/postgresql/16-pre-upgrade` or `/var/lib/postgresql/18-pre-upgrade` as a backup. Once you have verified the deployment, you can optionally reclaim disk space by running `rm -rf /var/lib/postgresql/16-pre-upgrade /var/lib/postgresql/18-pre-upgrade` inside the `postgres` container.
+  4. On fresh installs or subsequent restarts, the entrypoint sees `/var/lib/postgresql/19/docker/PG_VERSION` (or an empty volume) and hands off immediately to `docker-entrypoint.sh`.
 
 ## Upgrading to the Dependencies release (0.9.0)
 

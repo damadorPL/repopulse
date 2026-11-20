@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.7.1] — 2026-11-20 — PostgreSQL 19 and dependency updates
+
+### Changed
+
+- Upgraded PostgreSQL from `18-alpine3.23` to `19-alpine3.24` (`deploy/postgres/Dockerfile`):
+  - Bundled PG 16 and PG 18 binaries and updated `deploy/postgres/docker-entrypoint-upgrade.sh` so both existing PG 16 and PG 18 volumes upgrade automatically in-place via `pg_upgrade` (copy mode) on first boot while keeping the original cluster at `/var/lib/postgresql/16-pre-upgrade` or `/var/lib/postgresql/18-pre-upgrade` as a backup.
+- Updated dependencies across workspace packages to their latest releases:
+  - `lucide-react` 1.76.0 → 1.77.0 (`apps/web`)
+  - `tailwind-merge` 3.7.0 → 3.7.1 (`apps/web`)
+
 ## [0.9.7] — 2026-11-19 — PostgreSQL 18, Redis 8, and dependency updates
 
 ### Changed

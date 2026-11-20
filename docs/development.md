@@ -9,7 +9,7 @@
 ```sh
 pnpm install
 pnpm env:setup             # writes .env with generated secrets; then fill AUTH_GITHUB_ID / AUTH_GITHUB_SECRET
-pnpm services:up           # Postgres 18 + Redis 8 on 127.0.0.1 (5432 / 6379)
+pnpm services:up           # Postgres 19 + Redis 8 on 127.0.0.1 (5432 / 6379)
 pnpm db:migrate:deploy     # apply migrations
 pnpm dev                   # web http://localhost:3000 + worker (tsx watch); builds packages first (^build)
 ```
