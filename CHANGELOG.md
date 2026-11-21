@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.7.3] — 2026-11-21 — Override transitive effect to fix GHSA-7589-6fvf-x4pw
+
+### Fixed
+
+- Overrode transitive `effect` to `3.22.5` in `pnpm-workspace.yaml` to resolve high-severity ReDoS advisory GHSA-7589-6fvf-x4pw (`@prisma/config` 7.10.1 pinned `3.20.0`).
+
 ## [0.9.7.2] — 2026-11-21 — UI fixes, version release link, and dependency updates
 
 ### Changed
