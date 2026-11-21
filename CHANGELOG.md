@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.7.2] — 2026-11-21 — UI fixes, version release link, and dependency updates
+
+### Changed
+
+- Linked the RepoPulse version label in the sidebar and admin overview to its corresponding GitHub release page (`apps/web`).
+- Updated `nodemailer` from `10.6.0` to `10.6.1` (`packages/notifications`).
+
+### Fixed
+
+- Prevented URL-synced search inputs (feed navbar search, `/repositories` toolbar, `/dependencies` toolbar) from dropping characters when typing while an earlier debounced navigation is still in flight.
+
 ## [0.9.7.1] — 2026-11-20 — PostgreSQL 19 and dependency updates
 
 ### Changed

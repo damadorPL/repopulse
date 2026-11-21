@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { BotIcon, ChevronRightIcon, HistoryIcon, MailIcon, PackageIcon, UsersIcon, type LucideIcon } from "lucide-react";
 import { prisma } from "@repopulse/db";
+import { AppVersionLink } from "@/components/layout/app-version-link";
 import { getBackfillSettingsView } from "@/server/backfill-settings";
 import { isDepsEnabled } from "@/server/deps-status";
 import { getInvites, getMemberCount } from "@/server/queries/access";
@@ -122,7 +123,7 @@ export default async function AdminOverviewPage() {
         />
       </ul>
 
-      <p className="text-xs text-muted-foreground tabular-nums">RepoPulse v{process.env.APP_VERSION}</p>
+      <AppVersionLink className="text-xs" />
     </div>
   );
 }

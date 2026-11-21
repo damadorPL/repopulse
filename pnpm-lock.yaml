@@ -495,8 +495,8 @@ importers:
   packages/notifications:
     dependencies:
       nodemailer:
-        specifier: 10.6.0
-        version: 10.6.0
+        specifier: 10.6.1
+        version: 10.6.1
     devDependencies:
       '@repopulse/tsconfig':
         specifier: workspace:*
@@ -3588,8 +3588,8 @@ packages:
     resolution: {integrity: sha512-zAPCKqMcnqs2nGy6nlkm7JduFseiBJy3EXHGLh+8pFR+TxGCBxxiEN21+UROU5CKwX/f4TlUcYjiM+vs/tsyxw==}
     engines: {node: '>=18'}
 
-  nodemailer@10.6.0:
-    resolution: {integrity: sha512-jWanL7D9GD3jvUDYKmoC5rWTiG8MnBgnN2yV68bgMKip1zUJhiSTyz7Eg+18y8sk5OvdVDzws5nZK5arSI4f5Q==}
+  nodemailer@10.6.1:
+    resolution: {integrity: sha512-d7kfFfS/tR4Aca+SBvRaQ+MXKNv7d2JiRe5TxaRcFT/kYMh4GGPnW9aKksTIEvyEbA7d/7HYWE4YPDEHxzJj/g==}
     engines: {node: '>=20.0.0'}
 
   oauth4webapi@3.8.8:
@@ -7407,7 +7407,7 @@ snapshots:
 
   node-releases@2.0.64: {}
 
-  nodemailer@10.6.0: {}
+  nodemailer@10.6.1: {}
 
   oauth4webapi@3.8.8: {}
 

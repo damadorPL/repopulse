@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { ActivityIcon, BellRingIcon, BoxesIcon, InboxIcon, PackageIcon, PlusIcon, Settings2Icon, ShieldIcon } from "lucide-react";
 import { TagDot } from "@/components/feed/tag-pill";
+import { AppVersionLink } from "@/components/layout/app-version-link";
 import { ManageTagsModal } from "@/components/modals/manage-tags-modal";
 import { Button } from "@/components/ui/button";
 import { feedHref, parseFeedFilters } from "@/lib/feed-filters";
@@ -168,9 +169,7 @@ export function AppSidebar({
             Admin
           </NavLink>
         ) : null}
-        <p className="mt-3 px-2 text-[11px] text-muted-foreground tabular-nums" title="RepoPulse version">
-          RepoPulse v{process.env.APP_VERSION}
-        </p>
+        <AppVersionLink className="mt-3 px-2 text-[11px]" title="RepoPulse version" />
       </div>
     </nav>
   );

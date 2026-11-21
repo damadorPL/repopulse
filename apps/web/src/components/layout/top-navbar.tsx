@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { feedHref, MAX_SEARCH_LENGTH, parseFeedFilters, PARAM } from "@/lib/feed-filters";
+import { createUrlSearchSyncState, reconcileUrlSearchQuery, recordUrlSearchPush } from "@/lib/url-search";
 import { signOutAction } from "@/server/actions/auth";
 import type { TagPill, UnreadByRepository } from "@/server/queries/feed";
 
@@ -124,14 +125,14 @@ function SearchBox() {
   const searchParams = useSearchParams();
   const urlQuery = searchParams.get(PARAM.q) ?? "";
   const [value, setValue] = useState(urlQuery);
-  const lastPushed = useRef(urlQuery);
+  const syncState = useRef(createUrlSearchSyncState(urlQuery));
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const onFeed = pathname === "/";
 
   // Follow external URL changes (clearing the chip, back button) without clobbering typing.
   useEffect(() => {
-    if (urlQuery !== lastPushed.current) {
-      lastPushed.current = urlQuery;
+    if (reconcileUrlSearchQuery(syncState.current, urlQuery)) {
+      clearTimeout(timer.current);
       setValue(urlQuery);
     }
   }, [urlQuery]);
@@ -139,8 +140,7 @@ function SearchBox() {
   useEffect(() => () => clearTimeout(timer.current), []);
 
   function navigate(query: string, mode: "push" | "replace") {
-    const trimmed = query.trim();
-    lastPushed.current = trimmed;
+    const trimmed = recordUrlSearchPush(syncState.current, query);
     const filters = onFeed ? parseFeedFilters(searchParams) : { onlyUnread: false, sort: "newest" as const };
     const href = feedHref({ ...filters, searchQuery: trimmed || undefined });
     if (mode === "push") router.push(href);

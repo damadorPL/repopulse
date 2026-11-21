@@ -12,6 +12,7 @@ import {
   type DependencyListFilters,
   type DependencyListSort,
 } from "@/lib/dependency-list-filters";
+import { createUrlSearchSyncState, reconcileUrlSearchQuery, recordUrlSearchPush } from "@/lib/url-search";
 
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -19,28 +20,33 @@ const SEARCH_DEBOUNCE_MS = 250;
 export function DependencyListToolbar({ filters, shown, total }: { filters: DependencyListFilters; shown: number; total: number }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [query, setQuery] = useState(filters.q ?? "");
+  const urlQuery = filters.q ?? "";
+  const [query, setQuery] = useState(urlQuery);
   const inputRef = useRef<HTMLInputElement>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const syncState = useRef(createUrlSearchSyncState(urlQuery));
 
   const navigate = useCallback((next: Partial<DependencyListFilters>) => {
     clearTimeout(searchTimer.current);
+    const nextQuery = next.q !== undefined ? next.q : query;
+    recordUrlSearchPush(syncState.current, nextQuery);
     startTransition(() => router.replace(dependencyListHref({ ...filters, q: query, ...next }), { scroll: false }));
   }, [filters, query, router]);
 
   useEffect(() => {
-    if (query.trim() === (filters.q ?? "")) return;
+    if (query.trim() === urlQuery) return;
     const timer = setTimeout(() => navigate({ q: query }), SEARCH_DEBOUNCE_MS);
     searchTimer.current = timer;
     return () => clearTimeout(timer);
-  }, [query, filters.q, navigate]);
+  }, [query, urlQuery, navigate]);
 
-  // Follow URL changes made elsewhere (back button, "Clear search").
-  const [lastUrlQuery, setLastUrlQuery] = useState(filters.q ?? "");
-  if ((filters.q ?? "") !== lastUrlQuery) {
-    setLastUrlQuery(filters.q ?? "");
-    if (query.trim() !== (filters.q ?? "")) setQuery(filters.q ?? "");
-  }
+  // Follow URL changes made elsewhere (back button, "Clear search") without clobbering typing.
+  useEffect(() => {
+    if (reconcileUrlSearchQuery(syncState.current, urlQuery)) {
+      clearTimeout(searchTimer.current);
+      setQuery(urlQuery);
+    }
+  }, [urlQuery]);
 
   return (
     <div className="flex flex-wrap items-center gap-2">

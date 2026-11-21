@@ -17,6 +17,7 @@ import {
   type RepoListStatus,
 } from "@/lib/repo-list-filters";
 import { cn } from "@/lib/utils";
+import { createUrlSearchSyncState, reconcileUrlSearchQuery, recordUrlSearchPush } from "@/lib/url-search";
 import type { TagPill } from "@/server/queries/feed";
 
 const ALL_TAGS = "__all__";
@@ -45,32 +46,37 @@ export function RepoListToolbar({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [query, setQuery] = useState(filters.q ?? "");
+  const urlQuery = filters.q ?? "";
+  const [query, setQuery] = useState(urlQuery);
   const inputRef = useRef<HTMLInputElement>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const syncState = useRef(createUrlSearchSyncState(urlQuery));
   const active = hasActiveRepoListFilters(filters);
 
   const navigate = useCallback((next: Partial<RepoListFilters>) => {
     // Flush the draft search when changing a filter, and cancel its old URL write
     // immediately, even if the new server-rendered filters have not arrived yet.
     clearTimeout(searchTimer.current);
+    const nextQuery = next.q !== undefined ? next.q : query;
+    recordUrlSearchPush(syncState.current, nextQuery);
     startTransition(() => router.replace(repoListHref({ ...filters, q: query, ...next }), { scroll: false }));
   }, [filters, query, router]);
 
   // Debounced search → URL. Skipped while the text already matches the URL (e.g. after "Clear filters").
   useEffect(() => {
-    if (query.trim() === (filters.q ?? "")) return;
+    if (query.trim() === urlQuery) return;
     const timer = setTimeout(() => navigate({ q: query }), SEARCH_DEBOUNCE_MS);
     searchTimer.current = timer;
     return () => clearTimeout(timer);
-  }, [query, filters.q, navigate]);
+  }, [query, urlQuery, navigate]);
 
-  // Follow URL changes made elsewhere (back button, "Clear filters" link).
-  const [lastUrlQuery, setLastUrlQuery] = useState(filters.q ?? "");
-  if ((filters.q ?? "") !== lastUrlQuery) {
-    setLastUrlQuery(filters.q ?? "");
-    if (query.trim() !== (filters.q ?? "")) setQuery(filters.q ?? "");
-  }
+  // Follow URL changes made elsewhere (back button, "Clear filters" link) without clobbering typing.
+  useEffect(() => {
+    if (reconcileUrlSearchQuery(syncState.current, urlQuery)) {
+      clearTimeout(searchTimer.current);
+      setQuery(urlQuery);
+    }
+  }, [urlQuery]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
