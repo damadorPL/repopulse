@@ -13,7 +13,7 @@ import {
   type ToolVersions,
 } from "./commands.js";
 
-const TOOLS: ToolVersions = { npm: "12.2.3", pnpm: "12.21.0", bun: "1.4.4", uv: "0.13.9", poetry: "2.5.1" };
+const TOOLS: ToolVersions = { npm: "12.2.3", pnpm: "12.21.0", bun: "1.4.5", uv: "0.13.9", poetry: "2.5.2" };
 
 function codeOf(fn: () => unknown): string | null {
   try {
@@ -324,7 +324,7 @@ describe("tool detection", () => {
   it("parses --version outputs and marks failures as missing", async () => {
     const { detectToolVersions, parseVersionOutput } = await import("./tools.js");
     expect(parseVersionOutput("uv 0.13.9 (316c827e0 2026-11-03 x86_64-unknown-linux-gnu)")).toBe("0.13.9");
-    expect(parseVersionOutput("Poetry (version 2.5.1)")).toBe("2.5.1");
+    expect(parseVersionOutput("Poetry (version 2.5.2)")).toBe("2.5.2");
     expect(parseVersionOutput("12.21.0\n")).toBe("12.21.0");
     expect(parseVersionOutput("nothing")).toBeNull();
     const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);

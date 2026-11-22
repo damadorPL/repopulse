@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.7.4] — 2026-11-22 — Dependency and sandbox updates
+
+### Changed
+
+- Updated `deps-sandbox` container runtime tool pin:
+  - `poetry` 2.5.1 → 2.5.2
+- Updated transitive dependencies across workspace in `pnpm-lock.yaml`.
+
 ## [0.9.7.3] — 2026-11-21 — Override transitive effect to fix GHSA-7589-6fvf-x4pw
 
 ### Fixed
