@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.7.5] — 2026-11-24 — Dependency and sandbox updates
+
+### Changed
+
+- Updated dependencies and pinned builder tools across workspace packages and Dockerfiles:
+  - `bullmq` 6.7.8 → 6.7.10 (`apps/deps-worker`, `apps/web`, `apps/worker`, `packages/queue`)
+  - `ioredis` 6.0.0 → 6.1.0 (`apps/deps-worker`, `apps/web`, `apps/worker`, `packages/queue`)
+  - `lucide-react` 1.77.0 → 1.79.0 (`apps/web`)
+  - `pnpm` 12.21.0 → 12.23.0 (`package.json` `packageManager`, Dockerfile builder stages)
+  - `typescript-eslint` 8.73.0 → 8.74.0 (root `package.json`)
+- Updated `deps-sandbox` container runtime tool pin (`apps/deps-sandbox/Dockerfile`):
+  - `pnpm` 12.21.0 → 12.23.0
+
 ## [0.9.7.4] — 2026-11-22 — Dependency and sandbox updates
 
 ### Changed

@@ -38,11 +38,11 @@ minimumReleaseAgeExclude:
   - '@tailwindcss/oxide-win32-x64-msvc@4.3.5'
   - '@tailwindcss/oxide@4.3.5'
   - '@tailwindcss/postcss@4.3.5'
-  - lucide-react@1.75.0 || 1.76.0 || 1.77.0
+  - lucide-react@1.75.0 || 1.76.0 || 1.77.0 || 1.79.0
   - postcss@8.5.33
   - eslint@10.15.0
   - tailwindcss@4.3.5
-  - bullmq@6.7.7 || 6.7.8
+  - bullmq@6.7.7 || 6.7.8 || 6.7.10
   - '@typescript-eslint/eslint-plugin@8.72.2 || 8.73.0'
   - '@typescript-eslint/parser@8.72.2 || 8.73.0'
   - '@typescript-eslint/project-service@8.72.2 || 8.73.0'

@@ -26,8 +26,8 @@
     "lint": "eslint . --max-warnings 0"
   },
   "dependencies": {
-    "bullmq": "6.7.8",
-    "ioredis": "6.0.0"
+    "bullmq": "6.7.10",
+    "ioredis": "6.1.0"
   },
   "devDependencies": {
     "@repopulse/tsconfig": "workspace:*",
