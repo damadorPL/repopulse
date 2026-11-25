@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.7.7] — 2026-11-25 — MIT License
+
+### Added
+
+- Added the MIT License (`LICENSE`, root `package.json`, and `README.md`).
+
 ## [0.9.7.6] — 2026-11-25 — Dependency and sandbox updates
 
 ### Changed

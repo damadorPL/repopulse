@@ -94,3 +94,7 @@ Local smoke test of the full stack:
 cp .env.example .env      # fill in secrets
 docker compose -f docker-compose.coolify.yml up --build
 ```
+
+## License
+
+[MIT](./LICENSE)
