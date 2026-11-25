@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.7.6] — 2026-11-25 — Dependency and sandbox updates
+
+### Changed
+
+- Updated dependencies across workspace packages:
+  - `@types/node` 26.6.6 → 26.6.10 (`apps/deps-sandbox`, `apps/deps-worker`, `apps/web`, `apps/worker`, `packages/db`, `packages/deps`, `packages/github`, `packages/notifications`, `packages/queue`)
+  - `@types/react` 19.3.0 → 19.3.1 (`apps/web`)
+  - `lucide-react` 1.79.0 → 1.80.0 (`apps/web`)
+- Updated `deps-sandbox` container runtime tool pin (`apps/deps-sandbox/Dockerfile`):
+  - `uv` 0.13.9 → 0.13.10
+
 ## [0.9.7.5] — 2026-11-24 — Dependency and sandbox updates
 
 ### Changed
