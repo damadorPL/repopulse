@@ -38,7 +38,7 @@ minimumReleaseAgeExclude:
   - '@tailwindcss/oxide-win32-x64-msvc@4.3.5'
   - '@tailwindcss/oxide@4.3.5'
   - '@tailwindcss/postcss@4.3.5'
-  - lucide-react@1.75.0 || 1.76.0 || 1.77.0 || 1.79.0 || 1.80.0
+  - lucide-react@1.75.0 || 1.76.0 || 1.77.0 || 1.79.0 || 1.80.0 || 1.81.0
   - postcss@8.5.33
   - eslint@10.15.0
   - tailwindcss@4.3.5
@@ -64,7 +64,7 @@ minimumReleaseAgeExclude:
   - turbo@2.11.12 || 2.11.13
   - '@eslint/config-array@0.23.6'
   - tailwind-merge@3.7.1
-  - '@types/node@26.6.10'
+  - '@types/node@26.6.10 || 26.6.11'
   - '@types/react@19.3.1'
 overrides:
   # @tailwindcss/typography 0.5.20 pins 6.0.10, which is affected by GHSA-rj75-hqrm-r3gf (fixed in 6.1.5+).

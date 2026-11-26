@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.7.8] — 2026-11-26 — Dependency updates
+
+### Changed
+
+- Updated dependencies across workspace packages:
+  - `@types/node` 26.6.10 → 26.6.11 (`apps/deps-sandbox`, `apps/deps-worker`, `apps/web`, `apps/worker`, `packages/db`, `packages/deps`, `packages/github`, `packages/notifications`, `packages/queue`)
+  - `@types/react` 19.3.1 → 19.3.3 (`apps/web`)
+  - `lucide-react` 1.80.0 → 1.81.0 (`apps/web`)
+  - `vitest` 5.1.1 → 5.1.2 (`apps/deps-sandbox`, `apps/deps-worker`, `apps/web`, `apps/worker`, `packages/db`, `packages/deps`, `packages/github`, `packages/notifications`, `packages/queue`)
+
 ## [0.9.7.7] — 2026-11-25 — MIT License
 
 ### Added
