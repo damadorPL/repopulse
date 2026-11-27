@@ -1,5 +1,6 @@
-import type { Metadata } from "next";
 import { BellRingIcon, ShieldCheckIcon } from "lucide-react";
+import type { Metadata } from "next";
+
 import { AddNotificationRuleForm } from "@/components/notifications/add-notification-rule-form";
 import { NotificationRuleItem } from "@/components/notifications/notification-rule-item";
 import { getDashboardData } from "@/server/queries/feed";

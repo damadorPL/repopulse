@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import { CheckIcon, CopyIcon, LinkIcon, LoaderCircleIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState, useTransition, type SubmitEvent } from "react";
 import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,7 +25,7 @@ export function CreateInviteForm() {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     startTransition(async () => {

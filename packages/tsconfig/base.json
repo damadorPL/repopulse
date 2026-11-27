@@ -16,6 +16,9 @@
     "verbatimModuleSyntax": true,
     "noUncheckedSideEffectImports": true,
     "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
     "declaration": false,
     "sourceMap": true
   },

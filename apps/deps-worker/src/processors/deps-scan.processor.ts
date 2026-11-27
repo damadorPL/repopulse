@@ -1,4 +1,3 @@
-import { Worker, type Job, type Queue } from "bullmq";
 import { loadDepsEnabled, type PrismaClient } from "@repopulse/db";
 import {
   formatTarget,
@@ -28,6 +27,8 @@ import {
   type DepsUpdateQueue,
   type Redis,
 } from "@repopulse/queue";
+import { Worker, type Job, type Queue } from "bullmq";
+
 import {
   analyzeProject,
   capDependencies,
@@ -41,8 +42,8 @@ import {
 import { PRIVATE_WITHOUT_APP_MESSAGE, type GitHubAccess, type ReadCandidate } from "../github-access.js";
 import { defaultGitHubApi, type GitHubApi, type Octokit } from "../github-api.js";
 import { createLogger } from "../logger.js";
-import type { BlobCache, LockfileCache, TreeCache } from "../registry-cache.js";
 import { flushNotificationOutbox, storeNotificationIntents } from "../notification-outbox.js";
+import type { BlobCache, LockfileCache, TreeCache } from "../registry-cache.js";
 import {
   digestScanId,
   notifyPullRequestEvent,
@@ -974,7 +975,7 @@ async function queueAutoUpdates(
           formatTarget({ manifestPath: u.manifestPath, name: u.name, toVersion: u.row.targetVersion! }),
         ),
       ),
-    ].sort();
+    ].toSorted();
     if (
       pr?.state === "OPEN" &&
       pr.targets.length === targets.length &&

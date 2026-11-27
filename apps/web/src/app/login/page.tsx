@@ -1,6 +1,7 @@
 import type { Metadata, Route } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+
 import { SubmitButton } from "@/components/ui/submit-button";
 import { auth } from "@/lib/auth";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
@@ -30,7 +31,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
 
   const requestHeaders = await headers();
   const session = await auth.api.getSession({ headers: requestHeaders });
-  if (session?.user?.id) {
+  if (session?.user.id) {
     redirect(redirectTo);
   }
   const publicRegistration = await isPublicRegistrationOpen();
@@ -45,7 +46,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
       },
       headers: await headers(),
     });
-    if (result?.url) {
+    if (result.url) {
       redirect(result.url as Route);
     }
   }

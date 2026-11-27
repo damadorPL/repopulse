@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
 import type { MappedRelease } from "@repopulse/github";
+import { describe, expect, it } from "vitest";
+
 import {
   effectiveTarget,
   maxAgeCutoff,

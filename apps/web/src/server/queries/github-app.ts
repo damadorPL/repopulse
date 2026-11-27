@@ -1,4 +1,5 @@
 import { decryptToken, GITHUB_APP_SETTINGS_SELECT, INSTANCE_SETTINGS_ID, prisma } from "@repopulse/db";
+
 import { githubAppPublicUrl, githubAppSettingsUrl } from "@/lib/github-app";
 
 /**

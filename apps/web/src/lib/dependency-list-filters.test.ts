@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   applyDependencyListFilters,
   dependencyListHref,
@@ -74,7 +75,7 @@ describe("filterUpdateRows", () => {
   ];
 
   it("combines level, kind, ecosystem, status and name filters", () => {
-    expect(filterUpdateRows(updates, {}).length).toBe(3);
+    expect(filterUpdateRows(updates, {})).toHaveLength(3);
     expect(filterUpdateRows(updates, { level: "OTHER" }).map((u) => u.name)).toEqual(["django"]);
     expect(filterUpdateRows(updates, { kind: "PROD", ecosystem: "NPM" }).map((u) => u.name)).toEqual(["react"]);
     expect(filterUpdateRows(updates, { status: "OUTDATED", q: "DJ" }).map((u) => u.name)).toEqual(["django"]);

@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { encryptToken } from "./crypto.js";
 import {
   createCachedLoader,

@@ -1,10 +1,9 @@
-import { Suspense, type ReactNode } from "react";
+import { ArrowLeftIcon, ExternalLinkIcon, GitBranchIcon, LockIcon, TriangleExclamationPointIcon } from "lucide-react";
 import type { Metadata, Route } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeftIcon, ExternalLinkIcon, GitBranchIcon, LockIcon, TriangleExclamationPointIcon } from "lucide-react";
-import { RelativeTime } from "@/components/feed/relative-time";
-import { RepoAvatar } from "@/components/feed/repo-avatar";
+import { Suspense, type ReactNode } from "react";
+
 import { AppStatusBanner } from "@/components/dependencies/app-status-banner";
 import { CheckNowButton } from "@/components/dependencies/check-now-button";
 import { DependencySettingsForm, IgnoreRulesEditor } from "@/components/dependencies/dependency-settings-form";
@@ -12,6 +11,8 @@ import { DepsDisabledNotice, DepsWorkerMissingNotice, OutdatedCounts } from "@/c
 import { OutdatedTable } from "@/components/dependencies/outdated-table";
 import { PullRequestsSection } from "@/components/dependencies/pull-requests-section";
 import { RemoveProjectButton } from "@/components/dependencies/remove-project-button";
+import { RelativeTime } from "@/components/feed/relative-time";
+import { RepoAvatar } from "@/components/feed/repo-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { dependencyListHrefFrom } from "@/lib/dependency-list-filters";
@@ -132,8 +133,7 @@ export default async function DependencyProjectPage({
   params,
   searchParams,
 }: PageProps<"/dependencies/[owner]/[name]">) {
-  const [{ owner, name }, query] = await Promise.all([params, searchParams]);
-  const user = await requireUser();
+  const [{ owner, name }, query, user] = await Promise.all([params, searchParams, requireUser()]);
   const backHref = dependencyListHrefFrom(query.from);
 
   if (!(await isDepsEnabled())) {
@@ -176,7 +176,7 @@ export default async function DependencyProjectPage({
     else outdated.other++;
   }
   const busy = project.scanStatus === "QUEUED" || project.scanStatus === "SCANNING";
-  const packageManagers = [...new Set(project.manifests.map((m) => m.packageManager))].sort();
+  const packageManagers = [...new Set(project.manifests.map((m) => m.packageManager))].toSorted();
   const { ignoreRules } = project.settings;
 
   return (
@@ -325,13 +325,13 @@ export default async function DependencyProjectPage({
           </p>
         ) : (
           <div className="overflow-x-auto rounded-md border">
-            <table className="w-full min-w-[36rem] text-sm">
+            <table className="w-full min-w-xl text-sm">
               <thead className="text-left text-xs text-muted-foreground">
                 <tr className="border-b">
                   <th className="px-3 py-2 font-medium">Path</th>
-                  <th className="px-2 py-2 font-medium">Package manager</th>
-                  <th className="px-2 py-2 font-medium">Lockfile</th>
-                  <th className="px-2 py-2 text-right font-medium">Dependencies</th>
+                  <th className="p-2 font-medium">Package manager</th>
+                  <th className="p-2 font-medium">Lockfile</th>
+                  <th className="p-2 text-right font-medium">Dependencies</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -349,15 +349,15 @@ export default async function DependencyProjectPage({
                         </span>
                       ))}
                     </td>
-                    <td className="px-2 py-2 text-xs">{PACKAGE_MANAGER_LABELS[manifest.packageManager]}</td>
-                    <td className="px-2 py-2">
+                    <td className="p-2 text-xs">{PACKAGE_MANAGER_LABELS[manifest.packageManager]}</td>
+                    <td className="p-2">
                       {manifest.lockfilePath ? (
                         <code className="font-mono text-xs">{manifest.lockfilePath}</code>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="px-2 py-2 text-right tabular-nums">{manifest.dependencyCount}</td>
+                    <td className="p-2 text-right tabular-nums">{manifest.dependencyCount}</td>
                   </tr>
                 ))}
               </tbody>

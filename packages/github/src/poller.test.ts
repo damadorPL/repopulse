@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+
 import { createOctokit, getRateLimitInfo, GITHUB_USER_AGENT, isGitHubHttpError } from "./client.js";
 import {
   fetchReleasesPage,

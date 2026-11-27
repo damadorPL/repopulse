@@ -95,7 +95,7 @@ export function buildDependencyContext(
   input: DependencyNotificationInput,
   appBaseUrl: string,
 ): DependencyMessageContext {
-  const sorted = [...input.updates].sort((a, b) => LEVEL_RANK[b.level ?? "OTHER"] - LEVEL_RANK[a.level ?? "OTHER"]);
+  const sorted = input.updates.toSorted((a, b) => LEVEL_RANK[b.level ?? "OTHER"] - LEVEL_RANK[a.level ?? "OTHER"]);
   const shown = sorted.slice(0, DIGEST_MAX_ITEMS);
   const total = Math.max(input.totalUpdates ?? 0, input.updates.length);
   const highest = sorted[0]?.level ?? "OTHER";

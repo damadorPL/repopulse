@@ -1,4 +1,5 @@
 import { CircleSlashIcon, TriangleExclamationPointIcon } from "lucide-react";
+
 import type { LevelCounts } from "@/lib/dependency-settings";
 import { cn } from "@/lib/utils";
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { snoozeUntil, validateSnooze } from "./subscription-settings";
 
 describe("validateSnooze", () => {

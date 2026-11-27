@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import { FEED_PAGE_SIZE } from "@/lib/feed-filters";
 
 class UnauthorizedError extends Error {}

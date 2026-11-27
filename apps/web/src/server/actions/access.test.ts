@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import { MAX_PENDING_INVITES } from "@/lib/invites";
 import { hashInviteToken } from "@/server/invite-tokens";
 

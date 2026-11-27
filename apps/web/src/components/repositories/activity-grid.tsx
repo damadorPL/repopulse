@@ -1,9 +1,10 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { format } from "date-fns";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { format } from "date-fns";
+import { useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   activityThresholds,
@@ -47,7 +48,15 @@ const SOURCE_FILTERS: ReadonlyArray<{ value: ActivitySource | "ALL"; label: stri
   { value: "COMMIT", label: "Commits" },
 ];
 
-const WEEKDAY_LABELS = ["", "Mon", "", "Wed", "", "Fri", ""];
+const WEEKDAY_ROWS = [
+  { key: "sun", label: "" },
+  { key: "mon", label: "Mon" },
+  { key: "tue", label: "" },
+  { key: "wed", label: "Wed" },
+  { key: "thu", label: "" },
+  { key: "fri", label: "Fri" },
+  { key: "sat", label: "" },
+] as const;
 
 /**
  * GitHub-style heatmap of a repository's updates over the last 53 weeks (Slice 07). Bucketed in the
@@ -86,6 +95,7 @@ export function ActivityGrid({
 
   // Newest week in view on narrow screens.
   useLayoutEffect(() => {
+    if (weeks.length === 0) return;
     const el = scrollRef.current;
     if (el) el.scrollLeft = el.scrollWidth;
   }, [weeks.length]);
@@ -113,9 +123,9 @@ export function ActivityGrid({
               ))}
             </div>
             <div className="grid grid-rows-7 gap-[3px]" aria-hidden>
-              {WEEKDAY_LABELS.map((label, i) => (
-                <span key={i} className="h-2.5 leading-[10px]">
-                  {label}
+              {WEEKDAY_ROWS.map((row) => (
+                <span key={row.key} className="h-2.5 leading-[10px]">
+                  {row.label}
                 </span>
               ))}
             </div>

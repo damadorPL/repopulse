@@ -1,6 +1,8 @@
 import net from "node:net";
-import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { prisma } from "@repopulse/db";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { pingRedis, resolveHealthPort, startHealthServer, type HealthServer } from "./health.js";
 
 let activeServer: HealthServer | null = null;
@@ -73,7 +75,7 @@ describe("pingRedis", () => {
 
 describe("startHealthServer", () => {
   it("serves 200 on GET /health when healthy, 503 when database fails, and 404 on other routes", async () => {
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const errSpy = vi.spyOn(console, "error").mockReturnValue(undefined);
     vi.stubEnv("REDIS_URL", undefined);
     const querySpy = vi.spyOn(prisma, "$queryRaw").mockResolvedValue([1] as never);
 

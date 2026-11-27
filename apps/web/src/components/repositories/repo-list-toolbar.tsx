@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useTransition } from "react";
+import { LoaderCircleIcon, SearchIcon, XIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LoaderCircleIcon, SearchIcon, XIcon } from "lucide-react";
+import { useEffect, useRef, useTransition } from "react";
+
 import { TagDot } from "@/components/feed/tag-pill";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -16,8 +17,8 @@ import {
   type RepoListSort,
   type RepoListStatus,
 } from "@/lib/repo-list-filters";
-import { cn } from "@/lib/utils";
 import { useUrlSearchSync } from "@/lib/use-url-search-sync";
+import { cn } from "@/lib/utils";
 import type { TagPill } from "@/server/queries/feed";
 
 const ALL_TAGS = "__all__";
@@ -112,7 +113,7 @@ export function RepoListToolbar({
           />
           <div className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-1">
             {pending ? (
-              <LoaderCircleIcon className="size-3.5 motion-safe:animate-spin text-muted-foreground" aria-hidden />
+              <LoaderCircleIcon className="size-3.5 text-muted-foreground motion-safe:animate-spin" aria-hidden />
             ) : null}
             {query ? (
               <button

@@ -1,7 +1,9 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import type { Route } from "next";
+
 import { encryptToken, INSTANCE_SETTINGS_ID, prisma } from "@repopulse/db";
 import { GitHubRateLimitError, type ConvertedAppManifest } from "@repopulse/github";
+import type { Route } from "next";
+
 import type { GitHubAppCallbackError } from "@/lib/github-app";
 
 /**

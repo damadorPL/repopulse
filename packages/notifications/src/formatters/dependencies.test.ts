@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DISCORD_COLORS } from "./discord.js";
+
 import {
   buildDependencyContext,
   buildDependencyGotifyRequest,
@@ -14,6 +14,7 @@ import {
   type DependencyNotificationInput,
   type DependencyUpdateInput,
 } from "./dependencies.js";
+import { DISCORD_COLORS } from "./discord.js";
 
 const PROJECT_URL = "https://pulse.example.com/dependencies/acme/widget";
 const BASE = "https://pulse.example.com";

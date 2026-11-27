@@ -1,4 +1,3 @@
-import type { ConnectionOptions, Queue } from "bullmq";
 import {
   createNotificationQueue,
   createReleaseBackfillQueue,
@@ -15,6 +14,8 @@ import {
   type SchedulerJobData,
   type SchedulerQueue,
 } from "@repopulse/queue";
+import type { ConnectionOptions, Queue } from "bullmq";
+
 import { createLogger } from "../logger.js";
 
 export interface Queues {

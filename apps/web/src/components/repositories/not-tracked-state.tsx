@@ -1,8 +1,9 @@
 "use client";
 
+import { ArrowLeftIcon, BoxesIcon, PlusIcon } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeftIcon, BoxesIcon, PlusIcon } from "lucide-react";
+
 import { AddRepoModal } from "@/components/modals/add-repo-modal";
 import { Button } from "@/components/ui/button";
 import type { TagPill } from "@/server/queries/feed";

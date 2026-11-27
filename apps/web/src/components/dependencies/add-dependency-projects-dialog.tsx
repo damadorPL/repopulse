@@ -1,9 +1,10 @@
 "use client";
 
-import { useId, useState, useTransition, type FormEvent, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
 import { LoaderCircleIcon, SearchIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useId, useState, useTransition, type ReactNode, type SubmitEvent } from "react";
 import { toast } from "sonner";
+
 import { RepoAvatar } from "@/components/feed/repo-avatar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -126,7 +127,7 @@ export function AddDependencyProjectsDialog({
     });
   }
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     setFailures([]);

@@ -1,4 +1,3 @@
-import { cache } from "react";
 import {
   Prisma,
   prisma,
@@ -8,6 +7,8 @@ import {
   type SemverType,
   type TrackMode,
 } from "@repopulse/db";
+import { cache } from "react";
+
 import { FEED_PAGE_SIZE, type FeedFilters } from "@/lib/feed-filters";
 import {
   computeVersionStatus,
@@ -391,7 +392,7 @@ function toFeedItem(row: FeedRow, isReadOverride?: boolean): FeedItem {
     publishedAt: row.publishedAt,
     repository,
     subscriptionId: subscription?.id ?? null,
-    tags: (subscription?.tags.map((t) => t.tag) ?? []).sort(byName),
+    tags: (subscription?.tags.map((t) => t.tag) ?? []).toSorted(byName),
     isRead: isReadOverride ?? row.userStates[0]?.isRead ?? true,
     newerThanMine: false,
     isMyVersion:
@@ -504,7 +505,7 @@ export function afterCursorWhere(
 }
 
 function hasRawSqlSupport(): boolean {
-  return typeof prisma.$queryRaw === "function" && typeof Prisma?.sql === "function";
+  return typeof prisma.$queryRaw === "function" && typeof (Prisma as typeof Prisma | undefined)?.sql === "function";
 }
 
 function escapeLike(value: string): string {
@@ -907,7 +908,7 @@ export async function countUnread(
           AND urs."isRead" = false
           AND ${Prisma.join(conditions, " AND ")}`,
     );
-    return Number(rows[0]?.count ?? 0);
+    return rows[0]?.count ?? 0;
   }
 
   const releaseWhere = subscriptions
@@ -1047,7 +1048,7 @@ export const getUserFeedContext = cache(async (userId: string): Promise<UserFeed
         subscriptionIds: row.subscriptions.map((link) => link.subscriptionId),
       };
     })
-    .sort(byName);
+    .toSorted(byName);
 
   const hasVisibilityFields = rawSubscriptions.every(
     (s) =>
@@ -1065,7 +1066,7 @@ export const getUserFeedContext = cache(async (userId: string): Promise<UserFeed
         const pill = tagById.get(t.tagId);
         return pill ? [pill] : [];
       })
-      .sort(byName);
+      .toSorted(byName);
 
     subscriptions.push({
       id: s.id,
@@ -1135,8 +1136,7 @@ export const getUserFeedContext = cache(async (userId: string): Promise<UserFeed
 export const getDashboardData = cache(async (userId: string): Promise<DashboardData> => {
   const ctx = await getUserFeedContext(userId);
 
-  const hasSqlBuckets =
-    ctx.hasVisibilityFields && typeof prisma.$queryRaw === "function" && typeof Prisma?.sql === "function";
+  const hasSqlBuckets = ctx.hasVisibilityFields && hasRawSqlSupport();
   let unreadByRepoId: Map<string, number>;
 
   if (ctx.subscriptions.length === 0) {
@@ -1203,7 +1203,7 @@ export const getDashboardData = cache(async (userId: string): Promise<DashboardD
             AND (${Prisma.join(sqlBranches, " OR ")})
           GROUP BY r."repositoryId"`,
       );
-      unreadByRepoId = new Map(grouped.map((row) => [row.repositoryId, Number(row.count)]));
+      unreadByRepoId = new Map(grouped.map((row) => [row.repositoryId, row.count]));
     }
   } else {
     const visibilityWhere = ctx.hasVisibilityFields
@@ -1234,7 +1234,7 @@ export const getDashboardData = cache(async (userId: string): Promise<DashboardD
       unreadCount: unreadByRepoId.get(r.repositoryId) ?? 0,
     }))
     .filter((r) => r.unreadCount > 0)
-    .sort((a, b) => b.unreadCount - a.unreadCount || a.fullName.localeCompare(b.fullName));
+    .toSorted((a, b) => b.unreadCount - a.unreadCount || a.fullName.localeCompare(b.fullName));
 
   return {
     tags: sidebarTags,
@@ -1386,7 +1386,7 @@ export function toTrackedRepository(
     trackPaths: row.trackPaths,
     watchedPaths: row.watchedPaths,
     subscribedAt: row.createdAt,
-    tags: row.tags.map((t) => t.tag).sort(byName),
+    tags: row.tags.map((t) => t.tag).toSorted(byName),
     isPinned: row.isPinned,
     note: row.note,
     notificationLevel: row.notificationLevel,
@@ -1568,5 +1568,5 @@ export async function loadTrackedRepositories(
 /** Subscriptions for the "Tracked Repositories" page, alphabetical (the page re-sorts with `applyRepoListFilters`). */
 export async function getTrackedRepositories(userId: string): Promise<TrackedRepository[]> {
   const repositories = await loadTrackedRepositories(userId);
-  return repositories.sort((a, b) => a.repository.fullName.localeCompare(b.repository.fullName));
+  return repositories.toSorted((a, b) => a.repository.fullName.localeCompare(b.repository.fullName));
 }

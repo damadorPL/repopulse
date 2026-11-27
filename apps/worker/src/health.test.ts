@@ -1,6 +1,8 @@
-import { PassThrough } from "node:stream";
 import net from "node:net";
+import { PassThrough } from "node:stream";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import {
   checkDatabase,
   checkRedis,

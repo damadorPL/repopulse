@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { MAX_LOCKFILE_BYTES } from "../limits.js";
 import { readBunLock } from "./bun-lock.js";
 import { oversizeWarning, splitNameAtVersion } from "./common.js";
@@ -19,7 +20,8 @@ import { readPoetryLock } from "./poetry-lock.js";
 import { readUvLock } from "./uv-lock.js";
 import { readYarnLock } from "./yarn-lock.js";
 
-const entries = (map: Map<string, string>): Array<[string, string]> => [...map].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+const entries = (map: Map<string, string>): Array<[string, string]> =>
+  [...map].toSorted((a, b) => (a[0] < b[0] ? -1 : 1));
 
 describe("lockfile common helpers", () => {
   it("oversizeWarning measures UTF-8 byte length for multi-byte strings > 20 MiB", () => {

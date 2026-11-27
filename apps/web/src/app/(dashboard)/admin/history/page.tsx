@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+
 import { BackfillSettingsForm } from "@/components/admin/backfill-settings-form";
 import { GitHubQuotaCard } from "@/components/admin/github-quota-card";
 import { getBackfillSettingsView, getReapplyCandidates } from "@/server/backfill-settings";
@@ -10,8 +11,9 @@ export const metadata: Metadata = { title: "Release history · Admin · RepoPuls
 export default async function AdminHistoryPage() {
   const admin = await requireSuperAdmin();
   const settings = await getBackfillSettingsView();
-  const defaultTarget = settings.find((s) => s.key === "defaultTarget")!.value;
-  const minQuota = settings.find((s) => s.key === "minQuota")!.value;
+  const byKey = new Map(settings.map((s) => [s.key, s.value]));
+  const defaultTarget = byKey.get("defaultTarget") ?? 0;
+  const minQuota = byKey.get("minQuota") ?? 0;
 
   const [candidates, quotaResult] = await Promise.all([getReapplyCandidates(defaultTarget), getGitHubQuotaView(admin)]);
 

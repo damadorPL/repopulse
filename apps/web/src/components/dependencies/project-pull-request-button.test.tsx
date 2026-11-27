@@ -1,7 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { ProjectPullRequestButton } from "./project-pull-request-button";
+
 import type { PlannedPullRequest } from "@/server/queries/dependencies";
+
+import { ProjectPullRequestButton } from "./project-pull-request-button";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),

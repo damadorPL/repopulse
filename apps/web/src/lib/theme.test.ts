@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { parseThemePreference, THEME_COOKIE_MAX_AGE, themeAttribute, themeCookieString } from "./theme";
 
 describe("parseThemePreference", () => {

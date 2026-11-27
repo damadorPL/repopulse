@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+
 import { createOctokit } from "./client.js";
 import {
   buildCommitChangelog,

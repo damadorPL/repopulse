@@ -1,6 +1,7 @@
 /** Registry/source policy shared by scans and update PR analysis. Never fetches repository-supplied URLs. */
 import { parse as parseToml } from "smol-toml";
 import { parse as parseYaml } from "yaml";
+
 import type { DependencyEcosystem, ParsedDependency } from "./types.js";
 import { basename, dirname, isRecord, joinPath, normalizePypiName } from "./util.js";
 

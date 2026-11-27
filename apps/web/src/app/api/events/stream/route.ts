@@ -1,4 +1,5 @@
 import { parseRealtimeEvent, serializeRealtimeEvent } from "@repopulse/queue/events";
+
 import { getCurrentUserOrThrow, UnauthorizedError } from "@/lib/auth";
 import { isRealtimeConfigured, subscribeUserEvents } from "@/server/realtime";
 
@@ -6,6 +7,8 @@ import { isRealtimeConfigured, subscribeUserEvents } from "@/server/realtime";
 const HEARTBEAT_MS = 25_000;
 /** Reconnect delay suggested to EventSource after a dropped connection. */
 const RETRY_MS = 5_000;
+
+function noopCleanup(): void {}
 
 /**
  * GET /api/events/stream: Server-Sent Events for the signed-in user. Relays the worker's
@@ -23,7 +26,7 @@ export async function GET(request: Request): Promise<Response> {
   if (!isRealtimeConfigured()) return new Response("Live updates are not configured", { status: 503 });
 
   const encoder = new TextEncoder();
-  let cleanup = () => {};
+  let cleanup: () => void = noopCleanup;
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {

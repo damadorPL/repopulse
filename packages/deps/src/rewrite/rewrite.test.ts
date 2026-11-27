@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { applyReplacements, assertSafeSpec, ManifestRewriteError } from "./common.js";
 import { rewritePackageJson } from "./package-json.js";
 import { rewritePyproject } from "./pyproject.js";

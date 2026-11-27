@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import { getSuperAdminOrThrow, requireSuperAdmin, requireUser } from "./session";
 
 const { ForbiddenError, UnauthorizedError, getCurrentUserOrThrow, notFound, redirect } = vi.hoisted(() => {
-  class UnauthorizedError extends Error {}
-  class ForbiddenError extends Error {
+  class MockUnauthorizedError extends Error {}
+  class MockForbiddenError extends Error {
     constructor() {
       super("Administrator access is required.");
     }
@@ -21,8 +22,8 @@ const { ForbiddenError, UnauthorizedError, getCurrentUserOrThrow, notFound, redi
     }
   }
   return {
-    UnauthorizedError,
-    ForbiddenError,
+    UnauthorizedError: MockUnauthorizedError,
+    ForbiddenError: MockForbiddenError,
     getCurrentUserOrThrow: vi.fn(),
     redirect: vi.fn((url: string) => {
       throw new RedirectError(url);

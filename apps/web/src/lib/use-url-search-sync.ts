@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+
 import { createUrlSearchSyncState, reconcileUrlSearchQuery, type UrlSearchSyncState } from "@/lib/url-search";
 
 /**
@@ -27,7 +28,9 @@ export function useUrlSearchSync(urlQuery: string) {
   }
 
   useLayoutEffect(() => {
-    clearTimeout(timerRef.current);
+    if (resetNonce > 0) {
+      clearTimeout(timerRef.current);
+    }
   }, [resetNonce]);
 
   useEffect(() => () => clearTimeout(timerRef.current), []);

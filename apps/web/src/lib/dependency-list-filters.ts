@@ -5,8 +5,9 @@
  */
 
 import type { Route } from "next";
-import { MAX_SEARCH_LENGTH } from "./feed-filters";
+
 import type { DependencyEcosystemValue, DependencyKindValue, DependencyUpdateStatusValue } from "./dependency-settings";
+import { MAX_SEARCH_LENGTH } from "./feed-filters";
 
 export const DEPENDENCY_LIST_SORTS = ["name", "outdated", "checked"] as const;
 export type DependencyListSort = (typeof DEPENDENCY_LIST_SORTS)[number];
@@ -115,7 +116,7 @@ export function applyDependencyListFilters<T extends DependencyListRow>(
       }
     }
   };
-  return filtered.sort((a, b) => compare(a, b) || byName(a, b));
+  return filtered.toSorted((a, b) => compare(a, b) || byName(a, b));
 }
 
 // ---------------------------------------------------------------------------

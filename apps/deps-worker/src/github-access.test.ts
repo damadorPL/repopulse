@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { GitHubAppKeyUnreadableError } from "@repopulse/db";
 import { GitHubAppAuthError, GitHubAppInstallationError } from "@repopulse/github";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { GitHubAccess, PRIVATE_WITHOUT_APP_MESSAGE, TOKEN_REFRESH_MARGIN_MS } from "./github-access.js";
 
 const APP = { appId: 1, slug: "repopulse", clientId: null, owner: null, privateKey: "PEM", webhookSecret: null };

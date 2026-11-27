@@ -1,8 +1,9 @@
 "use server";
 
+import { prisma } from "@repopulse/db";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { prisma } from "@repopulse/db";
+
 import { getCurrentUserOrThrow } from "@/lib/auth";
 import { HEX_COLOR_RE, TAG_NAME_MAX_LENGTH, tagSlug } from "@/lib/tags";
 import {
@@ -138,7 +139,7 @@ export async function assignTagsAction(input: {
           skipDuplicates: true,
         });
       }
-      return ok({ subscriptionId, tags: tags.sort((a, b) => a.name.localeCompare(b.name)) });
+      return ok({ subscriptionId, tags: tags.toSorted((a, b) => a.name.localeCompare(b.name)) });
     });
 
     if (result.ok) revalidateDashboard();

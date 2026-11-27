@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 const MIGRATIONS_DIR = fileURLToPath(new URL("../prisma/migrations", import.meta.url));
@@ -13,7 +14,7 @@ function replayMigrationObjects(): { activeIndexes: Set<string>; activeStatistic
   const dirs = readdirSync(MIGRATIONS_DIR, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
-    .sort();
+    .toSorted();
 
   const activeIndexes = new Set<string>();
   const activeStatistics = new Set<string>();

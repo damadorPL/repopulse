@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { applyRegistryPolicy, registryConfigPaths } from "./registry-config.js";
 import type { DependencyEcosystem, ParsedDependency } from "./types.js";
 

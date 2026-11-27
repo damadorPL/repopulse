@@ -1,4 +1,3 @@
-import { z } from "zod";
 import {
   resolveGotifyEndpoint,
   SMTP_NOT_CONFIGURED_MESSAGE,
@@ -7,6 +6,8 @@ import {
   type ValidateWebhookUrlOptions,
 } from "@repopulse/notifications";
 import { CHANNEL_INFO, type DeliverableChannel } from "@repopulse/notifications/channels";
+import { z } from "zod";
+
 import { fail, ok, type ActionResult } from "@/server/action-result";
 
 const emailSchema = z.email();

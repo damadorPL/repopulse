@@ -1,8 +1,10 @@
 "use client";
 
 import { MonitorIcon, MoonIcon, SunIcon, type LucideIcon } from "lucide-react";
+
 import { THEME_OPTIONS, type ThemePreference } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+
 import { useTheme } from "./theme-provider";
 
 const ICONS: Record<ThemePreference, LucideIcon> = { system: MonitorIcon, light: SunIcon, dark: MoonIcon };

@@ -1,5 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
+
 import { describe, expect, it, vi } from "vitest";
+
 import {
   appManifestFormUrl,
   buildAppManifest,
@@ -106,7 +108,7 @@ describe("getAuthenticatedApp", () => {
     const secret = "-----BEGIN RSA PRIVATE KEY-----\nTOP-SECRET-MATERIAL\n-----END RSA PRIVATE KEY-----";
     const error = await getAuthenticatedApp({ appId: 1, privateKey: secret }, { fetch }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(GitHubAppAuthError);
-    expect(String((error as Error).message)).not.toContain("TOP-SECRET");
+    expect((error as Error).message).not.toContain("TOP-SECRET");
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -393,7 +395,7 @@ describe("buildAppManifest / appManifestFormUrl", () => {
     );
     expect(appManifestFormUrl("abc", " ")).toBe("https://github.com/settings/apps/new?state=abc");
     for (const bad of ["-acme", "acme-", "a--b", "evil/../x", "a".repeat(40), "acme?x=1"]) {
-      expect(() => appManifestFormUrl("abc", bad)).toThrow();
+      expect(() => appManifestFormUrl("abc", bad)).toThrow(/not a valid GitHub login/);
     }
   });
 });
@@ -470,9 +472,7 @@ describe("createOctokit resilience & createAppOctokit cache", () => {
       expect(createAppOctokit(AUTH)).not.toBe(first);
 
       clearAppOctokitCache();
-      expect(createAppOctokit({ appId: AUTH.appId + 1, privateKey })).not.toBe(
-        createAppOctokit({ appId: AUTH.appId + 1, privateKey }) === undefined ? null : undefined,
-      );
+      expect(createAppOctokit({ appId: AUTH.appId + 1, privateKey })).toBeDefined();
     } finally {
       clearAppOctokitCache();
     }

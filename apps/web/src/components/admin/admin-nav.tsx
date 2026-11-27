@@ -1,8 +1,9 @@
 "use client";
 
+import { BotIcon, LayoutDashboardIcon, MailIcon, PackageIcon, RotateCcwClockIcon, UsersIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BotIcon, LayoutDashboardIcon, MailIcon, PackageIcon, RotateCcwClockIcon, UsersIcon } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 
 /** The sections of the admin panel (super admin only). */

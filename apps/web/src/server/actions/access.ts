@@ -1,11 +1,12 @@
 "use server";
 
+import { INSTANCE_SETTINGS_ID, prisma } from "@repopulse/db";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { INSTANCE_SETTINGS_ID, prisma } from "@repopulse/db";
+
 import { INVITE_EXPIRY_DAYS, INVITE_NOTE_MAX_LENGTH, MAX_PENDING_INVITES } from "@/lib/invites";
-import { generateInviteToken, hashInviteToken } from "@/server/invite-tokens";
 import { fail, invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
+import { generateInviteToken, hashInviteToken } from "@/server/invite-tokens";
 import { inviteSelect, toInviteView, type InviteView } from "@/server/queries/access";
 import { getSuperAdminOrThrow } from "@/server/session";
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { feedFiltersKey, feedHref, parseFeedFilters, parseReleaseParam } from "./feed-filters";
 
 describe("parseFeedFilters", () => {

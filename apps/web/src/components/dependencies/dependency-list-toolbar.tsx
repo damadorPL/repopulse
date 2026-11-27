@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useTransition } from "react";
+import { LoaderCircleIcon, SearchIcon, XIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LoaderCircleIcon, SearchIcon, XIcon } from "lucide-react";
+import { useRef, useTransition } from "react";
+
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -73,7 +74,7 @@ export function DependencyListToolbar({
         />
         <div className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-1">
           {pending ? (
-            <LoaderCircleIcon className="size-3.5 motion-safe:animate-spin text-muted-foreground" aria-hidden />
+            <LoaderCircleIcon className="size-3.5 text-muted-foreground motion-safe:animate-spin" aria-hidden />
           ) : null}
           {query ? (
             <button

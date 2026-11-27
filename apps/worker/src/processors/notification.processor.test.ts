@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
-import { UnrecoverableError, type Job } from "bullmq";
 import { NotificationDeliveryError, type dispatchNotification } from "@repopulse/notifications";
 import type { NotificationJobData } from "@repopulse/queue";
+import { UnrecoverableError, type Job } from "bullmq";
+import { describe, expect, it, vi } from "vitest";
+
 import { processNotification } from "./notification.processor.js";
 
 type SemverType = "MAJOR" | "MINOR" | "PATCH" | "PRERELEASE" | "OTHER";

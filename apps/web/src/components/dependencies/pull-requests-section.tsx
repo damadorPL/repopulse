@@ -1,9 +1,10 @@
 "use client";
 
-import { useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { ExternalLinkIcon, GitPullRequestIcon, LoaderCircleIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useTransition } from "react";
 import { toast } from "sonner";
+
 import { RelativeTime } from "@/components/feed/relative-time";
 import { SemverBadge } from "@/components/feed/semver-badge";
 import { Badge } from "@/components/ui/badge";

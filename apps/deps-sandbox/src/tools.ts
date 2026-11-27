@@ -5,6 +5,7 @@
 import { execFile } from "node:child_process";
 import os from "node:os";
 import { promisify } from "node:util";
+
 import { MISSING, TOOL_NAMES, type ToolName, type ToolVersions } from "./commands.js";
 import { log } from "./logger.js";
 

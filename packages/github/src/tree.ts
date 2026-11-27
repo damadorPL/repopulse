@@ -1,4 +1,5 @@
 import type { Octokit } from "@octokit/rest";
+
 import { createOctokit, isGitHubHttpError } from "./client.js";
 import { rethrowGitHubError } from "./poller.js";
 
@@ -44,7 +45,7 @@ export function mapRepoTree(
   const kept =
     entries.length > maxEntries
       ? entries
-          .sort((a, b) => a.depth - b.depth || Number(b.dir) - Number(a.dir) || (a.path < b.path ? -1 : 1))
+          .toSorted((a, b) => a.depth - b.depth || Number(b.dir) - Number(a.dir) || (a.path < b.path ? -1 : 1))
           .slice(0, maxEntries)
       : entries;
   return {
@@ -52,11 +53,11 @@ export function mapRepoTree(
     dirs: kept
       .filter((entry) => entry.dir)
       .map((entry) => entry.path)
-      .sort(),
+      .toSorted(),
     files: kept
       .filter((entry) => !entry.dir)
       .map((entry) => entry.path)
-      .sort(),
+      .toSorted(),
     truncated: data.truncated === true || entries.length > maxEntries,
   };
 }

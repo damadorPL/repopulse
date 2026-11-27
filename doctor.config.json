@@ -51,6 +51,10 @@
         "rules": ["react-doctor/server-no-mutable-module-state"]
       },
       {
+        "files": ["src/server/commit-states.ts", "apps/web/src/server/commit-states.ts"],
+        "rules": ["react-doctor/server-sequential-independent-await"]
+      },
+      {
         "files": ["**/*.test.ts", "**/*.test.tsx", "apps/web/**/*.test.ts", "apps/web/**/*.test.tsx"],
         "rules": [
           "react-doctor/no-high-complexity-react-function",
@@ -131,6 +135,9 @@
     "react-doctor/no-ungated-tailwind-animation": "error",
     "react-doctor/zod-v4-no-deprecated-error-apis": "error",
     "react-doctor/zod-v4-no-deprecated-error-customization": "error",
-    "react-doctor/zod-v4-no-deprecated-schema-apis": "error"
+    "react-doctor/zod-v4-no-deprecated-schema-apis": "error",
+    "react-doctor/server-sequential-independent-await": "error",
+    "react-doctor/js-index-maps": "error",
+    "react-doctor/no-non-null-assertion-on-maybe-undefined-result": "error"
   }
 }

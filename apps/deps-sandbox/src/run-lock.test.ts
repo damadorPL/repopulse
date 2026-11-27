@@ -3,8 +3,10 @@ import { existsSync, promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
+
 import { lockRequestSchema, type LockRequest } from "@repopulse/deps/sandbox-contract";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { ToolVersions } from "./commands.js";
 import {
   buildSandboxEnv,
@@ -61,8 +63,8 @@ class FakeChild extends EventEmitter implements SpawnedProcess {
 
 function fakeSpawn(behavior: FakeBehavior): { spawn: SpawnFn; calls: FakeCall[] } {
   const calls: FakeCall[] = [];
-  const spawn: SpawnFn = (command, args, options) => {
-    const call = { command, args, options };
+  const spawn: SpawnFn = (command, args, spawnOptions) => {
+    const call = { command, args, options: spawnOptions };
     calls.push(call);
     const child = new FakeChild();
     setImmediate(() => {
@@ -234,7 +236,7 @@ describe("sanitizeOutput", () => {
       "bell\u0007 and \r\n crlf",
     ].join("\n");
     const out = sanitizeOutput(raw, "/tmp/lock-abc");
-    // eslint-disable-next-line no-control-regex -- verify terminal control characters were stripped.
+    // oxlint-disable-next-line no-control-regex -- verify terminal control characters were stripped.
     expect(out).not.toMatch(/\u001b|\u0007/);
     expect(out).not.toContain("hunter2");
     expect(out).not.toContain("abcdefghijklmnopqrstuvwxyz0123456789");
@@ -761,7 +763,7 @@ describe.skipIf(!npmCli)("runLock with the real npm", () => {
         expect(lock.name).toBe("fixture");
         expect([2, 3]).toContain(lock.lockfileVersion);
       }
-      expect(treeFiles.sort()).toEqual(["package.json"]);
+      expect(treeFiles.toSorted()).toEqual(["package.json"]);
       expect(await fs.readdir(markerDir)).toEqual([]);
       await expectNoJobDirs();
     } finally {

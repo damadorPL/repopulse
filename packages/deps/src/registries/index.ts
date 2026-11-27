@@ -16,4 +16,4 @@ export * from "./cache.js";
 export * from "./github-url.js";
 export * from "./npm.js";
 export * from "./pypi.js";
-export * from "./types.js";
+export type * from "./types.js";

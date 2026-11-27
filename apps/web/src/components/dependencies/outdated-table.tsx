@@ -1,9 +1,10 @@
 "use client";
 
-import { useDeferredValue, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { BanIcon, EllipsisIcon, ExternalLinkIcon, FileTextIcon, RssIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useDeferredValue, useState, useTransition } from "react";
 import { toast } from "sonner";
+
 import { RelativeTime } from "@/components/feed/relative-time";
 import { SemverBadge } from "@/components/feed/semver-badge";
 import { Button } from "@/components/ui/button";
@@ -237,7 +238,7 @@ export function OutdatedTable({
       manifest,
       rows: shown
         .filter((row) => row.manifestId === manifest.id)
-        .sort((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status] || a.name.localeCompare(b.name)),
+        .toSorted((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status] || a.name.localeCompare(b.name)),
     }))
     .filter((group) => group.rows.length > 0);
 
@@ -310,20 +311,20 @@ export function OutdatedTable({
         byManifest.map(({ manifest, rows: manifestRows }) => (
           <div key={manifest.id} className="overflow-x-auto rounded-md border">
             <p className="border-b bg-muted/40 px-3 py-2 font-mono text-xs">{manifest.path}</p>
-            <table className="w-full min-w-[56rem] text-sm">
+            <table className="w-full min-w-4xl text-sm">
               <thead className="text-left text-xs text-muted-foreground">
                 <tr className="border-b">
                   <th className="px-3 py-2 font-medium">Name</th>
-                  <th className="px-2 py-2 font-medium">Kind</th>
-                  <th className="px-2 py-2 font-medium">Declared</th>
-                  <th className="px-2 py-2 font-medium">Current</th>
-                  <th className="px-2 py-2 font-medium">Wanted</th>
-                  <th className="px-2 py-2 font-medium">Target</th>
-                  <th className="px-2 py-2 font-medium">Latest</th>
-                  <th className="px-2 py-2 font-medium">Level</th>
-                  <th className="px-2 py-2 font-medium">Released</th>
-                  <th className="px-2 py-2 font-medium">Status</th>
-                  <th className="px-2 py-2">
+                  <th className="p-2 font-medium">Kind</th>
+                  <th className="p-2 font-medium">Declared</th>
+                  <th className="p-2 font-medium">Current</th>
+                  <th className="p-2 font-medium">Wanted</th>
+                  <th className="p-2 font-medium">Target</th>
+                  <th className="p-2 font-medium">Latest</th>
+                  <th className="p-2 font-medium">Level</th>
+                  <th className="p-2 font-medium">Released</th>
+                  <th className="p-2 font-medium">Status</th>
+                  <th className="p-2">
                     <span className="sr-only">Actions</span>
                   </th>
                 </tr>
@@ -333,7 +334,7 @@ export function OutdatedTable({
                   const explanation = statusExplanation(row, minReleaseAgeDays);
                   const source = githubRepoFromUrl(row.sourceRepoUrl);
                   return (
-                    <tr key={row.id} className="align-top [content-visibility:auto] [contain-intrinsic-size:auto_48px]">
+                    <tr key={row.id} className="align-top [contain-intrinsic-size:auto_48px] [content-visibility:auto]">
                       <td className="px-3 py-2">
                         <a
                           href={registryUrl(row.ecosystem, row.name)}
@@ -344,30 +345,30 @@ export function OutdatedTable({
                           {row.name}
                         </a>
                       </td>
-                      <td className="px-2 py-2 text-xs text-muted-foreground">
+                      <td className="p-2 text-xs text-muted-foreground">
                         {KIND_LABELS[row.kind]}
                         {row.group ? <span className="block font-mono">{row.group}</span> : null}
                       </td>
-                      <td className="px-2 py-2">
+                      <td className="p-2">
                         <Version value={row.declared || null} className="text-muted-foreground" />
                       </td>
-                      <td className="px-2 py-2">
+                      <td className="p-2">
                         <Version value={row.currentVersion} />
                       </td>
-                      <td className="px-2 py-2">
+                      <td className="p-2">
                         <Version value={row.wantedVersion} />
                       </td>
-                      <td className="px-2 py-2">
+                      <td className="p-2">
                         <Version value={row.targetVersion} className="font-semibold" />
                       </td>
-                      <td className="px-2 py-2">
+                      <td className="p-2">
                         <Version value={row.latestVersion} />
                       </td>
-                      <td className="px-2 py-2">{row.level ? <SemverBadge type={row.level} /> : null}</td>
-                      <td className="px-2 py-2 text-xs text-muted-foreground">
+                      <td className="p-2">{row.level ? <SemverBadge type={row.level} /> : null}</td>
+                      <td className="p-2 text-xs text-muted-foreground">
                         {row.targetReleasedAt ? <RelativeTime date={row.targetReleasedAt} /> : "—"}
                       </td>
-                      <td className="max-w-56 px-2 py-2 text-xs">
+                      <td className="max-w-56 p-2 text-xs">
                         <span className={STATUS_TONE[row.status]} title={STATUS_META[row.status].hint}>
                           {STATUS_META[row.status].label}
                         </span>

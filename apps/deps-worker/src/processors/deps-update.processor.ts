@@ -1,4 +1,3 @@
-import { UnrecoverableError, Worker, type Job, type Queue } from "bullmq";
 import { loadDepsEnabled, type PrismaClient } from "@repopulse/db";
 import {
   buildCommitMessage,
@@ -33,6 +32,8 @@ import {
 } from "@repopulse/github";
 import { resolveAppBaseUrl } from "@repopulse/notifications";
 import { DEPS_QUEUE_NAMES, rateLimitDelayMs, type DepsUpdateJobData, type Redis } from "@repopulse/queue";
+import { UnrecoverableError, Worker, type Job, type Queue } from "bullmq";
+
 import {
   analyzeProject,
   createSnapshotReader,
@@ -146,7 +147,7 @@ export function workspaceFilePaths(
           .slice(0, -1)
           .some((segment) => SKIPPED_DIRECTORIES.has(segment)),
     );
-  return [...new Set([...paths, lockfilePath])].sort();
+  return [...new Set([...paths, lockfilePath])].toSorted();
 }
 
 function sameTargets(stored: readonly string[], planned: readonly string[]): boolean {
@@ -517,15 +518,15 @@ async function runUpdate(
         expectLockfile: lockfilePath,
         inputFormatVersion: manifests[0]!.lockfileFormatVersion,
         importers: manifests.map((manifest) => {
-          const planned = new Map(lockUpdates.filter((u) => u.manifest === manifest).map((u) => [u.name, u]));
+          const manifestPlanned = new Map(lockUpdates.filter((u) => u.manifest === manifest).map((u) => [u.name, u]));
           return {
             importer: manifest.detected.lockfileImporter,
             ecosystem: manifest.detected.ecosystem,
             dependencies: manifest.dependencies.map((d) => ({
               name: d.dependency.name,
-              declared: planned.get(d.dependency.name)?.selection.newDeclared ?? d.dependency.declared,
+              declared: manifestPlanned.get(d.dependency.name)?.selection.newDeclared ?? d.dependency.declared,
             })),
-            expected: [...planned.values()].map((u) => ({ name: u.name, version: u.selection.targetVersion! })),
+            expected: [...manifestPlanned.values()].map((u) => ({ name: u.name, version: u.selection.targetVersion! })),
           };
         }),
       });
@@ -548,7 +549,7 @@ async function runUpdate(
   const files = [...changed]
     .filter(([path, content]) => reader.sha(path) !== gitBlobSha(content))
     .map(([path, content]) => ({ path, content }))
-    .sort((a, b) => (a.path < b.path ? -1 : 1));
+    .toSorted((a, b) => (a.path < b.path ? -1 : 1));
   if (files.length === 0) return closeEmptyGroup(deps, github, octokit, project, prRow, now);
 
   const prUpdates: PrUpdate[] = included.map((u) => ({

@@ -1,6 +1,8 @@
 import { prisma } from "@repopulse/db";
+
 import { ACTIVITY_WINDOW_DAYS, type ActivityItem } from "@/lib/activity-grid";
 import { getBackfillConfig } from "@/server/backfill-settings";
+
 import {
   loadTrackedRepositories,
   visibleReleasesWhere,
@@ -74,7 +76,7 @@ export async function getRepositorySettings(
 
   return {
     ...subscription,
-    allTags: tags.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
+    allTags: tags.toSorted((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
     hardCap,
   };
 }

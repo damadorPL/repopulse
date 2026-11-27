@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
+
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { parseThemePreference, THEME_COOKIE, themeAttribute } from "@/lib/theme";
+
 import "./globals.css";
 
 export const metadata: Metadata = {

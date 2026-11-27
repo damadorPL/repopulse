@@ -1,5 +1,7 @@
 import type { LookupAddress } from "node:dns";
+
 import { describe, expect, it } from "vitest";
+
 import { WebhookUrlError } from "./errors.js";
 import {
   classifyAddress,
@@ -244,7 +246,7 @@ describe("createGuardedLookup", () => {
       address: "162.159.128.233",
       family: 4,
     });
-    expect(((await run(lookup, "discord.com", { all: true })).result as LookupAddress[]).length).toBe(2);
+    expect((await run(lookup, "discord.com", { all: true })).result as LookupAddress[]).toHaveLength(2);
     expect((await run(lookup, "discord.com", { family: 6 })).result).toEqual({
       address: "2606:4700::6810:84e5",
       family: 6,

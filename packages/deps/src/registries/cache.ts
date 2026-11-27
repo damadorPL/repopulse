@@ -79,12 +79,12 @@ export class RegistryUnavailableError extends Error {
   /** From `Retry-After`, when present. */
   readonly retryAfterMs: number | null;
 
-  constructor(registry: "npm" | "pypi", status: number | null, message: string, retryAfterMs: number | null = null) {
+  constructor(registry: "npm" | "pypi", status: number | null, message: string, retryAfterValue: number | null = null) {
     super(message);
     this.name = "RegistryUnavailableError";
     this.registry = registry;
     this.status = status;
-    this.retryAfterMs = retryAfterMs;
+    this.retryAfterMs = retryAfterValue;
   }
 }
 
@@ -154,10 +154,9 @@ async function readResponseTextWithLimit(response: Response, maxBytes: number): 
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
   try {
-    while (true) {
+    for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      if (!value) continue;
       totalBytes += value.byteLength;
       if (totalBytes > maxBytes) {
         await reader.cancel().catch(() => {});

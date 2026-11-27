@@ -1,5 +1,3 @@
-import { describe, expect, it, vi } from "vitest";
-import { DelayedError, type Job } from "bullmq";
 import {
   GitHubRateLimitError,
   GitHubRepositoryNotFoundError,
@@ -7,6 +5,9 @@ import {
   type MappedRelease,
 } from "@repopulse/github";
 import { BACKFILL_DEFAULTS, type BackfillConfig, type ReleaseBackfillJobData } from "@repopulse/queue";
+import { DelayedError, type Job } from "bullmq";
+import { describe, expect, it, vi } from "vitest";
+
 import { processReleaseBackfill } from "./release-backfill.processor.js";
 
 vi.mock("@repopulse/db", () => ({ decryptToken: (value: string) => `plain:${value}` }));
@@ -69,7 +70,7 @@ function fakeDb(options: {
     release: {
       count: vi.fn(async () => releases.size),
       findFirst: vi.fn(async () => {
-        const newest = [...releases.values()].sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime())[0];
+        const newest = [...releases.values()].toSorted((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime())[0];
         return newest ? { publishedAt: newest.publishedAt } : null;
       }),
       findMany: vi.fn(
@@ -329,7 +330,7 @@ describe("processReleaseBackfill", () => {
   it("promotes a stored tag row instead of adding a second entry", async () => {
     const db = fakeDb({ stored: range(50, 46), tagRows: ["v45", "v10"] });
     const outcome = await processReleaseBackfill(job(), "token", deps(db, fakeGitHub(50)));
-    expect(db.promoted.sort()).toEqual(["v10", "v45"]);
+    expect(db.promoted.toSorted()).toEqual(["v10", "v45"]);
     expect(db.prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(outcome).toMatchObject({ reason: "COMPLETE", added: 45 });
     expect(db.releases.size).toBe(50);

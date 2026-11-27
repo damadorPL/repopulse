@@ -1,10 +1,11 @@
 "use client";
 
-import { useOptimistic, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { LoaderCircleIcon, SendIcon, SlidersHorizontalIcon, TrashIcon } from "lucide-react";
-import { toast } from "sonner";
 import { channelLabel } from "@repopulse/notifications/channels";
+import { LoaderCircleIcon, SendIcon, SlidersHorizontalIcon, TrashIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useOptimistic, useState, useTransition } from "react";
+import { toast } from "sonner";
+
 import { TagPill } from "@/components/feed/tag-pill";
 import { ChannelIcon } from "@/components/notifications/channel-icon";
 import { NotificationEventCheckboxes } from "@/components/notifications/notification-event-checkboxes";

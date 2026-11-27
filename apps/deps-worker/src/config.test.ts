@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
 import { DEFAULT_DEPS_SCAN_CRON } from "@repopulse/queue";
+import { describe, expect, it } from "vitest";
+
 import { DEFAULT_SANDBOX_URL, readConfig } from "./config.js";
 
 describe("readConfig", () => {

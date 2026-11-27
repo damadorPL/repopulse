@@ -1,4 +1,5 @@
 import type { Octokit } from "@octokit/rest";
+
 import { createOctokit, isGitHubHttpError } from "./client.js";
 import { toRateLimitError } from "./git-write.js";
 import { GitHubRepositoryNotFoundError } from "./poller.js";
@@ -46,6 +47,10 @@ interface RawTreeData {
   truncated?: boolean;
 }
 
+function pathDepth(path: string): number {
+  return path.split("/").length;
+}
+
 /** Keeps blob / tree / commit entries with a path and SHA, capped like `mapRepoTree` (shallowest, folders first). */
 export function mapGitTreeEntries(
   data: RawTreeData,
@@ -62,20 +67,19 @@ export function mapGitTreeEntries(
       size: entry.type === "blob" && typeof entry.size === "number" ? entry.size : null,
     });
   }
-  const depth = (path: string) => path.split("/").length;
   const kept =
     all.length > maxEntries
-      ? [...all]
-          .sort(
+      ? all
+          .toSorted(
             (a, b) =>
-              depth(a.path) - depth(b.path) ||
+              pathDepth(a.path) - pathDepth(b.path) ||
               Number(b.type === "tree") - Number(a.type === "tree") ||
               (a.path < b.path ? -1 : 1),
           )
           .slice(0, maxEntries)
       : all;
   return {
-    entries: [...kept].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
+    entries: kept.toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
     truncated: data.truncated === true || all.length > maxEntries,
   };
 }
@@ -131,7 +135,7 @@ export async function fetchGitTree(params: {
       name: data.name,
       fullName: data.full_name,
       defaultBranch: data.default_branch,
-      isPrivate: data.private === true,
+      isPrivate: data.private,
       htmlUrl: data.html_url,
     };
   } catch (error) {

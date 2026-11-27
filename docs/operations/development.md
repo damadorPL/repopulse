@@ -46,7 +46,7 @@ The first GitHub account to sign in becomes the super admin. After pulling chang
 
 Engineering rules, workspace boundaries, Next.js 16 / React 19 gotchas, Vitest mocking conventions, and error-redaction standards are consolidated in [../CODING_STANDARDS.md](../CODING_STANDARDS.md).
 
-GitHub Actions CI (`.github/workflows/ci.yml` + `.github/workflows/react-doctor.yml`) runs on `push` to `main` and `pull_request`: `secrets-and-workflows` (`gitleaks` + `actionlint`), `ci` (`check:guardrails` → `lint:manifests` → `db:generate` → `packages/* build` → `typecheck` → `lint` → `lint:css` → `knip` → `knip:strict` → `format:check` → `docs:check` → `doctor` → `test` → `@repopulse/web build` → `pnpm audit --audit-level=high`), and React Doctor PR checks. Installing dependencies via `pnpm install` runs `prepare` (`scripts/install-hooks.ts`) to configure `core.hooksPath = .githooks` (running staged guardrails and `docs:check` before commits).
+GitHub Actions CI (`.github/workflows/ci.yml` + `.github/workflows/react-doctor.yml`) runs on `push` to `main` and `pull_request`: `secrets-and-workflows` (`gitleaks` + `actionlint`), `ci` (`check:guardrails` → `lint:manifests` → `db:generate` → `packages/* build` → `typecheck` → `lint` → `lint:css` → `knip` → `knip:strict` → `format:check` → `docs:check` → `doctor` → `test` → `@repopulse/web build` → `pnpm audit --audit-level=high`), and React Doctor PR checks. Installing dependencies via `pnpm install` runs `prepare` (`scripts/install-hooks.ts`) to configure `core.hooksPath = .githooks` (running staged guardrails, `docs:check`, and staged `oxfmt --check` / `oxlint` via `scripts/pre-commit-lint.ts` before commits).
 
 ## Git & Release Workflow
 

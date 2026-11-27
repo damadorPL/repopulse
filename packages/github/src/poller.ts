@@ -1,4 +1,5 @@
 import type { Octokit } from "@octokit/rest";
+
 import { createOctokit, getRateLimitInfo, isGitHubHttpError, type ResponseHeaders } from "./client.js";
 import { classifySemver, type SemverType } from "./parser.js";
 

@@ -1,6 +1,7 @@
-import { lookup as dnsLookup } from "node:dns/promises";
 import type { LookupAddress } from "node:dns";
+import { lookup as dnsLookup } from "node:dns/promises";
 import { BlockList, isIP, type LookupFunction } from "node:net";
+
 import { WebhookUrlError } from "./errors.js";
 
 /**
@@ -119,7 +120,7 @@ function blockReason(hostname: string, address: string, policy: InternalHostsPol
 
 export type ResolveAll = (hostname: string) => Promise<LookupAddress[]>;
 
-const defaultResolveAll: ResolveAll = (hostname) => dnsLookup(hostname, { all: true, verbatim: true });
+const defaultResolveAll: ResolveAll = (hostname) => dnsLookup(hostname, { all: true, order: "verbatim" });
 
 export interface ValidateWebhookUrlOptions {
   policy?: InternalHostsPolicy;

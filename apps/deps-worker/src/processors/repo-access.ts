@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@repopulse/db";
 import { permissionAtLeast } from "@repopulse/github";
+
 import type { GitHubApi, Octokit } from "../github-api.js";
 import { notifyPullRequestEvent, type NotifyQueue } from "./notify-jobs.js";
 

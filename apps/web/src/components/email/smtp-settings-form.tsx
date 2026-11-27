@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import { LoaderCircleIcon, MailCheckIcon, PowerOffIcon, SaveIcon, SendIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState, useTransition, type SubmitEvent } from "react";
 import { toast } from "sonner";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -68,7 +69,7 @@ export function SmtpSettingsForm({ settings, adminEmail }: { settings: SmtpSetti
     setError(message);
   }
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     setConfirmingRemove(false);

@@ -39,7 +39,7 @@ describe("GET /api/health", () => {
   it("returns 503 when the database query times out after 3000ms", async () => {
     vi.useFakeTimers();
     try {
-      prisma.$queryRaw.mockImplementationOnce(() => new Promise(() => {}));
+      prisma.$queryRaw.mockReturnValueOnce(new Promise(() => {}));
       const responsePromise = GET();
       await vi.advanceTimersByTimeAsync(3_000);
       const response = await responsePromise;

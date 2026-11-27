@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient, TrackMode } from "@repopulse/db";
+import type { NotificationLevel, Prisma, PrismaClient, TrackMode } from "@repopulse/db";
 import {
   buildTagChangelog,
   compareCommits,
@@ -9,6 +9,7 @@ import {
   type GitTag,
   type MappedTag,
 } from "@repopulse/github";
+
 import { createLogger } from "../logger.js";
 import { createUserReleaseStatesInBatches } from "./batch-db.js";
 import { mapWithConcurrency } from "./concurrency.js";
@@ -68,17 +69,24 @@ export async function loadSubscribers(tx: Tx, repositoryId: string): Promise<Sub
       },
     },
   });
-  return subscriptions.map((s) => ({
-    userId: s.userId,
-    includePrereleases: s.includePrereleases,
-    trackMode: s.trackMode,
-    trackPaths: s.trackPaths,
-    watchedPaths: s.watchedPaths ?? [],
-    notificationLevel: s.notificationLevel ?? "ALL",
-    snoozedUntil: s.snoozedUntil ?? null,
-    tagIds: s.tags.map((t) => t.tagId),
-    rules: s.user.notificationRules,
-  }));
+  return subscriptions.map((s) => {
+    // Defensive fallbacks for partial/legacy test mocks (Prisma schema defaults these to non-null).
+    const row = s as Omit<typeof s, "watchedPaths" | "notificationLevel"> & {
+      watchedPaths?: string[] | null;
+      notificationLevel?: NotificationLevel | null;
+    };
+    return {
+      userId: row.userId,
+      includePrereleases: row.includePrereleases,
+      trackMode: row.trackMode,
+      trackPaths: row.trackPaths,
+      watchedPaths: row.watchedPaths ?? [],
+      notificationLevel: row.notificationLevel ?? "ALL",
+      snoozedUntil: row.snoozedUntil ?? null,
+      tagIds: row.tags.map((t) => t.tagId),
+      rules: row.user.notificationRules,
+    };
+  });
 }
 
 export function tracksTags(subscriber: SubscriberWithMode): boolean {

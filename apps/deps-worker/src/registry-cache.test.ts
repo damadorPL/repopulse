@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
 import { MAX_MANIFEST_BYTES } from "@repopulse/deps";
+import { describe, expect, it, vi } from "vitest";
+
 import {
   BLOB_CACHE_TTL_SECONDS,
   createRedisBlobCache,

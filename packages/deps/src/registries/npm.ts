@@ -4,6 +4,7 @@
  * the cached times (Slice 08 §3.4).
  */
 import semver from "semver";
+
 import { isRecord } from "../util.js";
 import { cachedGet, registryCacheKey, type RegistryFetchOptions } from "./cache.js";
 import { toGitHubRepoUrl } from "./github-url.js";
@@ -133,7 +134,7 @@ export async function fetchNpmPackage(name: string, options: NpmFetchOptions): P
         sha256: [],
       };
     })
-    .sort((a, b) => semver.compare(a.version, b.version));
+    .toSorted((a, b) => semver.compare(a.version, b.version));
 
   return {
     found: true,

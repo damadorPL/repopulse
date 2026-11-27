@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import { JOB_NAMES, REPO_POLL_PRIORITY } from "@repopulse/queue";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 class UnauthorizedError extends Error {}
 class ForbiddenError extends Error {}

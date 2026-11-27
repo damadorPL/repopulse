@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEPS_WORKER_HEARTBEAT_INTERVAL_MS, DEPS_WORKER_HEARTBEAT_KEY } from "@repopulse/deps";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { startHeartbeat, writeHeartbeat } from "./heartbeat.js";
 
 afterEach(() => {

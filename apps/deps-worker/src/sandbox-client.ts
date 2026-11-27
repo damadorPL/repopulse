@@ -176,17 +176,19 @@ export interface LockfileExpectation {
   }>;
 }
 
+function failLockfileValidation(detail: string): never {
+  throw new SandboxLockError("INVALID_LOCKFILE", `The regenerated lockfile was rejected: ${detail}.`);
+}
+
 /**
  * Worker-side validation of a sandbox lockfile (§3.9 step 5): only the expected path, ≤ 20 MiB, parses with the
  * §3.2 readers, the same format version as the input, and every planned dependency resolves to its target.
  * Throws {@link SandboxLockError} (`INVALID_LOCKFILE`) otherwise.
  */
 export function validateLockfile(result: { path: string; text: string }, expectation: LockfileExpectation): void {
-  const fail = (detail: string): never => {
-    throw new SandboxLockError("INVALID_LOCKFILE", `The regenerated lockfile was rejected: ${detail}.`);
-  };
-  if (result.path !== expectation.expectLockfile) fail(`unexpected path ${JSON.stringify(result.path)}`);
-  if (Buffer.byteLength(result.text) > MAX_LOCKFILE_BYTES) fail("it is larger than 20 MiB");
+  if (result.path !== expectation.expectLockfile)
+    failLockfileValidation(`unexpected path ${JSON.stringify(result.path)}`);
+  if (Buffer.byteLength(result.text) > MAX_LOCKFILE_BYTES) failLockfileValidation("it is larger than 20 MiB");
   for (const importer of expectation.importers) {
     const read = readLockfile({
       packageManager: expectation.packageManager,
@@ -195,16 +197,16 @@ export function validateLockfile(result: { path: string; text: string }, expecta
       importer: importer.importer,
       dependencies: importer.dependencies,
     });
-    if (read.warnings.length > 0) fail("it could not be parsed");
+    if (read.warnings.length > 0) failLockfileValidation("it could not be parsed");
     if (read.formatVersion !== expectation.inputFormatVersion) {
-      fail(
+      failLockfileValidation(
         `its format changed from ${expectation.inputFormatVersion ?? "unknown"} to ${read.formatVersion ?? "unknown"}`,
       );
     }
     for (const planned of importer.expected) {
       const resolved = read.versions.get(planned.name);
       if (!resolved || compareVersions(importer.ecosystem, resolved, planned.version) !== 0) {
-        fail(`${planned.name} resolves to ${resolved ?? "nothing"} instead of ${planned.version}`);
+        failLockfileValidation(`${planned.name} resolves to ${resolved ?? "nothing"} instead of ${planned.version}`);
       }
     }
   }

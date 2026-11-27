@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.8.7] — 2026-11-27 — Linting, formatting, TypeScript 7, React Doctor & pre-commit hardening
+
+### Added
+
+- **Staged formatting & linting in git pre-commit (`scripts/pre-commit-lint.ts`)**: Added cross-platform staged `oxfmt --check` and `oxlint` checks to `.githooks/pre-commit`, with unit tests in `scripts/tests/pre-commit-lint.test.ts` and entry registration in `knip.ts`.
+
+### Changed
+
+- **Linting, formatting, TypeScript 7, React Doctor & pre-commit hardening**: Fixed workspace-scoped web linting (`apps/web/package.json` now runs `oxlint apps/web` from repo root so `better-tailwindcss` resolves `apps/web/src/app/globals.css`), restored explicit `jsx-a11y/*` and `nextjs/*` override rules, normalized `eslint-disable` comments to `oxlint-disable`, and expanded `.oxlintrc.json` with `node/*`, `typescript/no-deprecated`, `no-unnecessary-condition`, `consistent-type-exports`, `no-import-type-side-effects`, `use-unknown-in-catch-callback-variable`, `prefer-promise-reject-errors`, `no-unnecessary-type-conversion`, `eslint/preserve-caught-error`, `eslint/no-shadow`, `no-console` allowlists, `unicorn/prefer-node-protocol`, `no-array-sort`/`no-array-reverse`, `consistent-function-scoping` (prod), `prefer-at`, React 19/Compiler/security rules, `better-tailwindcss/enforce-canonical-classes`, and stricter `vitest/*` rules. Enabled `sortImports` and `sortTailwindcss` in `.oxfmtrc.json`; added `noFallthroughCasesInSwitch`, `noImplicitOverride`, and `noImplicitReturns` in `packages/tsconfig/base.json`; promoted `server-sequential-independent-await`, `js-index-maps`, and `no-non-null-assertion-on-maybe-undefined-result` to errors in `doctor.config.json` (with an intentional override for sequential transaction queries in `apps/web/src/server/commit-states.ts`); migrated 15 React 19 `FormEvent` usages to `SubmitEvent`, `dns.lookup` `verbatim` to `order: "verbatim"`, and fixed all surfaced lint, typecheck, and React Doctor issues.
+
 ## [0.9.8.6] — 2026-11-27 — Static analysis, guardrails & lint/codebase remediation
 
 ### Added

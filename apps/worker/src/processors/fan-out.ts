@@ -58,7 +58,7 @@ export interface FanOutPlan {
 export function selectFreshReleases(created: StoredRelease[], newestKnownAt: Date | null): StoredRelease[] {
   return created
     .filter((release) => newestKnownAt === null || release.publishedAt > newestKnownAt)
-    .sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
+    .toSorted((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
 }
 
 /**
@@ -150,7 +150,7 @@ export function mergeFanOutPlans(...plans: FanOutPlan[]): FanOutPlan {
     states: plans.flatMap((plan) => plan.states),
     deliveries: [...deliveries].map(([userId, releases]) => ({
       userId,
-      releases: releases.sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime()),
+      releases: releases.toSorted((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime()),
     })),
     notifications: plans.flatMap((plan) => plan.notifications),
   };

@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useTransition, type ReactNode } from "react";
 import { LoaderCircleIcon } from "lucide-react";
+import { useState, useTransition, type ReactNode } from "react";
 import { toast } from "sonner";
+
 import { useReaderList } from "@/components/reader/reader-context";
 import { Button } from "@/components/ui/button";
 import { loadMoreReleasesAction } from "@/server/actions/feed";
 import type { FeedItem, FeedPage } from "@/server/queries/feed";
+
 import { ReleaseCard } from "./release-card";
 
 /**
@@ -59,13 +61,13 @@ export function ReleaseFeedList({
     });
   }
 
-  if (items.length === 0) return <>{emptyState}</>;
+  if (items.length === 0) return emptyState;
 
   return (
     <div className="space-y-2">
       <ul className="space-y-2" aria-label="Releases">
         {items.map((item) => (
-          <li key={item.id} className="[content-visibility:auto] [contain-intrinsic-size:auto_112px]">
+          <li key={item.id} className="[contain-intrinsic-size:auto_112px] [content-visibility:auto]">
             <ReleaseCard item={item} isRead={isRead(item)} isActive={item.id === selectedId} onOpen={openRelease} />
           </li>
         ))}

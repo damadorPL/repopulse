@@ -1,5 +1,6 @@
-import { notFound, redirect } from "next/navigation";
 import type { User as DbUser } from "@repopulse/db";
+import { notFound, redirect } from "next/navigation";
+
 import { ForbiddenError, getCurrentUserOrThrow, UnauthorizedError } from "@/lib/auth";
 
 /**

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
 import { TagsIcon } from "lucide-react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
+
 import { TagDot } from "@/components/feed/tag-pill";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -69,7 +70,7 @@ export function AssignTagsPopover({
             {allTags.map((tag) => {
               const id = `assign-${subscriptionId}-${tag.id}`;
               return (
-                <Label key={tag.id} htmlFor={id} className="rounded-md px-1.5 py-1.5 font-normal hover:bg-accent">
+                <Label key={tag.id} htmlFor={id} className="rounded-md p-1.5 font-normal hover:bg-accent">
                   <Checkbox
                     id={id}
                     checked={selectedSet.has(tag.id)}

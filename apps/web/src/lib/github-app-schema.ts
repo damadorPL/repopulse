@@ -1,4 +1,5 @@
 import { z } from "zod";
+
 import { GITHUB_APP_KEY_MAX_LENGTH, GITHUB_APP_NAME_MAX, GITHUB_APP_WEBHOOK_SECRET_MAX_LENGTH } from "./github-app";
 
 /** GitHub logins (users and organizations): alphanumerics and single hyphens, at most 39 characters. */

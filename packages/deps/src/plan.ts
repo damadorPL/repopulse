@@ -3,6 +3,7 @@
  * rules, grouping into pull requests and whether a group can get one.
  */
 import { z } from "zod";
+
 import { MAX_IGNORE_RULES } from "./limits.js";
 import type { RegistryVersion } from "./registries/types.js";
 import { SANDBOX_PACKAGE_MANAGERS } from "./sandbox-contract.js";
@@ -256,7 +257,7 @@ export function selectTarget(
   const usable = candidates.filter((candidate) => {
     if (candidate.deprecated || candidate.yanked) return false;
     if (isPrereleaseVersion(ecosystem, candidate.version)) {
-      if (!policy.includePrereleases || !currentIsPrerelease || current === null) return false;
+      if (!policy.includePrereleases || !currentIsPrerelease) return false;
       if (!sameMajorMinor(ecosystem, candidate.version, current)) return false;
     }
     if (projectPython && candidate.requiresPython) {
@@ -270,8 +271,8 @@ export function selectTarget(
     }
     return true;
   });
-  usable.sort((a, b) => compare(a.version, b.version));
-  const latestVersion = usable.at(-1)?.version ?? null;
+  const sortedUsable = usable.toSorted((a, b) => compare(a.version, b.version));
+  const latestVersion = sortedUsable.at(-1)?.version ?? null;
   const wantedVersion = maxSatisfying(
     rangeSyntax,
     usable.map((c) => c.version),
@@ -531,7 +532,7 @@ export function groupCapability(
 ): GroupCapability {
   const lockfiles = [
     ...new Set(manifests.filter(manifestNeedsLockfile).map((manifest) => manifest.lockfilePath as string)),
-  ].sort();
+  ].toSorted();
   const needsLockfile = lockfiles.length > 0;
   for (const manifest of manifests) {
     const reason = manifestCheckOnlyReason(manifest);

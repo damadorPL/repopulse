@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { isEventAllowedForScope, normalizeEvents, validateEventsForScope } from "./notification-events";
 
 describe("tag scope", () => {

@@ -1,4 +1,5 @@
 import { createRedisConnection, type Redis } from "@repopulse/queue";
+
 import { createLogger } from "./logger.js";
 
 const log = createLogger("redis");

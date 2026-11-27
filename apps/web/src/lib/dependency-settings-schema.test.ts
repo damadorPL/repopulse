@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { addDependencyProjectsInput, dependencySettingsInput } from "./dependency-settings-schema";
 
 describe("addDependencyProjectsInput", () => {

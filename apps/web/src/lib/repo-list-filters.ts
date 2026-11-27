@@ -6,6 +6,7 @@
  */
 
 import type { Route } from "next";
+
 import { MAX_SEARCH_LENGTH } from "./feed-filters";
 
 export const REPO_LIST_SORTS = ["name", "-name", "added", "-added", "updated", "synced", "unread", "stars"] as const;
@@ -203,5 +204,5 @@ export function applyRepoListFilters<T extends RepoListRow>(
     }
   };
 
-  return filtered.sort((a, b) => Number(b.isPinned) - Number(a.isPinned) || compare(a, b) || byName(a, b));
+  return filtered.toSorted((a, b) => Number(b.isPinned) - Number(a.isPinned) || compare(a, b) || byName(a, b));
 }

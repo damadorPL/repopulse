@@ -86,7 +86,7 @@ function applyData(row: Row, data: Row): void {
   for (const [key, value] of Object.entries(data)) {
     if (value === undefined) continue;
     if (isPlainObject(value) && "increment" in value)
-      row[key] = ((row[key] as number) ?? 0) + (value.increment as number);
+      row[key] = ((row[key] as number | undefined) ?? 0) + (value.increment as number);
     else if (isPlainObject(value) && "set" in value) row[key] = value.set;
     else row[key] = value;
   }
@@ -128,11 +128,11 @@ export class FakeTable {
   findMany = async (args: { where?: Where; orderBy?: unknown; take?: number; cursor?: Where; skip?: number } = {}) => {
     let out = this.rows.filter((r) => matches(r, args.where));
     const orders = Array.isArray(args.orderBy) ? (args.orderBy as unknown[]) : args.orderBy ? [args.orderBy] : [];
-    for (const order of [...orders].reverse()) {
+    for (const order of orders.toReversed()) {
       const [field, direction] = Object.entries(order as Record<string, unknown>)[0]!;
       const dir = (isPlainObject(direction) ? direction.sort : direction) === "desc" ? -1 : 1;
       const nulls = isPlainObject(direction) ? direction.nulls : undefined;
-      out = [...out].sort((a, b) => {
+      out = out.toSorted((a, b) => {
         const av = a[field] ?? null;
         const bv = b[field] ?? null;
         if (av === null && bv === null) return 0;

@@ -23,7 +23,7 @@ export function normalizeSha256Hashes(hashes: readonly string[]): string[] {
     if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error(`invalid sha256 digest ${JSON.stringify(hash)}`);
     out.add(`sha256:${digest}`);
   }
-  return [...out].sort();
+  return [...out].toSorted();
 }
 
 /** Builds the replacement of a line's `--hash` block, keeping the option style and the separator layout. */

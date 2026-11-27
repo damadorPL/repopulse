@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
 import { CheckIcon, LoaderCircleIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useRef, useState, useTransition, type ReactNode, type SubmitEvent } from "react";
 import { toast } from "sonner";
+
 import { TagDot } from "@/components/feed/tag-pill";
 import { WatchedPathsPicker } from "@/components/repositories/watched-paths-picker";
 import { Button } from "@/components/ui/button";
@@ -100,7 +101,7 @@ export function AddRepoModal({
     setTagIds((current) => (current.includes(id) ? current.filter((t) => t !== id) : [...current, id]));
   }
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     setPathsError(null);

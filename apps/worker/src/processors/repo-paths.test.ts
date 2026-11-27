@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
 import { GitHubRateLimitError, type CommitDetail, type PathCommitSummary } from "@repopulse/github";
+import { describe, expect, it, vi } from "vitest";
+
 import { planPathFanOut, pollRepoPaths, tracksPaths } from "./repo-paths.js";
 
 const REPO = { id: "repo1", owner: "acme", name: "widget", fullName: "acme/widget" };
@@ -163,8 +164,8 @@ describe("pollRepoPaths", () => {
     expect(fetchCommits).toHaveBeenCalledWith(
       expect.objectContaining({ owner: "acme", name: "widget", accessToken: "t1" }),
     );
-    expect(fetchDetail.mock.calls.map(([p]) => p.ref).sort()).toEqual(
-      [commit(2).sha, commit(3).sha, commit(4).sha].sort(),
+    expect(fetchDetail.mock.calls.map(([p]) => p.ref).toSorted()).toEqual(
+      [commit(2).sha, commit(3).sha, commit(4).sha].toSorted(),
     );
     expect(db.inserted).toHaveLength(3);
     expect(db.inserted.find((r) => r.tagName === short(3))).toMatchObject({
@@ -179,19 +180,19 @@ describe("pollRepoPaths", () => {
     expect(
       byUser(db.states, "db-fan")
         .map((s) => s.releaseId)
-        .sort(),
+        .toSorted(),
     ).toEqual([`id-${short(2)}`, `id-${short(3)}`]);
     expect(
       byUser(db.states, "docs-fan")
         .map((s) => s.releaseId)
-        .sort(),
+        .toSorted(),
     ).toEqual([`id-${short(2)}`, `id-${short(3)}`, `id-${short(4)}`]);
     expect(byUser(db.states, "cli-fan")).toEqual([]);
     expect(byUser(db.states, "releaser")).toEqual([]);
     expect(db.states.every((s) => !s.isRead)).toBe(true);
     // Live updates, but existing history never triggers webhook or email rules.
     expect(result!.plan.notifications).toEqual([]);
-    expect(result!.plan.deliveries.map((d) => d.userId).sort()).toEqual(["db-fan", "docs-fan"]);
+    expect(result!.plan.deliveries.map((d) => d.userId).toSorted()).toEqual(["db-fan", "docs-fan"]);
     expect(result!.polledAt).toEqual(NOW);
     expect(result!.polledPaths).toEqual(["packages/db", "docs", "packages/cli"]);
     expect(db.repoUpdates).toEqual([]);

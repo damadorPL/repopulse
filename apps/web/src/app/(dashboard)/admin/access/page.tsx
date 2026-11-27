@@ -1,5 +1,6 @@
-import type { Metadata } from "next";
 import { TicketIcon } from "lucide-react";
+import type { Metadata } from "next";
+
 import { CreateInviteForm } from "@/components/access/create-invite-form";
 import { InviteItem } from "@/components/access/invite-item";
 import { RegistrationToggle } from "@/components/access/registration-toggle";

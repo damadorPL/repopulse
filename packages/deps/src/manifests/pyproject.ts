@@ -4,6 +4,7 @@
  * {@link locateTomlStrings}.
  */
 import { parse as parseToml } from "smol-toml";
+
 import type { DependencyKind, ParsedDependency, RangeSyntax } from "../types.js";
 import { isRecord, normalizePypiName } from "../util.js";
 import { isValidPep440Constraint } from "../versions/pep440.js";
@@ -31,6 +32,10 @@ export interface PyprojectManifest {
   uvWorkspace: { members: string[]; exclude: string[] } | null;
   dependencies: PyprojectDependency[];
   warnings: string[];
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
 /** Parses `pyproject.toml` text. Throws {@link ManifestParseError} on invalid TOML. */
@@ -118,12 +123,12 @@ export function parsePyproject(text: string, path = "pyproject.toml"): Pyproject
   }
   if (uv) addPep508List(uv["dev-dependencies"], ["tool", "uv", "dev-dependencies"], "DEV", "");
 
-  let poetryPython: string | null = null;
-  const addPoetryTable = (table: unknown, basePath: string[], kind: DependencyKind, group: string): void => {
-    if (!isRecord(table)) return;
+  const addPoetryTable = (table: unknown, basePath: string[], kind: DependencyKind, group: string): string | null => {
+    if (!isRecord(table)) return null;
+    let foundPython: string | null = null;
     for (const [rawName, value] of Object.entries(table)) {
       if (rawName.toLowerCase() === "python") {
-        if (typeof value === "string" && kind === "PROD") poetryPython = value;
+        if (typeof value === "string" && kind === "PROD") foundPython = value;
         continue;
       }
       const name = normalizePypiName(rawName);
@@ -159,22 +164,24 @@ export function parsePyproject(text: string, path = "pyproject.toml"): Pyproject
       if (declared !== null && !reason && !isValidPep440Constraint(declared, "poetry"))
         reason = "Invalid version constraint";
       const location = located.get(tomlPathKey(valuePath));
-      const writable = declared !== null && location?.plain === true;
       dependencies.push({
         ...common,
         extras,
         declared: declared ?? "",
-        span: writable && location ? { start: location.span.start, end: location.span.end } : null,
+        span:
+          declared !== null && location?.plain === true ? { start: location.span.start, end: location.span.end } : null,
         valuePath,
         valueOffset: { start: 0, end: (declared ?? "").length },
         supported: reason === null,
         ...(reason === null ? {} : { unsupportedReason: reason }),
       });
     }
+    return foundPython;
   };
 
+  let poetryPython: string | null = null;
   if (poetry) {
-    addPoetryTable(poetry.dependencies, ["tool", "poetry", "dependencies"], "PROD", "");
+    poetryPython = addPoetryTable(poetry.dependencies, ["tool", "poetry", "dependencies"], "PROD", "");
     addPoetryTable(poetry["dev-dependencies"], ["tool", "poetry", "dev-dependencies"], "DEV", "");
     if (isRecord(poetry.group)) {
       for (const [group, definition] of Object.entries(poetry.group)) {
@@ -186,8 +193,6 @@ export function parsePyproject(text: string, path = "pyproject.toml"): Pyproject
   }
 
   const uvWorkspaceTable = uv && isRecord(uv.workspace) ? uv.workspace : null;
-  const strings = (value: unknown): string[] =>
-    Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 
   const projectRequiresPython =
     project && typeof project["requires-python"] === "string" ? project["requires-python"] : null;
@@ -203,7 +208,7 @@ export function parsePyproject(text: string, path = "pyproject.toml"): Pyproject
     hasToolPoetry: poetry !== null,
     hasToolUv: uv !== null,
     uvWorkspace: uvWorkspaceTable
-      ? { members: strings(uvWorkspaceTable.members), exclude: strings(uvWorkspaceTable.exclude) }
+      ? { members: stringArray(uvWorkspaceTable.members), exclude: stringArray(uvWorkspaceTable.exclude) }
       : null,
     dependencies,
     warnings,

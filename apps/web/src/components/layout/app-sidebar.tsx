@@ -1,9 +1,5 @@
 "use client";
 
-import type { ReactNode } from "react";
-import type { Route } from "next";
-import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
 import {
   ActivityIcon,
   BellRingIcon,
@@ -14,6 +10,11 @@ import {
   Settings2Icon,
   ShieldIcon,
 } from "lucide-react";
+import type { Route } from "next";
+import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
+import type { ReactNode } from "react";
+
 import { TagDot } from "@/components/feed/tag-pill";
 import { AppVersionLink } from "@/components/layout/app-version-link";
 import { useOptionalUnread } from "@/components/layout/unread-context";
@@ -29,7 +30,7 @@ function CountBadge({ count, accent = false }: { count: number; accent?: boolean
   return (
     <span
       className={cn(
-        "ml-auto min-w-5 rounded-full px-1.5 py-0.5 text-center text-[11px] font-medium leading-none tabular-nums",
+        "ml-auto min-w-5 rounded-full px-1.5 py-0.5 text-center text-[11px] leading-none font-medium tabular-nums",
         accent ? "bg-unread text-white" : "bg-sidebar-accent text-muted-foreground",
       )}
     >
@@ -139,7 +140,7 @@ export function AppSidebar({
 
       <div className="grid gap-1">
         <div className="flex items-center justify-between px-2">
-          <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Tags</h2>
+          <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Tags</h2>
           {activeTags.length > 0 ? (
             <ManageTagsModal tags={activeTags}>
               <Button variant="ghost" size="icon-sm" className="size-6" aria-label="Manage tags">
@@ -175,7 +176,7 @@ export function AppSidebar({
       </div>
 
       <div className="mt-auto grid gap-1">
-        <h2 className="px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Settings</h2>
+        <h2 className="px-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">Settings</h2>
         <NavLink
           href="/settings/notifications"
           active={pathname.startsWith("/settings/notifications")}

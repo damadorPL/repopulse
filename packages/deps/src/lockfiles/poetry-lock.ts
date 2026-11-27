@@ -1,5 +1,6 @@
 /** `poetry.lock` reader (TOML `[[package]]`, `[metadata] lock-version`). */
 import { parse as parseToml } from "smol-toml";
+
 import { isRecord, normalizePypiName } from "../util.js";
 import { comparePep440 } from "../versions/pep440.js";
 import { formatLockfileVersion, guardPrepareLockfile, type LockfileVersions, type PreparedLockfile } from "./common.js";

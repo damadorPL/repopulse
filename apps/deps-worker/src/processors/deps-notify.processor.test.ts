@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
-import { UnrecoverableError } from "bullmq";
 import { NotificationDeliveryError, type dispatchDependencyNotification } from "@repopulse/notifications";
 import type { DepsNotifyJobData } from "@repopulse/queue";
+import { UnrecoverableError } from "bullmq";
+import { describe, expect, it, vi } from "vitest";
+
 import { createFakePrisma, seed } from "../testing/fake-prisma.js";
 import { job } from "../testing/fixtures.js";
 import { processDepsNotify } from "./deps-notify.processor.js";

@@ -1,7 +1,8 @@
-import type { Metadata } from "next";
-import { Suspense, type ReactNode } from "react";
-import Link from "next/link";
 import { InboxIcon, PlusIcon, SearchXIcon } from "lucide-react";
+import type { Metadata } from "next";
+import Link from "next/link";
+import { Suspense, type ReactNode } from "react";
+
 import { FeedFilterBar } from "@/components/feed/feed-filter-bar";
 import { ReleaseFeedList } from "@/components/feed/release-feed-list";
 import { TagDot } from "@/components/feed/tag-pill";

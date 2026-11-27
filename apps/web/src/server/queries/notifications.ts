@@ -1,5 +1,6 @@
 import { prisma, type NotificationChannel, type NotificationEvent } from "@repopulse/db";
 import { maskDestination } from "@repopulse/notifications/channels";
+
 import { normalizeEvents } from "@/lib/notification-events";
 import type { TagPill } from "@/server/queries/feed";
 

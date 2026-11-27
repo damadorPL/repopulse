@@ -11,6 +11,7 @@ import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Readable } from "node:stream";
+
 import { MAX_LOCKFILE_BYTES, MAX_SANDBOX_STDERR_TAIL_BYTES } from "@repopulse/deps/limits";
 import type {
   LockErrorCode,
@@ -18,6 +19,7 @@ import type {
   ParsedLockResponse,
   SandboxPackageManager,
 } from "@repopulse/deps/sandbox-contract";
+
 import {
   buildCommands,
   checkToolVersions,
@@ -102,7 +104,7 @@ export function findConfigRegistries(basename: string, text: string): string[] {
   const valueCheck = (re: RegExp, label: string) => {
     for (const line of lines) {
       const match = re.exec(line);
-      if (match && !isDefaultRegistryValue(match[match.length - 1] ?? "")) {
+      if (match && !isDefaultRegistryValue(match.at(-1) ?? "")) {
         found.push(label);
         return;
       }
@@ -261,7 +263,7 @@ export function prepareFiles(files: readonly { path: string; contentBase64: stri
     seen.add(file.path);
 
     const segments = file.path.split("/");
-    const basename = segments[segments.length - 1]!;
+    const basename = segments.at(-1)!;
     const content = Buffer.from(file.contentBase64, "base64");
     if (segments.some((segment) => STRIPPED_SEGMENTS.has(segment))) {
       out.stripped.push(file.path);
@@ -413,9 +415,9 @@ export class TailBuffer {
   }
 }
 
-// eslint-disable-next-line no-control-regex
+// oxlint-disable-next-line no-control-regex
 const ANSI = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)?|\u001b[@-Z\\-_]/g;
-// eslint-disable-next-line no-control-regex
+// oxlint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g;
 const KNOWN_TOKENS =
   /\b(?:npm_[A-Za-z0-9]{36}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|pypi-[A-Za-z0-9_-]{40,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,})\b/g;

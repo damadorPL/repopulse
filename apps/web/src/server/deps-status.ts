@@ -1,6 +1,7 @@
-import { cache } from "react";
 import { INSTANCE_SETTINGS_ID, loadDepsEnabled, prisma } from "@repopulse/db";
 import { DEPS_WORKER_HEARTBEAT_KEY, type DepsWorkerHeartbeat } from "@repopulse/deps/limits";
+import { cache } from "react";
+
 import { invalidateDepsEnabledCache, readDepsEnabledCached } from "@/server/deps-enabled-cache";
 import { getRedis, isRealtimeConfigured, withRedisTimeout } from "@/server/realtime";
 
@@ -43,14 +44,18 @@ export type DepsWorkerStatus =
 export function parseDepsWorkerHeartbeat(raw: string | null): DepsWorkerStatus {
   if (!raw) return { state: "missing" };
   try {
-    const value = JSON.parse(raw) as Partial<DepsWorkerHeartbeat> | null;
-    const at = typeof value?.at === "string" ? new Date(value.at) : null;
+    const value: unknown = JSON.parse(raw);
+    if (typeof value !== "object" || value === null) return { state: "missing" };
+    const record = value as Record<string, unknown>;
+    const at = typeof record.at === "string" ? new Date(record.at) : null;
     if (!at || Number.isNaN(at.getTime())) return { state: "missing" };
-    const sandbox = value?.sandbox;
+    const sandbox = record.sandbox;
+    const sandboxTools =
+      typeof sandbox === "object" && sandbox !== null && "tools" in sandbox ? sandbox.tools : undefined;
     const tools =
-      sandbox && typeof sandbox === "object" && sandbox.tools && typeof sandbox.tools === "object"
+      typeof sandboxTools === "object" && sandboxTools !== null
         ? Object.fromEntries(
-            Object.entries(sandbox.tools).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+            Object.entries(sandboxTools).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
           )
         : null;
     return { state: "running", at, sandbox: tools ? { status: "ok", tools } : null };

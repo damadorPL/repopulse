@@ -130,7 +130,7 @@ export async function fetchPypiPackage(name: string, options: PypiFetchOptions):
           derive: compactJson,
         }).then(
           (meta) => (meta.found ? (JSON.parse(meta.body) as { sourceRepoUrl: string | null }).sourceRepoUrl : null),
-          (error) => {
+          (error: unknown) => {
             if (!isRegistryUnavailableError(error)) throw error;
             // The changelog link is optional: keep the versions.
             return null;
@@ -153,17 +153,20 @@ export async function fetchPypiPackage(name: string, options: PypiFetchOptions):
     const times = files.map((file) => (file.t ? Date.parse(file.t) : NaN)).filter((t) => !Number.isNaN(t));
     const requiresPython = considered.some((file) => file.rp === null)
       ? null
-      : [...new Set(considered.map((file) => file.rp as string))].sort();
+      : [...new Set(considered.map((file) => file.rp as string))].toSorted();
     versions.push({
       version: raw,
       publishedAt: times.length > 0 ? new Date(Math.min(...times)) : null,
       deprecated: false,
       yanked: live.length === 0,
       requiresPython,
-      sha256: [...new Set(considered.map((file) => file.h).filter((h): h is string => h !== null))].sort(),
+      sha256: [...new Set(considered.map((file) => file.h).filter((h): h is string => h !== null))].toSorted(),
     });
   }
-  versions.sort((a, b) => comparePep440(a.version, b.version));
+  const sortedVersions = versions.toSorted((a, b) => comparePep440(a.version, b.version));
 
-  return { found: true, package: { ecosystem: "PYPI", name: normalized, versions, latestTag: null, sourceRepoUrl } };
+  return {
+    found: true,
+    package: { ecosystem: "PYPI", name: normalized, versions: sortedVersions, latestTag: null, sourceRepoUrl },
+  };
 }

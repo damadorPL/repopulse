@@ -124,7 +124,7 @@ export function buildWeeks(today: Date, weekStartsOn = 0): GridDay[][] {
  * with 3 releases a year and one with 30 commits a week both use the whole color scale.
  */
 export function activityThresholds(counts: Iterable<number>): { q1: number; q2: number; q3: number; max: number } {
-  const values = [...counts].filter((c) => c > 0).sort((a, b) => a - b);
+  const values = [...counts].filter((c) => c > 0).toSorted((a, b) => a - b);
   if (values.length === 0) return { q1: 0, q2: 0, q3: 0, max: 0 };
   const at = (p: number) => values[Math.floor(p * (values.length - 1))]!;
   return { q1: at(0.25), q2: at(0.5), q3: at(0.75), max: values.at(-1)! };
@@ -187,13 +187,13 @@ export function computeActivityStats(items: readonly ActivityItem[], now: Date, 
   const releases = times
     .filter((item) => item.source !== "COMMIT")
     .map((item) => item.time)
-    .sort((a, b) => a - b);
+    .toSorted((a, b) => a - b);
   let medianDaysBetweenReleases: number | null = null;
   if (releases.length >= 3) {
     const gaps = releases
       .slice(1)
       .map((time, i) => (time - releases[i]!) / DAY_MS)
-      .sort((a, b) => a - b);
+      .toSorted((a, b) => a - b);
     const mid = Math.floor(gaps.length / 2);
     medianDaysBetweenReleases = gaps.length % 2 === 1 ? gaps[mid]! : (gaps[mid - 1]! + gaps[mid]!) / 2;
   }

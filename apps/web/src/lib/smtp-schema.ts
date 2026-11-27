@@ -1,4 +1,5 @@
 import { z } from "zod";
+
 import { isValidSmtpHost, SMTP_SECURITY } from "./smtp";
 
 /** `releases@example.com` or `RepoPulse <releases@example.com>`. */

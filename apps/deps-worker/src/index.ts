@@ -1,4 +1,3 @@
-import { Worker } from "bullmq";
 import { createCachedLoader, loadDepsEnabled, loadGitHubAppSettings, loadSmtpSettings, prisma } from "@repopulse/db";
 import { fetchRegistryPackage } from "@repopulse/deps";
 import { closeSmtpTransports } from "@repopulse/notifications";
@@ -12,6 +11,8 @@ import {
   type DepsUpdateJobData,
   type Redis,
 } from "@repopulse/queue";
+import { Worker } from "bullmq";
+
 import type { RegistryLookupFn } from "./analysis.js";
 import { readConfig } from "./config.js";
 import { GitHubAccess } from "./github-access.js";
@@ -108,6 +109,11 @@ process.on("uncaughtException", (err) => {
   log.error("uncaughtException", err);
   process.exit(1);
 });
+
+function registerWorker<D, R, N extends string>(worker: Worker<D, R, N>): ManagedWorker {
+  attachWorkerListeners(worker, createLogger(worker.name));
+  return worker;
+}
 
 async function main(): Promise<void> {
   log.info(`starting (node ${process.version}, NODE_ENV=${process.env.NODE_ENV ?? "undefined"})`);
@@ -230,11 +236,12 @@ async function main(): Promise<void> {
     },
   );
 
-  const register = <D, R, N extends string>(worker: Worker<D, R, N>): ManagedWorker => {
-    attachWorkerListeners(worker, createLogger(worker.name));
-    return worker;
-  };
-  workers = [register(schedulerWorker), register(scanWorker), register(updateWorker), register(notifyWorker)];
+  workers = [
+    registerWorker(schedulerWorker),
+    registerWorker(scanWorker),
+    registerWorker(updateWorker),
+    registerWorker(notifyWorker),
+  ];
 
   stopHeartbeat = startHeartbeat(connection, sandboxProbe);
   stopNotificationOutbox = startNotificationOutbox(prisma, q.notifyQueue, loadDepsEnabledCached);

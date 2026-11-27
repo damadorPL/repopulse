@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, type ReactNode } from "react";
+
 import { themeAttribute, themeCookieString, type ThemePreference } from "@/lib/theme";
 
 type ThemeContextValue = { theme: ThemePreference; setTheme: (theme: ThemePreference) => void };

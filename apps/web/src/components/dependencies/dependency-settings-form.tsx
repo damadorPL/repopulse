@@ -1,9 +1,10 @@
 "use client";
 
-import { useId, useState, useTransition, type FormEvent, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
 import { LoaderCircleIcon, PlusIcon, XIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useId, useState, useTransition, type ReactNode, type SubmitEvent } from "react";
 import { toast } from "sonner";
+
 import { WatchedPathsPicker } from "@/components/repositories/watched-paths-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -164,7 +165,7 @@ export function DependencySettingsForm({
     .filter((path) => !manifestPathSet.has(path))
     .slice(0, 8);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     const minReleaseAgeDays = Number(ageText);
     const maxOpenPrs = Number(prsText);
@@ -426,7 +427,7 @@ export function IgnoreRulesEditor({ projectId, rules }: { projectId: string; rul
     setError(message);
   }
 
-  function add(event: FormEvent<HTMLFormElement>) {
+  function add(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!name.trim()) {
       setError("Enter a package name or pattern.");

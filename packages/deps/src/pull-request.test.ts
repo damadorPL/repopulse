@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   buildCommitMessage,
   buildPrBody,
@@ -41,7 +42,7 @@ describe("branch and marker", () => {
     expect(depsBranchName("all")).toBe("repopulse/deps/all");
     expect(groupKeyFromBranch("refs/heads/repopulse/deps/major-react")).toBe("major-react");
     expect(groupKeyFromBranch("main")).toBeNull();
-    expect(() => depsBranchName("../main")).toThrow();
+    expect(() => depsBranchName("../main")).toThrow(/invalid group key/);
   });
 
   it("builds and parses the hidden marker", () => {

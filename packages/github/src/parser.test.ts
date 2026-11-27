@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { classifySemver, InvalidRepositoryInputError, parseRepoInput } from "./parser.js";
 
 describe("parseRepoInput", () => {

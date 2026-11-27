@@ -10,6 +10,7 @@ import {
   type ReleaseBackfillQueue,
   type RepoPollQueue,
 } from "@repopulse/queue";
+
 import { createLogger } from "../logger.js";
 
 const log = createLogger("repo-scheduler");
@@ -121,7 +122,7 @@ export async function processSchedulerTick(deps: SchedulerDeps): Promise<{ due: 
     );
     dueCount += batch.length;
     if (batch.length < ENQUEUE_BATCH_SIZE) break;
-    cursorId = batch[batch.length - 1]!.id;
+    cursorId = batch.at(-1)!.id;
   }
 
   log.info(

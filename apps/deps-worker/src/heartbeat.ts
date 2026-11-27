@@ -5,6 +5,7 @@ import {
   type DepsWorkerHeartbeat,
 } from "@repopulse/deps";
 import type { Redis } from "@repopulse/queue";
+
 import { createLogger, type ServiceLogger } from "./logger.js";
 import type { SandboxClient } from "./sandbox-client.js";
 

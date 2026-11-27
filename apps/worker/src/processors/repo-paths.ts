@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+
 import type { PrismaClient } from "@repopulse/db";
 import {
   fetchCommitDetail,
@@ -13,6 +14,7 @@ import {
   type PathCommitSummary,
 } from "@repopulse/github";
 import type { Redis } from "@repopulse/queue";
+
 import { createLogger } from "../logger.js";
 import { createUserReleaseStatesInBatches } from "./batch-db.js";
 import { mapWithConcurrency } from "./concurrency.js";
@@ -315,7 +317,7 @@ export async function pollRepoPaths(
             `${repo.fullName}: could not read the files of commit ${sha.slice(0, 7)}; storing it without them (${String(error)})`,
           );
         }
-        return mapPathCommit(summary, detail, [...matchedBy].sort());
+        return mapPathCommit(summary, detail, [...matchedBy].toSorted());
       },
       PATH_POLL_CONCURRENCY,
     );

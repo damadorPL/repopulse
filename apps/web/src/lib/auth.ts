@@ -1,10 +1,12 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { cache } from "react";
+
+import { encryptToken, prisma, type Prisma, type User as DbUser } from "@repopulse/db";
 import { betterAuth, APIError } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { nextCookies } from "better-auth/next-js";
 import { cookies, headers } from "next/headers";
-import { encryptToken, prisma, type Prisma, type User as DbUser } from "@repopulse/db";
+import { cache } from "react";
+
 import { INVITE_COOKIE } from "@/lib/invites";
 import { admitNewGitHubUser } from "@/server/registration";
 
@@ -130,7 +132,7 @@ function createAuth() {
         scope: ["read:user", "user:email"],
         overrideUserInfoOnSignIn: true,
         mapProfileToUser(profile) {
-          const githubId = String(profile.id);
+          const githubId = profile.id;
           const githubLogin = typeof profile.login === "string" && profile.login.length > 0 ? profile.login : null;
           return {
             githubId,
@@ -168,6 +170,7 @@ function createAuth() {
             if (decision.isSuperAdmin) {
               return { data: { isSuperAdmin: true } };
             }
+            return undefined;
           },
         },
       },
@@ -294,10 +297,10 @@ export const getCurrentUserOrThrow = cache(async (): Promise<DbUser> => {
   return {
     id: sessionUser.id,
     email: sessionUser.email,
-    emailVerified: Boolean(sessionUser.emailVerified),
-    name: sessionUser.name ?? null,
+    emailVerified: sessionUser.emailVerified,
+    name: sessionUser.name,
     avatarUrl: sessionUser.image ?? null,
-    githubId: String(sessionUser.githubId ?? ""),
+    githubId: sessionUser.githubId ?? "",
     githubLogin: sessionUser.githubLogin ?? null,
     isSuperAdmin: Boolean(sessionUser.isSuperAdmin),
     githubAccessTokenEncrypted: null,

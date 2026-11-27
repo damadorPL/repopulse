@@ -1,4 +1,5 @@
 import { INSTANCE_SETTINGS_ID, prisma, type Prisma } from "@repopulse/db";
+
 import { isWellFormedInviteToken } from "@/lib/invites";
 import { hashInviteToken } from "@/server/invite-tokens";
 

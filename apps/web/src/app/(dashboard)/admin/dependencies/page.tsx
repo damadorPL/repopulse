@@ -1,7 +1,8 @@
-import type { ReactNode } from "react";
+import { BoxIcon, CircleCheckIcon, CircleDashedIcon, CircleXIcon, type LucideIcon } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { BoxIcon, CircleCheckIcon, CircleDashedIcon, CircleXIcon, type LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
+
 import { DepsEnabledToggle } from "@/components/admin/deps-enabled-toggle";
 import { cn } from "@/lib/utils";
 import { getDepsAdminView, type DepsWorkerStatus } from "@/server/deps-status";
@@ -86,7 +87,7 @@ function SandboxRow({ worker }: { worker: DepsWorkerStatus }) {
       </StatusRow>
     );
   }
-  const tools = Object.entries(worker.sandbox.tools).sort(([a], [b]) => a.localeCompare(b));
+  const tools = Object.entries(worker.sandbox.tools).toSorted(([a], [b]) => a.localeCompare(b));
   return (
     <StatusRow icon={CircleCheckIcon} tone="ok" title="Sandbox reachable">
       {tools.length > 0 ? (

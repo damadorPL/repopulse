@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+
 import { GitHubQuotaCard } from "./github-quota-card";
 
 vi.mock("@/server/actions/github-quota", () => ({

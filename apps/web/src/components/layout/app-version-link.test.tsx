@@ -1,6 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { appReleaseUrl } from "@/lib/app-version";
+
 import { AppVersionLink } from "./app-version-link";
 
 describe("appReleaseUrl", () => {

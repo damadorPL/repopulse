@@ -1,5 +1,6 @@
 /** `pnpm-lock.yaml` reader (v6 – v9 importer layout, plus the older `specifiers` layout and pnpm 11+ multi-document streams). */
 import { parseAllDocuments } from "yaml";
+
 import { isRecord } from "../util.js";
 import { formatLockfileVersion, guardPrepareLockfile, type LockfileVersions, type PreparedLockfile } from "./common.js";
 
@@ -29,7 +30,7 @@ export function preparePnpmLock(text: string, path = "pnpm-lock.yaml"): Prepared
       if (!isRecord(parsed)) throw new Error("not a YAML mapping");
       parsedDocs.push(parsed);
     }
-    const data = parsedDocs[parsedDocs.length - 1]!;
+    const data = parsedDocs.at(-1)!;
     const formatVersion = formatLockfileVersion(data.lockfileVersion);
     const importers = isRecord(data.importers) ? data.importers : null;
 

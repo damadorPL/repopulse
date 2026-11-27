@@ -1,5 +1,6 @@
-import Link from "next/link";
 import { SearchXIcon } from "lucide-react";
+import Link from "next/link";
+
 import { Button } from "@/components/ui/button";
 
 /** Root 404 page for unmatched routes. */

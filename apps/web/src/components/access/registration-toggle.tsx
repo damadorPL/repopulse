@@ -2,6 +2,7 @@
 
 import { useOptimistic, useTransition } from "react";
 import { toast } from "sonner";
+
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { setPublicRegistrationAction } from "@/server/actions/access";

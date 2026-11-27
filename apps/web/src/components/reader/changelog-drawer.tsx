@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
-import Link from "next/link";
 import { CircleDotIcon, ExternalLinkIcon, MailOpenIcon } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
+
 import { RelativeTime } from "@/components/feed/relative-time";
 import { RepoAvatar } from "@/components/feed/repo-avatar";
 import { SemverBadge } from "@/components/feed/semver-badge";
@@ -15,6 +16,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
 import { Skeleton } from "@/components/ui/skeleton";
 import { feedHref } from "@/lib/feed-filters";
 import type { FeedItem } from "@/server/queries/feed";
+
 import { useReaderDrawer, useReaderList } from "./reader-context";
 
 /**
@@ -67,7 +69,7 @@ export function ChangelogDrawer({ detail, children }: { detail: FeedItem | null;
       <SheetContent side="right" className="w-full gap-0 p-0 sm:max-w-2xl lg:max-w-3xl" aria-describedby={undefined}>
         {current ? (
           <>
-            <header className="border-b px-5 pb-4 pt-5 pr-12">
+            <header className="border-b px-5 pt-5 pr-12 pb-4">
               <div className="flex items-center gap-3">
                 <RepoAvatar src={current.repository.avatarUrl} name={current.repository.name} className="size-8" />
                 <div className="min-w-0 text-sm">
@@ -85,7 +87,7 @@ export function ChangelogDrawer({ detail, children }: { detail: FeedItem | null;
                 </div>
               </div>
 
-              <SheetTitle className="mt-4 text-xl leading-tight wrap-break-word">{current.title}</SheetTitle>
+              <SheetTitle className="mt-4 text-xl/tight wrap-break-word">{current.title}</SheetTitle>
               <SheetDescription asChild>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <code className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
@@ -127,7 +129,7 @@ export function ChangelogDrawer({ detail, children }: { detail: FeedItem | null;
               </div>
             </header>
 
-            <div className="flex-1 overflow-y-auto px-5 py-5">
+            <div className="flex-1 overflow-y-auto p-5">
               {ssrLoaded ? children : clientLoaded ? loadedEntry.content : loaded ? children : <BodySkeleton />}
             </div>
           </>

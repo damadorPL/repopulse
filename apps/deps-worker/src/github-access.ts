@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+
 import { decryptToken, GitHubAppKeyUnreadableError, type DecryptedGitHubAppSettings } from "@repopulse/db";
 import {
   GitHubAppAuthError,
@@ -6,6 +7,7 @@ import {
   type GitHubAppAuth,
   type InstallationPermissions,
 } from "@repopulse/github";
+
 import { defaultGitHubApi, type GitHubApi, type Octokit } from "./github-api.js";
 import { createLogger, type ServiceLogger } from "./logger.js";
 

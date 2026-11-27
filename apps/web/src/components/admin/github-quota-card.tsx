@@ -1,6 +1,5 @@
 "use client";
 
-import { useState, useTransition } from "react";
 import {
   CircleCheckIcon,
   GaugeIcon,
@@ -9,7 +8,9 @@ import {
   ShieldExclamationPointIcon,
   TriangleExclamationPointIcon,
 } from "lucide-react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
+
 import { LocalDateTime, RelativeTime } from "@/components/feed/relative-time";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,7 +41,7 @@ export function GitHubQuotaCard({ initialQuota, minQuota }: { initialQuota: GitH
 
   if (!quotaResult.ok) {
     return (
-      <section aria-labelledby="quota-heading" className="rounded-lg border bg-card p-4 sm:p-5 space-y-3">
+      <section aria-labelledby="quota-heading" className="space-y-3 rounded-lg border bg-card p-4 sm:p-5">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <GaugeIcon className="size-4 text-muted-foreground" aria-hidden />
@@ -58,7 +59,7 @@ export function GitHubQuotaCard({ initialQuota, minQuota }: { initialQuota: GitH
           </Button>
         </div>
         <div className="flex items-start gap-2.5 rounded-md border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
-          <TriangleExclamationPointIcon className="size-4 shrink-0 mt-0.5" aria-hidden />
+          <TriangleExclamationPointIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
           <div className="min-w-0 flex-1">
             <p className="font-medium">Could not read GitHub rate limit</p>
             <p className="mt-0.5 text-xs opacity-90">{quotaResult.error}</p>
@@ -94,12 +95,12 @@ export function GitHubQuotaCard({ initialQuota, minQuota }: { initialQuota: GitH
           )}
 
           {isBelowMin ? (
-            <Badge className="gap-1 border-0 bg-amber-500/10 text-amber-700 dark:text-amber-400 text-xs">
+            <Badge className="gap-1 border-0 bg-amber-500/10 text-xs text-amber-700 dark:text-amber-400">
               <ShieldExclamationPointIcon className="size-3" aria-hidden />
               Below minimum quota
             </Badge>
           ) : (
-            <Badge className="gap-1 border-0 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-xs">
+            <Badge className="gap-1 border-0 bg-emerald-500/10 text-xs text-emerald-700 dark:text-emerald-400">
               <CircleCheckIcon className="size-3" aria-hidden />
               Quota healthy
             </Badge>
@@ -157,7 +158,7 @@ export function GitHubQuotaCard({ initialQuota, minQuota }: { initialQuota: GitH
       <div className="space-y-1.5">
         <div className="flex justify-between text-xs text-muted-foreground">
           <span>Capacity remaining</span>
-          <span className="tabular-nums font-mono">{percentage}%</span>
+          <span className="font-mono tabular-nums">{percentage}%</span>
         </div>
         <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
           <div

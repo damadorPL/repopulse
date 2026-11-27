@@ -1,8 +1,9 @@
 "use client";
 
-import { useId, useOptimistic, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { useId, useOptimistic, useState, useTransition, type SubmitEvent } from "react";
 import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -10,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { isTrackMode, PATHS_OPTION, TRACK_MODE_OPTIONS, type TrackModeValue } from "@/lib/track-modes";
 import { validateWatchedPaths } from "@/lib/watched-paths";
 import { updateSubscriptionSettingsAction, updateTrackModeAction } from "@/server/actions/repositories";
+
 import { WatchedPathsPicker } from "./watched-paths-picker";
 
 interface Tracking {
@@ -126,7 +128,7 @@ export function TrackingSettings({
     save({ ...optimistic, trackPaths: false });
   }
 
-  function submitPaths(event: FormEvent<HTMLFormElement>) {
+  function submitPaths(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     // Include text typed but not yet added as a chip.
     const validation = validateWatchedPaths([...paths, draft]);

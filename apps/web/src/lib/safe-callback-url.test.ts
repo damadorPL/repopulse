@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { safeCallbackUrl } from "./safe-callback-url";
 
 describe("safeCallbackUrl", () => {

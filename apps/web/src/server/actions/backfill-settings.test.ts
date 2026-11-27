@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RELEASE_BACKFILL_PRIORITY } from "@repopulse/queue";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import type * as BackfillSettingsModule from "@/server/backfill-settings";
 
 class UnauthorizedError extends Error {}

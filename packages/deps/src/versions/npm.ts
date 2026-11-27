@@ -1,5 +1,6 @@
 /** npm semver ranges (wraps `semver`): validity, maxSatisfying, lower bound and style-keeping range bumps. */
 import semver from "semver";
+
 import type { BumpResult } from "./bump.js";
 
 const RANGE_OPTIONS = { loose: false, includePrerelease: true } as const;

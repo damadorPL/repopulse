@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { depsNotifyJobId, type DepsNotifyJobData } from "@repopulse/queue";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
 import {
   flushNotificationOutbox,
   MAX_FLUSH_BATCHES,

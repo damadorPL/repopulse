@@ -1,9 +1,10 @@
 "use client";
 
-import { Suspense, useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
+import { BellIcon, BellRingIcon, LogOutIcon, MenuIcon, PlusIcon, SearchIcon, ShieldIcon, XIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { BellIcon, BellRingIcon, LogOutIcon, MenuIcon, PlusIcon, SearchIcon, ShieldIcon, XIcon } from "lucide-react";
+import { Suspense, useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
+
 import { RepoAvatar } from "@/components/feed/repo-avatar";
 import { useOptionalUnread } from "@/components/layout/unread-context";
 import { AddRepoModal } from "@/components/modals/add-repo-modal";
@@ -185,7 +186,7 @@ function SearchBox() {
         navigate(value, onFeed ? "replace" : "push");
       }}
     >
-      <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+      <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
       <Input
         type="search"
         value={value}
@@ -193,7 +194,7 @@ function SearchBox() {
         placeholder="Search repos, tags, release notes…"
         aria-label="Search releases"
         maxLength={MAX_SEARCH_LENGTH}
-        className="h-9 pl-8 pr-8 [&::-webkit-search-cancel-button]:hidden"
+        className="h-9 px-8 [&::-webkit-search-cancel-button]:hidden"
       />
       {value ? (
         <button
@@ -203,7 +204,7 @@ function SearchBox() {
             setValue("");
             if (onFeed) navigate("", "replace");
           }}
-          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
+          className="absolute top-1/2 right-2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
           aria-label="Clear search"
         >
           <XIcon className="size-3.5" />
@@ -229,7 +230,7 @@ function UnreadBell({
           {totalUnread > 0 ? (
             <span
               data-testid="unread-counter"
-              className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-unread px-1 text-[10px] font-semibold leading-none text-white tabular-nums"
+              className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-unread px-1 text-[10px] leading-none font-semibold text-white tabular-nums"
             >
               {totalUnread > 99 ? "99+" : totalUnread}
             </span>

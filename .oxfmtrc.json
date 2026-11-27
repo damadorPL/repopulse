@@ -7,6 +7,11 @@
   "singleQuote": false,
   "trailingComma": "all",
   "sortPackageJson": false,
+  "sortImports": {},
+  "sortTailwindcss": {
+    "stylesheet": "apps/web/src/app/globals.css",
+    "functions": ["cn", "cva", "clsx"]
+  },
   "ignorePatterns": [
     "**/node_modules/**",
     "**/dist/**",

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { isValidSender, smtpSettingsInput } from "./smtp-schema";
 
 const valid = {

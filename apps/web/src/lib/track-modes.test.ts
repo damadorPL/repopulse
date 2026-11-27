@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { isTrackMode, trackingSummary, tracksSomething } from "./track-modes";
 
 describe("isTrackMode", () => {

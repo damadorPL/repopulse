@@ -3,6 +3,7 @@ import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+
 import { cn } from "@/lib/utils";
 
 /**
@@ -43,15 +44,15 @@ const components: Components = {
 
 export function ChangelogMarkdown({ markdown, className }: { markdown: string; className?: string }) {
   if (!markdown.trim()) {
-    return <p className="text-sm italic text-muted-foreground">This release has no release notes.</p>;
+    return <p className="text-sm text-muted-foreground italic">This release has no release notes.</p>;
   }
   return (
     <div
       className={cn(
-        "changelog prose prose-sm prose-zinc max-w-none dark:prose-invert",
+        "changelog prose prose-sm max-w-none prose-zinc dark:prose-invert",
         "prose-headings:scroll-mt-4 prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline dark:prose-a:text-blue-400",
-        "prose-pre:rounded-lg prose-pre:border prose-pre:bg-muted prose-pre:text-[13px] prose-pre:text-foreground prose-code:before:content-none prose-code:after:content-none",
-        "prose-img:inline-block prose-img:my-1 prose-li:my-0.5 prose-table:text-xs",
+        "prose-code:before:content-none prose-code:after:content-none prose-pre:rounded-lg prose-pre:border prose-pre:bg-muted prose-pre:text-[13px] prose-pre:text-foreground",
+        "prose-li:my-0.5 prose-table:text-xs prose-img:my-1 prose-img:inline-block",
         "[&_:not(pre)>code]:rounded-sm [&_:not(pre)>code]:bg-muted [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:font-normal",
         "[&_details]:my-3 [&_details]:rounded-md [&_details]:border [&_details]:px-3 [&_details]:py-2 [&_summary]:cursor-pointer [&_summary]:font-medium",
         className,

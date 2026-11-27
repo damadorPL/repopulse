@@ -1,7 +1,8 @@
-import { cache } from "react";
-import type { z } from "zod";
 import { decryptToken, prisma, type User as DbUser } from "@repopulse/db";
 import { GitHubRateLimitError, GitHubRepositoryNotFoundError, InvalidRepositoryInputError } from "@repopulse/github";
+import { cache } from "react";
+import type { z } from "zod";
+
 import { ForbiddenError, UnauthorizedError } from "@/lib/auth";
 
 /**
@@ -68,7 +69,8 @@ export function getGitHubToken(
 }
 
 const fetchUserEncryptedToken = cache(async (userId: string): Promise<string | null> => {
-  const row = await prisma.user?.findUnique?.({
+  const userModel = (prisma as { user?: { findUnique?: typeof prisma.user.findUnique } }).user;
+  const row = await userModel?.findUnique?.({
     where: { id: userId },
     select: { githubAccessTokenEncrypted: true },
   });

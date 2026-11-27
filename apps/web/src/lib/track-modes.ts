@@ -34,7 +34,10 @@ export function tracksSomething(trackMode: TrackModeValue, trackPaths: boolean):
 /** Read-only summary of what a subscription tracks: `Releases + tags · Files / folders · Includes pre-releases`. */
 export function trackingSummary(trackMode: TrackModeValue, trackPaths: boolean, includePrereleases: boolean): string {
   const parts: string[] = [];
-  if (trackMode !== "NONE") parts.push(TRACK_MODE_OPTIONS.find((option) => option.value === trackMode)!.label);
+  if (trackMode !== "NONE") {
+    const option = TRACK_MODE_OPTIONS.find((o) => o.value === trackMode);
+    if (option) parts.push(option.label);
+  }
   if (trackPaths) parts.push(PATHS_OPTION.label);
   if (includePrereleases && trackMode !== "NONE") parts.push("Includes pre-releases");
   return parts.join(" · ");

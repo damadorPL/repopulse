@@ -30,6 +30,7 @@ import {
   type TargetSelection,
 } from "@repopulse/deps";
 import type { GitTreeEntry, ReadBlobResult } from "@repopulse/github";
+
 import { lockfileCacheKey, type BlobCache, type LockfileCache } from "./registry-cache.js";
 
 /**
@@ -278,11 +279,11 @@ export async function analyzeProject(params: {
           manifestWarnings.push(...pyproject.warnings);
         } else {
           const skipPaths = new Set([...manifestPaths].filter((path) => path !== detected.path));
-          const tree = await parseRequirementsTree(detected.path, (path) => reader.read(path), { text, skipPaths });
-          parsed = tree.dependencies;
+          const reqTree = await parseRequirementsTree(detected.path, (path) => reader.read(path), { text, skipPaths });
+          parsed = reqTree.dependencies;
           // Index options in any included requirements/constraints file affect the whole installation, not
           // merely dependencies declared in that file. Never fall back to public names for extra indexes.
-          for (const path of tree.files) {
+          for (const path of reqTree.files) {
             const source = path === detected.path ? text : await reader.read(path);
             if (source === null) continue;
             const requirement = parseRequirements(source, path);
@@ -303,12 +304,12 @@ export async function analyzeProject(params: {
               break;
             }
           }
-          manifestWarnings.push(...tree.warnings);
-          for (const dependency of tree.dependencies) {
+          manifestWarnings.push(...reqTree.warnings);
+          for (const dependency of reqTree.dependencies) {
             if (dependency.pinnedVersion && !fallbackVersions.has(dependency.name))
               fallbackVersions.set(dependency.name, dependency.pinnedVersion);
           }
-          for (const [name, version] of tree.constraints)
+          for (const [name, version] of reqTree.constraints)
             if (!fallbackVersions.has(name)) fallbackVersions.set(name, version);
         }
       } catch (error) {

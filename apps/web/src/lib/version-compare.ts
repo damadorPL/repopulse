@@ -19,6 +19,10 @@ export interface ParsedVersion {
 /** Matches the first `major[.minor[.patch]][-pre]` in a tag, after any prefix such as `v`, `release-` or `pkg@`. */
 const VERSION_RE = /(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?/;
 
+function toNumber(value: string | undefined): number {
+  return value === undefined ? 0 : Number(value);
+}
+
 /** Normalizes a tag name to a version, or `null` when it holds no number at all. */
 export function parseVersion(tagName: string): ParsedVersion | null {
   const trimmed = tagName.trim();
@@ -27,7 +31,6 @@ export function parseVersion(tagName: string): ParsedVersion | null {
   const candidate = at > 0 ? trimmed.slice(at + 1) : trimmed;
   const match = VERSION_RE.exec(candidate);
   if (!match) return null;
-  const toNumber = (value: string | undefined) => (value === undefined ? 0 : Number(value));
   const [major, minor, patch] = [toNumber(match[1]), toNumber(match[2]), toNumber(match[3])];
   if (![major, minor, patch].every(Number.isSafeInteger)) return null;
   return { major, minor, patch, prerelease: match[4] ? match[4].split(".").filter(Boolean) : [] };
@@ -86,8 +89,12 @@ export interface VersionRow {
 /** The stored row matching the user's version: an exact `tagName` first, then a `v`-prefix variant. */
 export function findVersionRow<T extends VersionRow>(rows: readonly T[], currentVersion: string): T | null {
   const candidates = versionTagCandidates(currentVersion);
+  const byTag = new Map<string, T>();
+  for (const row of rows) {
+    if (!byTag.has(row.tagName)) byTag.set(row.tagName, row);
+  }
   for (const candidate of candidates) {
-    const row = rows.find((r) => r.tagName === candidate);
+    const row = byTag.get(candidate);
     if (row) return row;
   }
   return null;

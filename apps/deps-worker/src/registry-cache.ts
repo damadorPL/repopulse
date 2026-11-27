@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+
 import {
   MAX_MANIFEST_BYTES,
   type LockfileVersions,
@@ -7,6 +8,7 @@ import {
 } from "@repopulse/deps";
 import type { GitTreeEntry } from "@repopulse/github";
 import type { Redis } from "@repopulse/queue";
+
 import { createLogger } from "./logger.js";
 
 const log = createLogger("deps-cache");

@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { prisma, type DepsUpdateMode, type Prisma } from "@repopulse/db";
 import {
   groupCapability,
@@ -39,6 +38,8 @@ import {
   type DepsScanTrigger,
   type DepsUpdateQueue,
 } from "@repopulse/queue";
+import { revalidatePath } from "next/cache";
+
 import { getCurrentUserOrThrow } from "@/lib/auth";
 import { readIgnoreRules, sameIgnoreRule, type IgnoreRuleValue } from "@/lib/dependency-settings";
 import {
@@ -844,7 +845,7 @@ async function loadPrOwnedProject(userId: string, projectId: string) {
   }
   if (!project.prOwnership) {
     const owner = await prisma.dependencyPrOwner.findUnique({
-      where: { githubRepoId: BigInt(project.githubRepoId) },
+      where: { githubRepoId: project.githubRepoId },
       select: { project: { select: { user: { select: { githubLogin: true, name: true } } } } },
     });
     return {

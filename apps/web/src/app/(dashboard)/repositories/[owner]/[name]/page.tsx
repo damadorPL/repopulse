@@ -1,7 +1,3 @@
-import { Suspense, type ReactNode } from "react";
-import type { Metadata, Route } from "next";
-import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
 import {
   ArrowLeftIcon,
   BellOffIcon,
@@ -10,9 +6,14 @@ import {
   StarIcon,
   TriangleExclamationPointIcon,
 } from "lucide-react";
+import type { Metadata, Route } from "next";
+import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
+import { Suspense, type ReactNode } from "react";
+
+import { RepositoryDependenciesCard } from "@/components/dependencies/repository-dependencies-card";
 import { LocalDateTime, RelativeTime } from "@/components/feed/relative-time";
 import { RepoAvatar } from "@/components/feed/repo-avatar";
-import { RepositoryDependenciesCard } from "@/components/dependencies/repository-dependencies-card";
 import { ActivityGrid } from "@/components/repositories/activity-grid";
 import { ActivityStats } from "@/components/repositories/activity-stats";
 import { HistoryStatus } from "@/components/repositories/history-status";
@@ -126,8 +127,7 @@ export default async function RepositorySettingsPage({
   params,
   searchParams,
 }: PageProps<"/repositories/[owner]/[name]">) {
-  const [{ owner, name }, query] = await Promise.all([params, searchParams]);
-  const user = await requireUser();
+  const [{ owner, name }, query, user] = await Promise.all([params, searchParams, requireUser()]);
   const settings = await getRepositorySettings(user.id, owner, name);
   if (!settings) notFound();
 
@@ -246,7 +246,7 @@ export default async function RepositorySettingsPage({
       </header>
 
       {settings.note ? (
-        <p className="rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-sm whitespace-pre-wrap wrap-break-word">
+        <p className="rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-sm wrap-break-word whitespace-pre-wrap">
           {settings.note}
         </p>
       ) : null}

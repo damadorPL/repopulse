@@ -1,5 +1,3 @@
-import type { Metadata } from "next";
-import Link from "next/link";
 import {
   BellOffIcon,
   ExternalLinkIcon,
@@ -12,6 +10,9 @@ import {
   StickyNoteIcon,
   TriangleExclamationPointIcon,
 } from "lucide-react";
+import type { Metadata } from "next";
+import Link from "next/link";
+
 import { LocalDateTime, RelativeTime } from "@/components/feed/relative-time";
 import { RepoAvatar } from "@/components/feed/repo-avatar";
 import { SemverBadge } from "@/components/feed/semver-badge";

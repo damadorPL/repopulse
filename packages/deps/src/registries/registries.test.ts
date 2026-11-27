@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+
 import {
   cachedGet,
   createLimiter,
@@ -421,9 +422,10 @@ describe("helpers", () => {
     const slowFetch = vi.fn(
       (_input: string | URL | Request, init?: RequestInit) =>
         new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () =>
-            reject(init.signal?.reason ?? new DOMException("Timed out", "TimeoutError")),
-          );
+          init?.signal?.addEventListener("abort", () => {
+            const reason: unknown = init.signal?.reason;
+            reject(reason instanceof Error ? reason : new DOMException("Timed out", "TimeoutError"));
+          });
         }),
     );
     await expect(

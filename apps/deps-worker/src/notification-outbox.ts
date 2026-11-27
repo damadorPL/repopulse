@@ -1,5 +1,6 @@
 import { loadDepsEnabled, type PrismaClient } from "@repopulse/db";
 import { DEPS_JOB_NAMES, depsNotifyJobId, type DepsNotifyJobData } from "@repopulse/queue";
+
 import { createLogger } from "./logger.js";
 import type { NotifyQueue } from "./processors/notify-jobs.js";
 

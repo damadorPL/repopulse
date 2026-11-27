@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+
 import type * as QueueModule from "@repopulse/queue";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

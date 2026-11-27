@@ -1,9 +1,11 @@
 "use client";
 
-import { memo } from "react";
 import { ExternalLinkIcon } from "lucide-react";
+import { memo } from "react";
+
 import { cn } from "@/lib/utils";
 import type { FeedItem } from "@/server/queries/feed";
+
 import { RelativeTime } from "./relative-time";
 import { RepoAvatar } from "./repo-avatar";
 import { SemverBadge } from "./semver-badge";
@@ -104,7 +106,7 @@ export const ReleaseCard = memo(function ReleaseCard({
           href={item.htmlUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="z-10 rounded-sm p-1 text-muted-foreground opacity-0 outline-hidden transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/50 group-hover:opacity-100"
+          className="z-10 rounded-sm p-1 text-muted-foreground opacity-0 outline-hidden transition-opacity group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/50"
           title="Open on GitHub"
         >
           <ExternalLinkIcon className="size-4" />

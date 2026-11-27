@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { NOTE_MAX_LENGTH } from "./subscription-settings";
 import { subscriptionSettingsInput } from "./subscription-settings-schema";
 

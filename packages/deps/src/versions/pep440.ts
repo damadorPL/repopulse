@@ -422,7 +422,7 @@ export function pep440BumpSpecifier(
 
   let next = declared;
   // Replace from the end so earlier offsets stay valid.
-  for (const clause of [...anchors].sort((a, b) => b.versionStart - a.versionStart)) {
+  for (const clause of anchors.toSorted((a, b) => b.versionStart - a.versionStart)) {
     let replacement: string;
     if (clause.operator === "===") replacement = target;
     else if ((clause.operator === "==" || clause.operator === "=") && !clause.wildcard) replacement = target.trim();

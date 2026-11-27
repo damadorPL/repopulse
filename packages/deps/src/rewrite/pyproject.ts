@@ -1,5 +1,6 @@
 /** `pyproject.toml` rewrite: span edits inside the located strings, then a full TOML structural comparison. */
 import { parse as parseToml } from "smol-toml";
+
 import { parsePyproject } from "../manifests/pyproject.js";
 import { deepEqual, isRecord, normalizePypiName } from "../util.js";
 import {
@@ -28,6 +29,10 @@ function setAtPath(root: unknown, path: ReadonlyArray<string | number>, update: 
     return true;
   }
   return false;
+}
+
+function stripBom(value: string): string {
+  return value.charCodeAt(0) === 0xfeff ? value.slice(1) : value;
 }
 
 /**
@@ -63,16 +68,15 @@ export function rewritePyproject(text: string, edits: readonly ManifestEdit[], p
   }
   const next = applyReplacements(text, replacements, path);
 
-  const strip = (value: string): string => (value.charCodeAt(0) === 0xfeff ? value.slice(1) : value);
-  const expected = parseToml(strip(text));
+  const expected = parseToml(stripBom(text));
   let actual: unknown;
   try {
-    actual = parseToml(strip(next));
+    actual = parseToml(stripBom(next));
   } catch {
     throw new ManifestRewriteError("VERIFY_FAILED", path, "the rewritten file is not valid TOML");
   }
   // Several edits may touch one string only through distinct dependencies; apply right-to-left per string.
-  for (const change of [...planned].sort((a, b) => b.start - a.start)) {
+  for (const change of planned.toSorted((a, b) => b.start - a.start)) {
     const applied = setAtPath(
       expected,
       change.valuePath,

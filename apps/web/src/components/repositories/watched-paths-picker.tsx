@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import type { RepoTree } from "@repopulse/github";
 import {
   ChevronRightIcon,
   CornerLeftUpIcon,
@@ -12,7 +12,8 @@ import {
   SearchIcon,
   XIcon,
 } from "lucide-react";
-import type { RepoTree } from "@repopulse/github";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -122,7 +123,7 @@ function KindIcon({ kind, className }: { kind: RepoPathKind | undefined; classNa
 }
 
 function Highlighted({ text, start, length }: { text: string; start: number; length: number }) {
-  if (start < 0 || length <= 0) return <>{text}</>;
+  if (start < 0 || length <= 0) return text;
   const end = Math.min(text.length, start + length);
   return (
     <>
@@ -134,6 +135,20 @@ function Highlighted({ text, start, length }: { text: string; start: number; len
 }
 
 type Option = { type: "entry"; suggestion: PathSuggestion; covered: string | null } | { type: "raw"; path: string };
+
+/** Adds one path; returns an error message instead when it can't be added. */
+function addWatchedPath(current: string[], raw: string): { paths: string[] } | { error: string } {
+  const path = normalizeWatchedPath(raw);
+  if (!path)
+    return {
+      error: `"${raw.trim()}" is not a valid path. Use a path relative to the repository root, like packages/cli.`,
+    };
+  const covering = coveringPath(path, current);
+  if (covering) return { paths: current };
+  const next = addCoveringPath(current, path);
+  if (next.length > MAX_WATCHED_PATHS) return { error: `Watch at most ${MAX_WATCHED_PATHS} paths.` };
+  return { paths: next };
+}
 
 /**
  * Chips + autocomplete input + folder browser for the watched paths of "Files / folders" tracking.
@@ -221,20 +236,6 @@ export function WatchedPathsPicker({
     setActive(next.trim() ? 0 : -1);
   }
 
-  /** Adds one path; returns an error message instead when it can't be added. */
-  function addPath(current: string[], raw: string): { paths: string[] } | { error: string } {
-    const path = normalizeWatchedPath(raw);
-    if (!path)
-      return {
-        error: `"${raw.trim()}" is not a valid path. Use a path relative to the repository root, like packages/cli.`,
-      };
-    const covering = coveringPath(path, current);
-    if (covering) return { paths: current };
-    const next = addCoveringPath(current, path);
-    if (next.length > MAX_WATCHED_PATHS) return { error: `Watch at most ${MAX_WATCHED_PATHS} paths.` };
-    return { paths: next };
-  }
-
   /** Commits typed or pasted text (comma- or newline-separated). Invalid entries stay in the field. */
   function commitText(text: string): void {
     let next = paths;
@@ -242,7 +243,7 @@ export function WatchedPathsPicker({
     let message: string | null = null;
     for (const entry of text.split(/[\n,]/)) {
       if (!entry.trim()) continue;
-      const result = addPath(next, entry);
+      const result = addWatchedPath(next, entry);
       if ("error" in result) {
         rejected.push(entry.trim());
         message ??= result.error;
@@ -262,7 +263,7 @@ export function WatchedPathsPicker({
 
   function toggleEntry(entry: RepoPathEntry) {
     if (paths.includes(entry.path)) return changePaths(paths.filter((path) => path !== entry.path));
-    const result = addPath(paths, entry.path);
+    const result = addWatchedPath(paths, entry.path);
     if ("error" in result) setLocalError(result.error);
     else changePaths(result.paths);
   }
@@ -332,7 +333,7 @@ export function WatchedPathsPicker({
               <li key={path}>
                 <span
                   className={cn(
-                    "inline-flex max-w-full items-center gap-1 rounded-md border bg-secondary py-0.5 pl-1.5 pr-0.5 font-mono text-xs",
+                    "inline-flex max-w-full items-center gap-1 rounded-md border bg-secondary py-0.5 pr-0.5 pl-1.5 font-mono text-xs",
                     missing && "border-amber-500/40 bg-amber-500/10",
                   )}
                   title={missing ? `${path} is not on the default branch yet. It is still watched.` : path}
@@ -356,7 +357,7 @@ export function WatchedPathsPicker({
 
       <div className="flex gap-2">
         <div className="relative min-w-0 flex-1">
-          <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             ref={inputRef}
             id={id}

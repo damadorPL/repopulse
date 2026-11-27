@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { hasPipCompileHeader, parseRequirements, parseRequirementsTree, readRequirementsPins } from "./requirements.js";
 
 const H1 = "a".repeat(64);

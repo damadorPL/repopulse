@@ -1,4 +1,3 @@
-import { Worker } from "bullmq";
 import { createCachedLoader, loadBackfillOverrides, loadSmtpSettings, prisma } from "@repopulse/db";
 import { closeSmtpTransports } from "@repopulse/notifications";
 import {
@@ -14,6 +13,8 @@ import {
   type RepoPollJobData,
   type SchedulerJobData,
 } from "@repopulse/queue";
+import { Worker } from "bullmq";
+
 import { startHealthServer, type HealthServer } from "./health.js";
 import { createLogger, errorMessage, log } from "./logger.js";
 import { processMaintenanceTick } from "./processors/maintenance.processor.js";
@@ -141,6 +142,11 @@ process.on("uncaughtException", (err) => {
   process.exit(1);
 });
 
+function registerWorker<D, R, N extends string>(worker: Worker<D, R, N>): ManagedWorker {
+  attachWorkerListeners(worker, createLogger(worker.name));
+  return worker;
+}
+
 function startWorkers(connection: Redis, q: Queues, backfillConfig: BackfillConfig): ManagedWorker[] {
   const schedulerWorker = new Worker<
     SchedulerJobData,
@@ -204,15 +210,11 @@ function startWorkers(connection: Redis, q: Queues, backfillConfig: BackfillConf
     },
   );
 
-  const register = <D, R, N extends string>(worker: Worker<D, R, N>): ManagedWorker => {
-    attachWorkerListeners(worker, createLogger(worker.name));
-    return worker;
-  };
   return [
-    register(schedulerWorker),
-    register(repoPollWorker),
-    register(notificationWorker),
-    register(releaseBackfillWorker),
+    registerWorker(schedulerWorker),
+    registerWorker(repoPollWorker),
+    registerWorker(notificationWorker),
+    registerWorker(releaseBackfillWorker),
   ];
 }
 

@@ -1,6 +1,8 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
 import { PrismaPg } from "@prisma/adapter-pg";
+
 import { PrismaClient } from "./generated/prisma/client.js";
 
 const DEFAULT_APP_USER = "repopulse_app";
@@ -169,7 +171,7 @@ const isEntrypoint =
   resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 if (isEntrypoint) {
-  main().catch((error) => {
+  main().catch((error: unknown) => {
     console.error("[db-bootstrap] Fatal error:", error);
     process.exitCode = 1;
   });

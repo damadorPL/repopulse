@@ -1,8 +1,9 @@
 "use client";
 
-import { useTransition, type ComponentProps } from "react";
 import { RefreshCwIcon } from "lucide-react";
+import { useTransition, type ComponentProps } from "react";
 import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { formatWait } from "@/lib/format-wait";
 import { syncToastId } from "@/lib/toast-ids";

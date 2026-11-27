@@ -58,7 +58,7 @@ export async function dispatchDependencyNotification(
   const ctx = buildDependencyContext(input, appBaseUrl);
 
   if (channel === "EMAIL_INSTANT") {
-    const to = rule.destinationUrl?.trim() || input.user?.email?.trim();
+    const to = rule.destinationUrl?.trim() || input.user?.email.trim();
     if (!to) {
       throw new NotificationDeliveryError("This email rule has no recipient and the account has no email address.", {
         permanent: true,

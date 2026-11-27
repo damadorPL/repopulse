@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { buildVerifyPlan, formatVerifySummary, parseVerifyArgs, runVerify } from "../verify.ts";
 
 describe("verify script", () => {

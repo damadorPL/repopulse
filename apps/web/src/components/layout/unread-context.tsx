@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, type ReactNode } from "react";
+
 import type { SidebarTag, UnreadByRepository } from "@/server/queries/feed";
 
 export interface UnreadSnapshot {
@@ -65,7 +66,7 @@ export function UnreadProvider({
               avatarUrl: item.repository.avatarUrl,
               unreadCount: 1,
             },
-          ].sort((a, b) => b.unreadCount - a.unreadCount || a.fullName.localeCompare(b.fullName));
+          ].toSorted((a, b) => b.unreadCount - a.unreadCount || a.fullName.localeCompare(b.fullName));
         }
       } else {
         const existing = current.unreadByRepository[repoIndex]!;
@@ -75,7 +76,7 @@ export function UnreadProvider({
         } else {
           nextRepos = current.unreadByRepository
             .map((entry, idx) => (idx === repoIndex ? { ...entry, unreadCount: updatedCount } : entry))
-            .sort((a, b) => b.unreadCount - a.unreadCount || a.fullName.localeCompare(b.fullName));
+            .toSorted((a, b) => b.unreadCount - a.unreadCount || a.fullName.localeCompare(b.fullName));
         }
       }
 

@@ -1,11 +1,12 @@
 "use client";
 
-import { useId, useOptimistic, useState, useTransition, type FormEvent, type ReactNode } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { BellOffIcon } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useId, useOptimistic, useState, useTransition, type ReactNode, type SubmitEvent } from "react";
 import { toast } from "sonner";
+
 import { LocalDateTime } from "@/components/feed/relative-time";
 import { useClientNow } from "@/components/repositories/activity-grid";
 import { Button } from "@/components/ui/button";
@@ -124,12 +125,12 @@ export function SubscriptionSettingsForm({
     ) : null;
   }
 
-  function submitNote(event: FormEvent<HTMLFormElement>) {
+  function submitNote(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     save("note", { note: noteDraft.trim() ? noteDraft : null }, noteDraft.trim() ? "Note saved" : "Note removed");
   }
 
-  function submitVersion(event: FormEvent<HTMLFormElement>) {
+  function submitVersion(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     const value = versionDraft.trim();
     save(
@@ -166,8 +167,11 @@ export function SubscriptionSettingsForm({
           value={level}
           onValueChange={(value) => {
             if (!isNotificationLevel(value) || value === level) return;
-            const label = NOTIFICATION_LEVEL_OPTIONS.find((option) => option.value === value)!.label;
-            save("level", { notificationLevel: value }, `${fullName}: ${label.toLowerCase()}`, () => setLevel(value));
+            const option = NOTIFICATION_LEVEL_OPTIONS.find((o) => o.value === value);
+            if (!option) return;
+            save("level", { notificationLevel: value }, `${fullName}: ${option.label.toLowerCase()}`, () =>
+              setLevel(value),
+            );
           }}
           disabled={pending}
         >

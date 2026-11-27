@@ -1,5 +1,4 @@
-import type { Metadata } from "next";
-import Link from "next/link";
+import { MAX_DEPENDENCY_PROJECTS_PER_USER } from "@repopulse/deps/limits";
 import {
   CircleCheckIcon,
   ExternalLinkIcon,
@@ -9,14 +8,16 @@ import {
   SearchXIcon,
   TriangleExclamationPointIcon,
 } from "lucide-react";
-import { MAX_DEPENDENCY_PROJECTS_PER_USER } from "@repopulse/deps/limits";
-import { RelativeTime } from "@/components/feed/relative-time";
-import { RepoAvatar } from "@/components/feed/repo-avatar";
+import type { Metadata } from "next";
+import Link from "next/link";
+
 import { AddDependencyProjectsDialog } from "@/components/dependencies/add-dependency-projects-dialog";
 import { CheckNowButton } from "@/components/dependencies/check-now-button";
 import { DependencyListToolbar } from "@/components/dependencies/dependency-list-toolbar";
 import { DepsDisabledNotice, DepsWorkerMissingNotice, OutdatedCounts } from "@/components/dependencies/deps-notices";
 import { ProjectPullRequestButton } from "@/components/dependencies/project-pull-request-button";
+import { RelativeTime } from "@/components/feed/relative-time";
+import { RepoAvatar } from "@/components/feed/repo-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {

@@ -1,6 +1,6 @@
 {
   "name": "@repopulse/web",
-  "version": "0.9.8.6",
+  "version": "0.9.8.7",
   "private": true,
   "scripts": {
     "dev": "next dev --port 3000",
@@ -8,7 +8,7 @@
     "start": "next start --port 3000",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
-    "lint": "oxlint -c ../../.oxlintrc.json ."
+    "lint": "pnpm --dir ../.. exec oxlint apps/web"
   },
   "dependencies": {
     "@repopulse/db": "workspace:*",

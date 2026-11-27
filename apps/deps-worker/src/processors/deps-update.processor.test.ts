@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
-import { UnrecoverableError } from "bullmq";
 import type { LockRequest } from "@repopulse/deps";
 import { GitHubAppAuthError, GitHubRateLimitError, RefUpdateConflictError } from "@repopulse/github";
 import type { DepsUpdateJobData } from "@repopulse/queue";
+import { UnrecoverableError } from "bullmq";
+import { describe, expect, it, vi } from "vitest";
+
 import { SandboxLockError, type SandboxClient } from "../sandbox-client.js";
 import { createFakeGitHub } from "../testing/fake-github.js";
 import { createFakePrisma, seed, type FakePrisma } from "../testing/fake-prisma.js";

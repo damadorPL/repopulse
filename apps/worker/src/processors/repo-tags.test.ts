@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
 import { GitHubRateLimitError, type GitTag } from "@repopulse/github";
+import { describe, expect, it, vi } from "vitest";
+
 import { mergeFanOutPlans, type StoredRelease } from "./fan-out.js";
 import { loadSubscribers, pollRepoTags, tracksReleases, tracksTags, type SubscriberWithMode } from "./repo-tags.js";
 

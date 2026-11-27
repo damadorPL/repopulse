@@ -1,9 +1,10 @@
 "use client";
 
-import { useOptimistic, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { PinIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useOptimistic, useTransition } from "react";
 import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { updateSubscriptionSettingsAction } from "@/server/actions/repositories";

@@ -1,4 +1,5 @@
 import type { Octokit } from "@octokit/rest";
+
 import { createOctokit, isGitHubHttpError, type ResponseHeaders } from "./client.js";
 import { hasNextLink, rethrowGitHubError } from "./poller.js";
 import { subjectOf } from "./tags.js";
@@ -169,8 +170,8 @@ export async function fetchCommitDetail(params: {
       const entry: CommitFileChange = {
         filename: file.filename,
         status: file.status,
-        additions: file.additions ?? 0,
-        deletions: file.deletions ?? 0,
+        additions: file.additions,
+        deletions: file.deletions,
       };
       if (file.previous_filename) entry.previousFilename = file.previous_filename;
       return entry;
@@ -253,7 +254,7 @@ export function buildCommitChangelog(
   const link = `[View commit ${code(commit.sha.slice(0, 7))} on GitHub](${commit.htmlUrl})`;
   if (detail) {
     // Stable sort: files under the watched paths first, otherwise GitHub's order.
-    const files = [...detail.files].sort(
+    const files = detail.files.toSorted(
       (a, b) => Number(touchesAny(b, matchedPaths)) - Number(touchesAny(a, matchedPaths)),
     );
     const shown = files.slice(0, COMMIT_CHANGELOG_MAX_FILES);

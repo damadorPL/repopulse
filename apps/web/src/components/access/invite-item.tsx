@@ -1,8 +1,9 @@
 "use client";
 
-import { useTransition } from "react";
 import { LoaderCircleIcon, TrashIcon } from "lucide-react";
+import { useTransition } from "react";
 import { toast } from "sonner";
+
 import { RelativeTime } from "@/components/feed/relative-time";
 import { RepoAvatar } from "@/components/feed/repo-avatar";
 import { Badge } from "@/components/ui/badge";

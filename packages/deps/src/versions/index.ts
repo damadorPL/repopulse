@@ -1,5 +1,6 @@
 /** Ecosystem-agnostic version helpers used by the planner (npm semver or PEP 440 / Poetry). */
 import semver from "semver";
+
 import type { DependencyEcosystem, RangeSyntax } from "../types.js";
 import type { BumpResult } from "./bump.js";
 import {

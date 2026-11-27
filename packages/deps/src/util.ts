@@ -123,7 +123,7 @@ export function workspaceGlobToRegExp(glob: string): RegExp {
   for (let i = 0; i < rawSegs.length; i++) {
     const seg = rawSegs[i]!;
     if (seg === "**") {
-      if (isGlobstar.length > 0 && isGlobstar[isGlobstar.length - 1]) continue;
+      if (isGlobstar.length > 0 && isGlobstar.at(-1)) continue;
       if (i === rawSegs.length - 1 && rawSegs.length > 1) {
         patSegs.push(/^[^/]+$/);
         isGlobstar.push(false);
@@ -207,9 +207,9 @@ function segmentToRegExp(seg: string): RegExp {
         if (!found) return false;
       }
 
-      const lastPart = parts[parts.length - 1]!;
+      const lastPart = parts.at(-1)!;
       if (lastPart === "") return true;
-      const last = partRegexes[partRegexes.length - 1]!;
+      const last = partRegexes.at(-1)!;
       // Count character length of lastPart (each `?` or literal is 1 char).
       const endStart = input.length - lastPart.length;
       if (endStart < pos) return false;
@@ -234,7 +234,7 @@ function matchesSingleWorkspaceGlob(dir: string, glob: string): boolean {
   for (let i = 0; i < rawSegs.length; i++) {
     const seg = rawSegs[i]!;
     if (seg === "**") {
-      if (isGlobstar.length > 0 && isGlobstar[isGlobstar.length - 1]) continue;
+      if (isGlobstar.length > 0 && isGlobstar.at(-1)) continue;
       // Trailing `/**` in `packages/**` requires at least one child segment under `packages`.
       if (i === rawSegs.length - 1 && rawSegs.length > 1) {
         patSegs.push(/^[^/]+$/);

@@ -6,6 +6,7 @@ import {
   MIN_RELEASE_AGE_DAYS_MAX,
   SCAN_INTERVAL_HOURS,
 } from "@repopulse/deps/limits";
+
 import type { NotificationLevelValue } from "./subscription-settings";
 
 /**

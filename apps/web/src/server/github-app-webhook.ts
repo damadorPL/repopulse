@@ -96,10 +96,10 @@ export function changedPathsOfPush(payload: { commits?: unknown }): Set<string> 
   const commits = payload.commits;
   if (!Array.isArray(commits) || commits.length === 0 || commits.length >= PUSH_MAX_LISTED_COMMITS) return null;
   const paths = new Set<string>();
-  for (const commit of commits as PushCommit[]) {
-    if (!commit || typeof commit !== "object") return null;
-    for (const path of [...stringList(commit.added), ...stringList(commit.modified), ...stringList(commit.removed)])
-      paths.add(path);
+  for (const commit of commits as unknown[]) {
+    if (typeof commit !== "object" || commit === null) return null;
+    const c = commit as PushCommit;
+    for (const path of [...stringList(c.added), ...stringList(c.modified), ...stringList(c.removed)]) paths.add(path);
   }
   return paths;
 }

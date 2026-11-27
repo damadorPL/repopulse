@@ -1,11 +1,12 @@
 import { z } from "zod";
+
 import { CURRENT_VERSION_MAX_LENGTH, NOTE_MAX_LENGTH, NOTIFICATION_LEVELS } from "./subscription-settings";
 
 /**
  * A version as the user types it: loosely a Git tag name (no spaces, control characters or
  * `~ ^ : ? * [ \`), at most {@link CURRENT_VERSION_MAX_LENGTH} characters. Empty clears it.
  */
-// eslint-disable-next-line no-control-regex -- Git tag names cannot contain control characters.
+// oxlint-disable-next-line no-control-regex -- Git tag names cannot contain control characters.
 const VERSION_TEXT_RE = /^[^\s~^:?*[\\\u0000-\u001f\u007f]+$/;
 
 const currentVersionSchema = z
@@ -42,7 +43,7 @@ export const subscriptionSettingsInput = z
     currentVersion: currentVersionSchema.nullish(),
   })
   .refine(
-    (value) => Object.entries(value).some(([key, field]) => key !== "subscriptionId" && field !== undefined),
+    (value) => Object.entries<unknown>(value).some(([key, field]) => key !== "subscriptionId" && field !== undefined),
     "Nothing to update.",
   );
 

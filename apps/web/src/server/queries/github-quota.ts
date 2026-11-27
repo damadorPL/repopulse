@@ -40,7 +40,8 @@ export async function getGitHubQuotaView(
     let login = adminUser.githubLogin;
 
     if (!token) {
-      const adminRow = await prisma.user?.findUnique?.({
+      const userModel = (prisma as { user?: { findUnique?: typeof prisma.user.findUnique } }).user;
+      const adminRow = await userModel?.findUnique?.({
         where: { id: adminUser.id },
         select: { githubAccessTokenEncrypted: true },
       });

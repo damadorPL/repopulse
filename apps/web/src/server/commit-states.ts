@@ -1,5 +1,6 @@
 import type { Prisma } from "@repopulse/db";
 import { INITIAL_RELEASES_LIMIT } from "@repopulse/github";
+
 import { commitMatchesAnyPath } from "@/lib/watched-paths";
 
 /**

@@ -15,7 +15,7 @@ export function RepoAvatar({
     return (
       <span
         aria-hidden
-        className={cn(base, "flex items-center justify-center text-sm font-semibold uppercase text-muted-foreground")}
+        className={cn(base, "flex items-center justify-center text-sm font-semibold text-muted-foreground uppercase")}
       >
         {name.charAt(0)}
       </span>

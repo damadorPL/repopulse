@@ -1,5 +1,6 @@
-import type { Metadata } from "next";
 import { ShieldCheckIcon } from "lucide-react";
+import type { Metadata } from "next";
+
 import { SmtpSettingsForm } from "@/components/email/smtp-settings-form";
 import { requireSuperAdmin } from "@/server/session";
 import { getSmtpSettingsView } from "@/server/smtp-settings";

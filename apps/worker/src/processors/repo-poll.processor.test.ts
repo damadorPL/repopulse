@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
-import type { Job } from "bullmq";
 import { GitHubRateLimitError, GitHubRepositoryNotFoundError, type pollRepoReleases } from "@repopulse/github";
 import type { RepoPollJobData } from "@repopulse/queue";
+import type { Job } from "bullmq";
+import { describe, expect, it, vi } from "vitest";
+
 import { MAX_ERROR_COUNT, processRepoPoll } from "./repo-poll.processor.js";
 
 vi.mock("@repopulse/db", () => ({

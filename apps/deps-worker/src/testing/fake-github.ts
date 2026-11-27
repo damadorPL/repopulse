@@ -94,7 +94,7 @@ export function createFakeGitHub(init: {
           htmlUrl: `https://github.com/${owner}/${name}`,
         },
         commitSha: head,
-        entries: entries.sort((a, b) => (a.path < b.path ? -1 : 1)),
+        entries: entries.toSorted((a, b) => (a.path < b.path ? -1 : 1)),
         truncated: false,
       };
     },

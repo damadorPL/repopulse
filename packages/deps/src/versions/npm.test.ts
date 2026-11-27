@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { npmBumpRange, npmLowerBound, npmMaxSatisfying, npmSatisfies, npmUnsupportedReason } from "./npm.js";
 
 describe("npmUnsupportedReason", () => {

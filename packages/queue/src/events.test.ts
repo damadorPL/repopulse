@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { parseRealtimeEvent, serializeRealtimeEvent, userEventsChannel, type RealtimeEvent } from "./events.js";
+
 import { applyBackfillOverrides, BACKFILL_DEFAULTS, readBackfillConfig } from "./backfill.js";
-import { notificationJobId, releaseBackfillJobId, repoPollJobId } from "./names.js";
 import { depsNotifyJobId, depsScanJobId, depsUpdateJobId } from "./deps.js";
+import { parseRealtimeEvent, serializeRealtimeEvent, userEventsChannel, type RealtimeEvent } from "./events.js";
+import { notificationJobId, releaseBackfillJobId, repoPollJobId } from "./names.js";
 import { createRedisConnection, publishUserEvent } from "./redis.js";
 
 describe("userEventsChannel & publishUserEvent", () => {

@@ -11,7 +11,7 @@ export const MAX_WATCHED_PATHS = 10;
 export const MAX_WATCHED_PATH_LENGTH = 240;
 
 // Control characters (C0, DEL, C1), backslashes, and URL query/fragment markers.
-// eslint-disable-next-line no-control-regex
+// oxlint-disable-next-line no-control-regex
 const FORBIDDEN_CHARACTERS = /[\u0000-\u001f\u007f-\u009f\\?#]/;
 
 /**

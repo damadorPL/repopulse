@@ -1,20 +1,21 @@
 "use client";
 
-import { useState, useTransition, type FormEvent } from "react";
+import { CHANNEL_INFO, DELIVERABLE_CHANNELS, type DeliverableChannel } from "@repopulse/notifications/channels";
+import { LoaderCircleIcon, PlusIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LoaderCircleIcon, PlusIcon } from "lucide-react";
+import { useState, useTransition, type SubmitEvent } from "react";
 import { toast } from "sonner";
-import { CHANNEL_INFO, DELIVERABLE_CHANNELS, type DeliverableChannel } from "@repopulse/notifications/channels";
+
 import { TagDot } from "@/components/feed/tag-pill";
 import { ChannelGlyph } from "@/components/notifications/channel-icon";
+import { NotificationEventCheckboxes } from "@/components/notifications/notification-event-checkboxes";
 import { sendTestWithToast } from "@/components/notifications/send-test";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { NotificationEventCheckboxes } from "@/components/notifications/notification-event-checkboxes";
 import {
   DEFAULT_NOTIFICATION_EVENTS,
   isEventAllowedForScope,
@@ -55,7 +56,7 @@ export function AddNotificationRuleForm({
   /** Tag-scoped rules support only releases: what the form shows is what gets sent. */
   const effectiveEvents = events.filter((event) => isEventAllowedForScope(event, tagScoped));
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     startTransition(async () => {
@@ -73,7 +74,7 @@ export function AddNotificationRuleForm({
       }
       const rule = result.data;
       const label = CHANNEL_INFO[channel].label;
-      const what = rule.events.map((event) => NOTIFICATION_EVENT_LABELS[event]).join(", ");
+      const what = rule.events.map((ev) => NOTIFICATION_EVENT_LABELS[ev]).join(", ");
       toast.success(`${label} rule added`, {
         description: rule.tag
           ? `${what} of repositories tagged “${rule.tag.name}”.`

@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
 import { MAX_MANIFEST_BYTES } from "@repopulse/deps";
+import { describe, expect, it, vi } from "vitest";
+
 import {
   analyzeProject,
   capDependencies,
@@ -8,11 +9,11 @@ import {
   parseIgnoreRules,
   planAnalysis,
 } from "./analysis.js";
+import { processDepsScan } from "./processors/deps-scan.processor.js";
+import { processDepsUpdate } from "./processors/deps-update.processor.js";
 import { createFakeGitHub } from "./testing/fake-github.js";
 import { createFakePrisma, seed } from "./testing/fake-prisma.js";
 import { fakeAccess, fakeQueues, fakeRegistry, job, NOW, version } from "./testing/fixtures.js";
-import { processDepsUpdate } from "./processors/deps-update.processor.js";
-import { processDepsScan } from "./processors/deps-scan.processor.js";
 
 async function analyze(files: Record<string, string>, manifestPaths: string[] = []) {
   const entries = Object.entries(files).map(([path, text]) => ({

@@ -265,7 +265,7 @@ if (!outputJson) {
   console.log(`Checking ${externalPackages.size} unique packages across workspace...\n`);
 }
 
-const packageNames = Array.from(externalPackages.keys()).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+const packageNames = Array.from(externalPackages.keys()).toSorted((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 const registryResults = await mapConcurrent(packageNames, 10, fetchLatestInfo);
 
 const report = [];

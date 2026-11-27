@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+
 import { needsPathImport, planCommitStates, syncCommitStates } from "./commit-states";
 
 const commit = (id: string, ...changedPaths: string[]) => ({ id, changedPaths });

@@ -1,7 +1,8 @@
 import type { Metadata, Route } from "next";
-import Link from "next/link";
 import { cookies, headers } from "next/headers";
+import Link from "next/link";
 import { redirect } from "next/navigation";
+
 import { Button } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { auth } from "@/lib/auth";
@@ -37,7 +38,7 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
       },
       headers: await headers(),
     });
-    if (result?.url) {
+    if (result.url) {
       redirect(result.url as Route);
     }
   }
@@ -49,7 +50,7 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
       <section className="grid w-full max-w-sm gap-4 rounded-lg border border-border bg-card p-6 text-center text-card-foreground shadow-xs">
         <h1 className="text-2xl font-semibold tracking-tight">RepoPulse</h1>
 
-        {session?.user?.id ? (
+        {session?.user.id ? (
           <>
             <p className="text-sm text-muted-foreground">
               You&apos;re already signed in, so you don&apos;t need this invite.

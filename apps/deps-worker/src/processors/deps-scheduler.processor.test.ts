@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+
 import { createFakePrisma, PROJECT_DEFAULTS } from "../testing/fake-prisma.js";
 import { NOW } from "../testing/fixtures.js";
 import { processDepsSchedulerTick, SCHEDULER_BATCH_SIZE, STALE_SCANNING_MS } from "./deps-scheduler.processor.js";
@@ -22,7 +23,7 @@ function setup(depsEnabled = true) {
 }
 
 const queued = (scanQueue: ReturnType<typeof setup>["scanQueue"]) =>
-  scanQueue.addBulk.mock.calls.flatMap(([jobs]) => jobs.map((j) => j.data.projectId)).sort();
+  scanQueue.addBulk.mock.calls.flatMap(([jobs]) => jobs.map((j) => j.data.projectId)).toSorted();
 
 describe("processDepsSchedulerTick", () => {
   it("does nothing while the module is disabled", async () => {

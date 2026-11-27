@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { commitMatchesAnyPath, summarizeWatchedPaths, validateWatchedPaths } from "./watched-paths";
 
 describe("validateWatchedPaths", () => {

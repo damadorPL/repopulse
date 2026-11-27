@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
-import Link from "next/link";
 import { RotateCcwIcon, TriangleExclamationPointIcon } from "lucide-react";
+import Link from "next/link";
+import { useEffect } from "react";
+
 import { Button } from "@/components/ui/button";
 
 /** Segment error boundary for dashboard routes so the sidebar and top navbar stay intact. */

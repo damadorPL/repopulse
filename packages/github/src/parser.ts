@@ -1,4 +1,5 @@
 import semver from "semver";
+
 import { trimTrailingChar } from "./text.js";
 
 /** Mirrors the `SemverType` enum in `@repopulse/db` (kept local so this package has no Prisma dependency). */

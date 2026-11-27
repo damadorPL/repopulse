@@ -1,4 +1,3 @@
-import { DelayedError, type Job } from "bullmq";
 import type { PrismaClient } from "@repopulse/db";
 import {
   fetchReleasesPage,
@@ -16,6 +15,8 @@ import {
   type Redis,
   type ReleaseBackfillJobData,
 } from "@repopulse/queue";
+import { DelayedError, type Job } from "bullmq";
+
 import { createLogger } from "../logger.js";
 import { effectiveTarget, maxAgeCutoff, planBackfillPage, targetStop, type BackfillStop } from "./backfill-plan.js";
 import { tokenCandidates, type TokenCandidate } from "./github-tokens.js";

@@ -9,6 +9,10 @@ import {
   type SpanReplacement,
 } from "./common.js";
 
+function stripBom(value: string): string {
+  return value.charCodeAt(0) === 0xfeff ? value.slice(1) : value;
+}
+
 /**
  * Applies `edits` to a `package.json`. Only the value strings change, so formatting, key order, line endings and
  * the trailing newline are kept. Throws {@link ManifestRewriteError} when a dependency is missing or stale, or when
@@ -36,11 +40,10 @@ export function rewritePackageJson(text: string, edits: readonly ManifestEdit[],
   const next = applyReplacements(text, replacements, path);
 
   // Structural check: the original document with the planned values must equal the new one.
-  const strip = (value: string): string => (value.charCodeAt(0) === 0xfeff ? value.slice(1) : value);
-  const expected: unknown = JSON.parse(strip(text));
+  const expected: unknown = JSON.parse(stripBom(text));
   let actual: unknown;
   try {
-    actual = JSON.parse(strip(next));
+    actual = JSON.parse(stripBom(next));
   } catch {
     throw new ManifestRewriteError("VERIFY_FAILED", path, "the rewritten file is not valid JSON");
   }

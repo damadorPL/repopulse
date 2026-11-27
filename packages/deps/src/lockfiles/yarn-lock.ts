@@ -1,5 +1,6 @@
 /** `yarn.lock` reader: classic (v1, custom format) and Berry (YAML with `resolution`). Check only. */
 import { parse as parseYaml } from "yaml";
+
 import { isRecord } from "../util.js";
 import { formatLockfileVersion, guardPrepareLockfile, type LockfileVersions, type PreparedLockfile } from "./common.js";
 

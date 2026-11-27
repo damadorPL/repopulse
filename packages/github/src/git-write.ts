@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
+
 import type { Octokit } from "@octokit/rest";
+
 import { getRateLimitInfo, isGitHubHttpError, type ResponseHeaders } from "./client.js";
 import { GitHubRateLimitError, toRateLimitError } from "./poller.js";
 
@@ -135,7 +137,7 @@ async function readBlobsGraphql(
         query,
         variables,
       );
-      const repoData = data?.repository;
+      const repoData = data.repository;
       if (!repoData) continue;
       for (let i = 0; i < batch.length; i++) {
         const sha = batch[i] as string;

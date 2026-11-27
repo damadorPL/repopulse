@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { ManifestParseError } from "./errors.js";
 import { parsePyproject } from "./pyproject.js";
 import { locateTomlStrings, tomlPathKey } from "./toml-locate.js";

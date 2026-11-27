@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { isHexColor, readableTextColor, slugify, tagSlug } from "./tags";
 
 describe("slugify", () => {

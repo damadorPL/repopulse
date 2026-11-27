@@ -182,7 +182,7 @@ function escapeSlackEntities(text: string): string {
 export function markdownToSlack(markdown: string): string {
   const fences: string[] = [];
   const inlineCodes: string[] = [];
-  /* eslint-disable no-control-regex -- null/SOH delimiters protect fenced and inline code during conversion. */
+  /* oxlint-disable no-control-regex -- null/SOH delimiters protect fenced and inline code during conversion. */
   const sanitized = markdown.replace(/\u0000|\u0001/g, "");
 
   const withoutFences = sanitized.replace(/```[^\n]*\n([\s\S]*?)```/g, (_match, code: string) => {
@@ -224,7 +224,7 @@ export function markdownToSlack(markdown: string): string {
       /\u0000(\d+)\u0000/g,
       (_m, index: string) => `\`\`\`${escapeSlackEntities(fences[Number(index)] ?? "")}\`\`\``,
     );
-  /* eslint-enable no-control-regex */
+  /* oxlint-enable no-control-regex */
 }
 
 export function escapeHtml(text: string): string {
@@ -256,14 +256,14 @@ export function safeHexColor(colorHex: string, fallback = "#475569"): string {
 /** Inline Markdown on already-escaped text: code, bold, italics, http(s) links. */
 function inlineHtml(escaped: string): string {
   const codeSpans: string[] = [];
-  /* eslint-disable no-control-regex -- null delimiters protect inline code spans during formatting. */
+  /* oxlint-disable no-control-regex -- null delimiters protect inline code spans during formatting. */
   const withPlaceholders = escaped.replace(/\u0000/g, "").replace(/`([^`]+)`/g, (_m, code: string) => {
     codeSpans.push(
       `<code style="font-family:SFMono-Regular,Consolas,monospace;background:#f1f5f9;border-radius:4px;padding:1px 4px;font-size:13px">${code}</code>`,
     );
     return `\u0000${codeSpans.length - 1}\u0000`;
   });
-  /* eslint-enable no-control-regex */
+  /* oxlint-enable no-control-regex */
 
   const formatted = withPlaceholders
     .replace(/\*\*(.+?)\*\*|__(.+?)__/g, (_m, a?: string, b?: string) => `<strong>${a ?? b}</strong>`)
@@ -273,7 +273,7 @@ function inlineHtml(escaped: string): string {
       (_m, text: string, url: string) => `<a href="${url}" style="color:#2563eb">${text}</a>`,
     );
 
-  // eslint-disable-next-line no-control-regex -- null delimiters protect inline code spans during formatting.
+  // oxlint-disable-next-line no-control-regex -- null delimiters protect inline code spans during formatting.
   return formatted.replace(/\u0000(\d+)\u0000/g, (_m, index: string) => codeSpans[Number(index)] ?? "");
 }
 

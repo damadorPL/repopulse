@@ -1,5 +1,5 @@
-import { connection } from "next/server";
 import { prisma } from "@repopulse/db";
+import { connection } from "next/server";
 
 const HEALTH_QUERY_TIMEOUT_MS = 3_000;
 

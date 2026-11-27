@@ -1,7 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-import { z } from "zod";
 import { encryptToken, INSTANCE_SETTINGS_ID, prisma, SmtpPasswordUnreadableError } from "@repopulse/db";
 import {
   buildTestRelease,
@@ -9,6 +7,9 @@ import {
   isNotificationDeliveryError,
   resolveAppBaseUrl,
 } from "@repopulse/notifications";
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+
 import { smtpSettingsInput, type SmtpSettingsInput } from "@/lib/smtp-schema";
 import { fail, invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
 import { getSuperAdminOrThrow } from "@/server/session";

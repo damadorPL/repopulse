@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   activityThresholds,
   bucketByLocalDay,
@@ -113,7 +114,7 @@ describe("monthLabels", () => {
     expect(weeks[oct.index]!.some((day) => day.key === "2026-10-01")).toBe(true);
     // Twelve month starts in 53 weeks (plus possibly the first column).
     expect(labels.filter((l) => l.index > 0).length).toBeGreaterThanOrEqual(12);
-    expect(labels.map((l) => l.index)).toEqual(labels.map((l) => l.index).sort((a, b) => a - b));
+    expect(labels.map((l) => l.index)).toEqual(labels.map((l) => l.index).toSorted((a, b) => a - b));
   });
 });
 

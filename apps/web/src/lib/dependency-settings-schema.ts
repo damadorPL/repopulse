@@ -1,4 +1,3 @@
-import { z } from "zod";
 import {
   MAX_IGNORE_RULES,
   MAX_MANIFESTS_PER_PROJECT,
@@ -7,6 +6,8 @@ import {
   MIN_RELEASE_AGE_DAYS_MAX,
   SCAN_INTERVAL_HOURS,
 } from "@repopulse/deps/limits";
+import { z } from "zod";
+
 import {
   COMMIT_PREFIX_MAX_LENGTH,
   DEPS_GROUP_MODES,
@@ -19,7 +20,7 @@ import { NOTIFICATION_LEVELS } from "./subscription-settings";
 const idSchema = z.string().min(1).max(64);
 
 /** One line, no control characters (it starts every commit message and PR title). */
-// eslint-disable-next-line no-control-regex -- exclude control characters from commit messages and PR titles.
+// oxlint-disable-next-line no-control-regex -- exclude control characters from commit messages and PR titles.
 const COMMIT_PREFIX_RE = /^[^\u0000-\u001f\u007f]*$/;
 
 export const updateModeSchema = z.enum(DEPS_UPDATE_MODES, "Choose an update mode");

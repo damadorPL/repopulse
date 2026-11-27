@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   BUN_LOCKB_WARNING,
   detectManifests,

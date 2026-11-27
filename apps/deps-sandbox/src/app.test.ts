@@ -1,8 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+
 import { MAX_SANDBOX_BODY_BYTES } from "@repopulse/deps/limits";
 import type { ParsedLockRequest, ParsedLockResponse } from "@repopulse/deps/sandbox-contract";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { createSandboxServer, isAuthorized, loadConfig, type SandboxConfig, type SandboxServer } from "./app.js";
 import type { ToolVersions } from "./commands.js";
 
@@ -245,7 +247,7 @@ describe("sandbox server", () => {
     expect(sandbox.isBusy()).toBe(true);
 
     clientAbort.abort();
-    await expect(pending).rejects.toThrow();
+    await expect(pending).rejects.toThrow(/abort|fetch failed/i);
     await vi.waitFor(() => expect(firstSignal?.aborted).toBe(true));
     await vi.waitFor(() => expect(sandbox.isBusy()).toBe(false));
 
@@ -256,7 +258,7 @@ describe("sandbox server", () => {
   });
 
   it("returns 503 BUSY when shutting down and 500 INTERNAL when runLock throws or returns invalid schema", async () => {
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const errSpy = vi.spyOn(console, "error").mockReturnValue(undefined);
     try {
       const { sandbox, base } = await start(async () => {
         throw new Error("boom");

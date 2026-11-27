@@ -1,4 +1,3 @@
-import { Worker, type Job, type Queue } from "bullmq";
 import type { PrismaClient } from "@repopulse/db";
 import {
   GitHubRateLimitError,
@@ -22,10 +21,12 @@ import {
   type Redis,
   type RepoPollJobData,
 } from "@repopulse/queue";
+import { Worker, type Job, type Queue } from "bullmq";
+
 import { createLogger } from "../logger.js";
 import { createUserReleaseStatesInBatches } from "./batch-db.js";
-import { tokenCandidates, type TokenCandidate } from "./github-tokens.js";
 import { EMPTY_FAN_OUT_PLAN, mergeFanOutPlans, planFanOut, selectFreshReleases, type FanOutPlan } from "./fan-out.js";
+import { tokenCandidates, type TokenCandidate } from "./github-tokens.js";
 import { pollRepoPaths, type PathStepCounts, type PathStepResult } from "./repo-paths.js";
 import {
   loadSubscribers,

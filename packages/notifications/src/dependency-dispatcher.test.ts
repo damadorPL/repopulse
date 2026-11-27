@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+
 import { dispatchDependencyNotification } from "./dependency-dispatcher.js";
 import { NotificationDeliveryError, WebhookUrlError } from "./errors.js";
-import type { MailSender } from "./formatters/email.js";
 import type { DependencyNotificationInput } from "./formatters/dependencies.js";
+import type { MailSender } from "./formatters/email.js";
 import type { WebhookSender } from "./http.js";
 import type { NotificationChannel } from "./types.js";
 

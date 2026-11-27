@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { CheckIcon, PencilIcon, TrashIcon, XIcon } from "lucide-react";
+import { useEffect, useRef, useState, useTransition, type ReactNode, type SubmitEvent } from "react";
 import { toast } from "sonner";
+
 import { TagDot } from "@/components/feed/tag-pill";
 import { Button } from "@/components/ui/button";
 import {
@@ -120,7 +121,7 @@ function CreateTagForm() {
     inputRef.current?.focus();
   }, []);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     startTransition(async () => {
@@ -142,7 +143,7 @@ function CreateTagForm() {
           <div className="relative flex-1">
             <TagDot
               color={isHexColor(color) ? color : DEFAULT_TAG_COLOR}
-              className="absolute left-3 top-1/2 size-2.5 -translate-y-1/2"
+              className="absolute top-1/2 left-3 size-2.5 -translate-y-1/2"
             />
             <Input
               ref={inputRef}
@@ -182,7 +183,7 @@ function TagRow({ tag }: { tag: SidebarTag }) {
     if (mode === "edit") editInputRef.current?.focus();
   }, [mode]);
 
-  function save(event: FormEvent<HTMLFormElement>) {
+  function save(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     startTransition(async () => {

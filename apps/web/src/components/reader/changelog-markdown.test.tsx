@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+
 import { ChangelogMarkdown } from "./changelog-markdown";
 
 const render = (markdown: string) => renderToStaticMarkup(<ChangelogMarkdown markdown={markdown} />);

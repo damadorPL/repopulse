@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import { describe, expect, it, vi } from "vitest";
+
 import { channelLabel, maskDestination } from "./channels.js";
 import { NotificationDeliveryError } from "./errors.js";
 import { formatCustomWebhookPayload } from "./formatters/custom.js";
@@ -266,7 +267,7 @@ describe("email", () => {
     const close = vi.fn();
     const createSpy = vi
       .spyOn(nodemailer, "createTransport")
-      .mockImplementation(() => ({ sendMail, close }) as unknown as ReturnType<typeof nodemailer.createTransport>);
+      .mockReturnValue({ sendMail, close } as unknown as ReturnType<typeof nodemailer.createTransport>);
 
     try {
       const cfg1 = { host: "smtp1.test", port: 587, secure: false, user: "u", pass: "p", from: "r@test" };
@@ -329,9 +330,7 @@ describe("email", () => {
     const close = vi.fn();
     const createSpy = vi
       .spyOn(nodemailer, "createTransport")
-      .mockImplementation(
-        () => ({ sendMail, verify, close }) as unknown as ReturnType<typeof nodemailer.createTransport>,
-      );
+      .mockReturnValue({ sendMail, verify, close } as unknown as ReturnType<typeof nodemailer.createTransport>);
 
     try {
       const cfg = {

@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useTransition, type FormEvent } from "react";
+import { LoaderCircleIcon, RotateCcwIcon, SaveIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LoaderCircleIcon, RotateCcwIcon, SaveIcon } from "lucide-react";
+import { useState, useTransition, type SubmitEvent } from "react";
 import { toast } from "sonner";
+
 import { RelativeTime } from "@/components/feed/relative-time";
 import { RepoAvatar } from "@/components/feed/repo-avatar";
 import { Badge } from "@/components/ui/badge";
@@ -99,7 +100,7 @@ export function BackfillSettingsForm({
       : (byKey.get("defaultTarget")?.value ?? 100);
   const totalMissing = candidates.reduce((sum, c) => sum + Math.max(0, effectiveTarget - c.releaseCount), 0);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     const input = {} as Record<Key, number | null>;
@@ -201,7 +202,7 @@ export function BackfillSettingsForm({
                             setError(null);
                           }}
                           aria-describedby={`${id}-hint ${id}-fallback`}
-                          className="pr-[4.75rem] tabular-nums"
+                          className="pr-19 tabular-nums"
                         />
                         <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-muted-foreground">
                           {copy.unit}
@@ -272,7 +273,7 @@ export function BackfillSettingsForm({
             </p>
           </div>
           {candidates.length > 0 ? (
-            <Badge variant="outline" className="tabular-nums font-mono text-xs">
+            <Badge variant="outline" className="font-mono text-xs tabular-nums">
               {candidateCount} {candidateCount === 1 ? "repo" : "repos"} · {numberFormat.format(totalMissing)} missing
             </Badge>
           ) : null}
@@ -287,12 +288,12 @@ export function BackfillSettingsForm({
                 <span>Missing releases</span>
               </div>
             </div>
-            <ul className="divide-y max-h-72 overflow-y-auto">
+            <ul className="max-h-72 divide-y overflow-y-auto">
               {candidates.map((repo) => {
                 const missing = Math.max(0, effectiveTarget - repo.releaseCount);
                 return (
                   <li key={repo.id} className="flex items-center justify-between gap-3 px-3.5 py-2.5 hover:bg-muted/30">
-                    <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="flex min-w-0 items-center gap-2.5">
                       <RepoAvatar
                         src={repo.avatarUrl}
                         name={repo.fullName.split("/")[1] ?? repo.fullName}
@@ -301,12 +302,12 @@ export function BackfillSettingsForm({
                       <div className="min-w-0">
                         <Link
                           href={repositorySettingsHref(repo.fullName)}
-                          className="truncate font-medium text-sm hover:underline block"
+                          className="block truncate text-sm font-medium hover:underline"
                         >
                           {repo.fullName}
                         </Link>
                         {repo.oldestRelease ? (
-                          <p className="text-[11px] text-muted-foreground truncate">
+                          <p className="truncate text-[11px] text-muted-foreground">
                             oldest: <span className="font-mono text-foreground/80">{repo.oldestRelease.tagName}</span>
                             {" · "}
                             <RelativeTime date={repo.oldestRelease.publishedAt} />
@@ -316,14 +317,14 @@ export function BackfillSettingsForm({
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-4 shrink-0">
-                      <span className="text-xs text-muted-foreground tabular-nums hidden sm:inline">
+                    <div className="flex shrink-0 items-center gap-4">
+                      <span className="hidden text-xs text-muted-foreground tabular-nums sm:inline">
                         {numberFormat.format(repo.releaseCount)} stored
                       </span>
                       {missing > 0 ? (
                         <Badge
                           variant="outline"
-                          className="font-mono text-xs text-amber-700 dark:text-amber-400 bg-amber-500/10 border-amber-500/20 tabular-nums"
+                          className="border-amber-500/20 bg-amber-500/10 font-mono text-xs text-amber-700 tabular-nums dark:text-amber-400"
                         >
                           +{numberFormat.format(missing)} missing
                         </Badge>

@@ -1,4 +1,3 @@
-import { cache } from "react";
 import {
   GitHubAppKeyUnreadableError,
   loadGitHubAppSettings,
@@ -17,6 +16,7 @@ import {
   type SemverType,
   type User as DbUser,
 } from "@repopulse/db";
+import { groupCapability, groupUpdates } from "@repopulse/deps";
 import {
   createInstallationToken,
   createOctokit,
@@ -29,9 +29,11 @@ import {
   permissionAtLeast,
   type GitHubAppAuth,
 } from "@repopulse/github";
-import { groupCapability, groupUpdates } from "@repopulse/deps";
-import type { ActionErrorCode } from "@/server/action-result";
+import { cache } from "react";
+
 import { readIgnoreRules, type IgnoreRuleValue, type LevelCounts } from "@/lib/dependency-settings";
+import type { ActionErrorCode } from "@/server/action-result";
+
 import { parseRepoSegment } from "./repository-settings";
 
 /**
@@ -114,21 +116,21 @@ function buildDependencyProjectListItems(
     isPrivate: boolean;
     repositoryId: string | null;
     updateMode: DepsUpdateMode;
-    groupMode: DepsGroupMode;
-    maxOpenPrs: number;
+    groupMode?: DepsGroupMode;
+    maxOpenPrs?: number;
     lastScannedAt: Date | null;
     scanStatus: DepsScanStatus;
     scanError: string | null;
     prOwnership: { projectId: string } | null;
     repository: { avatarUrl: string | null } | null;
     manifests: Array<{
-      id: string;
-      path: string;
-      ecosystem: DependencyEcosystem;
+      id?: string;
+      path?: string;
+      ecosystem?: DependencyEcosystem;
       packageManager: PackageManager;
-      lockfilePath: string | null;
+      lockfilePath?: string | null;
     }>;
-    updates: Array<{
+    updates?: Array<{
       manifestId: string;
       name: string;
       currentVersion: string | null;
@@ -141,7 +143,7 @@ function buildDependencyProjectListItems(
       number: number;
       htmlUrl: string;
       groupKey: string;
-      state: DepsPrState;
+      state?: DepsPrState;
     }>;
   }>,
   owners: Array<{
@@ -174,7 +176,7 @@ function buildDependencyProjectListItems(
       fullName: project.fullName,
       avatarUrl: ownerAvatar(project.owner, project.repository?.avatarUrl),
       isPrivate: project.isPrivate,
-      packageManagers: [...new Set(project.manifests.map((m) => m.packageManager))].sort(),
+      packageManagers: [...new Set(project.manifests.map((m) => m.packageManager))].toSorted(),
       outdated,
       openPullRequests: project.pullRequests
         .filter((pr) => (pr.state ?? "OPEN") === "OPEN")
@@ -333,7 +335,7 @@ export async function getDependenciesListData(userId: string): Promise<{
       description: s.repository.description,
       avatarUrl: s.repository.avatarUrl,
     }))
-    .sort((a, b) => a.fullName.localeCompare(b.fullName, undefined, { sensitivity: "base" }));
+    .toSorted((a, b) => a.fullName.localeCompare(b.fullName, undefined, { sensitivity: "base" }));
 
   return {
     projects: buildDependencyProjectListItems(projects, owners, tracked),
@@ -369,7 +371,7 @@ export async function getAddableSubscriptions(userId: string): Promise<AddableSu
       description: s.repository.description,
       avatarUrl: s.repository.avatarUrl,
     }))
-    .sort((a, b) => a.fullName.localeCompare(b.fullName, undefined, { sensitivity: "base" }));
+    .toSorted((a, b) => a.fullName.localeCompare(b.fullName, undefined, { sensitivity: "base" }));
 }
 
 // ---------------------------------------------------------------------------
@@ -495,7 +497,7 @@ export async function getDependencyProject(
 
   const [owner_, subscriptions] = await Promise.all([
     prisma.dependencyPrOwner.findUnique({
-      where: { githubRepoId: BigInt(project.githubRepoId) },
+      where: { githubRepoId: project.githubRepoId },
       select: { projectId: true, project: { select: { user: { select: { githubLogin: true, name: true } } } } },
     }),
     prisma.userSubscription.findMany({
@@ -607,7 +609,7 @@ export async function getDependencyProjectForRepository(
   });
   if (!repository) return null;
   const project = await prisma.dependencyProject.findFirst({
-    where: { userId, OR: [{ githubRepoId: BigInt(repository.githubRepoId) }, { repositoryId }] },
+    where: { userId, OR: [{ githubRepoId: repository.githubRepoId }, { repositoryId }] },
     select: { id: true, fullName: true, lastScannedAt: true, scanStatus: true },
   });
   if (!project) return null;

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Queue } from "bullmq";
+
 import type { NotificationLevel, PrismaClient } from "@repopulse/db";
 import { isDeliverableChannel } from "@repopulse/notifications";
 import {
@@ -10,6 +10,8 @@ import {
   type RealtimeEvent,
   type Redis,
 } from "@repopulse/queue";
+import type { Queue } from "bullmq";
+
 import { createLogger } from "../logger.js";
 
 const log = createLogger("deps-notify");
@@ -109,6 +111,6 @@ export function digestScanId(
   projectId: string,
   updates: ReadonlyArray<{ id: string; targetVersion: string | null }>,
 ): string {
-  const keys = updates.map((update) => `${update.id}@${update.targetVersion ?? ""}`).sort();
+  const keys = updates.map((update) => `${update.id}@${update.targetVersion ?? ""}`).toSorted();
   return createHash("sha1").update(projectId).update("\0").update(keys.join(",")).digest("hex").slice(0, 20);
 }

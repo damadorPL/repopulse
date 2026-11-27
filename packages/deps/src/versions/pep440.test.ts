@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   comparePep440,
   formatPep440,
@@ -79,8 +80,8 @@ describe("comparePep440", () => {
       "1.1.dev1",
       "1!0.1",
     ];
-    const shuffled = [...ordered].reverse();
-    expect(shuffled.sort(comparePep440)).toEqual(ordered);
+    const shuffled = ordered.toReversed();
+    expect(shuffled.toSorted(comparePep440)).toEqual(ordered);
   });
 
   it("ignores trailing zeros and compares local version segments per PEP 440", () => {

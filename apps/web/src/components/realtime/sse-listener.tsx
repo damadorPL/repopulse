@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
 import { parseRealtimeEvent, type RealtimeEvent } from "@repopulse/queue/events";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+import { toast } from "sonner";
+
 import { dependencyProjectHref } from "@/lib/dependency-list-filters";
 import { feedHref } from "@/lib/feed-filters";
 import { depsScanToastId, syncToastId } from "@/lib/toast-ids";
@@ -47,7 +48,7 @@ export function SseListener() {
     let hasConnected = false;
 
     const triggerRefresh = () => {
-      if (globalThis.document?.visibilityState === "hidden") {
+      if (document.visibilityState === "hidden") {
         pendingRefresh = true;
         return;
       }

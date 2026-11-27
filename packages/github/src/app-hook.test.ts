@@ -1,5 +1,7 @@
 import { createHmac, generateKeyPairSync } from "node:crypto";
+
 import { describe, expect, it, vi } from "vitest";
+
 import { getAppWebhookConfig, signWebhookPayload, updateAppWebhookConfig, verifyWebhookSignature } from "./app-hook.js";
 import { GitHubAppAuthError } from "./app.js";
 import { GitHubRateLimitError } from "./poller.js";
@@ -113,7 +115,7 @@ describe("updateAppWebhookConfig", () => {
       { fetch },
     ).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(GitHubAppAuthError);
-    expect(String((error as Error).message)).not.toContain(SECRET);
+    expect((error as Error).message).not.toContain(SECRET);
   });
 });
 

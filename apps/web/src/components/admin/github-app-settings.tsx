@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import {
   ExternalLinkIcon,
   KeyRoundIcon,
@@ -12,7 +10,10 @@ import {
   TrashIcon,
   WebhookIcon,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState, useTransition, type SubmitEvent } from "react";
 import { toast } from "sonner";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -149,7 +150,7 @@ export function CreateGitHubAppForm({ appBaseUrl, replaces }: { appBaseUrl: stri
     if (target) formRef.current?.submit();
   }, [target]);
 
-  function start(event: FormEvent<HTMLFormElement>) {
+  function start(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     startTransition(async () => {
@@ -211,7 +212,7 @@ export function CreateGitHubAppForm({ appBaseUrl, replaces }: { appBaseUrl: stri
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          Callback: <code className="break-all text-[11px]">{appBaseUrl}/api/github-app/manifest/callback</code>. It
+          Callback: <code className="text-[11px] break-all">{appBaseUrl}/api/github-app/manifest/callback</code>. It
           comes from <code className="text-[11px]">APP_BASE_URL</code>, which must be the address you use to open
           RepoPulse.
         </p>
@@ -241,7 +242,7 @@ export function ManualGitHubAppForm({ app }: { app: GitHubAppView }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     startTransition(async () => {
@@ -468,7 +469,7 @@ export function GitHubAppWebhooksCard({ app, target }: { app: GitHubAppView; tar
       {target.url ? (
         <>
           <p className="text-xs text-muted-foreground">
-            Delivery URL: <code className="break-all text-[11px]">{target.url}</code>
+            Delivery URL: <code className="text-[11px] break-all">{target.url}</code>
           </p>
           <ol className="grid list-decimal gap-2 pl-5 text-sm">
             <li>

@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
 import { MAX_LOCKFILE_BYTES, MAX_SANDBOX_BODY_BYTES, type LockRequest } from "@repopulse/deps";
+import { describe, expect, it, vi } from "vitest";
+
 import {
   createSandboxClient,
   SandboxBusyError,
@@ -158,7 +159,9 @@ describe("createSandboxClient().health", () => {
     const down = createSandboxClient({
       baseUrl: "http://s",
       token: "",
-      fetch: vi.fn(async () => Promise.reject(new Error("ECONNREFUSED"))),
+      fetch: vi.fn(async () => {
+        throw new Error("ECONNREFUSED");
+      }),
     });
     expect(await down.health()).toBeNull();
     const status500 = createSandboxClient({

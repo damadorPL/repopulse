@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+
 import {
   buildCommands,
   checkToolVersions,
@@ -270,16 +271,16 @@ describe("tool version checks", () => {
     expect(codeOf(() => checkToolVersions({ packageManager: "PNPM", packageJson: pkg("pnpm@10.12.1") }, TOOLS))).toBe(
       "UNSUPPORTED_TOOL_VERSION",
     );
-    expect(codeOf(() => checkToolVersions({ packageManager: "PNPM", packageJson: pkg("pnpm@12.16.1") }, TOOLS))).toBe(
-      null,
-    );
+    expect(
+      codeOf(() => checkToolVersions({ packageManager: "PNPM", packageJson: pkg("pnpm@12.16.1") }, TOOLS)),
+    ).toBeNull();
     expect(codeOf(() => checkToolVersions({ packageManager: "NPM", packageJson: pkg("npm@11.6.0") }, TOOLS))).toBe(
       "UNSUPPORTED_TOOL_VERSION",
     );
     expect(codeOf(() => checkToolVersions({ packageManager: "NPM", packageJson: pkg("yarn@4.5.0") }, TOOLS))).toBe(
       "UNSUPPORTED_TOOL_VERSION",
     );
-    expect(codeOf(() => checkToolVersions({ packageManager: "BUN", packageJson: pkg("bun@1.2.0") }, TOOLS))).toBe(null);
+    expect(codeOf(() => checkToolVersions({ packageManager: "BUN", packageJson: pkg("bun@1.2.0") }, TOOLS))).toBeNull();
     const devEngines = JSON.stringify({ devEngines: { packageManager: { name: "npm", version: ">=13" } } });
     expect(codeOf(() => checkToolVersions({ packageManager: "NPM", packageJson: devEngines }, TOOLS))).toBe(
       "UNSUPPORTED_TOOL_VERSION",
@@ -298,18 +299,18 @@ describe("tool version checks", () => {
       codeOf(() => checkToolVersions({ packageManager: pm, lockfile }, TOOLS));
 
     expect(check("NPM", '{\n  "name": "x",\n  "lockfileVersion": 1,\n}')).toBe("UNSUPPORTED_TOOL_VERSION");
-    expect(check("NPM", '{\n  "name": "x",\n  "lockfileVersion": 3,\n}')).toBe(null);
+    expect(check("NPM", '{\n  "name": "x",\n  "lockfileVersion": 3,\n}')).toBeNull();
     expect(check("PNPM", "lockfileVersion: '6.0'\n")).toBe("UNSUPPORTED_TOOL_VERSION");
-    expect(check("PNPM", "---\nlockfileVersion: '9.0'\n\nimporters: {}\n")).toBe(null);
-    expect(check("PNPM", "---\nlockfileVersion: '9.0'\n---\nlockfileVersion: '9.0'\n")).toBe(null);
+    expect(check("PNPM", "---\nlockfileVersion: '9.0'\n\nimporters: {}\n")).toBeNull();
+    expect(check("PNPM", "---\nlockfileVersion: '9.0'\n---\nlockfileVersion: '9.0'\n")).toBeNull();
     expect(check("PNPM", "---\nlockfileVersion: '9.0'\n---\nlockfileVersion: '6.0'\n")).toBe(
       "UNSUPPORTED_TOOL_VERSION",
     );
-    expect(check("BUN", '{\n  "lockfileVersion": 1,\n  "workspaces": {}\n}')).toBe(null);
+    expect(check("BUN", '{\n  "lockfileVersion": 1,\n  "workspaces": {}\n}')).toBeNull();
     expect(check("BUN", '{\n  "lockfileVersion": 0,\n}')).toBe("UNSUPPORTED_TOOL_VERSION");
-    expect(check("UV", 'version = 1\nrevision = 3\nrequires-python = ">=3.12"\n')).toBe(null);
+    expect(check("UV", 'version = 1\nrevision = 3\nrequires-python = ">=3.12"\n')).toBeNull();
     expect(check("UV", "version = 2\n")).toBe("UNSUPPORTED_TOOL_VERSION");
-    expect(check("POETRY", '[[package]]\nname = "a"\n\n[metadata]\nlock-version = "2.1"\n')).toBe(null);
+    expect(check("POETRY", '[[package]]\nname = "a"\n\n[metadata]\nlock-version = "2.1"\n')).toBeNull();
     expect(check("POETRY", '[metadata]\nlock-version = "1.1"\n')).toBe("UNSUPPORTED_TOOL_VERSION");
     expect(check("POETRY", "garbage")).toBe("UNSUPPORTED_TOOL_VERSION");
   });
@@ -335,7 +336,7 @@ describe("tool detection", () => {
     expect(parseVersionOutput("Poetry (version 2.5.2)")).toBe("2.5.2");
     expect(parseVersionOutput("12.21.0\n")).toBe("12.21.0");
     expect(parseVersionOutput("nothing")).toBeNull();
-    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const errors = vi.spyOn(console, "error").mockReturnValue(undefined);
     const tools = await detectToolVersions(async (tool) => {
       if (tool === "poetry") throw new Error("ENOENT");
       return tool === "uv" ? "uv 0.13.9" : "1.2.3\n";

@@ -1,6 +1,8 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
+
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
 import { buildTestRelease, dispatchNotification, releaseReaderUrl, resolveAppBaseUrl } from "./dispatcher.js";
 import { WebhookUrlError, type NotificationDeliveryError } from "./errors.js";
 import { describeResponseBody, postWebhook, type WebhookSender } from "./http.js";
@@ -88,10 +90,10 @@ describe("dispatchNotification", () => {
 
   it("blocks a private destination before sending anything (real transport)", async () => {
     const error = await dispatchNotification(input("CUSTOM_WEBHOOK", "http://127.0.0.1:9/hook"), { env: {} }).catch(
-      (e) => e,
+      (e: unknown) => e,
     );
     expect(error).toBeInstanceOf(WebhookUrlError);
-    expect(error.permanent).toBe(true);
+    expect((error as WebhookUrlError).permanent).toBe(true);
   });
 
   it("builds links from APP_BASE_URL / AUTH_URL", () => {
@@ -249,7 +251,7 @@ describe("postWebhook against a local server", () => {
         { policy: { mode: "none" }, resolveAll: localDns },
       ),
     ).rejects.toBeInstanceOf(WebhookUrlError);
-    expect(received.length).toBe(before);
+    expect(received).toHaveLength(before);
   });
 
   it("checks the address again at connect time (DNS rebinding) and does not reuse keep-alive sockets across calls", async () => {
@@ -263,7 +265,7 @@ describe("postWebhook against a local server", () => {
         { policy: { mode: "none" }, resolveAll: rebinding },
       ),
     ).rejects.toBeInstanceOf(WebhookUrlError);
-    expect(received.length).toBe(before);
+    expect(received).toHaveLength(before);
 
     // A succeeding call followed by a rebind to loopback must still invoke guarded lookup (agent: false).
     let lookups = 0;

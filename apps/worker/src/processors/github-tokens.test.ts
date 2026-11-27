@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+
 import { MAX_TOKEN_CANDIDATES, tokenCandidates } from "./github-tokens.js";
 
 vi.mock("@repopulse/db", () => ({

@@ -1,9 +1,11 @@
 import { EventEmitter } from "node:events";
+
 import { describe, expect, it, vi } from "vitest";
-import { attachWorkerListeners, deduplicatedJobOptions, enqueueDeduplicated } from "./queues.js";
-import { rateLimitDelayMs } from "./rate-limit.js";
+
 import { DEPS_NOTIFY_JOB_OPTIONS, DEPS_SCAN_JOB_OPTIONS, DEPS_UPDATE_JOB_OPTIONS } from "./deps.js";
 import { NOTIFICATION_JOB_OPTIONS, RELEASE_BACKFILL_JOB_OPTIONS, REPO_POLL_JOB_OPTIONS } from "./names.js";
+import { attachWorkerListeners, deduplicatedJobOptions, enqueueDeduplicated } from "./queues.js";
+import { rateLimitDelayMs } from "./rate-limit.js";
 
 describe("job options retention bounds", () => {
   it("uses bounded retention and keepLogs on deduplicated recurring job options", () => {

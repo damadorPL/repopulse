@@ -1,10 +1,12 @@
 "use client";
 
-import type { ReactNode } from "react";
 import { format } from "date-fns";
+import type { ReactNode } from "react";
+
 import { RelativeTime } from "@/components/feed/relative-time";
 import { Skeleton } from "@/components/ui/skeleton";
 import { computeActivityStats, type ActivityItem } from "@/lib/activity-grid";
+
 import { useClientNow } from "./activity-grid";
 
 function Stat({ label, children }: { label: string; children: ReactNode }) {

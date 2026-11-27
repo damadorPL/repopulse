@@ -1,6 +1,7 @@
 "use client";
 
 import { toast } from "sonner";
+
 import { sendTestNotificationAction } from "@/server/actions/notifications";
 
 /** Runs "Send Test" with one toast that goes loading → success / error. Resolves to whether it was delivered. */

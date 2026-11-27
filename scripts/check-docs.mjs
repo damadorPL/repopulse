@@ -52,7 +52,7 @@ function discoverActiveMarkdownFiles() {
     ...walkMarkdown(path.join(ROOT, "packages"), (rel) => /^packages\/[^/]+\/AGENTS\.md$/.test(rel)),
     ...walkMarkdown(path.join(ROOT, "docs"), (rel) => rel.endsWith(".md")),
   ];
-  return [...new Set(candidates)].filter((rel) => existsSync(path.join(ROOT, rel))).sort();
+  return [...new Set(candidates)].filter((rel) => existsSync(path.join(ROOT, rel))).toSorted();
 }
 
 /**
@@ -173,7 +173,7 @@ function checkMarkdownLinks(files) {
     const stripped = stripCodeFromMarkdown(readFileSync(absFile, "utf8"));
 
     for (const match of stripped.matchAll(linkRegex)) {
-      const rawTarget = match[1]?.trim() ?? "";
+      const rawTarget = match[1].trim();
       if (
         !rawTarget ||
         rawTarget.startsWith("http://") ||
@@ -230,7 +230,7 @@ function checkAgentsMdHygiene() {
     ...walkMarkdown(path.join(ROOT, "apps"), (rel) => /^apps\/[^/]+\/AGENTS\.md$/.test(rel)),
     ...walkMarkdown(path.join(ROOT, "packages"), (rel) => /^packages\/[^/]+\/AGENTS\.md$/.test(rel)),
   ];
-  const files = [...new Set(candidates)].filter((rel) => existsSync(path.join(ROOT, rel))).sort();
+  const files = [...new Set(candidates)].filter((rel) => existsSync(path.join(ROOT, rel))).toSorted();
 
   for (const relPath of files) {
     const absPath = path.join(ROOT, relPath);

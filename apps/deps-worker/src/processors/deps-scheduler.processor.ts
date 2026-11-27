@@ -7,6 +7,7 @@ import {
   depsScanJobId,
   type DepsScanQueue,
 } from "@repopulse/queue";
+
 import { createLogger } from "../logger.js";
 
 const log = createLogger("deps-scheduler");
@@ -79,7 +80,7 @@ async function enqueueDuePass(
       enqueued += fresh.length;
     }
     if (batch.length < SCHEDULER_BATCH_SIZE) break;
-    cursor = batch[batch.length - 1]!.id;
+    cursor = batch.at(-1)!.id;
   }
   return enqueued;
 }

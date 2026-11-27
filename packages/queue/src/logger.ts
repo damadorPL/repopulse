@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+
 import pino, { type DestinationStream, type Logger as PinoLogger, type LoggerOptions } from "pino";
 
 export interface ServiceLogger {

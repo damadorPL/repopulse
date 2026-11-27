@@ -1,8 +1,9 @@
 "use client";
 
+import { LoaderCircleIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { useFormStatus } from "react-dom";
-import { LoaderCircleIcon } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 
 /** Submit button that reflects its enclosing `<form>`'s pending state via `useFormStatus`. */

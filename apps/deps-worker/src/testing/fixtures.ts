@@ -1,6 +1,7 @@
-import { vi } from "vitest";
-import type { Job } from "bullmq";
 import type { DependencyEcosystem, RegistryLookup, RegistryVersion } from "@repopulse/deps";
+import type { Job } from "bullmq";
+import { vi } from "vitest";
+
 import { GitHubAccess } from "../github-access.js";
 import type { FakeGitHub } from "./fake-github.js";
 

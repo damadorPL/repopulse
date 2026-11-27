@@ -1,10 +1,11 @@
 "use client";
 
-import { useTransition } from "react";
+import { LoaderCircleIcon, PackageSearchIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LoaderCircleIcon, PackageSearchIcon } from "lucide-react";
+import { useTransition } from "react";
 import { toast } from "sonner";
+
 import { RelativeTime } from "@/components/feed/relative-time";
 import { Button } from "@/components/ui/button";
 import { dependencyProjectHref } from "@/lib/dependency-list-filters";

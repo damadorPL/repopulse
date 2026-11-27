@@ -1,14 +1,16 @@
 "use client";
 
-import { useOptimistic, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { Settings2Icon, XIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useOptimistic, useTransition } from "react";
 import { toast } from "sonner";
+
 import { TagPill } from "@/components/feed/tag-pill";
 import { ManageTagsModal } from "@/components/modals/manage-tags-modal";
 import { Button } from "@/components/ui/button";
 import { assignTagsAction } from "@/server/actions/tags";
 import type { SidebarTag, TagPill as TagPillData } from "@/server/queries/feed";
+
 import { AssignTagsPopover } from "./assign-tags-popover";
 
 /**

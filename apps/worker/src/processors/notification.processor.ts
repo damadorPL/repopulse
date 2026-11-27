@@ -1,4 +1,3 @@
-import { UnrecoverableError, type Job } from "bullmq";
 import {
   loadSmtpSettings,
   SmtpPasswordUnreadableError,
@@ -12,6 +11,8 @@ import {
   toSmtpConfig,
 } from "@repopulse/notifications";
 import { QUEUE_NAMES, type NotificationJobData } from "@repopulse/queue";
+import { UnrecoverableError, type Job } from "bullmq";
+
 import { createLogger } from "../logger.js";
 import { isSnoozed, passesNotificationLevel } from "./fan-out.js";
 

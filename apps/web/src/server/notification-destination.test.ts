@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
 import type { ResolveAll } from "@repopulse/notifications";
+import { describe, expect, it, vi } from "vitest";
 
 // action-result pulls in Auth.js (via UnauthorizedError), which needs the Next runtime.
 vi.mock("@/lib/auth", () => ({

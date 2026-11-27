@@ -1,4 +1,5 @@
 import type { ComponentProps } from "react";
+
 import { cn } from "@/lib/utils";
 
 /** Color dot for a user tag (`colorHex` is validated server-side as #RRGGBB). */
@@ -22,7 +23,7 @@ export function TagPill({
   return (
     <span
       className={cn(
-        "inline-flex max-w-40 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium leading-none text-foreground/80",
+        "inline-flex max-w-40 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] leading-none font-medium text-foreground/80",
         className,
       )}
       style={{ borderColor: `${colorHex}55`, backgroundColor: `${colorHex}14` }}

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+
 import {
   BACKFILL_SWEEP_BATCH,
   backfillSweepWhere,
@@ -133,7 +134,11 @@ describe("processSchedulerTick backfill sweep", () => {
 
   it("does not fail the poll tick when the backfill sweep fails", async () => {
     const prisma = fakePrisma(["p1"], [{ id: "a", backfillStatus: "NONE" }]);
-    const releaseBackfillQueue = { addBulk: vi.fn(async () => Promise.reject(new Error("redis down"))) };
+    const releaseBackfillQueue = {
+      addBulk: vi.fn(async () => {
+        throw new Error("redis down");
+      }),
+    };
     const repoPollQueue = { addBulk: vi.fn(async (_jobs: unknown[]) => []) };
 
     await expect(

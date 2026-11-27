@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { createUrlSearchSyncState, reconcileUrlSearchQuery, recordUrlSearchPush } from "./url-search";
 
 describe("url-search sync", () => {

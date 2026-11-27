@@ -1,10 +1,11 @@
 "use client";
 
-import { useTransition, type ReactNode } from "react";
+import { CheckCheckIcon, XIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckCheckIcon, XIcon } from "lucide-react";
+import { useTransition, type ReactNode } from "react";
 import { toast } from "sonner";
+
 import { useReaderList } from "@/components/reader/reader-context";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -12,6 +13,7 @@ import { feedHref, SEMVER_TYPES, type FeedFilters, type FeedSort, type SemverTyp
 import { SEMVER_META } from "@/lib/semver-meta";
 import { cn } from "@/lib/utils";
 import { markAllReadAction } from "@/server/actions/release-state";
+
 import { TagDot } from "./tag-pill";
 
 const ALL = "all";
@@ -145,7 +147,7 @@ export function FeedFilterBar({
               href={feedHref({ ...filters, ...chip.clear })}
               prefetch={false}
               scroll={false}
-              className="inline-flex max-w-full items-center gap-1.5 rounded-full border bg-secondary/60 py-0.5 pl-2.5 pr-1.5 text-xs hover:bg-secondary"
+              className="inline-flex max-w-full items-center gap-1.5 rounded-full border bg-secondary/60 py-0.5 pr-1.5 pl-2.5 text-xs hover:bg-secondary"
             >
               <span className="flex min-w-0 items-center gap-1.5 truncate">{chip.label}</span>
               <XIcon className="size-3 shrink-0" aria-hidden />

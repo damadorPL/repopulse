@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import type * as SmtpSettingsModule from "@/server/smtp-settings";
 
 class UnauthorizedError extends Error {}

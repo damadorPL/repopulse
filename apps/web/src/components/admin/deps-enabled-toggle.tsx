@@ -1,8 +1,9 @@
 "use client";
 
-import { useOptimistic, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useOptimistic, useTransition } from "react";
 import { toast } from "sonner";
+
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { setDepsEnabledAction } from "@/server/actions/dependencies-admin";

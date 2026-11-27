@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+
 import { generateInviteToken, hashInviteToken } from "@/server/invite-tokens";
+
 import { inviteStatus, isWellFormedInviteToken } from "./invites";
 
 describe("invite tokens", () => {

@@ -1,4 +1,5 @@
-import nodemailer from "nodemailer";
+import nodemailer, { type Transporter } from "nodemailer";
+
 import { NotificationDeliveryError } from "../errors.js";
 import {
   escapeHtml,
@@ -85,7 +86,7 @@ interface CachedSmtpTransport {
   secure: boolean;
   user: string | undefined;
   pass: string | undefined;
-  transport: ReturnType<typeof nodemailer.createTransport>;
+  transport: Transporter;
 }
 
 let cachedTransport: CachedSmtpTransport | null = null;
@@ -127,6 +128,7 @@ export function closeSmtpTransports(): void {
  * Maps SMTP authentication and connection failures to {@link NotificationDeliveryError}.
  */
 export async function verifySmtpConfig(config: SmtpConfig): Promise<void> {
+  // oxlint-disable-next-line import/no-named-as-default-member -- nodemailer is CommonJS; tests spy on nodemailer.createTransport.
   const transport = nodemailer.createTransport(smtpTransportOptions(config));
   try {
     await transport.verify();
@@ -151,6 +153,7 @@ export function createSmtpSender(config: SmtpConfig): MailSender {
       secure: config.secure,
       user: config.user,
       pass: config.pass,
+      // oxlint-disable-next-line import/no-named-as-default-member -- nodemailer is CommonJS; tests spy on nodemailer.createTransport.
       transport: nodemailer.createTransport({
         ...smtpTransportOptions(config),
         pool: true,

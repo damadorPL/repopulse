@@ -14,6 +14,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import http from "node:http";
 import os from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
+
 import { MAX_SANDBOX_BODY_BYTES } from "@repopulse/deps/limits";
 import {
   lockRequestSchema,
@@ -21,6 +22,7 @@ import {
   type LockErrorCode,
   type ParsedLockResponse,
 } from "@repopulse/deps/sandbox-contract";
+
 import type { ToolVersions } from "./commands.js";
 import { log } from "./logger.js";
 import { DEFAULT_EGRESS_PROXY, DEFAULT_TIMEOUT_MS, runLock, type RunLockOptions } from "./run-lock.js";
@@ -178,6 +180,10 @@ export interface SandboxServer {
   close: () => Promise<void>;
 }
 
+function isResponseClosed(res: http.ServerResponse): boolean {
+  return res.closed;
+}
+
 export function createSandboxServer(options: SandboxServerOptions): SandboxServer {
   const { config, tools } = options;
   const run = options.runLock ?? runLock;
@@ -249,7 +255,7 @@ export function createSandboxServer(options: SandboxServerOptions): SandboxServe
         signal: abort.signal,
         ...options.runOptions,
       });
-      if (res.closed) return;
+      if (isResponseClosed(res)) return;
       const checked = lockResponseSchema.safeParse(result);
       if (!checked.success) {
         log.error({ packageManager: parsed.data.packageManager }, "job produced an invalid response");

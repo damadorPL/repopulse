@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
 import { RegistryUnavailableError } from "@repopulse/deps";
 import { GitHubRateLimitError } from "@repopulse/github";
 import type { DepsScanJobData } from "@repopulse/queue";
+import { describe, expect, it, vi } from "vitest";
+
+import { flushNotificationOutbox } from "../notification-outbox.js";
 import { createFakeGitHub, type FakeGitHub } from "../testing/fake-github.js";
 import { createFakePrisma, seed, type FakePrisma } from "../testing/fake-prisma.js";
-import { flushNotificationOutbox } from "../notification-outbox.js";
 import {
   fakeAccess,
   fakeQueues,
@@ -552,7 +553,7 @@ describe("processDepsScan", () => {
     const { deps, prisma, github } = setup();
     const treeStore = new Map<string, { entries: unknown[]; truncated: boolean }>();
     const treeCache = {
-      get: vi.fn(async (id: bigint | number, sha: string) => (treeStore.get(`${String(id)}:${sha}`) as never) ?? null),
+      get: vi.fn(async (id: bigint | number, sha: string) => (treeStore.get(`${String(id)}:${sha}`) ?? null) as never),
       set: vi.fn(async (id: bigint | number, sha: string, val: { entries: unknown[]; truncated: boolean }) => {
         treeStore.set(`${String(id)}:${sha}`, val);
       }),

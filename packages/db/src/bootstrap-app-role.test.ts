@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { bootstrapAppRole, type BootstrapSqlRunner, type BootstrapSqlTx } from "./bootstrap-app-role.js";
 
 function createMockRunner(

@@ -1,10 +1,11 @@
 "use server";
 
+import { INSTANCE_SETTINGS_ID, prisma } from "@repopulse/db";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { INSTANCE_SETTINGS_ID, prisma } from "@repopulse/db";
-import { invalidateDepsEnabledCache } from "@/server/deps-enabled-cache";
+
 import { invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
+import { invalidateDepsEnabledCache } from "@/server/deps-enabled-cache";
 import { getSuperAdminOrThrow } from "@/server/session";
 
 const enabledInput = z.strictObject({ enabled: z.boolean({ error: "Choose on or off" }) });

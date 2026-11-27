@@ -1,5 +1,6 @@
 import { INSTANCE_SETTINGS_ID, loadSmtpSettings, prisma, SMTP_SETTINGS_SELECT } from "@repopulse/db";
 import { defaultSmtpFrom, toSmtpConfig, type SmtpConfig } from "@repopulse/notifications";
+
 import type { SmtpSecurity } from "@/lib/smtp";
 
 /**

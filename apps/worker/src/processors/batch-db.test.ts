@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+
 import { createUserReleaseStatesInBatches, USER_RELEASE_STATE_BATCH_SIZE } from "./batch-db.js";
 
 describe("createUserReleaseStatesInBatches", () => {

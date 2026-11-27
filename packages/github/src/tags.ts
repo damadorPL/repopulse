@@ -1,4 +1,5 @@
 import type { Octokit } from "@octokit/rest";
+
 import { createOctokit, getRateLimitInfo, isGitHubHttpError, type ResponseHeaders } from "./client.js";
 import { classifySemver, type SemverType } from "./parser.js";
 import { GitHubRateLimitError, GitHubRepositoryNotFoundError, parseRetryAfter, toRateLimitError } from "./poller.js";
@@ -248,7 +249,7 @@ export async function compareCommits(params: {
       htmlUrl: data.html_url,
       totalCommits: data.total_commits,
       // GitHub lists them oldest first; changelogs read newest first.
-      commits: [...data.commits].reverse().map((c) => ({
+      commits: data.commits.toReversed().map((c) => ({
         sha: c.sha,
         subject: subjectOf(c.commit.message),
         htmlUrl: c.html_url,

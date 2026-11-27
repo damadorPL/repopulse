@@ -1,7 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-import { z } from "zod";
 import { prisma, SmtpPasswordUnreadableError } from "@repopulse/db";
 import {
   buildTestRelease,
@@ -11,18 +9,21 @@ import {
   resolveAppBaseUrl,
 } from "@repopulse/notifications";
 import { CHANNEL_INFO, DELIVERABLE_CHANNELS } from "@repopulse/notifications/channels";
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+
 import { getCurrentUserOrThrow } from "@/lib/auth";
 import { validateEventsForScope, type NotificationEventValue } from "@/lib/notification-events";
 import { notificationEventsSchema } from "@/lib/notification-events-schema";
 import { fail, invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
 import { normalizeDestination } from "@/server/notification-destination";
-import { getSmtpConfig, isSmtpConfigured } from "@/server/smtp-settings";
 import {
   MAX_NOTIFICATION_RULES,
   notificationRuleSelect,
   toNotificationRuleView,
   type NotificationRuleView,
 } from "@/server/queries/notifications";
+import { getSmtpConfig, isSmtpConfigured } from "@/server/smtp-settings";
 
 const SETTINGS_PATH = "/settings/notifications";
 /** "Send Test" cooldown per rule, so the button can't be used to flood a channel or an inbox. */

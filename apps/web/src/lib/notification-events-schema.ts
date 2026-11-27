@@ -1,4 +1,5 @@
 import { z } from "zod";
+
 import { NOTIFICATION_EVENTS, normalizeEvents } from "./notification-events";
 
 export const notificationEventsSchema = z

@@ -6,6 +6,7 @@ import {
   depsScanJobId,
   type DepsScanQueue,
 } from "@repopulse/queue";
+
 import { getRedis, isRealtimeConfigured, RealtimeUnavailableError, withRedisTimeout } from "@/server/realtime";
 
 /**

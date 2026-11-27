@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { ManifestParseError } from "./errors.js";
 import { JsonScanError, jsonPathKey, locateJsonStrings, parseJsonWithTrailingCommas } from "./json-locate.js";
 import { parsePackageJson } from "./package-json.js";

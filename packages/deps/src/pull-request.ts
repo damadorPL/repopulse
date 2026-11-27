@@ -65,7 +65,7 @@ export function parseTarget(target: string): { manifestPath: string; name: strin
 
 /** Sorted, unique targets of a group. */
 export function buildTargets(updates: readonly PrUpdate[]): string[] {
-  return [...new Set(updates.map(formatTarget))].sort();
+  return [...new Set(updates.map(formatTarget))].toSorted();
 }
 
 /**
@@ -158,7 +158,7 @@ export function buildPrBody(input: PrBodyInput): string {
     "| Dependency | Manifest | Version | Level | Released | Changelog |",
     "| --- | --- | --- | --- | --- | --- |",
   ];
-  const sorted = [...input.updates].sort((a, b) =>
+  const sorted = input.updates.toSorted((a, b) =>
     a.name < b.name
       ? -1
       : a.name > b.name

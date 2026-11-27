@@ -113,7 +113,7 @@ function splitLogicalLines(source: string): LogicalLine[] {
 /** Maps a `[start, end)` range of a logical line to an original span; `null` if it crosses a continuation. */
 function toSpan(line: LogicalLine, start: number, end: number): TextSpan | null {
   if (end <= start) {
-    const at = start < line.offsets.length ? line.offsets[start] : (line.offsets[line.offsets.length - 1] ?? -1) + 1;
+    const at = start < line.offsets.length ? line.offsets[start] : (line.offsets.at(-1) ?? -1) + 1;
     return at === undefined || at < 0 ? null : { start: at, end: at };
   }
   const first = line.offsets[start];

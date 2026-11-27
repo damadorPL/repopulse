@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { decryptToken, encryptToken } from "./crypto.js";
 
 const TEST_KEY = randomBytes(32).toString("hex");
@@ -42,19 +44,19 @@ describe("encryptToken / decryptToken", () => {
 
   it("throws on tampered ciphertext", () => {
     const [iv, tag, enc] = encryptToken("secret-token").split(":") as [string, string, string];
-    expect(() => decryptToken(`${iv}:${tag}:${flipHexChar(enc, 0)}`)).toThrow();
+    expect(() => decryptToken(`${iv}:${tag}:${flipHexChar(enc, 0)}`)).toThrow(/authenticate/);
   });
 
   it("throws on tampered auth tag or IV", () => {
     const [iv, tag, enc] = encryptToken("secret-token").split(":") as [string, string, string];
-    expect(() => decryptToken(`${iv}:${flipHexChar(tag, 5)}:${enc}`)).toThrow();
-    expect(() => decryptToken(`${flipHexChar(iv, 3)}:${tag}:${enc}`)).toThrow();
+    expect(() => decryptToken(`${iv}:${flipHexChar(tag, 5)}:${enc}`)).toThrow(/authenticate/);
+    expect(() => decryptToken(`${flipHexChar(iv, 3)}:${tag}:${enc}`)).toThrow(/authenticate/);
   });
 
   it("throws when decrypting with a different key", () => {
     const cipherText = encryptToken("secret-token");
     process.env.TOKEN_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-    expect(() => decryptToken(cipherText)).toThrow();
+    expect(() => decryptToken(cipherText)).toThrow(/authenticate/);
   });
 
   it("throws on malformed payloads", () => {
@@ -74,7 +76,7 @@ describe("encryptToken / decryptToken", () => {
 
   it("throws on truncated ciphertext failing GCM authentication", () => {
     const [iv, tag, enc] = encryptToken("secret-token").split(":") as [string, string, string];
-    expect(() => decryptToken(`${iv}:${tag}:${enc.slice(0, -2)}`)).toThrow();
+    expect(() => decryptToken(`${iv}:${tag}:${enc.slice(0, -2)}`)).toThrow(/authenticate/);
   });
 
   it("accepts uppercase hex in key and ciphertext", () => {
@@ -121,7 +123,7 @@ describe("encryptToken / decryptToken", () => {
       expect(zeroedBuffers[1]!.every((byte) => byte === 0)).toBe(true);
 
       const [iv, tag, enc] = cipherText.split(":") as [string, string, string];
-      expect(() => decryptToken(`${iv}:${tag}:${flipHexChar(enc, 0)}`)).toThrow();
+      expect(() => decryptToken(`${iv}:${tag}:${flipHexChar(enc, 0)}`)).toThrow(/authenticate/);
       expect(zeroedBuffers).toHaveLength(3);
       expect(zeroedBuffers[2]!.every((byte) => byte === 0)).toBe(true);
     } finally {

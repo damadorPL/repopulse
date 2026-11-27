@@ -12,6 +12,7 @@
  */
 import { parse as parseToml } from "smol-toml";
 import { parse as parseYaml } from "yaml";
+
 import { MAX_MANIFESTS_PER_PROJECT } from "./limits.js";
 import { hasPipCompileHeader } from "./manifests/requirements.js";
 import type { DependencyEcosystem, PackageManager } from "./types.js";
@@ -23,6 +24,10 @@ export interface RepoTreeEntry {
   type: "blob" | "tree" | "commit" | (string & {});
   sha?: string;
   size?: number;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
 export type ManifestFormat = "package.json" | "pyproject" | "requirements";
@@ -204,7 +209,7 @@ export function detectManifests(tree: readonly RepoTreeEntry[], options: DetectO
       if (blobs.has(source)) filesToRead.add(source);
     }
   }
-  return { candidates, filesToRead: [...filesToRead].sort(), warnings, blobs };
+  return { candidates, filesToRead: [...filesToRead].toSorted(), warnings, blobs };
 }
 
 type FileSource = ReadonlyMap<string, string> | Readonly<Record<string, string>>;
@@ -395,12 +400,10 @@ export function resolveManifestGroups(
           const rootUv = rootTool && isRecord(rootTool.uv) ? rootTool.uv : null;
           const workspace = rootUv && isRecord(rootUv.workspace) ? rootUv.workspace : null;
           if (!workspace) continue;
-          const strings = (value: unknown): string[] =>
-            Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
           const relative = relativeTo(dir, ancestor);
-          const excluded = strings(workspace.exclude);
+          const excluded = stringArray(workspace.exclude);
           if (
-            matchesWorkspaceGlobs(relative, strings(workspace.members)) &&
+            matchesWorkspaceGlobs(relative, stringArray(workspace.members)) &&
             !matchesWorkspaceGlobs(relative, excluded)
           ) {
             packageManager = "UV";
@@ -451,8 +454,13 @@ export function resolveManifestGroups(
     const root = byPath.get(manifest.workspaceRoot);
     if (root) root.workspaceMembers.push(manifest.path);
   }
-  for (const manifest of byPath.values()) manifest.workspaceMembers.sort();
-  return { manifests: [...byPath.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)), warnings };
+  for (const manifest of byPath.values()) {
+    manifest.workspaceMembers = manifest.workspaceMembers.toSorted();
+  }
+  return {
+    manifests: [...byPath.values()].toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
+    warnings,
+  };
 }
 
 /** Steps 1 + 2 with an async reader (`null` = missing / unreadable). Reads `filesToRead` concurrently. */

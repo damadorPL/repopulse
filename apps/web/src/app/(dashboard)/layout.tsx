@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { TopNavbar } from "@/components/layout/top-navbar";
 import { UnreadProvider } from "@/components/layout/unread-context";

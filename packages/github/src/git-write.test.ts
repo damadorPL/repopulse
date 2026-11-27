@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+
 import { createOctokit } from "./client.js";
 import {
   branchIsBotOwned,
@@ -603,10 +604,12 @@ describe("pull requests", () => {
 
   it("plumbs AbortSignal through git-write helpers", async () => {
     const signals: boolean[] = [];
-    const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    const fetch = vi.fn(async (reqInput: string | URL | Request, init?: RequestInit) => {
       signals.push(Boolean(init?.signal));
       if (init?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
-      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+      const url = new URL(
+        typeof reqInput === "string" ? reqInput : reqInput instanceof URL ? reqInput.href : reqInput.url,
+      );
       if (url.pathname.includes("/git/ref/")) return json({ ref: "refs/heads/main", object: { sha: "h1" } });
       if (url.pathname.includes("/git/trees/"))
         return json({ tree: [{ path: "a.txt", type: "blob", sha: gitBlobSha("hi") }] });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   callbackErrorMessage,
   GITHUB_APP_CALLBACK_ERRORS,
