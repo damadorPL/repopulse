@@ -9,7 +9,7 @@ Root guidance and reference router for coding agents working in **RepoPulse** (s
 
 ## 1. Architecture & Toolchain
 
-- **Monorepo DAG:** Turborepo + pnpm monorepo (`Node >= 24`, Docker on Node 26). `apps/*` depend on `packages/*`; packages never import apps. `packages/notifications` and `packages/deps` do not depend on `packages/db`. `apps/worker` and `apps/deps-worker` never import each other.
+- **Monorepo DAG:** Turborepo + pnpm monorepo (`Node >= 26`). `apps/*` depend on `packages/*`; packages never import apps. `packages/notifications` and `packages/deps` do not depend on `packages/db`. `apps/worker` and `apps/deps-worker` never import each other.
 - **Built `dist/` Consumption:** Apps and worker/web tests consume `@repopulse/*` packages through `dist/`. Always rebuild packages after editing them.
 - **Native ESM & Pinned Versions:** Packages and Node apps use `"type": "module"` and `.js` extensions on relative imports. Pin exact dependency versions (no `^`/`~`; use `pnpm add -E` or `catalog:`).
 

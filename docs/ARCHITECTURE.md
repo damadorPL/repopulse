@@ -21,7 +21,7 @@
 
 Dependency direction: `apps/*` → `packages/*`. Packages never import apps. `notifications` and `deps` do **not** depend on `db`: their input types are structural, so the apps pass Prisma rows straight in. `deps-worker` and `worker` never import each other.
 
-Stack: Node ≥ 24 (images use Node 26), pnpm 12, Turborepo 2, TypeScript 7, Next.js 16.4, React 19.3 (React Compiler + typed routes), Better Auth 1.7, Prisma 7.10, BullMQ 6, ioredis 6, Tailwind CSS 4 with shadcn/ui on `radix-ui`, Zod 4, Oxlint + `oxlint-tsgolint`, Oxfmt, Pino 10, Vitest 5.
+Stack: Node 26, pnpm 12, Turborepo 2, TypeScript 7, Next.js 16.4, React 19.3 (React Compiler + typed routes), Better Auth 1.7, Prisma 7.10, BullMQ 6, ioredis 6, Tailwind CSS 4 with shadcn/ui on `radix-ui`, Zod 4, Oxlint + `oxlint-tsgolint`, Oxfmt, Pino 10, Vitest 5.
 
 ## Processes and stores
 

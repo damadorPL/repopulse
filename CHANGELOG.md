@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.8.8] — 2026-11-27 — Node 26 alignment, native ESM & ES2025 target
+
+### Changed
+
+- **Node 26 alignment (`package.json`, `apps/web/package.json`, `@repopulse/tsconfig`)**: Raised `engines.node` and documentation (`AGENTS.md`, `README.md`, `docs/ARCHITECTURE.md`) to `>=26.0.0`, added `"type": "module"` to root `package.json` and `apps/web/package.json` with an ESM `prepare` script (eliminating Node `MODULE_TYPELESS_PACKAGE_JSON` and Vitest CJS loader warnings), and upgraded `@repopulse/tsconfig` `target` and `lib` from `ES2024` to `ES2025`.
+
 ## [0.9.8.7] — 2026-11-27 — Linting, formatting, TypeScript 7, React Doctor & pre-commit hardening
 
 ### Added

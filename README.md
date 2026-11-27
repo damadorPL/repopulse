@@ -22,7 +22,7 @@ entry point, with atomic `AGENTS.md` guides in each app and package. Release his
 
 ## Local development
 
-Requires Node.js 24+ (Docker images use Node 26 LTS) and pnpm (version pinned in `package.json#packageManager`).
+Requires Node.js 26+ (Docker images use Node 26 LTS) and pnpm (version pinned in `package.json#packageManager`).
 
 ```sh
 pnpm install

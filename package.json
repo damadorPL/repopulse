@@ -1,13 +1,14 @@
 {
   "name": "repopulse",
   "private": true,
+  "type": "module",
   "license": "MIT",
   "packageManager": "pnpm@12.23.0",
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=26.0.0"
   },
   "scripts": {
-    "prepare": "node -e \"if (require('node:fs').existsSync('scripts/install-hooks.ts')) require('node:child_process').execFileSync(process.execPath, ['scripts/install-hooks.ts'], { stdio: 'inherit' })\"",
+    "prepare": "node --input-type=module -e \"import { execFileSync } from 'node:child_process'; import { existsSync } from 'node:fs'; if (existsSync('scripts/install-hooks.ts')) execFileSync(process.execPath, ['scripts/install-hooks.ts'], { stdio: 'inherit' })\"",
     "verify": "node scripts/verify.ts",
     "check:guardrails": "node scripts/guardrails.ts",
     "build": "turbo run build",
