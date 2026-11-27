@@ -20,7 +20,7 @@ import { basename, dirname, isRecord, joinPath, matchesWorkspaceGlobs, relativeT
 /** One entry of a Git tree (`GET /git/trees/:sha?recursive=1`). Only `blob` entries are considered. */
 export interface RepoTreeEntry {
   path: string;
-  type: "blob" | "tree" | "commit" | string;
+  type: "blob" | "tree" | "commit" | (string & {});
   sha?: string;
   size?: number;
 }
@@ -159,9 +159,10 @@ export function detectManifests(tree: readonly RepoTreeEntry[], options: DetectO
   };
 
   if (explicit.length > 0) {
-    for (const path of [...new Set(explicit)]) {
+    for (const path of new Set(explicit)) {
       const format = manifestFormatOf(path, true);
-      if (!format) warnings.push(`${path} is not a supported manifest (package.json, pyproject.toml, requirements .txt / .in)`);
+      if (!format)
+        warnings.push(`${path} is not a supported manifest (package.json, pyproject.toml, requirements .txt / .in)`);
       else if (!blobs.has(path)) warnings.push(`${path} was not found on the default branch`);
       else candidates.push(toCandidate(path, format));
     }
@@ -227,7 +228,7 @@ function parseJsonObject(text: string | null): Record<string, unknown> | null {
 function parseTomlObject(text: string | null): Record<string, unknown> | null {
   if (text === null) return null;
   try {
-    return parseToml(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text) as Record<string, unknown>;
+    return parseToml(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
   } catch {
     return null;
   }
@@ -290,7 +291,9 @@ function npmRootInfo(dir: string, pkg: Record<string, unknown> | null, blobs: Ma
     checkOnlyReason = "bun.lockb is binary and cannot be regenerated: switch to the text bun.lock";
   }
   if (fromField && !lockfile && present.length > 0) {
-    warnings.push(`packageManager is ${fromField.toLowerCase()} but only ${present.map((p) => p.file).join(", ")} exists`);
+    warnings.push(
+      `packageManager is ${fromField.toLowerCase()} but only ${present.map((p) => p.file).join(", ")} exists`,
+    );
   }
   return { packageManager, lockfilePath: lockfile ? joinPath(dir, lockfile.file) : null, warnings, checkOnlyReason };
 }
@@ -335,7 +338,10 @@ export function resolveManifestGroups(
         const relative = relativeTo(dir, ancestor);
         const pnpmPath = joinPath(ancestor, "pnpm-workspace.yaml");
         const pnpmGlobs = pnpmWorkspaceGlobs(lookup(files, pnpmPath));
-        if (matchesWorkspaceGlobs(relative, workspaceGlobs(pkgAt(ancestor))) || matchesWorkspaceGlobs(relative, pnpmGlobs)) {
+        if (
+          matchesWorkspaceGlobs(relative, workspaceGlobs(pkgAt(ancestor))) ||
+          matchesWorkspaceGlobs(relative, pnpmGlobs)
+        ) {
           rootDir = ancestor;
           workspaceConfigPath = blobs.has(pnpmPath) ? pnpmPath : null;
           break;
@@ -393,7 +399,10 @@ export function resolveManifestGroups(
             Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
           const relative = relativeTo(dir, ancestor);
           const excluded = strings(workspace.exclude);
-          if (matchesWorkspaceGlobs(relative, strings(workspace.members)) && !matchesWorkspaceGlobs(relative, excluded)) {
+          if (
+            matchesWorkspaceGlobs(relative, strings(workspace.members)) &&
+            !matchesWorkspaceGlobs(relative, excluded)
+          ) {
             packageManager = "UV";
             lockfilePath = rootLock;
             workspaceRoot = blobs.has(rootPyproject) ? rootPyproject : null;

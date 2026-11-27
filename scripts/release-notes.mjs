@@ -4,32 +4,37 @@
 
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const argv = process.argv.slice(2);
+const root = path.resolve(import.meta.dirname, "..");
 
-let outPath = null;
-let writeGithubOutput = false;
-
-for (let i = 0; i < argv.length; i++) {
-  const arg = argv[i];
-  if (arg === "--out") {
-    outPath = argv[++i] ?? null;
-    if (!outPath) {
-      console.error("Missing path after --out");
-      process.exit(1);
-    }
-  } else if (arg === "--github-output") {
-    writeGithubOutput = true;
-  } else if (arg === "--help" || arg === "-h") {
-    console.log("Usage: node scripts/release-notes.mjs [--out <path>] [--github-output]");
-    process.exit(0);
-  } else {
-    console.error(`Unknown argument: ${arg}`);
-    process.exit(1);
-  }
+let values;
+try {
+  ({ values } = parseArgs({
+    options: {
+      out: { type: "string" },
+      "github-output": { type: "boolean", default: false },
+      help: { type: "boolean", short: "h", default: false },
+    },
+    strict: true,
+  }));
+} catch (err) {
+  console.error(err instanceof Error ? err.message : String(err));
+  process.exit(1);
 }
+
+if (values.help) {
+  console.log("Usage: node scripts/release-notes.mjs [--out <path>] [--github-output]");
+  process.exit(0);
+}
+
+if (values.out === "") {
+  console.error("Missing path after --out");
+  process.exit(1);
+}
+
+const outPath = values.out ?? null;
+const writeGithubOutput = values["github-output"];
 
 const webPkg = JSON.parse(readFileSync(path.join(root, "apps", "web", "package.json"), "utf8"));
 const version = typeof webPkg.version === "string" ? webPkg.version.trim() : "";

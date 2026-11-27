@@ -95,11 +95,15 @@ export async function fetchNpmPackage(name: string, options: NpmFetchOptions): P
     const timeKey = registryCacheKey("npm-time", name);
     const cachedTimes = options.cache ? await options.cache.get(timeKey) : null;
     const cachedModified = cachedTimes ? (JSON.parse(cachedTimes.body) as CompactTimes).time.modified : undefined;
-    // The cached times are stale when the abbreviated document was modified after them.
+    // The cached times are stale when the abbreviated document was modified after them (invalid dates never count as fresh).
+    const cachedModifiedMs = cachedModified !== undefined ? Date.parse(cachedModified) : NaN;
+    const packumentModifiedMs = packument.modified !== null ? Date.parse(packument.modified) : NaN;
     const stale =
       cachedTimes !== null &&
       packument.modified !== null &&
-      (cachedModified === undefined || Date.parse(cachedModified) < Date.parse(packument.modified));
+      (!Number.isFinite(cachedModifiedMs) ||
+        !Number.isFinite(packumentModifiedMs) ||
+        cachedModifiedMs < packumentModifiedMs);
     if (cachedTimes !== null && !stale) times = JSON.parse(cachedTimes.body) as CompactTimes;
     else {
       // Stale: bypass the freshness window (the ETag still saves the transfer when nothing changed).

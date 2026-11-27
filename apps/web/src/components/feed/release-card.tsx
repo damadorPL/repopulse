@@ -33,11 +33,15 @@ export function ReleaseCard({
       <button
         type="button"
         onClick={() => onOpen(item)}
-        className="absolute inset-0 z-0 rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        className="absolute inset-0 z-0 rounded-lg outline-hidden focus-visible:ring-[3px] focus-visible:ring-ring/50"
         aria-label={`Read ${item.source === "TAG" ? "tag" : item.source === "COMMIT" ? "commit" : "release"} notes for ${item.repository.fullName} ${item.tagName}${isRead ? "" : " (unread)"}`}
       />
 
-      <RepoAvatar src={item.repository.avatarUrl} name={item.repository.name} className="pointer-events-none relative" />
+      <RepoAvatar
+        src={item.repository.avatarUrl}
+        name={item.repository.name}
+        className="pointer-events-none relative"
+      />
 
       <div className="pointer-events-none relative min-w-0 flex-1">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -62,11 +66,18 @@ export function ReleaseCard({
               Newer than yours
             </span>
           ) : item.isMyVersion ? (
-            <span className="inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] text-muted-foreground">Your version</span>
+            <span className="inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] text-muted-foreground">
+              Your version
+            </span>
           ) : null}
         </div>
 
-        <h3 className={cn("mt-1.5 line-clamp-2 text-sm break-words", isRead ? "font-normal text-foreground/80" : "font-semibold")}>
+        <h3
+          className={cn(
+            "mt-1.5 line-clamp-2 text-sm wrap-break-word",
+            isRead ? "font-normal text-foreground/80" : "font-semibold",
+          )}
+        >
           {item.title}
         </h3>
 
@@ -81,7 +92,10 @@ export function ReleaseCard({
 
       <div className="relative flex flex-col items-end justify-between gap-2">
         <span
-          className={cn("pointer-events-none mt-1 size-2.5 rounded-full bg-unread transition-opacity", isRead && "opacity-0")}
+          className={cn(
+            "pointer-events-none mt-1 size-2.5 rounded-full bg-unread transition-opacity",
+            isRead && "opacity-0",
+          )}
           aria-hidden
           title={isRead ? undefined : "Unread"}
         />
@@ -89,7 +103,7 @@ export function ReleaseCard({
           href={item.htmlUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="z-10 rounded p-1 text-muted-foreground opacity-0 outline-none transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/50 group-hover:opacity-100"
+          className="z-10 rounded p-1 text-muted-foreground opacity-0 outline-hidden transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/50 group-hover:opacity-100"
           title="Open on GitHub"
         >
           <ExternalLinkIcon className="size-4" />

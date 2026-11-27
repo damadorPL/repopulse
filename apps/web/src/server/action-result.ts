@@ -21,9 +21,7 @@ export type ActionErrorCode =
   | "DELIVERY_FAILED"
   | "INTERNAL";
 
-export type ActionResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; error: { code: ActionErrorCode; message: string } };
+export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: { code: ActionErrorCode; message: string } };
 
 export function ok<T>(data: T): ActionResult<T> {
   return { ok: true, data };

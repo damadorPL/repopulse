@@ -1,3 +1,4 @@
+import type * as GithubModule from "@repopulse/github";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 class UnauthorizedError extends Error {}
@@ -39,7 +40,7 @@ vi.mock("@/lib/auth", () => ({
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@repopulse/db", () => ({ prisma, decryptToken }));
 vi.mock("@repopulse/github", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@repopulse/github")>()),
+  ...(await importOriginal<typeof GithubModule>()),
   GitHubRepositoryNotFoundError,
   GitHubRateLimitError,
   InvalidRepositoryInputError,
@@ -93,7 +94,7 @@ beforeEach(() => {
       starsCount: 10,
     },
     releases: [{ githubReleaseId: 1, tagName: "v1.0.0" }],
-    etag: "W/\"1\"",
+    etag: 'W/"1"',
   });
 });
 

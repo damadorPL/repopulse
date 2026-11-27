@@ -30,7 +30,7 @@ export function ThemeSwitcher({ className }: { className?: string }) {
               title={label}
               onClick={() => setTheme(value)}
               className={cn(
-                "flex size-7 items-center justify-center rounded-[calc(var(--radius)-4px)] text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 [&_svg]:size-3.5",
+                "flex size-7 items-center justify-center rounded-[calc(var(--radius)-4px)] text-muted-foreground outline-hidden transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 [&_svg]:size-3.5",
                 selected && "bg-background text-foreground shadow-sm",
               )}
             >

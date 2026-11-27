@@ -64,7 +64,8 @@ export function createFakeGitHub(init: {
   const headFiles = (branch: string) => commits.get(branches.get(branch)!)!.files;
 
   const api = {
-    createOctokit: ({ accessToken }: { accessToken?: string | null } = {}) => ({ token: accessToken ?? undefined }) as never,
+    createOctokit: ({ accessToken }: { accessToken?: string | null } = {}) =>
+      ({ token: accessToken ?? undefined }) as never,
     createAppOctokit: () => ({}) as never,
     getRepoInstallation: async () => null,
     createInstallationToken: async () => ({ token: "inst-token", expiresAt: new Date(Date.now() + 3600_000) }),
@@ -73,7 +74,8 @@ export function createFakeGitHub(init: {
       const token = (params.octokit as { token?: string } | undefined)?.token;
       state.tokensSeen.add(token);
       state.calls.push("fetchGitTree");
-      if (state.notFound || (state.isPrivate && !token?.startsWith("inst-"))) throw new GitHubRepositoryNotFoundError(owner, name);
+      if (state.notFound || (state.isPrivate && !token?.startsWith("inst-")))
+        throw new GitHubRepositoryNotFoundError(owner, name);
       const head = branches.get(defaultBranch)!;
       const entries = [...headFiles(defaultBranch)].map(([path, content]) => ({
         path,
@@ -82,13 +84,27 @@ export function createFakeGitHub(init: {
         size: Buffer.byteLength(content),
       }));
       return {
-        repository: { id: init.repoId ?? 42, owner, name, fullName: `${owner}/${name}`, defaultBranch, isPrivate: state.isPrivate, htmlUrl: `https://github.com/${owner}/${name}` },
+        repository: {
+          id: init.repoId ?? 42,
+          owner,
+          name,
+          fullName: `${owner}/${name}`,
+          defaultBranch,
+          isPrivate: state.isPrivate,
+          htmlUrl: `https://github.com/${owner}/${name}`,
+        },
         commitSha: head,
         entries: entries.sort((a, b) => (a.path < b.path ? -1 : 1)),
         truncated: false,
       };
     },
-    readBlobs: async (_o: unknown, _owner: string, _repo: string, refs: ReadonlyArray<{ path: string; sha: string }>, options: { maxBytes: number }) => {
+    readBlobs: async (
+      _o: unknown,
+      _owner: string,
+      _repo: string,
+      refs: ReadonlyArray<{ path: string; sha: string }>,
+      options: { maxBytes: number },
+    ) => {
       state.calls.push(`readBlobs:${refs.map((r) => r.path).join(",")}`);
       return refs.map((ref) => {
         const content = blobs.get(ref.sha) ?? null;
@@ -102,21 +118,43 @@ export function createFakeGitHub(init: {
       if (!pr) return null;
       return { state: pr.state, merged: pr.merged, headSha: branches.get(pr.head) ?? "", headRef: pr.head };
     },
-    inspectBranch: async (_o: unknown, _owner: string, _repo: string, branch: string, expected: string | null | undefined) => {
+    inspectBranch: async (
+      _o: unknown,
+      _owner: string,
+      _repo: string,
+      branch: string,
+      expected: string | null | undefined,
+    ) => {
       const head = branches.get(branch);
       if (!head) return { status: "missing" as const };
-      return expected && head === expected ? { status: "owned" as const, headSha: head } : { status: "edited" as const, headSha: head };
+      return expected && head === expected
+        ? { status: "owned" as const, headSha: head }
+        : { status: "edited" as const, headSha: head };
     },
-    treeHasContent: async (_o: unknown, _owner: string, _repo: string, commitSha: string, files: ReadonlyArray<{ path: string; content: string | Uint8Array }>) => {
+    treeHasContent: async (
+      _o: unknown,
+      _owner: string,
+      _repo: string,
+      commitSha: string,
+      files: ReadonlyArray<{ path: string; content: string | Uint8Array }>,
+    ) => {
       const commit = commits.get(commitSha);
       return !!commit && files.every((f) => commit.files.get(f.path) === f.content);
     },
     commitFiles: async (
       _o: unknown,
-      params: { baseSha: string; branch: string; files: ReadonlyArray<{ path: string; content: string | Uint8Array }>; message: string; force: boolean; onPrepared?: (commitSha: string) => Promise<void> },
+      params: {
+        baseSha: string;
+        branch: string;
+        files: ReadonlyArray<{ path: string; content: string | Uint8Array }>;
+        message: string;
+        force: boolean;
+        onPrepared?: (commitSha: string) => Promise<void>;
+      },
     ) => {
       state.calls.push(`commitFiles:${params.branch}:${params.files.map((f) => f.path).join(",")}`);
-      if (!params.force && branches.has(params.branch)) throw new RefUpdateConflictError(`refs/heads/${params.branch}`, 422, "exists");
+      if (!params.force && branches.has(params.branch))
+        throw new RefUpdateConflictError(`refs/heads/${params.branch}`, 422, "exists");
       const files = new Map(commits.get(params.baseSha)!.files);
       for (const file of params.files) files.set(file.path, String(file.content));
       const sha = makeCommit(files, params.baseSha, params.message);
@@ -124,23 +162,46 @@ export function createFakeGitHub(init: {
       branches.set(params.branch, sha);
       return { commitSha: sha, treeSha: `tree-${sha}` };
     },
-    upsertPullRequest: async (_o: unknown, params: { head: string; base: string; title: string; body: string; existingNumber?: number | null }) => {
+    upsertPullRequest: async (
+      _o: unknown,
+      params: { head: string; base: string; title: string; body: string; existingNumber?: number | null },
+    ) => {
       const existing = prs.find((p) => p.state === "open" && p.head === params.head);
       if (existing) {
         existing.title = params.title;
         existing.body = params.body;
-        return { number: existing.number, htmlUrl: `https://github.com/${owner}/${name}/pull/${existing.number}`, state: "open" as const, created: false };
+        return {
+          number: existing.number,
+          htmlUrl: `https://github.com/${owner}/${name}/pull/${existing.number}`,
+          state: "open" as const,
+          created: false,
+        };
       }
-      const pr: FakePr = { number: prs.length + 1, head: params.head, base: params.base, title: params.title, body: params.body, state: "open", merged: false, comments: [] };
+      const pr: FakePr = {
+        number: prs.length + 1,
+        head: params.head,
+        base: params.base,
+        title: params.title,
+        body: params.body,
+        state: "open",
+        merged: false,
+        comments: [],
+      };
       prs.push(pr);
-      return { number: pr.number, htmlUrl: `https://github.com/${owner}/${name}/pull/${pr.number}`, state: "open" as const, created: true };
+      return {
+        number: pr.number,
+        htmlUrl: `https://github.com/${owner}/${name}/pull/${pr.number}`,
+        state: "open" as const,
+        created: true,
+      };
     },
     closePullRequest: async (_o: unknown, params: { number: number; comment?: string | null }) => {
       const pr = prs.find((p) => p.number === params.number)!;
       if (params.comment) pr.comments.push(params.comment);
       pr.state = "closed";
     },
-    getCollaboratorPermission: async (_o: unknown, _owner: string, _repo: string, login: string) => state.permissions.get(login) ?? null,
+    getCollaboratorPermission: async (_o: unknown, _owner: string, _repo: string, login: string) =>
+      state.permissions.get(login) ?? null,
     getUserLoginById: async (_o: unknown, id: string | number) => state.logins.get(String(id)) ?? null,
   };
 

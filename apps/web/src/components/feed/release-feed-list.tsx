@@ -78,7 +78,9 @@ export function ReleaseFeedList({
           </Button>
         </div>
       ) : items.length > 10 ? (
-        <p className="pt-2 text-center text-xs text-muted-foreground">You&apos;re all caught up — that&apos;s every release.</p>
+        <p className="pt-2 text-center text-xs text-muted-foreground">
+          You&apos;re all caught up — that&apos;s every release.
+        </p>
       ) : null}
     </div>
   );

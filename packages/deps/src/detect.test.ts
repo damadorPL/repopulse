@@ -45,7 +45,10 @@ interface Row {
 
 /** End-to-end at the parser level: detect → parse → read lockfile, like the scan processor. */
 async function scan(files: Record<string, string>, extra: string[] = []) {
-  const { manifests, warnings } = await detectManifestsWithReader(treeOf(files, extra), async (path) => files[path] ?? null);
+  const { manifests, warnings } = await detectManifestsWithReader(
+    treeOf(files, extra),
+    async (path) => files[path] ?? null,
+  );
   const result: Array<{ manifest: DetectedManifest; rows: Row[]; formatVersion: string | null }> = [];
   for (const manifest of manifests) {
     const text = files[manifest.path] ?? "";
@@ -189,7 +192,11 @@ describe("fixture repositories (§4 Part A)", () => {
 
   it("pnpm workspace", async () => {
     const { result } = await scan({
-      "package.json": JSON.stringify({ name: "root", packageManager: "pnpm@9.12.0", devDependencies: { typescript: "^5.4.0" } }),
+      "package.json": JSON.stringify({
+        name: "root",
+        packageManager: "pnpm@9.12.0",
+        devDependencies: { typescript: "^5.4.0" },
+      }),
       "pnpm-workspace.yaml": "packages:\n  - 'apps/*'\n  - 'packages/*'\n  - '!packages/ignored'\n",
       "apps/web/package.json": JSON.stringify({
         dependencies: { react: "^18.2.0", "react-dom": "^18.2.0", "@repo/ui": "workspace:*", zod: "catalog:" },
@@ -225,7 +232,11 @@ describe("fixture repositories (§4 Part A)", () => {
 
   it("Bun with the text bun.lock", async () => {
     const { result } = await scan({
-      "package.json": JSON.stringify({ name: "root", workspaces: ["apps/*"], devDependencies: { typescript: "^5.4.0" } }),
+      "package.json": JSON.stringify({
+        name: "root",
+        workspaces: ["apps/*"],
+        devDependencies: { typescript: "^5.4.0" },
+      }),
       "apps/web/package.json": JSON.stringify({ name: "web", dependencies: { react: "^18.2.0", ui: "workspace:*" } }),
       "bun.lock": BUN_LOCK,
     });
@@ -237,8 +248,14 @@ describe("fixture repositories (§4 Part A)", () => {
   });
 
   it("Bun with the binary bun.lockb: check only, declared ranges", async () => {
-    const { result } = await scan({ "package.json": JSON.stringify({ dependencies: { react: "^18.2.0" } }) }, ["bun.lockb"]);
-    expect(result[0]!.manifest).toMatchObject({ packageManager: "BUN", lockfilePath: "bun.lockb", warnings: [BUN_LOCKB_WARNING] });
+    const { result } = await scan({ "package.json": JSON.stringify({ dependencies: { react: "^18.2.0" } }) }, [
+      "bun.lockb",
+    ]);
+    expect(result[0]!.manifest).toMatchObject({
+      packageManager: "BUN",
+      lockfilePath: "bun.lockb",
+      warnings: [BUN_LOCKB_WARNING],
+    });
     expect(result[0]!.manifest.checkOnlyReason).toMatch(/bun.lockb/);
     expect(result[0]!.rows[0]).toMatchObject({ declared: "^18.2.0", current: null });
   });
@@ -262,7 +279,10 @@ describe("fixture repositories (§4 Part A)", () => {
 
   it("packageManager field wins over lockfiles and warns when declared manager lockfile is missing", async () => {
     const { result } = await scan(
-      { "package.json": JSON.stringify({ packageManager: "yarn@4.1.0", dependencies: {} }), "pnpm-lock.yaml": PNPM_LOCK_V9 },
+      {
+        "package.json": JSON.stringify({ packageManager: "yarn@4.1.0", dependencies: {} }),
+        "pnpm-lock.yaml": PNPM_LOCK_V9,
+      },
       ["yarn.lock"],
     );
     expect(result[0]!.manifest).toMatchObject({ packageManager: "YARN", lockfilePath: "yarn.lock" });
@@ -275,7 +295,9 @@ describe("fixture repositories (§4 Part A)", () => {
       packageManager: "PNPM",
       lockfilePath: null,
     });
-    expect(mismatch.result[0]!.manifest.warnings[0]).toMatch(/packageManager is pnpm but only package-lock\.json exists/);
+    expect(mismatch.result[0]!.manifest.warnings[0]).toMatch(
+      /packageManager is pnpm but only package-lock\.json exists/,
+    );
   });
 
   it("uv workspace respects exclude globs", async () => {
@@ -295,7 +317,8 @@ describe("fixture repositories (§4 Part A)", () => {
 
   it("uv project", async () => {
     const { result } = await scan({
-      "pyproject.toml": '[project]\nname = "demo"\nrequires-python = ">=3.11"\ndependencies = ["httpx>=0.27", "rich==13.7.1"]\n',
+      "pyproject.toml":
+        '[project]\nname = "demo"\nrequires-python = ">=3.11"\ndependencies = ["httpx>=0.27", "rich==13.7.1"]\n',
       "uv.lock": UV_LOCK,
     });
     expect(result[0]!.manifest).toMatchObject({ ecosystem: "PYPI", packageManager: "UV", lockfilePath: "uv.lock" });

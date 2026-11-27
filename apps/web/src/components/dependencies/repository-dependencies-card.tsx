@@ -30,7 +30,11 @@ export function RepositoryDependenciesCard({
 
   function add() {
     startTransition(async () => {
-      const result = await addDependencyProjectsAction({ sources: [{ subscriptionId }], updateMode: "NOTIFY", notifyOnFirstScan: false });
+      const result = await addDependencyProjectsAction({
+        sources: [{ subscriptionId }],
+        updateMode: "NOTIFY",
+        notifyOnFirstScan: false,
+      });
       if (!result.ok) {
         if (result.error.code === "UNAUTHORIZED") router.push("/login");
         toast.error(result.error.message);
@@ -43,7 +47,10 @@ export function RepositoryDependenciesCard({
         return;
       }
       if (added[0] && scansQueued) {
-        toast.loading(`Checking the dependencies of ${target.fullName}…`, { id: depsScanToastId(target.projectId), duration: 120_000 });
+        toast.loading(`Checking the dependencies of ${target.fullName}…`, {
+          id: depsScanToastId(target.projectId),
+          duration: 120_000,
+        });
       }
       router.push(dependencyProjectHref(target.fullName));
     });
@@ -64,8 +71,8 @@ export function RepositoryDependenciesCard({
             </>
           ) : (
             <>
-              <span className="font-medium text-foreground">{formatOutdatedCounts(project.outdated)}</span> outdated · checked{" "}
-              <RelativeTime date={project.lastScannedAt} />
+              <span className="font-medium text-foreground">{formatOutdatedCounts(project.outdated)}</span> outdated ·
+              checked <RelativeTime date={project.lastScannedAt} />
             </>
           )}
         </p>
@@ -82,7 +89,8 @@ export function RepositoryDependenciesCard({
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <p className="text-sm text-muted-foreground">
-        If {fullName} is your own repository, RepoPulse can check its npm, Bun and Python dependencies and tell you when they are outdated.
+        If {fullName} is your own repository, RepoPulse can check its npm, Bun and Python dependencies and tell you when
+        they are outdated.
       </p>
       <Button size="sm" onClick={add} disabled={pending}>
         {pending ? <LoaderCircleIcon className="animate-spin" /> : <PackageSearchIcon />}

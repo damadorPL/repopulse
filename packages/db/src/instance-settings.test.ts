@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { encryptToken } from "./crypto";
+import { encryptToken } from "./crypto.js";
 import {
   GitHubAppKeyUnreadableError,
   loadBackfillOverrides,
@@ -9,9 +9,15 @@ import {
   loadSmtpSettings,
   NO_BACKFILL_OVERRIDES,
   SmtpPasswordUnreadableError,
-} from "./instance-settings";
+} from "./instance-settings.js";
 
-const row = { smtpHost: "smtp.example.com", smtpPort: 587, smtpSecure: null, smtpUser: "bot@example.com", smtpFrom: null };
+const row = {
+  smtpHost: "smtp.example.com",
+  smtpPort: 587,
+  smtpSecure: null,
+  smtpUser: "bot@example.com",
+  smtpFrom: null,
+};
 
 function client(value: unknown) {
   return { instanceSettings: { findUnique: vi.fn(async () => value) } } as never;
@@ -37,8 +43,12 @@ describe("loadSmtpSettings", () => {
   });
 
   it("returns a null password when none is stored or empty string", async () => {
-    await expect(loadSmtpSettings(client({ ...row, smtpPasswordEncrypted: null }))).resolves.toMatchObject({ smtpPassword: null });
-    await expect(loadSmtpSettings(client({ ...row, smtpPasswordEncrypted: "" }))).resolves.toMatchObject({ smtpPassword: null });
+    await expect(loadSmtpSettings(client({ ...row, smtpPasswordEncrypted: null }))).resolves.toMatchObject({
+      smtpPassword: null,
+    });
+    await expect(loadSmtpSettings(client({ ...row, smtpPasswordEncrypted: "" }))).resolves.toMatchObject({
+      smtpPassword: null,
+    });
   });
 
   it("throws SmtpPasswordUnreadableError after a key change", async () => {
@@ -66,7 +76,14 @@ describe("loadBackfillOverrides", () => {
         backfillDeepCooldownMinutes: 1,
       }),
     );
-    expect(overrides).toEqual({ defaultTarget: 300, maxAgeDays: 0, hardCap: null, minQuota: null, deepStep: 50, deepCooldownMinutes: 1 });
+    expect(overrides).toEqual({
+      defaultTarget: 300,
+      maxAgeDays: 0,
+      hardCap: null,
+      minQuota: null,
+      deepStep: 50,
+      deepCooldownMinutes: 1,
+    });
   });
 });
 
@@ -90,19 +107,44 @@ describe("loadGitHubAppSettings", () => {
     const encKey = encryptToken("pem-key");
     await expect(loadGitHubAppSettings(client(null))).resolves.toBeNull();
     await expect(
-      loadGitHubAppSettings(client({ ...baseAppRow, githubAppId: null, githubAppPrivateKeyEncrypted: encKey, githubAppWebhookSecretEncrypted: null })),
+      loadGitHubAppSettings(
+        client({
+          ...baseAppRow,
+          githubAppId: null,
+          githubAppPrivateKeyEncrypted: encKey,
+          githubAppWebhookSecretEncrypted: null,
+        }),
+      ),
     ).resolves.toBeNull();
     await expect(
-      loadGitHubAppSettings(client({ ...baseAppRow, githubAppSlug: null, githubAppPrivateKeyEncrypted: encKey, githubAppWebhookSecretEncrypted: null })),
+      loadGitHubAppSettings(
+        client({
+          ...baseAppRow,
+          githubAppSlug: null,
+          githubAppPrivateKeyEncrypted: encKey,
+          githubAppWebhookSecretEncrypted: null,
+        }),
+      ),
     ).resolves.toBeNull();
     await expect(
-      loadGitHubAppSettings(client({ ...baseAppRow, githubAppSlug: "", githubAppPrivateKeyEncrypted: encKey, githubAppWebhookSecretEncrypted: null })),
+      loadGitHubAppSettings(
+        client({
+          ...baseAppRow,
+          githubAppSlug: "",
+          githubAppPrivateKeyEncrypted: encKey,
+          githubAppWebhookSecretEncrypted: null,
+        }),
+      ),
     ).resolves.toBeNull();
     await expect(
-      loadGitHubAppSettings(client({ ...baseAppRow, githubAppPrivateKeyEncrypted: null, githubAppWebhookSecretEncrypted: null })),
+      loadGitHubAppSettings(
+        client({ ...baseAppRow, githubAppPrivateKeyEncrypted: null, githubAppWebhookSecretEncrypted: null }),
+      ),
     ).resolves.toBeNull();
     await expect(
-      loadGitHubAppSettings(client({ ...baseAppRow, githubAppPrivateKeyEncrypted: "", githubAppWebhookSecretEncrypted: null })),
+      loadGitHubAppSettings(
+        client({ ...baseAppRow, githubAppPrivateKeyEncrypted: "", githubAppWebhookSecretEncrypted: null }),
+      ),
     ).resolves.toBeNull();
   });
 

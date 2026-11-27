@@ -38,9 +38,12 @@ export function parsePyproject(text: string, path = "pyproject.toml"): Pyproject
   let data: Record<string, unknown>;
   let located: Map<string, TomlLocatedString>;
   try {
-    data = parseToml(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text) as Record<string, unknown>;
+    data = parseToml(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
   } catch (error) {
-    throw new ManifestParseError(path, `invalid TOML (${error instanceof Error ? error.message.split("\n")[0] : String(error)})`);
+    throw new ManifestParseError(
+      path,
+      `invalid TOML (${error instanceof Error ? error.message.split("\n")[0] : String(error)})`,
+    );
   }
   const warnings: string[] = [];
   try {
@@ -84,11 +87,17 @@ export function parsePyproject(text: string, path = "pyproject.toml"): Pyproject
       marker: requirement.marker,
     };
     if (requirement.url) dependencies.push({ ...base, supported: false, unsupportedReason: "Direct URL reference" });
-    else if (!requirement.valid) dependencies.push({ ...base, supported: false, unsupportedReason: "Invalid version specifier" });
+    else if (!requirement.valid)
+      dependencies.push({ ...base, supported: false, unsupportedReason: "Invalid version specifier" });
     else dependencies.push({ ...base, supported: true });
   };
 
-  const addPep508List = (list: unknown, basePath: Array<string | number>, kind: DependencyKind, group: string): void => {
+  const addPep508List = (
+    list: unknown,
+    basePath: Array<string | number>,
+    kind: DependencyKind,
+    group: string,
+  ): void => {
     if (!Array.isArray(list)) return;
     list.forEach((value, index) => addPep508(value, [...basePath, index], kind, group));
   };
@@ -118,7 +127,16 @@ export function parsePyproject(text: string, path = "pyproject.toml"): Pyproject
         continue;
       }
       const name = normalizePypiName(rawName);
-      const common = { name, rawName, kind, group, rangeSyntax: "poetry" as RangeSyntax, file: path, extras: [], marker: null };
+      const common = {
+        name,
+        rawName,
+        kind,
+        group,
+        rangeSyntax: "poetry" as RangeSyntax,
+        file: path,
+        extras: [],
+        marker: null,
+      };
       let valuePath: Array<string | number> = [...basePath, rawName];
       let declared: string | null = null;
       let reason: string | null = null;
@@ -138,7 +156,8 @@ export function parsePyproject(text: string, path = "pyproject.toml"): Pyproject
       } else if (Array.isArray(value)) reason = "Multiple-constraint dependency";
       else reason = "Not a version constraint";
 
-      if (declared !== null && !reason && !isValidPep440Constraint(declared, "poetry")) reason = "Invalid version constraint";
+      if (declared !== null && !reason && !isValidPep440Constraint(declared, "poetry"))
+        reason = "Invalid version constraint";
       const location = located.get(tomlPathKey(valuePath));
       const writable = declared !== null && location?.plain === true;
       dependencies.push({
@@ -170,7 +189,8 @@ export function parsePyproject(text: string, path = "pyproject.toml"): Pyproject
   const strings = (value: unknown): string[] =>
     Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 
-  const projectRequiresPython = project && typeof project["requires-python"] === "string" ? project["requires-python"] : null;
+  const projectRequiresPython =
+    project && typeof project["requires-python"] === "string" ? project["requires-python"] : null;
   return {
     projectName:
       project && typeof project.name === "string"

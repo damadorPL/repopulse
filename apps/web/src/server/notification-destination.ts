@@ -9,6 +9,8 @@ import {
 import { CHANNEL_INFO, type DeliverableChannel } from "@repopulse/notifications/channels";
 import { fail, ok, type ActionResult } from "@/server/action-result";
 
+const emailSchema = z.email();
+
 /**
  * Checks and normalizes the destination of a new notification rule. Not a `"use server"` module,
  * so it can be unit-tested and is never callable from the browser.
@@ -29,7 +31,8 @@ export async function normalizeDestination(
   if (info.destination === "email") {
     if (!options.smtpConfigured) return fail("UNAVAILABLE", SMTP_NOT_CONFIGURED_MESSAGE);
     if (!value) return ok(null);
-    if (!z.email().safeParse(value).success) return fail("INVALID_INPUT", "Enter a valid email address, or leave it empty.");
+    if (!emailSchema.safeParse(value).success)
+      return fail("INVALID_INPUT", "Enter a valid email address, or leave it empty.");
     return ok(value);
   }
 

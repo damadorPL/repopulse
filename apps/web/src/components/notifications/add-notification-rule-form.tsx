@@ -15,7 +15,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { NotificationEventCheckboxes } from "@/components/notifications/notification-event-checkboxes";
-import { DEFAULT_NOTIFICATION_EVENTS, isEventAllowedForScope, NOTIFICATION_EVENT_LABELS, type NotificationEventValue } from "@/lib/notification-events";
+import {
+  DEFAULT_NOTIFICATION_EVENTS,
+  isEventAllowedForScope,
+  NOTIFICATION_EVENT_LABELS,
+  type NotificationEventValue,
+} from "@/lib/notification-events";
 import { createNotificationRuleAction } from "@/server/actions/notifications";
 import type { TagPill } from "@/server/queries/feed";
 
@@ -70,7 +75,9 @@ export function AddNotificationRuleForm({
       const label = CHANNEL_INFO[channel].label;
       const what = rule.events.map((event) => NOTIFICATION_EVENT_LABELS[event]).join(", ");
       toast.success(`${label} rule added`, {
-        description: rule.tag ? `${what} of repositories tagged “${rule.tag.name}”.` : `${what} of all your repositories.`,
+        description: rule.tag
+          ? `${what} of repositories tagged “${rule.tag.name}”.`
+          : `${what} of all your repositories.`,
         action: { label: "Send test", onClick: () => void sendTestWithToast(rule.id, label) },
       });
       setDestination("");
@@ -80,12 +87,18 @@ export function AddNotificationRuleForm({
   }
 
   return (
-    <form onSubmit={submit} className="grid gap-4 rounded-lg border bg-card p-4 sm:p-5" aria-labelledby="add-rule-heading">
+    <form
+      onSubmit={submit}
+      className="grid gap-4 rounded-lg border bg-card p-4 sm:p-5"
+      aria-labelledby="add-rule-heading"
+    >
       <div>
         <h2 id="add-rule-heading" className="font-medium">
           Add notification rule
         </h2>
-        <p className="mt-0.5 text-sm text-muted-foreground">Choose where alerts go and which repositories trigger them.</p>
+        <p className="mt-0.5 text-sm text-muted-foreground">
+          Choose where alerts go and which repositories trigger them.
+        </p>
       </div>
 
       {/* items-start: the Repositories column can carry a hint, which would otherwise stretch the Channel column. */}
@@ -134,7 +147,9 @@ export function AddNotificationRuleForm({
             </SelectContent>
           </Select>
           {tags.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Create tags in the sidebar to limit a rule to some repositories.</p>
+            <p className="text-xs text-muted-foreground">
+              Create tags in the sidebar to limit a rule to some repositories.
+            </p>
           ) : null}
         </div>
       </div>
@@ -173,13 +188,21 @@ export function AddNotificationRuleForm({
         </p>
       </div>
 
-      <NotificationEventCheckboxes idPrefix="rule-event" value={effectiveEvents} onChange={setEvents} tagScoped={tagScoped} />
+      <NotificationEventCheckboxes
+        idPrefix="rule-event"
+        value={effectiveEvents}
+        onChange={setEvents}
+        tagScoped={tagScoped}
+      />
 
       <Label className="items-start font-normal">
         <Checkbox className="mt-0.5" checked={onlyMajor} onCheckedChange={(v) => setOnlyMajor(v === true)} />
         <span className="grid gap-0.5">
           Only major releases
-          <span className="text-xs text-muted-foreground">Skip minor, patch and pre-releases (for example v2.0.0, but not v2.0.1). Dependency notifications follow each project's own notification level.</span>
+          <span className="text-xs text-muted-foreground">
+            Skip minor, patch and pre-releases (for example v2.0.0, but not v2.0.1). Dependency notifications follow
+            each project's own notification level.
+          </span>
         </span>
       </Label>
 
@@ -192,12 +215,20 @@ export function AddNotificationRuleForm({
       <div className="flex flex-wrap items-center gap-3">
         <Button
           type="submit"
-          disabled={pending || emailUnavailable || limitReached || effectiveEvents.length === 0 || (!isEmail && !destination.trim())}
+          disabled={
+            pending ||
+            emailUnavailable ||
+            limitReached ||
+            effectiveEvents.length === 0 ||
+            (!isEmail && !destination.trim())
+          }
         >
           {pending ? <LoaderCircleIcon className="animate-spin" /> : <PlusIcon />}
           {pending ? "Checking destination…" : "Add rule"}
         </Button>
-        {limitReached ? <p className="text-sm text-muted-foreground">Rule limit reached. Delete a rule to add another.</p> : null}
+        {limitReached ? (
+          <p className="text-sm text-muted-foreground">Rule limit reached. Delete a rule to add another.</p>
+        ) : null}
       </div>
     </form>
   );

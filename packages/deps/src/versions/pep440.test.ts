@@ -174,7 +174,7 @@ describe("pep440MaxSatisfying / pep440LowerBound", () => {
 });
 
 describe("pep440BumpSpecifier", () => {
-  const cases: Array<[string, string, "pep440" | "poetry", string | "unchanged" | "blocked"]> = [
+  const cases: Array<[string, string, "pep440" | "poetry", (string & {}) | "unchanged" | "blocked"]> = [
     ["==1.2.3", "1.4.0", "pep440", "==1.4.0"],
     ["==1.2.3", "2024.1", "pep440", "==2024.1"],
     ["~=1.2", "1.4.0", "pep440", "~=1.4"],

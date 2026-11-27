@@ -3,7 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma, type BackfillStatus, type NotificationLevel, type TrackMode } from "@repopulse/db";
-import { fetchRepoTree, INITIAL_RELEASES_LIMIT, parseRepoInput, validateAndFetchRepo, type RepoTree } from "@repopulse/github";
+import {
+  fetchRepoTree,
+  INITIAL_RELEASES_LIMIT,
+  parseRepoInput,
+  validateAndFetchRepo,
+  type RepoTree,
+} from "@repopulse/github";
 import { RELEASE_BACKFILL_PRIORITY } from "@repopulse/queue";
 import { getCurrentUserOrThrow } from "@/lib/auth";
 import { fail, getGitHubToken, invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
@@ -11,7 +17,8 @@ import { enqueueReleaseBackfill } from "@/server/backfill-queue";
 import { needsPathImport, syncCommitStates } from "@/server/commit-states";
 import { isRealtimeConfigured } from "@/server/realtime";
 import { queueRepoImport } from "@/server/repo-poll-queue";
-import { subscriptionSettingsInput, validateSnooze, type SubscriptionSettingsInput } from "@/lib/subscription-settings";
+import { validateSnooze } from "@/lib/subscription-settings";
+import { subscriptionSettingsInput, type SubscriptionSettingsInput } from "@/lib/subscription-settings-schema";
 import { NOTHING_TRACKED_MESSAGE, tracksSomething } from "@/lib/track-modes";
 import { validateWatchedPaths } from "@/lib/watched-paths";
 
@@ -76,7 +83,9 @@ const trackModeInput = z.object({
 
 /** Release rows a subscription in "Releases only" or "Releases + tags" can see. */
 function sourceFilter(trackMode: Exclude<TrackMode, "NONE">) {
-  return trackMode === "RELEASES" ? { source: "RELEASE" as const } : { source: { in: ["RELEASE" as const, "TAG" as const] } };
+  return trackMode === "RELEASES"
+    ? { source: "RELEASE" as const }
+    : { source: { in: ["RELEASE" as const, "TAG" as const] } };
 }
 
 /**
@@ -209,7 +218,14 @@ export async function addRepositoryAction(input: {
 
       const subscription = await tx.userSubscription.upsert({
         where: { userId_repositoryId: { userId: user.id, repositoryId: repository.id } },
-        create: { userId: user.id, repositoryId: repository.id, includePrereleases, trackMode, trackPaths, watchedPaths },
+        create: {
+          userId: user.id,
+          repositoryId: repository.id,
+          includePrereleases,
+          trackMode,
+          trackPaths,
+          watchedPaths,
+        },
         // Watched paths are kept when re-adding without "Files / folders", so turning it back on restores them.
         update: { includePrereleases, trackMode, trackPaths, ...(trackPaths ? { watchedPaths } : {}) },
         select: { id: true },
@@ -272,7 +288,8 @@ export async function addRepositoryAction(input: {
     await queueHistoryBackfill(result.repositoryId, imported.backfillStatus);
     // Tags never read, or watched paths never polled: import them now instead of at the next scheduled poll.
     const imports = pendingImports(trackMode, trackPaths, watchedPaths, imported);
-    if (imports.importingTags || imports.importingPaths) await queueRepoImport(result.repositoryId, "addRepositoryAction");
+    if (imports.importingTags || imports.importingPaths)
+      await queueRepoImport(result.repositoryId, "addRepositoryAction");
 
     revalidatePath("/", "layout");
     return { ok: true, data: { ...result, ...imports } };
@@ -323,7 +340,8 @@ export async function updateTrackModeAction(input: {
     });
 
     const imports = pendingImports(trackMode, trackPaths, watchedPaths, subscription.repository);
-    if (imports.importingTags || imports.importingPaths) await queueRepoImport(subscription.repositoryId, "updateTrackModeAction");
+    if (imports.importingTags || imports.importingPaths)
+      await queueRepoImport(subscription.repositoryId, "updateTrackModeAction");
 
     revalidatePath("/", "layout");
     return { ok: true, data: { subscriptionId: subscription.id, trackMode, trackPaths, watchedPaths, ...imports } };
@@ -406,12 +424,15 @@ export async function listRepositoryPathsAction(input: { repoUrlOrSlug: string }
  * user's unread states of pre-release rows, so the unread counter drops at once. Read states are
  * kept (harmless: hidden rows are filtered by `visibleReleasesWhere`).
  */
-export async function updateSubscriptionSettingsAction(input: SubscriptionSettingsInput): Promise<ActionResult<SubscriptionSettings>> {
+export async function updateSubscriptionSettingsAction(
+  input: SubscriptionSettingsInput,
+): Promise<ActionResult<SubscriptionSettings>> {
   try {
     const user = await getCurrentUserOrThrow();
     const parsed = subscriptionSettingsInput.safeParse(input);
     if (!parsed.success) return invalidInput(parsed.error);
-    const { subscriptionId, includePrereleases, isPinned, note, notificationLevel, snoozedUntil, currentVersion } = parsed.data;
+    const { subscriptionId, includePrereleases, isPinned, note, notificationLevel, snoozedUntil, currentVersion } =
+      parsed.data;
     if (snoozedUntil) {
       const message = validateSnooze(snoozedUntil);
       if (message) return fail("INVALID_INPUT", message);
@@ -445,7 +466,8 @@ export async function updateSubscriptionSettingsAction(input: SubscriptionSettin
         },
       });
 
-      const prereleasesChanged = includePrereleases !== undefined && includePrereleases !== subscription.includePrereleases;
+      const prereleasesChanged =
+        includePrereleases !== undefined && includePrereleases !== subscription.includePrereleases;
       if (prereleasesChanged && subscription.trackMode !== "NONE") {
         if (includePrereleases) {
           const newest = await tx.release.findMany({
@@ -466,7 +488,11 @@ export async function updateSubscriptionSettingsAction(input: SubscriptionSettin
             where: {
               userId: user.id,
               isRead: false,
-              release: { repositoryId: subscription.repositoryId, isPrerelease: true, source: { in: ["RELEASE", "TAG"] } },
+              release: {
+                repositoryId: subscription.repositoryId,
+                isPrerelease: true,
+                source: { in: ["RELEASE", "TAG"] },
+              },
             },
           });
         }

@@ -13,11 +13,23 @@ export function RepoAvatar({
   const base = cn("size-9 shrink-0 rounded-md border bg-muted object-cover", className);
   if (!src) {
     return (
-      <span aria-hidden className={cn(base, "flex items-center justify-center text-sm font-semibold uppercase text-muted-foreground")}>
+      <span
+        aria-hidden
+        className={cn(base, "flex items-center justify-center text-sm font-semibold uppercase text-muted-foreground")}
+      >
         {name.charAt(0)}
       </span>
     );
   }
-  // GitHub already sizes these avatars; they do not need the Next image optimizer.
-  return <img src={src.includes("?") ? src : `${src}?s=80`} alt="" className={base} loading="lazy" referrerPolicy="no-referrer" />;
+  /* oxlint-disable nextjs/no-img-element -- GitHub already sizes these avatars; they do not need the Next image optimizer. */
+  return (
+    <img
+      src={src.includes("?") ? src : `${src}?s=80`}
+      alt=""
+      className={base}
+      loading="lazy"
+      referrerPolicy="no-referrer"
+    />
+  );
+  /* oxlint-enable nextjs/no-img-element */
 }

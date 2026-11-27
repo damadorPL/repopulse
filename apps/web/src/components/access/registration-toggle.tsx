@@ -23,7 +23,10 @@ export function RegistrationToggle({ publicRegistration }: { publicRegistration:
   }
 
   return (
-    <section aria-labelledby="registration-heading" className="flex items-start justify-between gap-4 rounded-lg border bg-card p-4 sm:p-5">
+    <section
+      aria-labelledby="registration-heading"
+      className="flex items-start justify-between gap-4 rounded-lg border bg-card p-4 sm:p-5"
+    >
       <div className="grid gap-1">
         <Label id="registration-heading" htmlFor="public-registration" className="text-base font-medium">
           Public registration

@@ -1,41 +1,26 @@
-import type { CSSProperties } from "react";
-import type { Metadata } from "next";
+import type { Metadata, Route } from "next";
 import Link from "next/link";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { auth, signIn } from "@/lib/auth";
+import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/ui/submit-button";
+import { auth } from "@/lib/auth";
 import { INVITE_COOKIE, INVITE_COOKIE_MAX_AGE_SECONDS } from "@/lib/invites";
 import { findUsableInvite } from "@/server/registration";
 
 export const metadata: Metadata = { title: "Invitation · RepoPulse", robots: { index: false } };
 
-const mainStyle: CSSProperties = {
-  fontFamily: "system-ui, sans-serif",
-  minHeight: "100dvh",
-  display: "grid",
-  placeItems: "center",
-  padding: "2rem",
-};
-const buttonStyle: CSSProperties = {
-  display: "block",
-  width: "100%",
-  padding: "0.75rem 1rem",
-  borderRadius: 8,
-  border: "none",
-  background: "#111827",
-  color: "#fff",
-  fontSize: 16,
-  cursor: "pointer",
-  textDecoration: "none",
-};
-
 export default async function InvitePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const [session, invite] = await Promise.all([auth(), findUsableInvite(token)]);
+  const requestHeaders = await headers();
+  const [session, invite] = await Promise.all([
+    auth.api.getSession({ headers: requestHeaders }),
+    findUsableInvite(token),
+  ]);
 
   async function acceptInvite() {
     "use server";
-    // Re-check at submit time; the sign-in callback claims the invite atomically anyway.
+    // Re-check at submit time; the registration gate claims the invite atomically anyway.
     if (!(await findUsableInvite(token))) redirect(`/invite/${encodeURIComponent(token)}`);
     (await cookies()).set(INVITE_COOKIE, token, {
       httpOnly: true,
@@ -44,54 +29,62 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
       path: "/",
       maxAge: INVITE_COOKIE_MAX_AGE_SECONDS,
     });
-    await signIn("github", { redirectTo: "/" });
+    const result = await auth.api.signInSocial({
+      body: {
+        provider: "github",
+        callbackURL: "/",
+        errorCallbackURL: "/login",
+      },
+      headers: await headers(),
+    });
+    if (result?.url) {
+      redirect(result.url as Route);
+    }
   }
 
   const inviter = invite ? (invite.createdBy.name ?? invite.createdBy.email) : null;
 
   return (
-    <main style={mainStyle}>
-      <section style={{ width: "100%", maxWidth: 380, textAlign: "center" }}>
-        <h1 style={{ marginBottom: "0.25rem" }}>RepoPulse</h1>
+    <main className="grid min-h-dvh place-items-center bg-background p-8 text-foreground">
+      <section className="grid w-full max-w-sm gap-4 rounded-lg border border-border bg-card p-6 text-center text-card-foreground shadow-xs">
+        <h1 className="text-2xl font-semibold tracking-tight">RepoPulse</h1>
 
         {session?.user?.id ? (
           <>
-            <p style={{ color: "#6b7280", marginTop: 0 }}>You&apos;re already signed in, so you don&apos;t need this invite.</p>
-            <Link href="/" style={buttonStyle}>
-              Open RepoPulse
-            </Link>
+            <p className="text-sm text-muted-foreground">
+              You&apos;re already signed in, so you don&apos;t need this invite.
+            </p>
+            <Button asChild size="lg" className="w-full">
+              <Link href="/">Open RepoPulse</Link>
+            </Button>
           </>
         ) : invite ? (
           <>
-            <p style={{ color: "#6b7280", marginTop: 0 }}>
+            <p className="text-sm text-muted-foreground">
               {inviter} invited you to track GitHub releases on RepoPulse.
             </p>
             <form action={acceptInvite}>
-              <button type="submit" style={buttonStyle}>
+              <SubmitButton size="lg" className="w-full" pendingLabel="Accepting…">
                 Accept with GitHub
-              </button>
+              </SubmitButton>
             </form>
-            <p style={{ color: "#9ca3af", fontSize: 12 }}>
-              This link works once and expires on {invite.expiresAt.toISOString().slice(0, 10)}. Requests <code>read:user</code> and{" "}
-              <code>user:email</code>.
+            <p className="text-xs text-muted-foreground">
+              This link works once and expires on {invite.expiresAt.toISOString().slice(0, 10)}. Requests{" "}
+              <code>read:user</code> and <code>user:email</code>.
             </p>
           </>
         ) : (
           <>
             <p
               role="alert"
-              style={{
-                background: "#fef2f2",
-                color: "#991b1b",
-                border: "1px solid #fecaca",
-                borderRadius: 8,
-                padding: "0.75rem",
-                fontSize: 14,
-              }}
+              className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
             >
               This invite link is invalid, has already been used, or has expired. Ask for a new one.
             </p>
-            <Link href="/login" style={{ color: "#6b7280", fontSize: 14 }}>
+            <Link
+              href="/login"
+              className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+            >
               Already have an account? Sign in
             </Link>
           </>

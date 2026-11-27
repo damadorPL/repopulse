@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { BellIcon, BellRingIcon, LogOutIcon, MenuIcon, PlusIcon, SearchIcon, ShieldIcon, XIcon } from "lucide-react";
@@ -11,8 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { feedHref, MAX_SEARCH_LENGTH, parseFeedFilters, PARAM } from "@/lib/feed-filters";
-import { createUrlSearchSyncState, reconcileUrlSearchQuery, recordUrlSearchPush } from "@/lib/url-search";
+import { useUrlSearchSync } from "@/lib/use-url-search-sync";
 import { signOutAction } from "@/server/actions/auth";
 import type { TagPill, UnreadByRepository } from "@/server/queries/feed";
 
@@ -38,10 +39,14 @@ export function TopNavbar({
 
   // Close the mobile menu after navigating.
   const location = `${pathname}?${searchParams.toString()}`;
-  useEffect(() => setMenuOpen(false), [location]);
+  const [prevLocation, setPrevLocation] = useState(location);
+  if (location !== prevLocation) {
+    setPrevLocation(location);
+    setMenuOpen(false);
+  }
 
   return (
-    <header className="sticky top-0 z-40 flex h-14 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/70 md:gap-3 md:px-6">
+    <header className="sticky top-0 z-40 flex h-14 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur supports-backdrop-filter:bg-background/70 md:gap-3 md:px-6">
       <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
         <SheetTrigger asChild>
           <Button variant="ghost" size="icon-sm" className="md:hidden" aria-label="Open menu">
@@ -71,7 +76,7 @@ export function TopNavbar({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="rounded-full outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              className="rounded-full outline-hidden focus-visible:ring-[3px] focus-visible:ring-ring/50"
               aria-label="Account"
             >
               <RepoAvatar src={user.avatarUrl} name={user.name ?? user.email} className="size-8 rounded-full" />
@@ -81,7 +86,9 @@ export function TopNavbar({
             <div className="px-2 py-1.5">
               <p className="truncate text-sm font-medium">{user.name ?? "Signed in"}</p>
               <p className="truncate text-xs text-muted-foreground">{user.email}</p>
-              {user.isSuperAdmin ? <p className="mt-1 text-[11px] font-medium text-muted-foreground">Super admin</p> : null}
+              {user.isSuperAdmin ? (
+                <p className="mt-1 text-[11px] font-medium text-muted-foreground">Super admin</p>
+              ) : null}
             </div>
             <PopoverClose asChild>
               <Button asChild variant="ghost" size="sm" className="w-full justify-start">
@@ -103,10 +110,15 @@ export function TopNavbar({
             ) : null}
             <ThemeSwitcher className="-mx-2 my-1 border-y px-4 py-2" />
             <form action={signOutAction}>
-              <Button type="submit" variant="ghost" size="sm" className="w-full justify-start">
-                <LogOutIcon />
+              <SubmitButton
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start"
+                idleIcon={<LogOutIcon />}
+                pendingLabel="Signing out…"
+              >
                 Sign out
-              </Button>
+              </SubmitButton>
             </form>
           </PopoverContent>
         </Popover>
@@ -124,23 +136,11 @@ function SearchBox() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const urlQuery = searchParams.get(PARAM.q) ?? "";
-  const [value, setValue] = useState(urlQuery);
-  const syncState = useRef(createUrlSearchSyncState(urlQuery));
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const { value, setValue, recordPush, schedulePush, cancelPush } = useUrlSearchSync(urlQuery);
   const onFeed = pathname === "/";
 
-  // Follow external URL changes (clearing the chip, back button) without clobbering typing.
-  useEffect(() => {
-    if (reconcileUrlSearchQuery(syncState.current, urlQuery)) {
-      clearTimeout(timer.current);
-      setValue(urlQuery);
-    }
-  }, [urlQuery]);
-
-  useEffect(() => () => clearTimeout(timer.current), []);
-
   function navigate(query: string, mode: "push" | "replace") {
-    const trimmed = recordUrlSearchPush(syncState.current, query);
+    const trimmed = recordPush(query);
     const filters = onFeed ? parseFeedFilters(searchParams) : { onlyUnread: false, sort: "newest" as const };
     const href = feedHref({ ...filters, searchQuery: trimmed || undefined });
     if (mode === "push") router.push(href);
@@ -149,8 +149,8 @@ function SearchBox() {
 
   function onChange(next: string) {
     setValue(next);
-    clearTimeout(timer.current);
-    if (onFeed) timer.current = setTimeout(() => navigate(next, "replace"), SEARCH_DEBOUNCE_MS);
+    if (onFeed) schedulePush(SEARCH_DEBOUNCE_MS, () => navigate(next, "replace"));
+    else cancelPush();
   }
 
   return (
@@ -159,7 +159,7 @@ function SearchBox() {
       className="relative w-full max-w-md"
       onSubmit={(event) => {
         event.preventDefault();
-        clearTimeout(timer.current);
+        cancelPush();
         navigate(value, onFeed ? "replace" : "push");
       }}
     >
@@ -177,7 +177,7 @@ function SearchBox() {
         <button
           type="button"
           onClick={() => {
-            clearTimeout(timer.current);
+            cancelPush();
             setValue("");
             if (onFeed) navigate("", "replace");
           }}
@@ -191,7 +191,13 @@ function SearchBox() {
   );
 }
 
-function UnreadBell({ totalUnread, unreadByRepository }: { totalUnread: number; unreadByRepository: UnreadByRepository[] }) {
+function UnreadBell({
+  totalUnread,
+  unreadByRepository,
+}: {
+  totalUnread: number;
+  unreadByRepository: UnreadByRepository[];
+}) {
   const [open, setOpen] = useState(false);
   return (
     <Popover open={open} onOpenChange={setOpen}>

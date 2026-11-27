@@ -37,7 +37,8 @@ export function parsePep440(input: string): Pep440Version | null {
   let pre: Pep440Version["pre"] = null;
   if (groups.preL) {
     const label = groups.preL.toLowerCase();
-    const normalized: PreLabel = label === "alpha" || label === "a" ? "a" : label === "beta" || label === "b" ? "b" : "rc";
+    const normalized: PreLabel =
+      label === "alpha" || label === "a" ? "a" : label === "beta" || label === "b" ? "b" : "rc";
     pre = { label: normalized, number: groups.preN ? Number(groups.preN) : 0 };
   }
   let post: number | null = null;

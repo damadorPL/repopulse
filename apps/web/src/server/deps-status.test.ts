@@ -11,7 +11,11 @@ const isGitHubAppConfigured = vi.fn();
 
 vi.mock("@repopulse/db", () => ({ prisma, INSTANCE_SETTINGS_ID: 1, loadDepsEnabled }));
 vi.mock("@/server/queries/github-app", () => ({ isGitHubAppConfigured }));
-vi.mock("@/server/realtime", () => ({ getRedis: vi.fn(), isRealtimeConfigured: () => false, withRedisTimeout: vi.fn() }));
+vi.mock("@/server/realtime", () => ({
+  getRedis: vi.fn(),
+  isRealtimeConfigured: () => false,
+  withRedisTimeout: vi.fn(),
+}));
 
 const {
   countOutdatedDependencyProjects,
@@ -43,7 +47,10 @@ describe("parseDepsWorkerHeartbeat", () => {
   });
 
   it("keeps only string tool versions", () => {
-    const raw = JSON.stringify({ at: "2026-11-03T10:00:00.000Z", sandbox: { status: "ok", tools: { npm: "11.6.0", uv: "0.9.1", bad: 3 } } });
+    const raw = JSON.stringify({
+      at: "2026-11-03T10:00:00.000Z",
+      sandbox: { status: "ok", tools: { npm: "11.6.0", uv: "0.9.1", bad: 3 } },
+    });
     expect(parseDepsWorkerHeartbeat(raw)).toEqual({
       state: "running",
       at: new Date("2026-11-03T10:00:00.000Z"),
@@ -61,7 +68,9 @@ describe("readDepsWorkerStatus", () => {
 describe("lockfileRegenerationAvailable", () => {
   it("needs a running deps-worker whose last sandbox probe succeeded", () => {
     const at = new Date("2026-11-03T10:00:00.000Z");
-    expect(lockfileRegenerationAvailable({ state: "running", at, sandbox: { status: "ok", tools: { npm: "12.2.2" } } })).toBe(true);
+    expect(
+      lockfileRegenerationAvailable({ state: "running", at, sandbox: { status: "ok", tools: { npm: "12.2.2" } } }),
+    ).toBe(true);
     expect(lockfileRegenerationAvailable({ state: "running", at, sandbox: null })).toBe(false);
     expect(lockfileRegenerationAvailable({ state: "missing" })).toBe(false);
     expect(lockfileRegenerationAvailable({ state: "unknown" })).toBe(false);

@@ -8,7 +8,10 @@ import { SemverBadge } from "@/components/feed/semver-badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PR_STATE_LABELS, type DepsUpdateModeValue } from "@/lib/dependency-settings";
-import { createDependencyPullRequestAction, createProjectDependencyPullRequestsAction } from "@/server/actions/dependencies";
+import {
+  createDependencyPullRequestAction,
+  createProjectDependencyPullRequestsAction,
+} from "@/server/actions/dependencies";
 import type { PlannedPullRequest } from "@/server/queries/dependencies";
 
 function SingleGroupButton({
@@ -76,7 +79,8 @@ export function ProjectPullRequestButton({
       }
       setOpen(false);
       toast.info(isUpdate ? `Updating pull request for ${fullName}…` : `Opening a pull request for ${fullName}…`, {
-        description: plan.lockfiles.length > 0 ? "Regenerating the lockfile can take a few minutes." : "This takes a moment.",
+        description:
+          plan.lockfiles.length > 0 ? "Regenerating the lockfile can take a few minutes." : "This takes a moment.",
       });
     });
   }
@@ -94,9 +98,7 @@ export function ProjectPullRequestButton({
       setOpen(false);
       const count = result.data.groupKeys.length;
       toast.info(
-        count === 1
-          ? `Opening a pull request for ${fullName}…`
-          : `Queueing ${count} pull requests for ${fullName}…`,
+        count === 1 ? `Opening a pull request for ${fullName}…` : `Queueing ${count} pull requests for ${fullName}…`,
         {
           description: hasLockfiles ? "Regenerating lockfiles can take a few minutes." : "This takes a moment.",
         },
@@ -134,7 +136,12 @@ export function ProjectPullRequestButton({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button size="sm" variant={allEnabledOpen ? "outline" : "default"} disabled={pending} aria-label={`Pull requests for ${fullName}`}>
+        <Button
+          size="sm"
+          variant={allEnabledOpen ? "outline" : "default"}
+          disabled={pending}
+          aria-label={`Pull requests for ${fullName}`}
+        >
           {pending ? <LoaderCircleIcon className="animate-spin" /> : <GitPullRequestIcon />}
           {triggerLabel}
           <ChevronDownIcon className="size-3.5" aria-hidden />
@@ -187,7 +194,9 @@ export function ProjectPullRequestButton({
                       : `${plan.updates.length} updates`}
                     {plan.lockfiles.length > 0 ? ` · regenerates ${plan.lockfiles.join(", ")}` : ""}
                   </p>
-                  {plan.disabledReason ? <p className="mt-0.5 text-xs text-muted-foreground">{plan.disabledReason}</p> : null}
+                  {plan.disabledReason ? (
+                    <p className="mt-0.5 text-xs text-muted-foreground">{plan.disabledReason}</p>
+                  ) : null}
                 </div>
                 {plan.disabledReason !== null ? (
                   <span title={plan.disabledReason} className="inline-flex shrink-0">

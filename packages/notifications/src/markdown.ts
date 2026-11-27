@@ -20,7 +20,8 @@ export function semverLabel(type: SemverType): string {
 /** "Major release", "Pre-release", "Git tag", "Commit", … */
 export function releaseKindLabel(release: Pick<NotificationReleaseInput, "semverType" | "source">): string {
   if (release.source === "COMMIT") return "Commit";
-  if (release.source === "TAG") return release.semverType === "OTHER" ? "Git tag" : `${semverLabel(release.semverType)} tag`;
+  if (release.source === "TAG")
+    return release.semverType === "OTHER" ? "Git tag" : `${semverLabel(release.semverType)} tag`;
   return release.semverType === "PRERELEASE" ? "Pre-release" : `${semverLabel(release.semverType)} release`;
 }
 
@@ -170,34 +171,60 @@ export function releaseSummary(release: NotificationReleaseInput): string {
   return cleaned || "_No release notes were published for this version._";
 }
 
+function escapeSlackEntities(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 /**
  * GitHub Markdown → Slack mrkdwn: `*bold*`, `<url|text>` links, `•` bullets, headings as bold
  * lines. `&`, `<` and `>` are escaped first, as Slack requires.
  */
 export function markdownToSlack(markdown: string): string {
   const fences: string[] = [];
-  const withoutFences = markdown.replace(/```[^\n]*\n([\s\S]*?)```/g, (_match, code: string) => {
+  const inlineCodes: string[] = [];
+  /* eslint-disable no-control-regex -- null/SOH delimiters protect fenced and inline code during conversion. */
+  const sanitized = markdown.replace(/\u0000|\u0001/g, "");
+
+  const withoutFences = sanitized.replace(/```[^\n]*\n([\s\S]*?)```/g, (_match, code: string) => {
     fences.push(code.replace(/\n$/, ""));
     return `\u0000${fences.length - 1}\u0000`;
   });
 
-  const converted = withoutFences
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
+  const withoutCode = withoutFences.replace(/`([^`\n]+)`/g, (_match, code: string) => {
+    inlineCodes.push(code);
+    return `\u0001${inlineCodes.length - 1}\u0001`;
+  });
+
+  const formatSlackLinkText = (text: string) =>
+    text
+      .replace(/\u0001(\d+)\u0001/g, (_m, idx: string) => `\`${escapeSlackEntities(inlineCodes[Number(idx)] ?? "")}\``)
+      .replace(/\|/g, "&#124;");
+
+  const converted = escapeSlackEntities(withoutCode)
     .replace(/^&gt; ?/gm, "> ")
-    .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, (_m, alt: string, url: string) => `<${url}|${alt || "image"}>`)
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_m, text: string, url: string) => `<${url}|${text}>`)
+    .replace(
+      /!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g,
+      (_m, alt: string, url: string) => `<${url}|${formatSlackLinkText(alt) || "image"}>`,
+    )
+    .replace(
+      /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+      (_m, text: string, url: string) => `<${url}|${formatSlackLinkText(text)}>`,
+    )
     .replace(/^#{1,6}\s+(.+?)\s*#*$/gm, (_m, heading: string) => `*${heading.replace(/\*\*/g, "")}*`)
     .replace(/\*\*(.+?)\*\*|__(.+?)__/g, (_m, a?: string, b?: string) => `*${a ?? b}*`)
     .replace(/~~(.+?)~~/g, "~$1~")
     .replace(/^(\s*)[-*+]\s+/gm, "$1• ");
 
-  // eslint-disable-next-line no-control-regex -- null delimiters protect fenced code during conversion.
-  return converted.replace(/\u0000(\d+)\u0000/g, (_m, index: string) => {
-    const code = (fences[Number(index)] ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    return `\`\`\`${code}\`\`\``;
-  });
+  return converted
+    .replace(
+      /\u0001(\d+)\u0001/g,
+      (_m, index: string) => `\`${escapeSlackEntities(inlineCodes[Number(index)] ?? "")}\``,
+    )
+    .replace(
+      /\u0000(\d+)\u0000/g,
+      (_m, index: string) => `\`\`\`${escapeSlackEntities(fences[Number(index)] ?? "")}\`\`\``,
+    );
+  /* eslint-enable no-control-regex */
 }
 
 export function escapeHtml(text: string): string {
@@ -209,16 +236,45 @@ export function escapeHtml(text: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/** Returns `href.trim()` when it is a valid `http:` or `https:` URL, else `null`. */
+export function safeHttpUrl(href: string): string | null {
+  const trimmed = href.trim();
+  if (!/^https?:/i.test(trimmed)) return null;
+  try {
+    const { protocol } = new URL(trimmed);
+    return protocol === "http:" || protocol === "https:" ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Validates `#rrggbb` hex colors for inline HTML styles, falling back to a neutral slate color. */
+export function safeHexColor(colorHex: string, fallback = "#475569"): string {
+  return /^#[0-9a-f]{6}$/i.test(colorHex) ? colorHex : fallback;
+}
+
 /** Inline Markdown on already-escaped text: code, bold, italics, http(s) links. */
 function inlineHtml(escaped: string): string {
-  return escaped
-    .replace(/`([^`]+)`/g, '<code style="font-family:SFMono-Regular,Consolas,monospace;background:#f1f5f9;border-radius:4px;padding:1px 4px;font-size:13px">$1</code>')
+  const codeSpans: string[] = [];
+  /* eslint-disable no-control-regex -- null delimiters protect inline code spans during formatting. */
+  const withPlaceholders = escaped.replace(/\u0000/g, "").replace(/`([^`]+)`/g, (_m, code: string) => {
+    codeSpans.push(
+      `<code style="font-family:SFMono-Regular,Consolas,monospace;background:#f1f5f9;border-radius:4px;padding:1px 4px;font-size:13px">${code}</code>`,
+    );
+    return `\u0000${codeSpans.length - 1}\u0000`;
+  });
+  /* eslint-enable no-control-regex */
+
+  const formatted = withPlaceholders
     .replace(/\*\*(.+?)\*\*|__(.+?)__/g, (_m, a?: string, b?: string) => `<strong>${a ?? b}</strong>`)
     .replace(/(^|[\s(])[*_]([^*_\s][^*_]*?)[*_](?=[\s).,!?:;]|$)/g, "$1<em>$2</em>")
     .replace(
       /!?\[([^\]]+)\]\((https?:\/\/[^)\s"]+)\)/g,
       (_m, text: string, url: string) => `<a href="${url}" style="color:#2563eb">${text}</a>`,
     );
+
+  // eslint-disable-next-line no-control-regex -- null delimiters protect inline code spans during formatting.
+  return formatted.replace(/\u0000(\d+)\u0000/g, (_m, index: string) => codeSpans[Number(index)] ?? "");
 }
 
 /**
@@ -234,17 +290,21 @@ export function markdownToEmailHtml(markdown: string): string {
   let code: string[] | null = null;
 
   const flushParagraph = () => {
-    if (paragraph.length) html.push(`<p style="margin:0 0 12px">${paragraph.map((l) => inlineHtml(escapeHtml(l))).join("<br>")}</p>`);
+    if (paragraph.length)
+      html.push(`<p style="margin:0 0 12px">${paragraph.map((l) => inlineHtml(escapeHtml(l))).join("<br>")}</p>`);
     paragraph = [];
   };
   const flushList = () => {
-    if (list) html.push(`<ul style="margin:0 0 12px;padding-left:20px">${list.map((item) => `<li style="margin:0 0 4px">${item}</li>`).join("")}</ul>`);
+    if (list)
+      html.push(
+        `<ul style="margin:0 0 12px;padding-left:20px">${list.map((item) => `<li style="margin:0 0 4px">${item}</li>`).join("")}</ul>`,
+      );
     list = null;
   };
 
   for (const line of lines) {
     if (code) {
-      if (/^```/.test(line)) {
+      if (line.startsWith("```")) {
         html.push(
           `<pre style="margin:0 0 12px;padding:12px;background:#f1f5f9;border-radius:6px;overflow-x:auto;font-size:13px;line-height:1.45"><code>${escapeHtml(code.join("\n"))}</code></pre>`,
         );
@@ -254,7 +314,7 @@ export function markdownToEmailHtml(markdown: string): string {
       }
       continue;
     }
-    if (/^```/.test(line)) {
+    if (line.startsWith("```")) {
       flushParagraph();
       flushList();
       code = [];
@@ -265,7 +325,9 @@ export function markdownToEmailHtml(markdown: string): string {
       flushParagraph();
       flushList();
       const size = heading[1].length <= 2 ? 17 : 15;
-      html.push(`<p style="margin:16px 0 8px;font-size:${size}px;font-weight:600">${inlineHtml(escapeHtml(heading[2]))}</p>`);
+      html.push(
+        `<p style="margin:16px 0 8px;font-size:${size}px;font-weight:600">${inlineHtml(escapeHtml(heading[2]))}</p>`,
+      );
       continue;
     }
     const item = /^\s*(?:[-*+]|\d+[.)])\s+(.*)$/.exec(line);
@@ -292,7 +354,7 @@ export function markdownToEmailHtml(markdown: string): string {
     flushList();
     paragraph.push(line);
   }
-  if (code) html.push(`<pre style="margin:0 0 12px"><code>${escapeHtml((code as string[]).join("\n"))}</code></pre>`);
+  if (code) html.push(`<pre style="margin:0 0 12px"><code>${escapeHtml(code.join("\n"))}</code></pre>`);
   flushParagraph();
   flushList();
   return html.join("\n");

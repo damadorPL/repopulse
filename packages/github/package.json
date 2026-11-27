@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "sideEffects": false,
   "main": "./dist/index.js",
   "types": "./src/index.ts",
   "exports": {
@@ -23,18 +24,19 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "eslint . --max-warnings 0"
+    "lint": "oxlint --type-aware --deny-warnings -c ../../.oxlintrc.json ."
   },
   "dependencies": {
     "@octokit/auth-app": "8.3.1",
+    "@octokit/plugin-retry": "8.1.1",
     "@octokit/rest": "22.0.1",
-    "semver": "7.8.6"
+    "semver": "catalog:"
   },
   "devDependencies": {
     "@repopulse/tsconfig": "workspace:*",
-    "@types/node": "26.6.11",
-    "@types/semver": "7.8.0",
-    "typescript": "7.0.2",
-    "vitest": "5.1.2"
+    "@types/node": "catalog:",
+    "@types/semver": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

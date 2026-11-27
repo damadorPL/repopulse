@@ -1,7 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
-import { LoaderCircleIcon, Trash2Icon } from "lucide-react";
+import { LoaderCircleIcon, TrashIcon } from "lucide-react";
 import { toast } from "sonner";
 import { RelativeTime } from "@/components/feed/relative-time";
 import { RepoAvatar } from "@/components/feed/repo-avatar";
@@ -58,7 +58,11 @@ export function InviteItem({ invite }: { invite: InviteView }) {
 
       {invite.usedBy ? (
         <div className="flex min-w-0 items-center gap-2 text-sm">
-          <RepoAvatar src={invite.usedBy.avatarUrl} name={invite.usedBy.name ?? invite.usedBy.email} className="size-6 rounded-full" />
+          <RepoAvatar
+            src={invite.usedBy.avatarUrl}
+            name={invite.usedBy.name ?? invite.usedBy.email}
+            className="size-6 rounded-full"
+          />
           <span className="truncate">{invite.usedBy.name ?? invite.usedBy.email}</span>
         </div>
       ) : null}
@@ -71,7 +75,7 @@ export function InviteItem({ invite }: { invite: InviteView }) {
         disabled={pending}
         aria-label={`${action} invite${invite.note ? ` “${invite.note}”` : ""}`}
       >
-        {pending ? <LoaderCircleIcon className="animate-spin" /> : <Trash2Icon />}
+        {pending ? <LoaderCircleIcon className="animate-spin" /> : <TrashIcon />}
         {action}
       </Button>
     </li>

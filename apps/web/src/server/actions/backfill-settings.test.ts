@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RELEASE_BACKFILL_PRIORITY } from "@repopulse/queue";
+import type * as BackfillSettingsModule from "@/server/backfill-settings";
 
 class UnauthorizedError extends Error {}
 class ForbiddenError extends Error {}
@@ -30,7 +31,7 @@ vi.mock("@repopulse/github", () => ({
 }));
 vi.mock("@/server/backfill-queue", () => ({ enqueueReleaseBackfill }));
 vi.mock("@/server/backfill-settings", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/server/backfill-settings")>()),
+  ...(await importOriginal<typeof BackfillSettingsModule>()),
   getBackfillConfig,
   getBackfillSettingsView,
 }));
@@ -120,9 +121,7 @@ describe("reapplyBackfillSettingsAction", () => {
   it("updates candidates to QUEUED, enqueues jobs, and tolerates a mid-loop queue error", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     prisma.repository.findMany.mockResolvedValueOnce([{ id: "r1" }, { id: "r2" }, { id: "r3" }]);
-    enqueueReleaseBackfill
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error("Redis timeout"));
+    enqueueReleaseBackfill.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("Redis timeout"));
 
     const result = await reapplyBackfillSettingsAction();
     expect(result).toEqual({ ok: true, data: { queued: 3 } });

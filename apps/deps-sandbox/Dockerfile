@@ -23,14 +23,15 @@ RUN npx turbo prune @repopulse/deps-sandbox --docker
 FROM base AS installer
 COPY --from=pruner /app/out/json/ .
 COPY --from=pruner /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile
 COPY --from=pruner /app/out/full/ .
 RUN pnpm turbo run build --filter=@repopulse/deps-sandbox
 
-# Stage 3: drop devDependencies (typescript, tsx, vitest, ...) in place
+# Stage 3: drop devDependencies (typescript, tsx, vitest, ...) and unused TypeScript sources in place
 FROM installer AS prod-deps
 RUN CI=true pnpm prune --prod \
- && rm -rf node_modules/.cache .turbo apps/*/.turbo packages/*/.turbo
+ && rm -rf node_modules/.cache .turbo apps/*/.turbo packages/*/.turbo apps/*/src packages/*/src \
+ && find apps packages -not -path '*/node_modules/*' -name '*.test.ts' -delete
 
 # ---- Runtime --------------------------------------------------------------------------------------------------------
 FROM node:26-trixie-slim AS runner

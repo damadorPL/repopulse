@@ -9,3 +9,11 @@
 .env.*
 !.env.example
 PRD
+docs/
+README.md
+CHANGELOG.md
+LICENSE
+scripts/
+deploy/
+.github/
+docker-compose*.yml

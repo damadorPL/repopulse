@@ -49,8 +49,14 @@ export function mapRepoTree(
       : entries;
   return {
     defaultBranch,
-    dirs: kept.filter((entry) => entry.dir).map((entry) => entry.path).sort(),
-    files: kept.filter((entry) => !entry.dir).map((entry) => entry.path).sort(),
+    dirs: kept
+      .filter((entry) => entry.dir)
+      .map((entry) => entry.path)
+      .sort(),
+    files: kept
+      .filter((entry) => !entry.dir)
+      .map((entry) => entry.path)
+      .sort(),
     truncated: data.truncated === true || entries.length > maxEntries,
   };
 }
@@ -87,7 +93,7 @@ export async function fetchRepoTree(params: {
       recursive: "1",
       ...request,
     });
-    return mapRepoTree(defaultBranch, response.data as GitTreeData);
+    return mapRepoTree(defaultBranch, response.data);
   } catch (error) {
     // The repository exists (checked above): 409 "Git Repository is empty", or 404 for a default
     // branch that has no commits yet.

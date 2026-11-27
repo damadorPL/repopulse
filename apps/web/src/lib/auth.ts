@@ -1,11 +1,12 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { cache } from "react";
-import NextAuth from "next-auth";
-import GitHub from "next-auth/providers/github";
-import type { Account, Profile, User as AuthUser } from "next-auth";
-import { cookies } from "next/headers";
-import { encryptToken, prisma, type User as DbUser } from "@repopulse/db";
+import { betterAuth, APIError } from "better-auth";
+import { prismaAdapter } from "better-auth/adapters/prisma";
+import { nextCookies } from "better-auth/next-js";
+import { cookies, headers } from "next/headers";
+import { encryptToken, prisma, type Prisma, type User as DbUser } from "@repopulse/db";
 import { INVITE_COOKIE } from "@/lib/invites";
-import { admitGitHubUser, type GitHubUserFields } from "@/server/registration";
+import { admitNewGitHubUser } from "@/server/registration";
 
 export class UnauthorizedError extends Error {
   constructor(message = "You must be signed in to do that.") {
@@ -22,88 +23,246 @@ export class ForbiddenError extends Error {
   }
 }
 
-/** Maps a GitHub sign-in to `User` columns; null when the provider didn't return what we need. */
-function githubUserFields(
-  user: AuthUser | undefined,
-  account: Account | null | undefined,
-  profile: Profile | undefined,
-): GitHubUserFields | null {
-  if (!account?.access_token || profile?.id == null) return null;
-  const githubId = String(profile.id);
-  const login = typeof profile.login === "string" ? profile.login : undefined;
-  // Auth.js resolves the primary email via /user/emails (user:email scope); fall
-  // back to the GitHub noreply address so the required `email` column is never empty.
-  const email = user?.email ?? profile.email ?? `${githubId}+${login ?? "user"}@users.noreply.github.com`;
-  const name = user?.name ?? profile.name ?? login ?? null;
-  const avatarUrl = user?.image ?? (typeof profile.avatar_url === "string" ? profile.avatar_url : null);
-  return { githubId, email, name, avatarUrl, githubAccessTokenEncrypted: encryptToken(account.access_token) };
+const txStorage = new AsyncLocalStorage<Prisma.TransactionClient>();
+const pendingClaimedInvites = new WeakMap<object, string>();
+const pendingAccountTokenUpdates = new WeakMap<object, string>();
+
+const prismaWithTxTracking = new Proxy(prisma, {
+  get(target, prop) {
+    if (prop === "$transaction") {
+      return (
+        fn: (tx: Prisma.TransactionClient) => Promise<unknown>,
+        options?: Parameters<typeof prisma.$transaction>[1],
+      ) => target.$transaction((tx) => txStorage.run(tx, () => fn(tx)), options);
+    }
+    const value = Reflect.get(target, prop, target);
+    return typeof value === "function" ? value.bind(target) : value;
+  },
+});
+
+function resolveBaseUrl(): string | undefined {
+  return process.env.AUTH_URL ?? process.env.NEXTAUTH_URL ?? process.env.BETTER_AUTH_URL ?? undefined;
 }
 
-/** The GitHub login of a sign-in (a cache: logins can change, so it is refreshed on every sign-in). */
-function githubLoginOf(profile: Profile | undefined): string | null {
-  return typeof profile?.login === "string" && profile.login.length > 0 ? profile.login : null;
+function resolveTrustedOrigins(): string[] {
+  const candidates = [
+    process.env.AUTH_URL,
+    process.env.NEXTAUTH_URL,
+    process.env.BETTER_AUTH_URL,
+    process.env.APP_BASE_URL,
+  ];
+  const origins = new Set<string>();
+  for (const raw of candidates) {
+    if (!raw) continue;
+    try {
+      origins.add(new URL(raw).origin);
+    } catch {
+      // Ignore malformed env values; Better Auth will still derive from the request if needed.
+    }
+  }
+  return [...origins];
+}
+
+async function readInviteCookieSafely(): Promise<{
+  token: string | undefined;
+  cookieStore: Awaited<ReturnType<typeof cookies>> | null;
+}> {
+  try {
+    const cookieStore = await cookies();
+    return { token: cookieStore.get(INVITE_COOKIE)?.value, cookieStore };
+  } catch {
+    return { token: undefined, cookieStore: null };
+  }
+}
+
+function resolveSecret(): string | undefined {
+  const configured = process.env.AUTH_SECRET ?? process.env.BETTER_AUTH_SECRET;
+  if (configured) return configured;
+  // Next.js sets NEXT_PHASE=phase-production-build during `next build` (e.g. Docker builds before runtime secrets exist).
+  if (process.env.NEXT_PHASE === "phase-production-build") {
+    return "repopulse-build-placeholder-secret-not-used-at-runtime";
+  }
+  return undefined;
+}
+
+function createAuth() {
+  const trustedOrigins = resolveTrustedOrigins();
+
+  return betterAuth({
+    secret: resolveSecret(),
+    baseURL: resolveBaseUrl(),
+    basePath: "/api/auth",
+    ...(trustedOrigins.length > 0 ? { trustedOrigins } : {}),
+    advanced: {
+      trustedProxyHeaders: true,
+    },
+    onAPIError: {
+      errorURL: "/login",
+    },
+    database: prismaAdapter(prismaWithTxTracking, {
+      provider: "postgresql",
+      transaction: true,
+    }),
+    user: {
+      fields: {
+        image: "avatarUrl",
+      },
+      additionalFields: {
+        githubId: { type: "string", required: false },
+        githubLogin: { type: "string", required: false },
+        isSuperAdmin: { type: "boolean", required: false, defaultValue: false, input: false },
+      },
+    },
+    socialProviders: {
+      github: {
+        clientId: process.env.AUTH_GITHUB_ID ?? "",
+        clientSecret: process.env.AUTH_GITHUB_SECRET ?? "",
+        disableDefaultScope: true,
+        scope: ["read:user", "user:email"],
+        overrideUserInfoOnSignIn: true,
+        mapProfileToUser(profile) {
+          const githubId = String(profile.id);
+          const githubLogin = typeof profile.login === "string" && profile.login.length > 0 ? profile.login : null;
+          return {
+            githubId,
+            githubLogin,
+            name: profile.name || profile.login || "",
+            email: profile.email ?? `${githubId}+${githubLogin ?? "user"}@users.noreply.github.com`,
+            image: profile.avatar_url || undefined,
+          };
+        },
+      },
+    },
+    databaseHooks: {
+      user: {
+        create: {
+          async before(_user, context) {
+            const { token: inviteToken, cookieStore } = await readInviteCookieSafely();
+            const decision = await admitNewGitHubUser(inviteToken, txStorage.getStore());
+            if (!decision.admitted) {
+              throw new APIError("FORBIDDEN", {
+                code: decision.errorCode,
+                message: decision.errorCode,
+              });
+            }
+            if (cookieStore) {
+              // Single-use either way; best effort, since the cookie expires within the hour anyway.
+              try {
+                cookieStore.delete(INVITE_COOKIE);
+              } catch {
+                // Cookie writes may be unavailable here; the short-lived cookie expires itself.
+              }
+            }
+            if (decision.claimedInviteTokenHash && context) {
+              pendingClaimedInvites.set(context, decision.claimedInviteTokenHash);
+            }
+            if (decision.isSuperAdmin) {
+              return { data: { isSuperAdmin: true } };
+            }
+          },
+        },
+      },
+      account: {
+        create: {
+          async before(account, context) {
+            const db = txStorage.getStore() ?? prisma;
+            if (context) {
+              const claimedTokenHash = pendingClaimedInvites.get(context);
+              if (claimedTokenHash) {
+                pendingClaimedInvites.delete(context);
+                await db.invite.update({
+                  where: { tokenHash: claimedTokenHash },
+                  data: { usedById: account.userId },
+                });
+              }
+            }
+            if (
+              account.providerId === "github" &&
+              typeof account.accessToken === "string" &&
+              account.accessToken.length > 0
+            ) {
+              const githubAccessTokenEncrypted = encryptToken(account.accessToken);
+              await db.user.update({
+                where: { id: account.userId },
+                data: { githubAccessTokenEncrypted },
+              });
+            }
+            // Never persist plaintext OAuth tokens on Account; RepoPulse stores only the AES-256-GCM encrypted token on User.
+            return {
+              data: {
+                accessToken: null,
+                refreshToken: null,
+                idToken: null,
+              },
+            };
+          },
+        },
+        update: {
+          async before(account, context) {
+            if (typeof account.accessToken === "string" && account.accessToken.length > 0 && context) {
+              pendingAccountTokenUpdates.set(context, encryptToken(account.accessToken));
+            }
+            return {
+              data: {
+                accessToken: null,
+                refreshToken: null,
+                idToken: null,
+              },
+            };
+          },
+          async after(account, context) {
+            if (account.providerId === "github" && context) {
+              const encrypted = pendingAccountTokenUpdates.get(context);
+              if (encrypted) {
+                pendingAccountTokenUpdates.delete(context);
+                await prisma.user.update({
+                  where: { id: account.userId },
+                  data: { githubAccessTokenEncrypted: encrypted },
+                });
+              }
+            }
+          },
+        },
+      },
+    },
+    plugins: [nextCookies()],
+  });
+}
+
+type BetterAuthInstance = ReturnType<typeof createAuth>;
+
+const globalForAuth = globalThis as unknown as { betterAuthInstance?: BetterAuthInstance };
+
+function getAuth(): BetterAuthInstance {
+  if (!globalForAuth.betterAuthInstance) {
+    globalForAuth.betterAuthInstance = createAuth();
+  }
+  return globalForAuth.betterAuthInstance;
 }
 
 /**
- * Auth.js v5 — GitHub OAuth with JWT sessions.
+ * Better Auth instance — GitHub OAuth with database-backed sessions.
  *
- * Env (read automatically): AUTH_SECRET, AUTH_GITHUB_ID, AUTH_GITHUB_SECRET, and
- * AUTH_URL / NEXTAUTH_URL (Coolify injects SERVICE_URL_WEB into NEXTAUTH_URL).
+ * Lazily initialized on first access so Next.js build-time module evaluation
+ * does not fail when runtime secrets (`AUTH_SECRET`) are not present yet.
  *
- * The GitHub access token is never put in the session cookie: on sign-in it is
- * AES-256-GCM encrypted and stored on the `User` row; the JWT only carries `userId`.
+ * Env: `AUTH_SECRET` / `BETTER_AUTH_SECRET`, `AUTH_GITHUB_ID`, `AUTH_GITHUB_SECRET`,
+ * and `AUTH_URL` / `NEXTAUTH_URL` / `BETTER_AUTH_URL`.
  */
-export const { handlers, auth, signIn, signOut } = NextAuth({
-  // Self-hosted behind Coolify's reverse proxy: trust X-Forwarded-Host/Proto.
-  trustHost: true,
-  session: { strategy: "jwt" },
-  pages: { signIn: "/login", error: "/login" },
-  providers: [
-    GitHub({
-      authorization: { params: { scope: "read:user user:email" } },
-    }),
-  ],
-  callbacks: {
-    /** Registration gate: existing users pass; new ones need public sign-up or an invite link. */
-    async signIn({ user, account, profile }) {
-      if (account?.provider !== "github") return true;
-      const fields = githubUserFields(user, account, profile);
-      if (!fields) return false;
-      const cookieStore = await cookies();
-      const result = await admitGitHubUser(fields, cookieStore.get(INVITE_COOKIE)?.value);
-      if (result === true) {
-        // Single-use either way; best effort, since the cookie expires within the hour anyway.
-        try {
-          cookieStore.delete(INVITE_COOKIE);
-        } catch {
-          // Cookie writes may be unavailable here; the short-lived cookie expires itself.
-        }
-      }
-      return result;
-    },
-    async jwt({ token, user, account, profile }) {
-      // `account` / `profile` are only present on the sign-in request.
-      const fields = account?.provider === "github" ? githubUserFields(user, account, profile) : null;
-      if (fields) {
-        const { githubId, ...profileFields } = fields;
-        // `githubLogin` feeds the collaborator permission check of dependency update PRs (Slice 08).
-        const githubLogin = githubLoginOf(profile);
-        const dbUser = await prisma.user.upsert({
-          where: { githubId },
-          create: { ...fields, githubLogin },
-          update: { ...profileFields, githubLogin },
-          select: { id: true },
-        });
-        token.userId = dbUser.id;
-      }
-      return token;
-    },
-    session({ session, token }) {
-      if (typeof token.userId === "string") {
-        session.user.id = token.userId;
-      }
-      return session;
-    },
+export const auth: BetterAuthInstance = new Proxy({} as BetterAuthInstance, {
+  get(_target, prop) {
+    if (prop === "then" || prop === "__esModule" || typeof prop === "symbol") {
+      return undefined;
+    }
+    const instance = getAuth();
+    const value = Reflect.get(instance, prop, instance);
+    return typeof value === "function" ? value.bind(instance) : value;
+  },
+  has(_target, prop) {
+    if (prop === "then" || prop === "__esModule" || typeof prop === "symbol") {
+      return false;
+    }
+    return prop in getAuth();
   },
 });
 
@@ -112,12 +271,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
  * Memoized per request so multiple callers in one render/action share one query.
  */
 export const getCurrentUserOrThrow = cache(async (): Promise<DbUser> => {
-  const session = await auth();
+  const requestHeaders = await headers();
+  const session = await auth.api.getSession({ headers: requestHeaders });
   const userId = session?.user?.id;
   if (!userId) {
     throw new UnauthorizedError();
   }
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    omit: { githubAccessTokenEncrypted: false },
+  });
   if (!user) {
     // Valid cookie but the row is gone (e.g. DB reset) — treat as signed out.
     throw new UnauthorizedError();

@@ -6,11 +6,17 @@
  */
 export type TrackModeValue = "RELEASES" | "TAGS_AND_COMMITS" | "NONE";
 
-export const TRACK_MODE_OPTIONS: ReadonlyArray<{ value: TrackModeValue; label: string; short: string; hint: string }> = [
-  { value: "RELEASES", label: "Releases only", short: "Releases", hint: "GitHub Releases." },
-  { value: "TAGS_AND_COMMITS", label: "Releases + tags", short: "Releases + tags", hint: "Also Git tags without a release." },
-  { value: "NONE", label: "No releases", short: "No releases", hint: "Only commits to watched files and folders." },
-];
+export const TRACK_MODE_OPTIONS: ReadonlyArray<{ value: TrackModeValue; label: string; short: string; hint: string }> =
+  [
+    { value: "RELEASES", label: "Releases only", short: "Releases", hint: "GitHub Releases." },
+    {
+      value: "TAGS_AND_COMMITS",
+      label: "Releases + tags",
+      short: "Releases + tags",
+      hint: "Also Git tags without a release.",
+    },
+    { value: "NONE", label: "No releases", short: "No releases", hint: "Only commits to watched files and folders." },
+  ];
 
 export const PATHS_OPTION = { label: "Files / folders", hint: "Commits that change specific paths." } as const;
 

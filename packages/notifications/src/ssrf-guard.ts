@@ -15,6 +15,10 @@ import { WebhookUrlError } from "./errors.js";
  *    actually connected to is the one that was checked (no DNS-rebinding window).
  */
 
+/** IPv6 loopback (`::1`) overlaps with the deprecated `::/96` range, so check it separately. */
+const loopbackV6 = new BlockList();
+loopbackV6.addAddress("::1", "ipv6");
+
 /** Private networks that `ALLOW_INTERNAL_WEBHOOK_HOSTS` can open up (self-hosted Gotify/ntfy). */
 const internal = new BlockList();
 internal.addSubnet("127.0.0.0", 8, "ipv4"); // loopback
@@ -29,9 +33,21 @@ internal.addSubnet("fc00::", 7, "ipv6"); // unique local
 const forbidden = new BlockList();
 forbidden.addSubnet("0.0.0.0", 8, "ipv4");
 forbidden.addSubnet("169.254.0.0", 16, "ipv4"); // 169.254.169.254 = AWS/GCP/Azure metadata
+forbidden.addSubnet("192.0.0.0", 24, "ipv4"); // IETF protocol assignments
+forbidden.addSubnet("192.0.2.0", 24, "ipv4"); // TEST-NET-1
+forbidden.addSubnet("198.18.0.0", 15, "ipv4"); // benchmarking
+forbidden.addSubnet("198.51.100.0", 24, "ipv4"); // TEST-NET-2
+forbidden.addSubnet("203.0.113.0", 24, "ipv4"); // TEST-NET-3
 forbidden.addSubnet("224.0.0.0", 4, "ipv4"); // multicast
 forbidden.addSubnet("240.0.0.0", 4, "ipv4"); // reserved + broadcast
 forbidden.addAddress("::", "ipv6");
+forbidden.addSubnet("::", 96, "ipv6"); // IPv4-compatible IPv6 (deprecated)
+forbidden.addSubnet("64:ff9b::", 96, "ipv6"); // NAT64 well-known prefix
+forbidden.addSubnet("64:ff9b:1::", 48, "ipv6"); // NAT64 local-use prefix
+forbidden.addSubnet("100::", 64, "ipv6"); // discard-only
+forbidden.addSubnet("2001::", 32, "ipv6"); // Teredo
+forbidden.addSubnet("2001:db8::", 32, "ipv6"); // documentation
+forbidden.addSubnet("2002::", 16, "ipv6"); // 6to4
 forbidden.addSubnet("fe80::", 10, "ipv6"); // link-local
 forbidden.addSubnet("ff00::", 8, "ipv6"); // multicast
 
@@ -78,6 +94,7 @@ export function classifyAddress(address: string): AddressClass {
   const family = isIP(ip);
   if (family === 0) return "forbidden";
   const type = family === 4 ? "ipv4" : "ipv6";
+  if (type === "ipv6" && loopbackV6.check(ip, "ipv6")) return "internal";
   if (forbidden.check(ip, type)) return "forbidden";
   if (internal.check(ip, type)) return "internal";
   return "public";
@@ -158,7 +175,10 @@ export async function validateWebhookUrl(urlString: string, options: ValidateWeb
  * A `net` lookup function that resolves like `dns.lookup` but fails the connection when any
  * address is blocked. Handles both call shapes (`all: true` is used by Happy Eyeballs).
  */
-export function createGuardedLookup(policy: InternalHostsPolicy, resolveAll: ResolveAll = defaultResolveAll): LookupFunction {
+export function createGuardedLookup(
+  policy: InternalHostsPolicy,
+  resolveAll: ResolveAll = defaultResolveAll,
+): LookupFunction {
   return (hostname, options, callback) => {
     resolveAll(hostname).then(
       (resolved) => {

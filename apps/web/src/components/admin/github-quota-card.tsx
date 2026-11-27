@@ -1,7 +1,14 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { AlertTriangleIcon, CheckCircle2Icon, GaugeIcon, LoaderCircleIcon, RefreshCwIcon, ShieldAlertIcon } from "lucide-react";
+import {
+  CircleCheckIcon,
+  GaugeIcon,
+  LoaderCircleIcon,
+  RefreshCwIcon,
+  ShieldExclamationPointIcon,
+  TriangleExclamationPointIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { LocalDateTime, RelativeTime } from "@/components/feed/relative-time";
 import { Badge } from "@/components/ui/badge";
@@ -12,13 +19,7 @@ import type { GitHubQuotaResult } from "@/server/queries/github-quota";
 
 const numberFormat = new Intl.NumberFormat("en");
 
-export function GitHubQuotaCard({
-  initialQuota,
-  minQuota,
-}: {
-  initialQuota: GitHubQuotaResult;
-  minQuota: number;
-}) {
+export function GitHubQuotaCard({ initialQuota, minQuota }: { initialQuota: GitHubQuotaResult; minQuota: number }) {
   const [quotaResult, setQuotaResult] = useState<GitHubQuotaResult>(initialQuota);
   const [pending, startTransition] = useTransition();
 
@@ -47,20 +48,13 @@ export function GitHubQuotaCard({
               GitHub API quota
             </h3>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={refresh}
-            disabled={pending}
-            className="gap-1.5"
-          >
+          <Button type="button" variant="outline" size="sm" onClick={refresh} disabled={pending} className="gap-1.5">
             {pending ? <LoaderCircleIcon className="size-3.5 animate-spin" /> : <RefreshCwIcon className="size-3.5" />}
             Retry
           </Button>
         </div>
         <div className="flex items-start gap-2.5 rounded-md border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
-          <AlertTriangleIcon className="size-4 shrink-0 mt-0.5" aria-hidden />
+          <TriangleExclamationPointIcon className="size-4 shrink-0 mt-0.5" aria-hidden />
           <div className="min-w-0 flex-1">
             <p className="font-medium">Could not read GitHub rate limit</p>
             <p className="mt-0.5 text-xs opacity-90">{quotaResult.error}</p>
@@ -72,7 +66,8 @@ export function GitHubQuotaCard({
 
   const quota = quotaResult.data;
   const isBelowMin = quota.remaining <= minQuota;
-  const percentage = quota.limit > 0 ? Math.max(0, Math.min(100, Math.round((quota.remaining / quota.limit) * 100))) : 0;
+  const percentage =
+    quota.limit > 0 ? Math.max(0, Math.min(100, Math.round((quota.remaining / quota.limit) * 100))) : 0;
 
   return (
     <section aria-labelledby="quota-heading" className="space-y-4 rounded-lg border bg-card p-4 sm:p-5">
@@ -96,12 +91,12 @@ export function GitHubQuotaCard({
 
           {isBelowMin ? (
             <Badge className="gap-1 border-0 bg-amber-500/10 text-amber-700 dark:text-amber-400 text-xs">
-              <ShieldAlertIcon className="size-3" aria-hidden />
+              <ShieldExclamationPointIcon className="size-3" aria-hidden />
               Below minimum quota
             </Badge>
           ) : (
             <Badge className="gap-1 border-0 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-xs">
-              <CheckCircle2Icon className="size-3" aria-hidden />
+              <CircleCheckIcon className="size-3" aria-hidden />
               Quota healthy
             </Badge>
           )}

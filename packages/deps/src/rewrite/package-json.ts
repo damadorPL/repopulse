@@ -1,7 +1,13 @@
 /** `package.json` rewrite: span edits of dependency values, then a structural comparison with the plan. */
 import { packageJsonSectionOf, parsePackageJson } from "../manifests/package-json.js";
 import { deepEqual, isRecord } from "../util.js";
-import { applyReplacements, assertSafeSpec, ManifestRewriteError, type ManifestEdit, type SpanReplacement } from "./common.js";
+import {
+  applyReplacements,
+  assertSafeSpec,
+  ManifestRewriteError,
+  type ManifestEdit,
+  type SpanReplacement,
+} from "./common.js";
 
 /**
  * Applies `edits` to a `package.json`. Only the value strings change, so formatting, key order, line endings and
@@ -18,7 +24,11 @@ export function rewritePackageJson(text: string, edits: readonly ManifestEdit[],
     );
     if (!dependency) throw new ManifestRewriteError("NOT_FOUND", path, `${edit.name} (${edit.kind}) not found`);
     if (dependency.declared !== edit.from) {
-      throw new ManifestRewriteError("STALE", path, `${edit.name} is "${dependency.declared}", expected "${edit.from}"`);
+      throw new ManifestRewriteError(
+        "STALE",
+        path,
+        `${edit.name} is "${dependency.declared}", expected "${edit.from}"`,
+      );
     }
     if (!dependency.span) throw new ManifestRewriteError("NOT_REWRITABLE", path, `${edit.name} cannot be rewritten`);
     replacements.push({ span: dependency.span, text: edit.to });

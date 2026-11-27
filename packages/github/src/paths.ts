@@ -115,6 +115,8 @@ export async function fetchCommitsForPath(params: {
   name: string;
   path: string;
   first?: number;
+  since?: string;
+  etag?: string | null;
   accessToken?: string | null;
   octokit?: Octokit;
   signal?: AbortSignal;
@@ -127,10 +129,13 @@ export async function fetchCommitsForPath(params: {
       repo: name,
       path,
       per_page: first,
+      ...(params.since ? { since: params.since } : {}),
+      ...(params.etag ? { headers: { "If-None-Match": params.etag } } : {}),
       ...requestOptions(params.signal),
     });
     return (response.data as unknown as CommitListItem[]).map(mapCommitListItem);
   } catch (error) {
+    if (isGitHubHttpError(error) && error.status === 304) return [];
     // 409 "Git Repository is empty": no commits yet.
     if (isGitHubHttpError(error) && error.status === 409) return [];
     rethrowGitHubError(error, owner, name);
@@ -205,7 +210,8 @@ function fileLine(file: CommitFileChange): string {
   const notes: string[] = [`+${file.additions} / -${file.deletions}`];
   if (file.status === "added") notes.push("added");
   else if (file.status === "removed") notes.push("removed");
-  else if (file.status === "renamed" && file.previousFilename) notes.push(`renamed from ${code(file.previousFilename)}`);
+  else if (file.status === "renamed" && file.previousFilename)
+    notes.push(`renamed from ${code(file.previousFilename)}`);
   return `- ${code(file.filename)} (${notes.join(", ")})`;
 }
 
@@ -231,20 +237,28 @@ export function buildCommitChangelog(
   const body = bodyOf(commit.message);
   if (body) parts.push(body);
 
-  const author = commit.authorLogin ? `**@${commit.authorLogin}**` : commit.authorName ? `**${commit.authorName}**` : null;
+  const author = commit.authorLogin
+    ? `**@${commit.authorLogin}**`
+    : commit.authorName
+      ? `**${commit.authorName}**`
+      : null;
   if (author) parts.push(`Committed by ${author}`);
 
   const link = `[View commit ${code(commit.sha.slice(0, 7))} on GitHub](${commit.htmlUrl})`;
   if (detail) {
     // Stable sort: files under the watched paths first, otherwise GitHub's order.
-    const files = [...detail.files].sort((a, b) => Number(touchesAny(b, matchedPaths)) - Number(touchesAny(a, matchedPaths)));
+    const files = [...detail.files].sort(
+      (a, b) => Number(touchesAny(b, matchedPaths)) - Number(touchesAny(a, matchedPaths)),
+    );
     const shown = files.slice(0, COMMIT_CHANGELOG_MAX_FILES);
     const lines = shown.map(fileLine);
     const hidden = files.length - shown.length;
     if (hidden > 0 || detail.filesTruncated) {
       lines.push(detail.filesTruncated ? "- …and more files" : `- …and ${plural(hidden, "more file")}`);
     }
-    const fileCount = detail.filesTruncated ? `${files.length}+ files changed` : `${plural(files.length, "file")} changed`;
+    const fileCount = detail.filesTruncated
+      ? `${files.length}+ files changed`
+      : `${plural(files.length, "file")} changed`;
     parts.push(
       "### Changed files",
       lines.length > 0 ? lines.join("\n") : "_No file changes listed._",
@@ -267,7 +281,9 @@ export function mapPathCommit(
   matchedPaths: readonly string[],
 ): MappedPathCommit {
   const tagName = commit.sha.slice(0, 7);
-  const changed = (detail?.files ?? []).flatMap((file) => (file.previousFilename ? [file.filename, file.previousFilename] : [file.filename]));
+  const changed = (detail?.files ?? []).flatMap((file) =>
+    file.previousFilename ? [file.filename, file.previousFilename] : [file.filename],
+  );
   return {
     source: "COMMIT",
     githubReleaseId: null,

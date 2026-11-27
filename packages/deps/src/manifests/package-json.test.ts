@@ -36,7 +36,12 @@ describe("parsePackageJson", () => {
 
   it("reads every section with kinds and spans", () => {
     const react = manifest.dependencies.find((d) => d.name === "react" && d.kind === "PROD");
-    expect(react).toMatchObject({ declared: "^18.2.0", supported: true, rangeSyntax: "npm", file: "apps/web/package.json" });
+    expect(react).toMatchObject({
+      declared: "^18.2.0",
+      supported: true,
+      rangeSyntax: "npm",
+      file: "apps/web/package.json",
+    });
     expect(TEXT.slice(react!.span!.start, react!.span!.end)).toBe("^18.2.0");
     expect(manifest.dependencies.find((d) => d.name === "typescript")?.kind).toBe("DEV");
     expect(manifest.dependencies.find((d) => d.name === "react" && d.kind === "PEER")?.declared).toBe(">=17");
@@ -94,7 +99,9 @@ describe("locateJsonStrings / parseJsonWithTrailingCommas", () => {
   it("enforces trailing comma option and rejects malformed strings or trailing tokens", () => {
     expect(() => locateJsonStrings(`{"a": 1,}`)).toThrow(JsonScanError);
     expect(() => locateJsonStrings(`[1,]`)).toThrow(JsonScanError);
-    expect(locateJsonStrings(`{"a": "ok",}`, { allowTrailingCommas: true }).locations.has(jsonPathKey(["a"]))).toBe(true);
+    expect(locateJsonStrings(`{"a": "ok",}`, { allowTrailingCommas: true }).locations.has(jsonPathKey(["a"]))).toBe(
+      true,
+    );
     expect(() => locateJsonStrings(`{"a": "line\nbreak"}`)).toThrow(JsonScanError);
     expect(() => locateJsonStrings(`{"a": "\\x"}`)).toThrow(JsonScanError);
     expect(() => locateJsonStrings(`{"a": "\\u12"}`)).toThrow(JsonScanError);

@@ -1,9 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { depsNotifyJobId, type DepsNotifyJobData } from "@repopulse/queue";
-import { flushNotificationOutbox, startNotificationOutbox, storeNotificationIntents } from "./notification-outbox";
-import { createFakePrisma, seed } from "./testing/fake-prisma";
+import { flushNotificationOutbox, startNotificationOutbox, storeNotificationIntents } from "./notification-outbox.js";
+import { createFakePrisma, seed } from "./testing/fake-prisma.js";
 
-const data: DepsNotifyJobData = { projectId: "p1", ruleId: "r1", kind: "digest", scanId: "scan1", updateIds: ["update1"] };
+const data: DepsNotifyJobData = {
+  projectId: "p1",
+  ruleId: "r1",
+  kind: "digest",
+  scanId: "scan1",
+  updateIds: ["update1"],
+};
 const setup = () => {
   const prisma = createFakePrisma();
   seed(prisma);
@@ -21,7 +27,9 @@ describe("dependency notification outbox", () => {
     await expect(flushNotificationOutbox(db, queue)).rejects.toThrow("Redis unavailable");
     expect(prisma.dependencyNotificationOutbox.rows).toHaveLength(1);
     expect(await flushNotificationOutbox(db, queue)).toBe(1);
-    expect(queue.addBulk).toHaveBeenLastCalledWith([expect.objectContaining({ data, opts: { jobId: depsNotifyJobId(data) } })]);
+    expect(queue.addBulk).toHaveBeenLastCalledWith([
+      expect.objectContaining({ data, opts: { jobId: depsNotifyJobId(data) } }),
+    ]);
     expect(prisma.dependencyNotificationOutbox.rows).toHaveLength(0);
   });
 

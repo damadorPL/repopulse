@@ -13,6 +13,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import http from "node:http";
 import os from "node:os";
+import { setTimeout as delay } from "node:timers/promises";
 import { MAX_SANDBOX_BODY_BYTES } from "@repopulse/deps/limits";
 import {
   lockRequestSchema,
@@ -21,6 +22,7 @@ import {
   type ParsedLockResponse,
 } from "@repopulse/deps/sandbox-contract";
 import type { ToolVersions } from "./commands.js";
+import { log } from "./logger.js";
 import { DEFAULT_EGRESS_PROXY, DEFAULT_TIMEOUT_MS, runLock, type RunLockOptions } from "./run-lock.js";
 
 export const DEFAULT_PORT = 3003;
@@ -129,7 +131,9 @@ function readBody(req: http.IncomingMessage, keep: number): Promise<BodyResult> 
         chunks.push(chunk);
       }
     });
-    req.on("end", () => settle(size > keep ? { kind: "too-large" } : { kind: "ok", body: Buffer.concat(chunks, size) }));
+    req.on("end", () =>
+      settle(size > keep ? { kind: "too-large" } : { kind: "ok", body: Buffer.concat(chunks, size) }),
+    );
     req.on("error", () => settle({ kind: "aborted" }));
     req.on("close", () => settle({ kind: "aborted" }));
   });
@@ -202,8 +206,9 @@ export function createSandboxServer(options: SandboxServerOptions): SandboxServe
 
     busy = true;
     const abort = new AbortController();
-    let release!: () => void;
-    current = { abort, done: new Promise<void>((resolve) => (release = resolve)) };
+    const { promise: done, resolve: release } = Promise.withResolvers<void>();
+    current = { abort, done };
+    let onClose: (() => void) | undefined;
     try {
       const read = await readBody(req, MAX_SANDBOX_BODY_BYTES);
       if (read.kind === "aborted") return; // client went away
@@ -226,6 +231,15 @@ export function createSandboxServer(options: SandboxServerOptions): SandboxServe
         return;
       }
 
+      onClose = () => {
+        if (!res.writableFinished) abort.abort();
+      };
+      if (res.closed) {
+        onClose();
+        return;
+      }
+      res.once("close", onClose);
+
       const started = Date.now();
       const result = await run(parsed.data, {
         tmpRoot: config.tmpRoot,
@@ -235,18 +249,26 @@ export function createSandboxServer(options: SandboxServerOptions): SandboxServe
         signal: abort.signal,
         ...options.runOptions,
       });
+      if (res.closed) return;
       const checked = lockResponseSchema.safeParse(result);
       if (!checked.success) {
-        console.error("[deps-sandbox] job produced an invalid response");
+        log.error({ packageManager: parsed.data.packageManager }, "job produced an invalid response");
         sendFailure(res, 500, "INTERNAL");
         return;
       }
       const response = checked.data;
-      console.log(
-        `[deps-sandbox] ${parsed.data.packageManager} job ${response.ok ? "ok" : response.code} in ${Date.now() - started}ms`,
+      const durationMs = Date.now() - started;
+      log.info(
+        {
+          packageManager: parsed.data.packageManager,
+          outcome: response.ok ? "ok" : response.code,
+          durationMs,
+        },
+        `${parsed.data.packageManager} job ${response.ok ? "ok" : response.code} in ${durationMs}ms`,
       );
       sendJson(res, response.ok ? 200 : (STATUS_FOR[response.code] ?? 200), response);
     } finally {
+      if (onClose) res.off("close", onClose);
       busy = false;
       current = null;
       release();
@@ -257,7 +279,7 @@ export function createSandboxServer(options: SandboxServerOptions): SandboxServe
     const pathname = (req.url ?? "/").split("?")[0];
     if (pathname === "/health") {
       if (req.method !== "GET" && req.method !== "HEAD") {
-        sendJson(res, 405, { status: "error" }, { Allow: "GET" });
+        sendJson(res, 405, { status: "error" }, { Allow: "GET, HEAD" });
         return;
       }
       sendJson(res, 200, { status: "ok", tools });
@@ -276,7 +298,7 @@ export function createSandboxServer(options: SandboxServerOptions): SandboxServe
 
   const server = http.createServer((req, res) => {
     handle(req, res).catch((err: unknown) => {
-      console.error(`[deps-sandbox] unexpected handler error: ${err instanceof Error ? err.message : String(err)}`);
+      log.error({ err }, `unexpected handler error: ${err instanceof Error ? err.message : String(err)}`);
       if (!res.headersSent) sendFailure(res, 500, "INTERNAL", "", true);
       else res.end();
     });
@@ -298,7 +320,7 @@ export function createSandboxServer(options: SandboxServerOptions): SandboxServe
       job.abort.abort();
       await job.done;
       // Let the BUSY answer flush, then drop the keep-alive socket it used.
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await delay(100);
     }
     server.closeAllConnections();
     await closed;

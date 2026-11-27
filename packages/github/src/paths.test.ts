@@ -58,12 +58,26 @@ describe("normalizeWatchedPath", () => {
     expect(normalizeWatchedPath(raw)).toBe(expected);
   });
 
-  it.each(["", "   ", "/", ".", "..", "./", "a/../b", "../etc", "a/./b", "a\\b", "a?b", "a#b", "a\u0000b", "a\tb", "a\u007fb", "a\u0080b"])(
-    "rejects %j",
-    (raw) => {
-      expect(normalizeWatchedPath(raw)).toBeNull();
-    },
-  );
+  it.each([
+    "",
+    "   ",
+    "/",
+    ".",
+    "..",
+    "./",
+    "a/../b",
+    "../etc",
+    "a/./b",
+    "a\\b",
+    "a?b",
+    "a#b",
+    "a\u0000b",
+    "a\tb",
+    "a\u007fb",
+    "a\u0080b",
+  ])("rejects %j", (raw) => {
+    expect(normalizeWatchedPath(raw)).toBeNull();
+  });
 
   it("rejects paths longer than the limit", () => {
     expect(normalizeWatchedPath("a".repeat(MAX_WATCHED_PATH_LENGTH))).toHaveLength(MAX_WATCHED_PATH_LENGTH);
@@ -131,7 +145,12 @@ describe("fetchCommitsForPath", () => {
         },
       ]);
     });
-    const commits = await fetchCommitsForPath({ owner: "acme", name: "widget", path: "packages/db", octokit: createOctokit({ fetch }) });
+    const commits = await fetchCommitsForPath({
+      owner: "acme",
+      name: "widget",
+      path: "packages/db",
+      octokit: createOctokit({ fetch }),
+    });
     expect(commits).toEqual([
       {
         sha: SHA,
@@ -154,24 +173,57 @@ describe("fetchCommitsForPath", () => {
 
   it("returns nothing for an empty repository (409)", async () => {
     const fetch = mockFetch(() => json({ message: "Git Repository is empty." }, { status: 409 }));
-    await expect(fetchCommitsForPath({ owner: "a", name: "b", path: "x", octokit: createOctokit({ fetch }) })).resolves.toEqual([]);
+    await expect(
+      fetchCommitsForPath({ owner: "a", name: "b", path: "x", octokit: createOctokit({ fetch }) }),
+    ).resolves.toEqual([]);
   });
 
   it("maps 404 and rate limits to typed errors", async () => {
     const notFound = mockFetch(() => json({ message: "Not Found" }, { status: 404 }));
-    await expect(fetchCommitsForPath({ owner: "a", name: "b", path: "x", octokit: createOctokit({ fetch: notFound }) })).rejects.toBeInstanceOf(
-      GitHubRepositoryNotFoundError,
-    );
+    await expect(
+      fetchCommitsForPath({ owner: "a", name: "b", path: "x", octokit: createOctokit({ fetch: notFound }) }),
+    ).rejects.toBeInstanceOf(GitHubRepositoryNotFoundError);
     const limited = mockFetch(() =>
-      json({ message: "API rate limit exceeded" }, { status: 403, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1900000000" } }),
+      json(
+        { message: "API rate limit exceeded" },
+        { status: 403, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1900000000" } },
+      ),
     );
-    const error = await fetchCommitsForPath({ owner: "a", name: "b", path: "x", octokit: createOctokit({ fetch: limited }) }).catch((e: unknown) => e);
+    const error = await fetchCommitsForPath({
+      owner: "a",
+      name: "b",
+      path: "x",
+      octokit: createOctokit({ fetch: limited }),
+    }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(GitHubRateLimitError);
     expect((error as GitHubRateLimitError).resetAt).toEqual(new Date(1_900_000_000 * 1000));
     const tooMany = mockFetch(() => json({ message: "slow down" }, { status: 429 }));
-    await expect(fetchCommitsForPath({ owner: "a", name: "b", path: "x", octokit: createOctokit({ fetch: tooMany }) })).rejects.toBeInstanceOf(
-      GitHubRateLimitError,
-    );
+    await expect(
+      fetchCommitsForPath({ owner: "a", name: "b", path: "x", octokit: createOctokit({ fetch: tooMany }) }),
+    ).rejects.toBeInstanceOf(GitHubRateLimitError);
+  });
+
+  it("supports optional etag (304 Not Modified -> []) and since query parameter", async () => {
+    const seenHeaders: Array<string | null> = [];
+    const seenSince: Array<string | null> = [];
+    const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+      const headers = new Headers(init?.headers);
+      seenHeaders.push(headers.get("if-none-match"));
+      seenSince.push(url.searchParams.get("since"));
+      return new Response(null, { status: 304 });
+    });
+    const commits = await fetchCommitsForPath({
+      owner: "acme",
+      name: "widget",
+      path: "packages/db",
+      etag: '"abc"',
+      since: "2026-10-01T00:00:00Z",
+      octokit: createOctokit({ fetch: fetch as unknown as typeof globalThis.fetch }),
+    });
+    expect(commits).toEqual([]);
+    expect(seenHeaders).toEqual(['"abc"']);
+    expect(seenSince).toEqual(["2026-10-01T00:00:00Z"]);
   });
 });
 
@@ -191,7 +243,9 @@ describe("fetchCommitDetail", () => {
         { headers: { link: `<https://api.github.com/repositories/1/commits/${SHA}?page=2>; rel="next"` } },
       );
     });
-    expect(await fetchCommitDetail({ owner: "acme", name: "widget", ref: SHA, octokit: createOctokit({ fetch }) })).toEqual({
+    expect(
+      await fetchCommitDetail({ owner: "acme", name: "widget", ref: SHA, octokit: createOctokit({ fetch }) }),
+    ).toEqual({
       sha: SHA,
       stats: { additions: 12, deletions: 3, total: 15 },
       files: [
@@ -204,7 +258,14 @@ describe("fetchCommitDetail", () => {
 
   it("defaults missing stats and files, and maps 404/429 errors", async () => {
     const emptyFetch = mockFetch(() => json({ sha: SHA }));
-    expect(await fetchCommitDetail({ owner: "acme", name: "widget", ref: SHA, octokit: createOctokit({ fetch: emptyFetch }) })).toEqual({
+    expect(
+      await fetchCommitDetail({
+        owner: "acme",
+        name: "widget",
+        ref: SHA,
+        octokit: createOctokit({ fetch: emptyFetch }),
+      }),
+    ).toEqual({
       sha: SHA,
       stats: { additions: 0, deletions: 0, total: 0 },
       files: [],
@@ -246,7 +307,13 @@ describe("buildCommitChangelog", () => {
       { filename: "packages/db/schema.prisma", status: "modified", additions: 12, deletions: 3 },
       { filename: "packages/db/new.sql", status: "added", additions: 2, deletions: 0 },
       { filename: "packages/db/gone.ts", status: "removed", additions: 0, deletions: 0 },
-      { filename: "packages/db/b.ts", status: "renamed", additions: 0, deletions: 0, previousFilename: "packages/db/a.ts" },
+      {
+        filename: "packages/db/b.ts",
+        status: "renamed",
+        additions: 0,
+        deletions: 0,
+        previousFilename: "packages/db/a.ts",
+      },
     ],
   };
 
@@ -276,7 +343,12 @@ describe("buildCommitChangelog", () => {
   it("caps the file list", () => {
     const many: CommitDetail = {
       ...detail,
-      files: Array.from({ length: COMMIT_CHANGELOG_MAX_FILES + 3 }, (_, i) => ({ filename: `f${i}`, status: "modified", additions: 1, deletions: 0 })),
+      files: Array.from({ length: COMMIT_CHANGELOG_MAX_FILES + 3 }, (_, i) => ({
+        filename: `f${i}`,
+        status: "modified",
+        additions: 1,
+        deletions: 0,
+      })),
     };
     const body = buildCommitChangelog(summary(), many, []);
     expect(body).toContain("- …and 3 more files");
@@ -285,7 +357,10 @@ describe("buildCommitChangelog", () => {
   });
 
   it("lists the watched paths when the detail request failed", () => {
-    const body = buildCommitChangelog(summary({ authorLogin: null, authorName: null }), null, ["packages/db", "CHANGELOG.md"]);
+    const body = buildCommitChangelog(summary({ authorLogin: null, authorName: null }), null, [
+      "packages/db",
+      "CHANGELOG.md",
+    ]);
     expect(body).toBe(
       [
         "Speeds up the feed query.\nCloses #12.",
@@ -306,7 +381,11 @@ describe("buildCommitChangelog", () => {
   });
 
   it("handles empty files, filesTruncated, empty matchedPaths without detail, and previousFilename matching", () => {
-    const emptyFiles = buildCommitChangelog(summary(), { sha: SHA, stats: { additions: 0, deletions: 0, total: 0 }, files: [] }, []);
+    const emptyFiles = buildCommitChangelog(
+      summary(),
+      { sha: SHA, stats: { additions: 0, deletions: 0, total: 0 }, files: [] },
+      [],
+    );
     expect(emptyFiles).toContain("_No file changes listed._");
     expect(emptyFiles).toContain("0 files changed");
 
@@ -351,7 +430,13 @@ describe("mapPathCommit", () => {
         stats: { additions: 1, deletions: 0, total: 1 },
         files: [
           { filename: "packages/db/x.ts", status: "modified", additions: 1, deletions: 0 },
-          { filename: "packages/db/new.ts", status: "renamed", additions: 0, deletions: 0, previousFilename: "lib/old.ts" },
+          {
+            filename: "packages/db/new.ts",
+            status: "renamed",
+            additions: 0,
+            deletions: 0,
+            previousFilename: "lib/old.ts",
+          },
         ],
       },
       ["packages/db"],

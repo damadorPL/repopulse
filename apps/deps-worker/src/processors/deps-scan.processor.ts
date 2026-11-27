@@ -7,18 +7,24 @@ import {
   isRegistryUnavailableError,
   MAX_DEPENDENCIES_PER_PROJECT,
   parseTarget,
-  type DependencyEcosystem,
-  type PackageManager,
   type SemverType,
 } from "@repopulse/deps";
-import { GitHubRateLimitError, GitHubRepositoryNotFoundError, isGitHubHttpError, type GitTreeSnapshot } from "@repopulse/github";
 import {
+  GitHubRateLimitError,
+  GitHubRepositoryNotFoundError,
+  isGitHubHttpError,
+  type GitTreeSnapshot,
+} from "@repopulse/github";
+import {
+  deduplicatedJobOptions,
   DEPS_JOB_NAMES,
+  DEPS_QUEUE_NAMES,
   DEPS_UPDATE_PRIORITY,
   depsUpdateJobId,
+  rateLimitDelayMs,
   type DepsNotifyJobData,
   type DepsScanJobData,
-  type DepsUpdateJobData,
+  type DepsUpdateQueue,
   type Redis,
 } from "@repopulse/queue";
 import {
@@ -30,13 +36,12 @@ import {
   rowKey,
   type PlannedDependency,
   type RegistryLookupFn,
-} from "../analysis";
-import { PRIVATE_WITHOUT_APP_MESSAGE, type GitHubAccess, type ReadCandidate } from "../github-access";
-import { defaultGitHubApi, type GitHubApi, type Octokit } from "../github-api";
-import { createLogger } from "../logger";
-import type { BlobCache, LockfileCache } from "../registry-cache";
-import { rateLimitDelayMs } from "../rate-limit";
-import { flushNotificationOutbox, storeNotificationIntents } from "../notification-outbox";
+} from "../analysis.js";
+import { PRIVATE_WITHOUT_APP_MESSAGE, type GitHubAccess, type ReadCandidate } from "../github-access.js";
+import { defaultGitHubApi, type GitHubApi, type Octokit } from "../github-api.js";
+import { createLogger } from "../logger.js";
+import type { BlobCache, LockfileCache } from "../registry-cache.js";
+import { flushNotificationOutbox, storeNotificationIntents } from "../notification-outbox.js";
 import {
   digestScanId,
   notifyPullRequestEvent,
@@ -44,8 +49,8 @@ import {
   publish,
   rulesFor,
   type NotifyQueue,
-} from "./notify-jobs";
-import { ownerHasPermission, revokePullRequestMode } from "./repo-access";
+} from "./notify-jobs.js";
+import { ownerHasPermission, revokePullRequestMode } from "./repo-access.js";
 
 const log = createLogger("deps-scan");
 
@@ -67,12 +72,17 @@ export interface DepsScanDeps {
   prisma: PrismaClient;
   redis: Pick<Redis, "publish">;
   scanQueue: Pick<Queue<DepsScanJobData>, "rateLimit">;
-  updateQueue: Pick<Queue<DepsUpdateJobData>, "addBulk" | "getJob">;
+  updateQueue: Pick<DepsUpdateQueue, "addBulk" | "getDeduplicationJobId">;
   notifyQueue: NotifyQueue;
   access: Pick<GitHubAccess, "readAccess" | "invalidate">;
   github?: Pick<
     GitHubApi,
-    "createOctokit" | "fetchGitTree" | "readBlobs" | "getPullRequestState" | "getCollaboratorPermission" | "getUserLoginById"
+    | "createOctokit"
+    | "fetchGitTree"
+    | "readBlobs"
+    | "getPullRequestState"
+    | "getCollaboratorPermission"
+    | "getUserLoginById"
   >;
   registry: RegistryLookupFn;
   blobCache?: BlobCache | null;
@@ -132,7 +142,10 @@ async function fetchWithFallback(
       if (isGitHubHttpError(error) && error.status === 401) {
         if (candidate.source === "app" && installationId !== null) deps.access.invalidate(installationId);
         if (index < candidates.length - 1) {
-          log.warn(`${project.fullName}: ${candidate.source} token was rejected (401); trying the next one`);
+          log.warn(
+            { queue: DEPS_QUEUE_NAMES.scan, projectId: project.id, source: candidate.source },
+            `${project.fullName}: ${candidate.source} token was rejected (401); trying the next one`,
+          );
           continue;
         }
       }
@@ -193,19 +206,27 @@ function rowChanged(existing: RowData & { firstSeenAt: Date; notifiedAt: Date | 
  * the manifests, look up the registries, plan, persist in one transaction, refresh the open PRs, then SSE, digest
  * notifications and (AUTO_PR) update jobs.
  */
-export async function processDepsScan(job: Job<DepsScanJobData>, deps: DepsScanDeps, signal?: AbortSignal): Promise<DepsScanOutcome> {
+export async function processDepsScan(
+  job: Job<DepsScanJobData>,
+  deps: DepsScanDeps,
+  signal?: AbortSignal,
+): Promise<DepsScanOutcome> {
   const { prisma } = deps;
   const github = deps.github ?? defaultGitHubApi;
   const now = () => deps.now?.() ?? new Date();
   const { projectId, trigger } = job.data;
+  const ctx = { queue: DEPS_QUEUE_NAMES.scan, jobId: job.id, projectId };
 
   if (!(await loadDepsEnabled(prisma))) {
-    log.info(`project ${projectId}: dependency checks are disabled; scan skipped`);
+    log.info(ctx, `project ${projectId}: dependency checks are disabled; scan skipped`);
     return { status: "SKIPPED", reason: "DISABLED" };
   }
   const project = await prisma.dependencyProject.findUnique({ where: { id: projectId } });
   if (!project) return { status: "SKIPPED", reason: "PROJECT_GONE" };
-  const user = await prisma.user.findUnique({ where: { id: project.userId }, select: { id: true, githubId: true, githubLogin: true, githubAccessTokenEncrypted: true } });
+  const user = await prisma.user.findUnique({
+    where: { id: project.userId },
+    select: { id: true, githubId: true, githubLogin: true, githubAccessTokenEncrypted: true },
+  });
   if (!user) return { status: "SKIPPED", reason: "PROJECT_GONE" };
 
   const requester = job.data.requestedByUserId ?? (trigger === "manual" ? project.userId : undefined);
@@ -229,7 +250,10 @@ export async function processDepsScan(job: Job<DepsScanJobData>, deps: DepsScanD
       select: { errorCount: true },
     });
     if (countIt && errorCount >= MAX_ERROR_COUNT) {
-      await prisma.dependencyProject.update({ where: { id: projectId }, data: { nextScanAt: new Date(at.getTime() + PAUSED_RESCAN_MS) } });
+      await prisma.dependencyProject.update({
+        where: { id: projectId },
+        data: { nextScanAt: new Date(at.getTime() + PAUSED_RESCAN_MS) },
+      });
     }
     await scanFailed(message);
     return errorCount;
@@ -242,14 +266,22 @@ export async function processDepsScan(job: Job<DepsScanJobData>, deps: DepsScanD
     // Step 1: read credentials.
     const access = await deps.access.readAccess(project, user);
     if (access.kind === "private-without-app") {
-      log.warn(`${project.fullName}: private repository without the GitHub App`);
+      log.warn(ctx, `${project.fullName}: private repository without the GitHub App`);
       await recordHandled(access.message, false);
       return { status: "PRIVATE_WITHOUT_APP" };
     }
 
     // Step 2: tree + metadata.
-    const { snapshot, candidate, octokit } = await fetchWithFallback(deps, github, project, access.candidates, access.installationId, signal);
-    if (snapshot.repository.id !== project.githubRepoId) throw new GitHubRepositoryNotFoundError(project.owner, project.name);
+    const { snapshot, candidate, octokit } = await fetchWithFallback(
+      deps,
+      github,
+      project,
+      access.candidates,
+      access.installationId,
+      signal,
+    );
+    if (snapshot.repository.id !== project.githubRepoId)
+      throw new GitHubRepositoryNotFoundError(project.owner, project.name);
     if (snapshot.repository.isPrivate && candidate.source !== "app") {
       await prisma.dependencyProject.update({ where: { id: projectId }, data: { isPrivate: true } });
       await recordHandled(PRIVATE_WITHOUT_APP_MESSAGE, false);
@@ -257,16 +289,23 @@ export async function processDepsScan(job: Job<DepsScanJobData>, deps: DepsScanD
     }
     // Private repository read with the App token: the installation alone never grants access, so the owner's
     // read permission is checked on every scan. Without it nothing new is written and PR modes are revoked.
-    if (snapshot.repository.isPrivate && !(await ownerHasPermission(prisma, github, octokit, snapshot.repository, user, "read"))) {
+    if (
+      snapshot.repository.isPrivate &&
+      !(await ownerHasPermission(prisma, github, octokit, snapshot.repository, user, "read"))
+    ) {
       const switchedToNotify = await revokePullRequestMode(deps, project, null, now());
-      log.warn(`${project.fullName}: the owner has no read access to the private repository${switchedToNotify ? "; switched to notify-only" : ""}`);
+      log.warn(
+        ctx,
+        `${project.fullName}: the owner has no read access to the private repository${switchedToNotify ? "; switched to notify-only" : ""}`,
+      );
       await recordHandled(NO_ACCESS_MESSAGE, false);
       return { status: "NO_ACCESS", switchedToNotify };
     }
     const repo = snapshot.repository;
     const reader = createSnapshotReader(
       snapshot.entries,
-      (refs, maxBytes) => github.readBlobs(octokit, repo.owner, repo.name, refs, { maxBytes, ...(signal ? { signal } : {}) }),
+      (refs, maxBytes) =>
+        github.readBlobs(octokit, repo.owner, repo.name, refs, { maxBytes, ...(signal ? { signal } : {}) }),
       deps.blobCache,
     );
     const analysis = capDependencies(
@@ -289,10 +328,15 @@ export async function processDepsScan(job: Job<DepsScanJobData>, deps: DepsScanD
     const dismissed = new Map<string, string>();
     for (const row of storedUpdates) {
       const path = manifestPathById.get(row.manifestId);
-      if (row.status === "DISMISSED" && row.targetVersion && path) dismissed.set(rowKey(path, row.name, row.kind, row.group), row.targetVersion);
+      if (row.status === "DISMISSED" && row.targetVersion && path)
+        dismissed.set(rowKey(path, row.name, row.kind, row.group), row.targetVersion);
     }
     const lookups = await lookupRegistries(
-      analysis.manifests.flatMap((m) => m.dependencies.filter((d) => d.dependency.supported).map((d) => ({ ecosystem: d.ecosystem, name: d.dependency.name }))),
+      analysis.manifests.flatMap((m) =>
+        m.dependencies
+          .filter((d) => d.dependency.supported)
+          .map((d) => ({ ecosystem: d.ecosystem, name: d.dependency.name })),
+      ),
       deps.registry,
       signal,
     );
@@ -385,7 +429,13 @@ export async function processDepsScan(job: Job<DepsScanJobData>, deps: DepsScanD
         },
       });
     }, TRANSACTION_OPTIONS);
-    const current = { ...project, owner: repo.owner, name: repo.name, fullName: repo.fullName, defaultBranch: repo.defaultBranch };
+    const current = {
+      ...project,
+      owner: repo.owner,
+      name: repo.name,
+      fullName: repo.fullName,
+      defaultBranch: repo.defaultBranch,
+    };
 
     // Step 5: refresh open pull requests.
     const prCounts = await refreshPullRequests(deps, github, octokit, current);
@@ -402,10 +452,21 @@ export async function processDepsScan(job: Job<DepsScanJobData>, deps: DepsScanD
     });
     const digests = await queueDigest(deps, current, outdatedRows, firstScan, scannedAt);
     const autoUpdates =
-      project.updateMode === "AUTO_PR" && access.installationId !== null ? await queueAutoUpdates(deps, current, outdatedRows) : 0;
+      project.updateMode === "AUTO_PR" && access.installationId !== null
+        ? await queueAutoUpdates(deps, current, outdatedRows)
+        : 0;
 
     const dependencies = analysis.manifests.reduce((sum, m) => sum + m.dependencies.length, 0);
     log.info(
+      {
+        ...ctx,
+        manifests: analysis.manifests.length,
+        dependencies,
+        outdated: outdatedRows.length,
+        majors,
+        digests,
+        autoUpdates,
+      },
       `${repo.fullName}: ${analysis.manifests.length} manifests, ${dependencies} dependencies, ${outdatedRows.length} outdated ` +
         `(${majors} major), ${reader.downloaded} blobs downloaded via ${candidate.source}, ${digests} digest job(s), ${autoUpdates} update job(s)`,
     );
@@ -424,12 +485,15 @@ export async function processDepsScan(job: Job<DepsScanJobData>, deps: DepsScanD
       const delayMs = rateLimitDelayMs(error.resetAt, now());
       await prisma.dependencyProject.update({ where: { id: projectId }, data: { scanStatus: "QUEUED" } });
       await deps.scanQueue.rateLimit(delayMs);
-      log.warn(`${project.fullName}: GitHub rate limit exceeded; pausing deps-scan for ${Math.ceil(delayMs / 1000)}s`);
+      log.warn(
+        { ...ctx, delayMs },
+        `${project.fullName}: GitHub rate limit exceeded; pausing deps-scan for ${Math.ceil(delayMs / 1000)}s`,
+      );
       throw Worker.RateLimitError();
     }
     if (error instanceof GitHubRepositoryNotFoundError) {
       const errorCount = await recordHandled(notFoundMessage(project.fullName), true);
-      log.warn(`${project.fullName}: not found (errorCount ${errorCount}/${MAX_ERROR_COUNT})`);
+      log.warn({ ...ctx, errorCount }, `${project.fullName}: not found (errorCount ${errorCount}/${MAX_ERROR_COUNT})`);
       return { status: "NOT_FOUND", errorCount };
     }
 
@@ -450,16 +514,20 @@ export async function processDepsScan(job: Job<DepsScanJobData>, deps: DepsScanD
           select: { errorCount: true },
         });
         if (errorCount >= MAX_ERROR_COUNT) {
-          await prisma.dependencyProject.update({ where: { id: projectId }, data: { nextScanAt: new Date(at.getTime() + PAUSED_RESCAN_MS) } });
+          await prisma.dependencyProject.update({
+            where: { id: projectId },
+            data: { nextScanAt: new Date(at.getTime() + PAUSED_RESCAN_MS) },
+          });
         }
         await scanFailed(message);
       } else {
         await prisma.dependencyProject.update({ where: { id: projectId }, data: { scanStatus: "QUEUED" } });
       }
     } catch (recordError) {
-      log.error(`${project.fullName}: could not record the failure`, recordError);
+      log.error({ ...ctx, err: recordError }, `${project.fullName}: could not record the failure`);
     }
     log.warn(
+      { ...ctx, attempt: job.attemptsMade + 1, maxAttempts: job.opts.attempts ?? 1, err: error },
       `${project.fullName}: attempt ${job.attemptsMade + 1}/${job.opts.attempts ?? 1} failed: ${error instanceof Error ? error.message : String(error)}`,
     );
     throw error;
@@ -471,10 +539,8 @@ type CurrentProject = ProjectRow;
 /** Whether an update job for the group is waiting or running (its push must not be mistaken for a human edit). */
 async function updateInFlight(deps: DepsScanDeps, projectId: string, groupKey: string): Promise<boolean> {
   try {
-    const existing = await deps.updateQueue.getJob(depsUpdateJobId(projectId, groupKey));
-    if (!existing) return false;
-    const state = await existing.getState();
-    return state !== "completed" && state !== "failed" && state !== "unknown";
+    const existingId = await deps.updateQueue.getDeduplicationJobId(depsUpdateJobId(projectId, groupKey));
+    return existingId !== null;
   } catch {
     return true;
   }
@@ -494,7 +560,10 @@ async function refreshPullRequests(
   const counts = { merged: 0, closed: 0, edited: 0 };
   const open = await prisma.dependencyPullRequest.findMany({ where: { projectId: project.id, state: "OPEN" } });
   if (open.length === 0) return counts;
-  const manifests = await prisma.dependencyManifest.findMany({ where: { projectId: project.id }, select: { id: true, path: true } });
+  const manifests = await prisma.dependencyManifest.findMany({
+    where: { projectId: project.id },
+    select: { id: true, path: true },
+  });
   const manifestIdByPath = new Map(manifests.map((m) => [m.path, m.id]));
 
   for (const pr of open) {
@@ -551,7 +620,10 @@ async function refreshPullRequests(
         });
       }
     } catch (error) {
-      log.warn(`${project.fullName}: could not refresh PR #${pr.number}: ${error instanceof Error ? error.message : String(error)}`);
+      log.warn(
+        { queue: DEPS_QUEUE_NAMES.scan, projectId: project.id, prNumber: pr.number, err: error },
+        `${project.fullName}: could not refresh PR #${pr.number}: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
   return counts;
@@ -574,7 +646,9 @@ async function queueDigest(
   const fresh = outdated.filter((row) => row.notifiedAt === null);
   if (fresh.length === 0) return 0;
   const silent = firstScan && !project.notifyOnFirstScan;
-  const eligible = silent ? fresh : fresh.filter((row) => passesDependencyNotificationLevel(project.notificationLevel, row.level));
+  const eligible = silent
+    ? fresh
+    : fresh.filter((row) => passesDependencyNotificationLevel(project.notificationLevel, row.level));
   if (eligible.length === 0) return 0;
   const ids = eligible.map((row) => row.id);
 
@@ -582,14 +656,23 @@ async function queueDigest(
     const rules = silent ? [] : await rulesFor(tx as PrismaClient, project.userId, "DEPENDENCY_UPDATES");
     await tx.dependencyUpdate.updateMany({ where: { id: { in: ids }, notifiedAt: null }, data: { notifiedAt: at } });
     const scanId = digestScanId(project.id, eligible);
-    const intents = rules.map((rule): DepsNotifyJobData => ({ ruleId: rule.id, projectId: project.id, kind: "digest", scanId, updateIds: ids }));
+    const intents = rules.map((rule): DepsNotifyJobData => ({
+      ruleId: rule.id,
+      projectId: project.id,
+      kind: "digest",
+      scanId,
+      updateIds: ids,
+    }));
     await storeNotificationIntents(tx, intents);
     return intents;
   });
   try {
     await flushNotificationOutbox(deps.prisma, deps.notifyQueue);
   } catch (error) {
-    log.error(`${project.fullName}: notification intents saved; enqueue will be retried`, error);
+    log.error(
+      { queue: DEPS_QUEUE_NAMES.scan, projectId: project.id, err: error },
+      `${project.fullName}: notification intents saved; enqueue will be retried`,
+    );
   }
   return jobs.length;
 }
@@ -611,7 +694,9 @@ async function queueAutoUpdates(deps: DepsScanDeps, project: CurrentProject, out
   const items = outdated.flatMap((row) => {
     const manifest = manifestById.get(row.manifestId);
     if (!manifest || !row.targetVersion) return [];
-    return [{ ecosystem: manifest.ecosystem as DependencyEcosystem, name: row.name, manifestPath: manifest.path, level: row.level, row, manifest }];
+    return [
+      { ecosystem: manifest.ecosystem, name: row.name, manifestPath: manifest.path, level: row.level, row, manifest },
+    ];
   });
   const groups = groupUpdates(items, project.groupMode, project.maxOpenPrs);
   const prByGroup = new Map(prs.map((pr) => [pr.groupKey, pr]));
@@ -621,7 +706,7 @@ async function queueAutoUpdates(deps: DepsScanDeps, project: CurrentProject, out
     const capability = groupCapability(
       [...new Map(group.updates.map((u) => [u.manifest.id, u.manifest])).values()].map((m) => ({
         path: m.path,
-        packageManager: m.packageManager as PackageManager,
+        packageManager: m.packageManager,
         lockfilePath: m.lockfilePath,
       })),
       { lockfileRegeneration: deps.lockfileRegeneration },
@@ -629,8 +714,19 @@ async function queueAutoUpdates(deps: DepsScanDeps, project: CurrentProject, out
     if (!capability.canCreatePr) continue;
     const pr = prByGroup.get(group.groupKey);
     if (pr?.state === "EDITED") continue;
-    const targets = [...new Set(group.updates.map((u) => formatTarget({ manifestPath: u.manifestPath, name: u.name, toVersion: u.row.targetVersion! })))].sort();
-    if (pr?.state === "OPEN" && pr.targets.length === targets.length && [...pr.targets].sort().every((t, i) => t === targets[i])) continue;
+    const targets = [
+      ...new Set(
+        group.updates.map((u) =>
+          formatTarget({ manifestPath: u.manifestPath, name: u.name, toVersion: u.row.targetVersion! }),
+        ),
+      ),
+    ].sort();
+    if (
+      pr?.state === "OPEN" &&
+      pr.targets.length === targets.length &&
+      pr.targets.toSorted().every((t, i) => t === targets[i])
+    )
+      continue;
     keys.push(group.groupKey);
   }
   const live = new Set(groups.map((g) => g.groupKey));
@@ -640,7 +736,7 @@ async function queueAutoUpdates(deps: DepsScanDeps, project: CurrentProject, out
     keys.map((groupKey) => ({
       name: DEPS_JOB_NAMES.update,
       data: { projectId: project.id, groupKey, trigger: "auto" as const },
-      opts: { jobId: depsUpdateJobId(project.id, groupKey), priority: DEPS_UPDATE_PRIORITY.auto },
+      opts: deduplicatedJobOptions(depsUpdateJobId(project.id, groupKey), DEPS_UPDATE_PRIORITY.auto),
     })),
   );
   return keys.length;

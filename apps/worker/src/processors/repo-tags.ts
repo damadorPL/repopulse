@@ -9,9 +9,15 @@ import {
   type GitTag,
   type MappedTag,
 } from "@repopulse/github";
-import { createLogger } from "../logger";
-import { EMPTY_FAN_OUT_PLAN, planFanOut, selectFreshReleases, type FanOutPlan, type FanOutSubscriber } from "./fan-out";
-import type { TokenCandidate } from "./github-tokens";
+import { createLogger } from "../logger.js";
+import {
+  EMPTY_FAN_OUT_PLAN,
+  planFanOut,
+  selectFreshReleases,
+  type FanOutPlan,
+  type FanOutSubscriber,
+} from "./fan-out.js";
+import type { TokenCandidate } from "./github-tokens.js";
 
 const log = createLogger("repo-tags");
 
@@ -119,7 +125,12 @@ async function fetchTagsWithFallback(
   const fetchTags = deps.fetchTags ?? fetchRecentTags;
   for (const [index, candidate] of tokens.entries()) {
     try {
-      const tags = await fetchTags({ owner: repo.owner, name: repo.name, accessToken: candidate.token, signal: requestSignal(jobSignal) });
+      const tags = await fetchTags({
+        owner: repo.owner,
+        name: repo.name,
+        accessToken: candidate.token,
+        signal: requestSignal(jobSignal),
+      });
       return { tags, token: candidate.token };
     } catch (error) {
       if (isGitHubHttpError(error) && error.status === 401 && index < tokens.length - 1) continue;
@@ -159,7 +170,11 @@ export async function pollRepoTags(
       tags.length > 0
         ? await prisma.release.findMany({
             // Commit rows are keyed by short SHA and never shadow a tag.
-            where: { repositoryId: repo.id, source: { in: ["RELEASE", "TAG"] }, tagName: { in: tags.map((t) => t.name) } },
+            where: {
+              repositoryId: repo.id,
+              source: { in: ["RELEASE", "TAG"] },
+              tagName: { in: tags.map((t) => t.name) },
+            },
             select: { tagName: true },
           })
         : [];
@@ -184,7 +199,9 @@ export async function pollRepoTags(
             signal: requestSignal(jobSignal),
           });
         } catch (error) {
-          log.warn(`${repo.fullName}: could not compare ${previous.name}...${tag.name}; storing ${tag.name} without commits (${String(error)})`);
+          log.warn(
+            `${repo.fullName}: could not compare ${previous.name}...${tag.name}; storing ${tag.name} without commits (${String(error)})`,
+          );
         }
       }
       rows.push(mapTag(tag, repo.htmlUrl, buildTagChangelog(tag, comparison)));

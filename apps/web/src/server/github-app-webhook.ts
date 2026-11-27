@@ -29,7 +29,10 @@ export class PayloadTooLargeError extends Error {
  * Reads a request body into a Buffer, counting bytes as they arrive: more than `limit` bytes cancels
  * the stream and throws {@link PayloadTooLargeError}, so an oversized body is never buffered whole.
  */
-export async function readBodyWithLimit(body: ReadableStream<Uint8Array> | null, limit = WEBHOOK_MAX_BODY_BYTES): Promise<Buffer> {
+export async function readBodyWithLimit(
+  body: ReadableStream<Uint8Array> | null,
+  limit = WEBHOOK_MAX_BODY_BYTES,
+): Promise<Buffer> {
   if (!body) return Buffer.alloc(0);
   const reader = body.getReader();
   const chunks: Uint8Array[] = [];
@@ -94,7 +97,8 @@ export function changedPathsOfPush(payload: { commits?: unknown }): Set<string> 
   const paths = new Set<string>();
   for (const commit of commits as PushCommit[]) {
     if (!commit || typeof commit !== "object") return null;
-    for (const path of [...stringList(commit.added), ...stringList(commit.modified), ...stringList(commit.removed)]) paths.add(path);
+    for (const path of [...stringList(commit.added), ...stringList(commit.modified), ...stringList(commit.removed)])
+      paths.add(path);
   }
   return paths;
 }
@@ -149,11 +153,17 @@ function positiveInt(value: unknown): number | null {
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 /** Project ids to rescan for a verified delivery (empty = nothing to do). */
-export async function projectsToScan(event: string, payload: Record<string, unknown>, deps: WebhookDeps): Promise<string[]> {
+export async function projectsToScan(
+  event: string,
+  payload: Record<string, unknown>,
+  deps: WebhookDeps,
+): Promise<string[]> {
   const repoId = positiveInt(asRecord(payload.repository)?.id);
   if (repoId === null) return [];
 
@@ -164,7 +174,9 @@ export async function projectsToScan(event: string, payload: Record<string, unkn
     const projects = await deps.findProjectsOnBranch(repoId, branch);
     if (projects.length === 0) return [];
     const changed = changedPathsOfPush(payload);
-    return projects.filter((project) => pushTouchesProject(changed, project.manifestPaths)).map((project) => project.id);
+    return projects
+      .filter((project) => pushTouchesProject(changed, project.manifestPaths))
+      .map((project) => project.id);
   }
 
   if (event === "pull_request") {

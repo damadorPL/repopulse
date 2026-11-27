@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { parseRealtimeEvent, type RealtimeEvent } from "@repopulse/queue/events";
+import { dependencyProjectHref } from "@/lib/dependency-list-filters";
 import { feedHref } from "@/lib/feed-filters";
 
 type NewReleaseEvent = Extract<RealtimeEvent, { type: "NEW_RELEASE" }>;
@@ -19,12 +20,6 @@ export function syncToastId(repositoryId: string): string {
 /** Toast id of a dependency check, so a "Check now" button's loading toast is replaced by the outcome. */
 export function depsScanToastId(projectId: string): string {
   return `deps-scan-${projectId}`;
-}
-
-/** The project page of a dependency project (`owner/name`). */
-function dependencyProjectHref(fullName: string): string {
-  const [owner = "", name = ""] = fullName.split("/");
-  return `/dependencies/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
 }
 
 /** Only GitHub links from the event are opened (the payload comes from our worker, but stay strict). */
@@ -72,7 +67,10 @@ export function SseListener() {
       } else {
         const repositories = [...new Set(releases.map((r) => r.repositoryName))];
         toast(`${releases.length} new releases`, {
-          description: repositories.length <= 3 ? repositories.join(", ") : `${repositories.slice(0, 3).join(", ")} and ${repositories.length - 3} more`,
+          description:
+            repositories.length <= 3
+              ? repositories.join(", ")
+              : `${repositories.slice(0, 3).join(", ")} and ${repositories.length - 3} more`,
         });
       }
       refresh();
@@ -90,7 +88,10 @@ export function SseListener() {
         case "SYNC_COMPLETED": {
           const id = syncToastId(event.repositoryId);
           if (event.newReleases > 0) {
-            toast.success(`${event.newReleases} new release${event.newReleases === 1 ? "" : "s"} in ${event.repositoryName}`, { id });
+            toast.success(
+              `${event.newReleases} new release${event.newReleases === 1 ? "" : "s"} in ${event.repositoryName}`,
+              { id },
+            );
           } else {
             toast.success(`${event.repositoryName} is up to date`, { id });
           }
@@ -111,7 +112,10 @@ export function SseListener() {
             toast.success(`${event.fullName}: dependencies are up to date`, { id });
           } else {
             const majors = event.majors > 0 ? ` (${event.majors} major)` : "";
-            toast(`${event.fullName}: ${event.outdated} outdated dependenc${event.outdated === 1 ? "y" : "ies"}${majors}`, { id, action: open });
+            toast(
+              `${event.fullName}: ${event.outdated} outdated dependenc${event.outdated === 1 ? "y" : "ies"}${majors}`,
+              { id, action: open },
+            );
           }
           refresh();
           break;

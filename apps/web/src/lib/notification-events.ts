@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 /**
  * What a notification rule fires for (Slice 08). Mirrors the Prisma `NotificationEvent` enum; `lib/`
  * can't import `@repopulse/db`, so the values are repeated here. `toNotificationRuleView` passes Prisma values
@@ -35,14 +33,9 @@ export function normalizeEvents(events: readonly NotificationEventValue[]): Noti
   return NOTIFICATION_EVENTS.filter((event) => events.includes(event));
 }
 
-export const notificationEventsSchema = z
-  .array(z.enum(NOTIFICATION_EVENTS, "Unknown notification event"), "Choose at least one event")
-  .min(1, "Choose at least one event")
-  .max(NOTIFICATION_EVENTS.length, "Too many events")
-  .transform(normalizeEvents);
-
 /** The message shown when a tag-scoped rule asks for dependency events. */
-export const TAG_SCOPED_EVENTS_MESSAGE = "A rule limited to a tag can only notify about releases. Dependency projects have no tags.";
+export const TAG_SCOPED_EVENTS_MESSAGE =
+  "A rule limited to a tag can only notify about releases. Dependency projects have no tags.";
 
 /** Checks the tag-scope restriction; returns an error message or null. */
 export function validateEventsForScope(events: readonly NotificationEventValue[], tagScoped: boolean): string | null {

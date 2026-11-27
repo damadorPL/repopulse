@@ -1,4 +1,3 @@
-import { z } from "zod";
 import {
   DEPENDENCY_PROJECT_DEFAULTS,
   MAX_IGNORE_RULES,
@@ -8,12 +7,12 @@ import {
   MIN_RELEASE_AGE_DAYS_MAX,
   SCAN_INTERVAL_HOURS,
 } from "@repopulse/deps/limits";
-import { NOTIFICATION_LEVELS, type NotificationLevelValue } from "./subscription-settings";
+import type { NotificationLevelValue } from "./subscription-settings";
 
 /**
- * Dependencies module (Slice 08): input schemas of the project Server Actions, option labels and
- * small display helpers shared by the forms and the pages. Browser-safe: only `@repopulse/deps/limits`
- * (no parsers, no Prisma). Ignore rules are re-validated by the actions with `ignoreRuleSchema`.
+ * Dependencies module (Slice 08): option labels, pure types, and small display helpers shared by
+ * the forms and the pages. Browser-safe: only `@repopulse/deps/limits` (no parsers, no Prisma,
+ * no Zod). Server Action input schemas live in `./dependency-settings-schema`.
  */
 
 /** Mirror the Prisma enums (kept local so client bundles never import `@repopulse/db`). */
@@ -43,12 +42,40 @@ export type PackageManagerValue = "NPM" | "PNPM" | "BUN" | "YARN" | "PIP" | "PIP
 export type DepsPrStateValue = "OPEN" | "MERGED" | "CLOSED" | "EDITED";
 export type DepsScanStatusValue = "IDLE" | "QUEUED" | "SCANNING" | "ERROR";
 
-export { DEPENDENCY_PROJECT_DEFAULTS, MAX_IGNORE_RULES, MAX_MANIFESTS_PER_PROJECT, MAX_OPEN_PRS_MAX, MAX_PROJECTS_PER_ADD, MIN_RELEASE_AGE_DAYS_MAX, SCAN_INTERVAL_HOURS };
+export {
+  DEPENDENCY_PROJECT_DEFAULTS,
+  MAX_IGNORE_RULES,
+  MAX_MANIFESTS_PER_PROJECT,
+  MAX_OPEN_PRS_MAX,
+  MAX_PROJECTS_PER_ADD,
+  MIN_RELEASE_AGE_DAYS_MAX,
+  SCAN_INTERVAL_HOURS,
+};
 
-export const UPDATE_MODE_OPTIONS: ReadonlyArray<{ value: DepsUpdateModeValue; label: string; badge: string; hint: string }> = [
-  { value: "NOTIFY", label: "Notify only", badge: "Notify", hint: "Shows outdated dependencies and notifies you. Never touches the repository." },
-  { value: "MANUAL_PR", label: "Pull request on request", badge: "PR on request", hint: "“Create PR” opens or updates a pull request." },
-  { value: "AUTO_PR", label: "Automatic pull requests", badge: "Auto PR", hint: "Every check opens or updates the pull requests it plans." },
+export const UPDATE_MODE_OPTIONS: ReadonlyArray<{
+  value: DepsUpdateModeValue;
+  label: string;
+  badge: string;
+  hint: string;
+}> = [
+  {
+    value: "NOTIFY",
+    label: "Notify only",
+    badge: "Notify",
+    hint: "Shows outdated dependencies and notifies you. Never touches the repository.",
+  },
+  {
+    value: "MANUAL_PR",
+    label: "Pull request on request",
+    badge: "PR on request",
+    hint: "“Create PR” opens or updates a pull request.",
+  },
+  {
+    value: "AUTO_PR",
+    label: "Automatic pull requests",
+    badge: "Auto PR",
+    hint: "Every check opens or updates the pull requests it plans.",
+  },
 ];
 
 export const UPDATE_LEVEL_OPTIONS: ReadonlyArray<{ value: DepsUpdateLevelValue; label: string; hint: string }> = [
@@ -59,7 +86,11 @@ export const UPDATE_LEVEL_OPTIONS: ReadonlyArray<{ value: DepsUpdateLevelValue; 
 
 export const GROUP_MODE_OPTIONS: ReadonlyArray<{ value: DepsGroupModeValue; label: string; hint: string }> = [
   { value: "SINGLE", label: "One pull request", hint: "Every update in a single pull request." },
-  { value: "SEPARATE_MAJORS", label: "Separate majors", hint: "Patch and minor together, one pull request per major update." },
+  {
+    value: "SEPARATE_MAJORS",
+    label: "Separate majors",
+    hint: "Patch and minor together, one pull request per major update.",
+  },
   { value: "PER_DEPENDENCY", label: "One per dependency", hint: "A pull request for each dependency." },
 ];
 
@@ -75,7 +106,11 @@ export const SCAN_INTERVAL_OPTIONS: ReadonlyArray<{ value: (typeof SCAN_INTERVAL
   { value: 168, label: "Weekly" },
 ];
 
-export const DEPS_NOTIFICATION_LEVEL_OPTIONS: ReadonlyArray<{ value: NotificationLevelValue; label: string; hint: string }> = [
+export const DEPS_NOTIFICATION_LEVEL_OPTIONS: ReadonlyArray<{
+  value: NotificationLevelValue;
+  label: string;
+  hint: string;
+}> = [
   { value: "ALL", label: "All updates", hint: "Your notification rules decide." },
   { value: "MINOR_AND_UP", label: "Minor and major", hint: "Skips patch updates." },
   { value: "MAJOR_ONLY", label: "Major updates only", hint: "Skips everything else." },
@@ -127,99 +162,21 @@ export function isPrMode(mode: DepsUpdateModeValue): boolean {
   return mode !== "NOTIFY";
 }
 
-// ---------------------------------------------------------------------------
-// Input schemas (Server Actions)
-// ---------------------------------------------------------------------------
-
-const idSchema = z.string().min(1).max(64);
-
 export const COMMIT_PREFIX_MAX_LENGTH = 50;
-/** One line, no control characters (it starts every commit message and PR title). */
-// eslint-disable-next-line no-control-regex -- exclude control characters from commit messages and PR titles.
-const COMMIT_PREFIX_RE = /^[^\u0000-\u001f\u007f]*$/;
 
-export const updateModeSchema = z.enum(DEPS_UPDATE_MODES, "Choose an update mode");
+export type AddDependencySource = { subscriptionId: string } | { repoUrlOrSlug: string };
 
-export const addSourceSchema = z.union([
-  z.object({ subscriptionId: idSchema }).strict(),
-  z.object({ repoUrlOrSlug: z.string().trim().min(1, "Enter a repository").max(500) }).strict(),
-]);
-export type AddDependencySource = z.input<typeof addSourceSchema>;
-
-export const addDependencyProjectsInput = z
-  .object({
-    sources: z
-      .array(addSourceSchema)
-      .min(1, "Choose at least one repository")
-      .max(MAX_PROJECTS_PER_ADD, `Add at most ${MAX_PROJECTS_PER_ADD} repositories at once`),
-    updateMode: updateModeSchema.default("NOTIFY"),
-    /** "Notify about what is outdated now": the first scan sends a digest. */
-    notifyOnFirstScan: z.boolean().default(false),
-  })
-  .strict();
-export type AddDependencyProjectsInput = z.input<typeof addDependencyProjectsInput>;
-
-export const projectIdInput = z.object({ projectId: idSchema }).strict();
-
-/** Loose shape of one ignore rule; the action re-validates with `ignoreRuleSchema` from `@repopulse/deps`. */
-export const ignoreRuleInput = z
-  .object({
-    name: z.string().trim().min(1, "Enter a package name or pattern").max(214, "That name is too long"),
-    versions: z.string().trim().max(256, "That range is too long").optional(),
-  })
-  .strict();
 export type IgnoreRuleValue = { name: string; versions?: string };
-
-/** Input of `updateDependencyProjectSettingsAction`: every field optional, only the ones sent change. */
-export const dependencySettingsInput = z
-  .object({
-    projectId: idSchema,
-    updateMode: updateModeSchema.optional(),
-    maxUpdateLevel: z.enum(DEPS_UPDATE_LEVELS).optional(),
-    includePrereleases: z.boolean().optional(),
-    minReleaseAgeDays: z
-      .number()
-      .int("Use whole days")
-      .min(0, "The minimum release age can't be negative")
-      .max(MIN_RELEASE_AGE_DAYS_MAX, `At most ${MIN_RELEASE_AGE_DAYS_MAX} days`)
-      .optional(),
-    groupMode: z.enum(DEPS_GROUP_MODES).optional(),
-    rangeStrategy: z.enum(DEPS_RANGE_STRATEGIES).optional(),
-    maxOpenPrs: z.number().int().min(1, "At least one pull request").max(MAX_OPEN_PRS_MAX, `At most ${MAX_OPEN_PRS_MAX} pull requests`).optional(),
-    scanIntervalHours: z
-      .number()
-      .int()
-      .refine((value) => (SCAN_INTERVAL_HOURS as readonly number[]).includes(value), "Choose a check interval")
-      .optional(),
-    notificationLevel: z.enum(NOTIFICATION_LEVELS).optional(),
-    /** Raw paths; empty = auto-detect. Normalized by the action. */
-    manifestPaths: z.array(z.string().max(1000)).max(MAX_MANIFESTS_PER_PROJECT, `At most ${MAX_MANIFESTS_PER_PROJECT} manifest paths`).optional(),
-    commitPrefix: z
-      .string()
-      .trim()
-      .max(COMMIT_PREFIX_MAX_LENGTH, `At most ${COMMIT_PREFIX_MAX_LENGTH} characters`)
-      .refine((value) => COMMIT_PREFIX_RE.test(value), "Use a single line")
-      .optional(),
-    ignoreRules: z.array(ignoreRuleInput).max(MAX_IGNORE_RULES, `At most ${MAX_IGNORE_RULES} ignore rules`).optional(),
-  })
-  .strict();
-export type DependencySettingsInput = z.input<typeof dependencySettingsInput>;
-
-export const ignoreDependencyInput = z
-  .object({ projectId: idSchema, name: ignoreRuleInput.shape.name, versions: ignoreRuleInput.shape.versions })
-  .strict();
-export type IgnoreDependencyInput = z.input<typeof ignoreDependencyInput>;
-
-export const createPullRequestInput = z
-  .object({ projectId: idSchema, groupKey: z.string().min(1).max(80) })
-  .strict();
 
 /** Suggestions for the manifest paths picker. */
 export const MANIFEST_PATH_SUGGESTIONS = ["package.json", "pyproject.toml", "requirements.txt"] as const;
 
 /** Same rule identity everywhere: name (case-insensitive) + range. */
 export function sameIgnoreRule(a: IgnoreRuleValue, b: IgnoreRuleValue): boolean {
-  return a.name.trim().toLowerCase() === b.name.trim().toLowerCase() && (a.versions?.trim() || "") === (b.versions?.trim() || "");
+  return (
+    a.name.trim().toLowerCase() === b.name.trim().toLowerCase() &&
+    (a.versions?.trim() || "") === (b.versions?.trim() || "")
+  );
 }
 
 /** Reads a stored `ignoreRules` JSON value defensively (anything malformed is dropped). */
@@ -277,9 +234,13 @@ export function statusExplanation(row: StatusExplainable, minReleaseAgeDays: num
   const latest = row.latestVersion;
   switch (row.status) {
     case "OUTDATED":
-      return latest && row.targetVersion && latest !== row.targetVersion ? `${latest} available, outside your policy` : null;
+      return latest && row.targetVersion && latest !== row.targetVersion
+        ? `${latest} available, outside your policy`
+        : null;
     case "TOO_NEW":
-      return latest ? `${latest} is younger than ${minReleaseAgeDays} day${minReleaseAgeDays === 1 ? "" : "s"}` : STATUS_META.TOO_NEW.hint;
+      return latest
+        ? `${latest} is younger than ${minReleaseAgeDays} day${minReleaseAgeDays === 1 ? "" : "s"}`
+        : STATUS_META.TOO_NEW.hint;
     case "ABOVE_LEVEL":
       return latest ? `${latest} is above your maximum update level` : STATUS_META.ABOVE_LEVEL.hint;
     case "BLOCKED_BY_RANGE":
@@ -295,13 +256,19 @@ export function statusExplanation(row: StatusExplainable, minReleaseAgeDays: num
 
 /** The registry page of a package. */
 export function registryUrl(ecosystem: DependencyEcosystemValue, name: string): string {
-  return ecosystem === "NPM" ? `https://www.npmjs.com/package/${name.split("/").map(encodeURIComponent).join("/")}` : `https://pypi.org/project/${encodeURIComponent(name)}/`;
+  return ecosystem === "NPM"
+    ? `https://www.npmjs.com/package/${name.split("/").map(encodeURIComponent).join("/")}`
+    : `https://pypi.org/project/${encodeURIComponent(name)}/`;
 }
 
 /** `owner/name` of a GitHub repository URL (`sourceRepoUrl`), or `null`. */
-export function githubRepoFromUrl(url: string | null | undefined): { owner: string; name: string; fullName: string } | null {
+export function githubRepoFromUrl(
+  url: string | null | undefined,
+): { owner: string; name: string; fullName: string } | null {
   if (!url) return null;
-  const match = /^https:\/\/github\.com\/([A-Za-z0-9-]{1,39})\/([A-Za-z0-9_.-]{1,100}?)(?:\.git)?\/?(?:[#?].*)?$/.exec(url.trim());
+  const match = /^https:\/\/github\.com\/([A-Za-z0-9-]{1,39})\/([A-Za-z0-9_.-]{1,100}?)(?:\.git)?\/?(?:[#?].*)?$/.exec(
+    url.trim(),
+  );
   if (!match) return null;
   const [, owner = "", name = ""] = match;
   if (name === "." || name === "..") return null;

@@ -73,8 +73,12 @@ describe("applyRegistryPolicy: publicRegistry URL validation", () => {
   });
 
   it("accepts official npm/yarn and PyPI simple URLs with optional trailing slashes and quotes", () => {
-    expect(check("NPM", { ".npmrc": 'registry = "https://registry.npmjs.org///"\n' }, ["react"])).toEqual({ react: true });
-    expect(check("NPM", { ".yarnrc": 'registry "https://registry.yarnpkg.com/"\n' }, ["react"])).toEqual({ react: true });
+    expect(check("NPM", { ".npmrc": 'registry = "https://registry.npmjs.org///"\n' }, ["react"])).toEqual({
+      react: true,
+    });
+    expect(check("NPM", { ".yarnrc": 'registry "https://registry.yarnpkg.com/"\n' }, ["react"])).toEqual({
+      react: true,
+    });
     expect(check("PYPI", { "uv.toml": 'index-url = "https://pypi.python.org/simple/"\n' }, ["requests"])).toEqual({
       requests: true,
     });
@@ -107,10 +111,12 @@ describe("applyRegistryPolicy: fail-closed and NPM scope handling", () => {
       "@scope/pkg": true,
       react: true,
     });
-    expect(check("NPM", { ".yarnrc.yml": `npmRegistryServer: https://private.example.com\n${authOnlyScope}` })).toEqual({
-      "@scope/pkg": false,
-      react: false,
-    });
+    expect(check("NPM", { ".yarnrc.yml": `npmRegistryServer: https://private.example.com\n${authOnlyScope}` })).toEqual(
+      {
+        "@scope/pkg": false,
+        react: false,
+      },
+    );
   });
 
   it("handles quoted '@scope:registry' keys in pnpm-workspace.yaml", () => {

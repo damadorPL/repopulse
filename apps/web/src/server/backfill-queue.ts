@@ -1,4 +1,4 @@
-import { JOB_NAMES, releaseBackfillJobId, type ReleaseBackfillJobData } from "@repopulse/queue";
+import { enqueueDeduplicated, JOB_NAMES, releaseBackfillJobId, type ReleaseBackfillJobData } from "@repopulse/queue";
 import { getReleaseBackfillQueue, withRedisTimeout } from "@/server/realtime";
 
 /**
@@ -7,25 +7,22 @@ import { getReleaseBackfillQueue, withRedisTimeout } from "@/server/realtime";
  */
 
 /**
- * Enqueues one history import for a repository. The jobId `backfill-{repositoryId}` makes BullMQ
- * ignore the add while a job already exists. A waiting one is bumped to `priority`; a delayed one
- * (rate-limit pause) or an active one is left alone, since it re-reads `backfillTarget` from the
- * database on every page.
+ * Enqueues one history import for a repository. Deduplication (`backfill-{repositoryId}`,
+ * `keepLastIfActive: true`) prevents duplicate concurrent backfills. A waiting one is bumped to
+ * `priority`; a delayed one (rate-limit pause) or an active one is left alone, since it re-reads
+ * `backfillTarget` from the database on every page.
  *
  * Rejects with `RealtimeUnavailableError` when Redis is not configured or does not answer.
  */
 export async function enqueueReleaseBackfill(data: ReleaseBackfillJobData, priority: number): Promise<void> {
   const queue = getReleaseBackfillQueue();
-  const jobId = releaseBackfillJobId(data.repositoryId);
   await withRedisTimeout(
-    (async () => {
-      const existing = await queue.getJob(jobId);
-      if (!existing) {
-        await queue.add(JOB_NAMES.backfill, data, { jobId, priority });
-        return;
-      }
-      const state = await existing.getState();
-      if (state === "waiting" || state === "prioritized") await existing.changePriority({ priority });
-    })(),
+    enqueueDeduplicated({
+      queue,
+      name: JOB_NAMES.backfill,
+      data,
+      deduplicationId: releaseBackfillJobId(data.repositoryId),
+      priority,
+    }),
   );
 }

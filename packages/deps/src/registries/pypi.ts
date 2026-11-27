@@ -32,7 +32,8 @@ export function versionFromFilename(filename: string, normalizedName: string): s
   for (let k = 1; k < parts.length; k++) {
     if (normalizePypiName(parts.slice(0, k).join("-")) === normalizedName) {
       // `.egg` / `.exe` carry a python / platform tag after the version.
-      const version = extension === ".egg" || extension === ".exe" || extension === ".msi" ? parts[k] : parts.slice(k).join("-");
+      const version =
+        extension === ".egg" || extension === ".exe" || extension === ".msi" ? parts[k] : parts.slice(k).join("-");
       return version && parsePep440(version) ? version : null;
     }
   }
@@ -65,8 +66,11 @@ function compactSimple(normalizedName: string): (body: string) => string {
       files.push({
         v: normalizePep440(version),
         t: typeof file["upload-time"] === "string" ? file["upload-time"] : null,
-        y: file.yanked === true || (typeof file.yanked === "string" && file.yanked !== "") ,
-        rp: typeof file["requires-python"] === "string" && file["requires-python"].trim() !== "" ? file["requires-python"] : null,
+        y: file.yanked === true || (typeof file.yanked === "string" && file.yanked !== ""),
+        rp:
+          typeof file["requires-python"] === "string" && file["requires-python"].trim() !== ""
+            ? file["requires-python"]
+            : null,
         h: typeof hashes.sha256 === "string" ? hashes.sha256.toLowerCase() : null,
       });
     }
@@ -118,12 +122,7 @@ export async function fetchPypiPackage(name: string, options: PypiFetchOptions):
   if (!simple.found) return { found: false, reason: "Not on the public PyPI" };
   const index = JSON.parse(simple.body) as CompactSimple;
 
-  const filesByVersion = new Map<string, CompactFile[]>();
-  for (const file of index.files) {
-    const list = filesByVersion.get(file.v) ?? [];
-    list.push(file);
-    filesByVersion.set(file.v, list);
-  }
+  const filesByVersion = Map.groupBy(index.files, (file) => file.v);
   const versions: RegistryVersion[] = [];
   for (const raw of new Set(index.versions.map(normalizePep440))) {
     if (!parsePep440(raw)) continue;

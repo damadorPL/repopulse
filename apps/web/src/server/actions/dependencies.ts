@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { Queue } from "bullmq";
 import { prisma, type DepsUpdateMode, type Prisma } from "@repopulse/db";
 import {
   groupCapability,
@@ -28,34 +27,40 @@ import {
   toRateLimitError,
 } from "@repopulse/github";
 import {
+  createDepsScanQueue,
+  createDepsUpdateQueue,
   DEPS_JOB_NAMES,
-  DEPS_QUEUE_NAMES,
-  DEPS_SCAN_JOB_OPTIONS,
   DEPS_SCAN_PRIORITY,
-  DEPS_UPDATE_JOB_OPTIONS,
   DEPS_UPDATE_PRIORITY,
   depsScanJobId,
   depsUpdateJobId,
-  type DepsScanJobData,
+  enqueueDeduplicated,
+  type DepsScanQueue,
   type DepsScanTrigger,
-  type DepsUpdateJobData,
+  type DepsUpdateQueue,
 } from "@repopulse/queue";
 import { getCurrentUserOrThrow } from "@/lib/auth";
+import { readIgnoreRules, sameIgnoreRule, type IgnoreRuleValue } from "@/lib/dependency-settings";
 import {
   addDependencyProjectsInput,
   createPullRequestInput,
   dependencySettingsInput,
   ignoreDependencyInput,
   projectIdInput,
-  readIgnoreRules,
-  sameIgnoreRule,
   type AddDependencyProjectsInput,
   type DependencySettingsInput,
   type IgnoreDependencyInput,
-  type IgnoreRuleValue,
-} from "@/lib/dependency-settings";
+} from "@/lib/dependency-settings-schema";
 import { normalizeWatchedPath } from "@/lib/watched-paths";
-import { fail, getGitHubToken, invalidInput, isUniqueConstraintError, ok, toActionError, type ActionResult } from "@/server/action-result";
+import {
+  fail,
+  getGitHubToken,
+  invalidInput,
+  isUniqueConstraintError,
+  ok,
+  toActionError,
+  type ActionResult,
+} from "@/server/action-result";
 import { isDepsEnabled, readLockfileRegenerationAvailable } from "@/server/deps-status";
 import { checkRepoAccess, loadAppCredentials, userDisplayName } from "@/server/queries/dependencies";
 import { getRedis, isRealtimeConfigured, RealtimeUnavailableError, withRedisTimeout } from "@/server/realtime";
@@ -73,50 +78,43 @@ const DISABLED_MESSAGE = "Dependency checks are turned off by the administrator.
 // ---------------------------------------------------------------------------
 
 const globalForDeps = globalThis as unknown as {
-  repopulseDepsScanQueue?: Queue<DepsScanJobData>;
-  repopulseDepsUpdateQueue?: Queue<DepsUpdateJobData>;
+  repopulseDepsScanQueue?: DepsScanQueue;
+  repopulseDepsUpdateQueue?: DepsUpdateQueue;
 };
 
-function getDepsScanQueue(): Queue<DepsScanJobData> {
-  globalForDeps.repopulseDepsScanQueue ??= new Queue<DepsScanJobData>(DEPS_QUEUE_NAMES.scan, {
-    connection: getRedis(),
-    defaultJobOptions: DEPS_SCAN_JOB_OPTIONS,
-  });
+function getDepsScanQueue(): DepsScanQueue {
+  globalForDeps.repopulseDepsScanQueue ??= createDepsScanQueue(getRedis(), (err) =>
+    console.error(`[deps-scan] queue error: ${err.message}`),
+  );
   return globalForDeps.repopulseDepsScanQueue;
 }
 
-function getDepsUpdateQueue(): Queue<DepsUpdateJobData> {
-  globalForDeps.repopulseDepsUpdateQueue ??= new Queue<DepsUpdateJobData>(DEPS_QUEUE_NAMES.update, {
-    connection: getRedis(),
-    defaultJobOptions: DEPS_UPDATE_JOB_OPTIONS,
-  });
+function getDepsUpdateQueue(): DepsUpdateQueue {
+  globalForDeps.repopulseDepsUpdateQueue ??= createDepsUpdateQueue(getRedis(), (err) =>
+    console.error(`[deps-update] queue error: ${err.message}`),
+  );
   return globalForDeps.repopulseDepsUpdateQueue;
 }
 
 /**
- * Queues a priority `deps-scan`. The jobId deduplicates against a scan already queued (by the
- * scheduler): that job is taken over (data and priority) instead of being silently dropped.
- * Throws {@link RealtimeUnavailableError} when Redis is not configured or does not answer.
+ * Queues a priority `deps-scan`. Deduplication (`deps-scan-{projectId}`, `keepLastIfActive: true`)
+ * takes over an already-queued scan (data and priority) instead of dropping it, and schedules a
+ * follow-up if one is currently active. Throws {@link RealtimeUnavailableError} when Redis is not
+ * configured or does not answer.
  */
 async function enqueueScan(projectId: string, trigger: DepsScanTrigger, userId: string): Promise<void> {
-  if (!isRealtimeConfigured()) throw new RealtimeUnavailableError("Background jobs are not configured (REDIS_URL is not set).");
-  const queue = getDepsScanQueue();
-  const jobId = depsScanJobId(projectId);
-  const data: DepsScanJobData = { projectId, trigger, requestedByUserId: userId };
-  const priority = DEPS_SCAN_PRIORITY[trigger];
+  if (!isRealtimeConfigured())
+    throw new RealtimeUnavailableError("Background jobs are not configured (REDIS_URL is not set).");
   await withRedisTimeout(
-    (async () => {
-      const existing = await queue.getJob(jobId);
-      if (!existing) {
-        await queue.add(DEPS_JOB_NAMES.scan, data, { jobId, priority });
-        return;
-      }
-      const state = await existing.getState();
-      if (state === "waiting" || state === "prioritized" || state === "delayed") {
-        await existing.updateData(data);
-        if (state !== "delayed") await existing.changePriority({ priority });
-      }
-    })(),
+    enqueueDeduplicated({
+      queue: getDepsScanQueue(),
+      name: DEPS_JOB_NAMES.scan,
+      data: { projectId, trigger, requestedByUserId: userId },
+      deduplicationId: depsScanJobId(projectId),
+      priority: DEPS_SCAN_PRIORITY[trigger],
+      updateExistingData: true,
+      queueIfActive: true,
+    }),
   );
 }
 
@@ -124,10 +122,16 @@ async function enqueueScan(projectId: string, trigger: DepsScanTrigger, userId: 
 async function queueRecheck(projectId: string, userId: string, caller: string): Promise<boolean> {
   try {
     await enqueueScan(projectId, "manual", userId);
-    await prisma.dependencyProject.updateMany({ where: { id: projectId, userId, scanStatus: { not: "SCANNING" } }, data: { scanStatus: "QUEUED" } });
+    await prisma.dependencyProject.updateMany({
+      where: { id: projectId, userId, scanStatus: { not: "SCANNING" } },
+      data: { scanStatus: "QUEUED" },
+    });
     return true;
   } catch (error) {
-    console.warn(`[${caller}] could not queue a re-check of ${projectId}`, error instanceof Error ? error.message : error);
+    console.warn(
+      `[${caller}] could not queue a re-check of ${projectId}`,
+      error instanceof Error ? error.message : error,
+    );
     return false;
   }
 }
@@ -139,7 +143,9 @@ async function queueRecheck(projectId: string, userId: string, caller: string): 
 /** Another project owns the PRs of this GitHub repository (one PR owner per repo, instance-wide). */
 class PrOwnerConflictError extends Error {
   constructor(ownerName: string) {
-    super(`Pull requests for this repository are already managed by ${ownerName} in RepoPulse. You can still use “Notify only”.`);
+    super(
+      `Pull requests for this repository are already managed by ${ownerName} in RepoPulse. You can still use “Notify only”.`,
+    );
     this.name = "PrOwnerConflictError";
   }
 }
@@ -166,7 +172,12 @@ function rangeSyntaxes(ecosystem: DependencyEcosystem, packageManager: PackageMa
   return packageManager === "POETRY" ? ["poetry", "pep440"] : ["pep440", "poetry"];
 }
 
-function versionInRange(ecosystem: DependencyEcosystem, packageManager: PackageManager, version: string, range: string): boolean {
+function versionInRange(
+  ecosystem: DependencyEcosystem,
+  packageManager: PackageManager,
+  version: string,
+  range: string,
+): boolean {
   return rangeSyntaxes(ecosystem, packageManager).some((syntax) => {
     try {
       return isValidRange(syntax, range) && satisfiesRange(syntax, version, range);
@@ -192,18 +203,30 @@ function ruleCoversRow(rule: IgnoreRuleValue, row: StoredRow): boolean {
   if (!ignorePatternMatches(rule.name, row.name, row.manifest.ecosystem)) return false;
   if (!rule.versions) return true;
   const version = row.targetVersion ?? row.latestVersion;
-  return version !== null && versionInRange(row.manifest.ecosystem, row.manifest.packageManager, version, rule.versions);
+  return (
+    version !== null && versionInRange(row.manifest.ecosystem, row.manifest.packageManager, version, rule.versions)
+  );
 }
 
 /**
  * Applies new ignore rules to the stored rows right away, without registry calls: covered rows become
  * `IGNORED` with no target, so the table and the sidebar count update at once. Returns how many changed.
  */
-async function applyIgnoreRules(tx: Prisma.TransactionClient, projectId: string, rules: readonly IgnoreRuleValue[]): Promise<number> {
+async function applyIgnoreRules(
+  tx: Prisma.TransactionClient,
+  projectId: string,
+  rules: readonly IgnoreRuleValue[],
+): Promise<number> {
   if (rules.length === 0) return 0;
   const rows = await tx.dependencyUpdate.findMany({
     where: { projectId, status: { notIn: ["IGNORED", "UNSUPPORTED_SOURCE"] } },
-    select: { id: true, name: true, targetVersion: true, latestVersion: true, manifest: { select: { ecosystem: true, packageManager: true } } },
+    select: {
+      id: true,
+      name: true,
+      targetVersion: true,
+      latestVersion: true,
+      manifest: { select: { ecosystem: true, packageManager: true } },
+    },
   });
   const ids = rows.filter((row) => rules.some((rule) => ruleCoversRow(rule, row))).map((row) => row.id);
   if (ids.length === 0) return 0;
@@ -256,7 +279,14 @@ interface FetchedRepo {
 
 type FetchOutcome = { ok: true; repo: FetchedRepo } | { ok: false; message: string };
 
-type RepoData = { id: number; name: string; full_name: string; default_branch: string; private: boolean; owner: { login: string } };
+type RepoData = {
+  id: number;
+  name: string;
+  full_name: string;
+  default_branch: string;
+  private: boolean;
+  owner: { login: string };
+};
 
 function toFetchedRepo(data: RepoData): FetchedRepo {
   return {
@@ -288,7 +318,10 @@ async function fetchRepository(ref: RepoRefInput, userToken: string | undefined)
     const rateLimited = toRateLimitError(error);
     if (rateLimited) throw rateLimited;
     if (!isGitHubHttpError(error) || (error.status !== 404 && error.status !== 403)) {
-      console.warn(`[addDependencyProjectsAction] could not read ${ref.owner}/${ref.name}`, error instanceof Error ? error.message : error);
+      console.warn(
+        `[addDependencyProjectsAction] could not read ${ref.owner}/${ref.name}`,
+        error instanceof Error ? error.message : error,
+      );
       return { ok: false, message: `GitHub did not answer for ${ref.owner}/${ref.name}. Try again.` };
     }
   }
@@ -309,7 +342,10 @@ async function fetchRepository(ref: RepoRefInput, userToken: string | undefined)
   } catch (error) {
     const rateLimited = toRateLimitError(error);
     if (rateLimited) throw rateLimited;
-    console.warn(`[addDependencyProjectsAction] App read of ${ref.owner}/${ref.name} failed`, error instanceof Error ? error.message : error);
+    console.warn(
+      `[addDependencyProjectsAction] App read of ${ref.owner}/${ref.name} failed`,
+      error instanceof Error ? error.message : error,
+    );
     return { ok: false, message: notFound };
   }
 }
@@ -320,7 +356,9 @@ async function fetchRepository(ref: RepoRefInput, userToken: string | undefined)
  * needs the GitHub App installed and the user's read permission. Pull request modes are offered for a
  * single repository and claim the PR ownership. The first scans are queued right away (`trigger: "add"`).
  */
-export async function addDependencyProjectsAction(input: AddDependencyProjectsInput): Promise<ActionResult<AddDependencyProjectsResult>> {
+export async function addDependencyProjectsAction(
+  input: AddDependencyProjectsInput,
+): Promise<ActionResult<AddDependencyProjectsResult>> {
   try {
     const user = await getCurrentUserOrThrow();
     const parsed = addDependencyProjectsInput.safeParse(input);
@@ -328,7 +366,10 @@ export async function addDependencyProjectsAction(input: AddDependencyProjectsIn
     const { sources, updateMode, notifyOnFirstScan } = parsed.data;
     if (!(await isDepsEnabled())) return fail("UNAVAILABLE", DISABLED_MESSAGE);
     if (updateMode !== "NOTIFY" && sources.length > 1) {
-      return fail("INVALID_INPUT", "Pull request modes can be chosen when adding one repository. Add several with “Notify only”.");
+      return fail(
+        "INVALID_INPUT",
+        "Pull request modes can be chosen when adding one repository. Add several with “Notify only”.",
+      );
     }
 
     // Subscriptions must be the user's own.
@@ -373,7 +414,10 @@ export async function addDependencyProjectsAction(input: AddDependencyProjectsIn
       if (outcome.repo.isPrivate) {
         const access = await checkRepoAccess(user, outcome.repo, "read");
         if (!access.ok) {
-          failed.push({ source: outcome.repo.fullName, message: `${outcome.repo.fullName} is private: ${access.message}` });
+          failed.push({
+            source: outcome.repo.fullName,
+            message: `${outcome.repo.fullName} is private: ${access.message}`,
+          });
           continue;
         }
       }
@@ -452,9 +496,15 @@ export async function addDependencyProjectsAction(input: AddDependencyProjectsIn
         await enqueueScan(project.projectId, "add", user.id);
       } catch (error) {
         scansQueued = false;
-        console.warn(`[addDependencyProjectsAction] could not queue the first scan of ${project.projectId}`, error instanceof Error ? error.message : error);
+        console.warn(
+          `[addDependencyProjectsAction] could not queue the first scan of ${project.projectId}`,
+          error instanceof Error ? error.message : error,
+        );
         // `nextScanAt = now`: the scheduler picks it up on its next run.
-        await prisma.dependencyProject.updateMany({ where: { id: project.projectId, userId: user.id, scanStatus: "QUEUED" }, data: { scanStatus: "IDLE" } });
+        await prisma.dependencyProject.updateMany({
+          where: { id: project.projectId, userId: user.id, scanStatus: "QUEUED" },
+          data: { scanStatus: "IDLE" },
+        });
       }
     }
 
@@ -479,12 +529,16 @@ export async function addDependencyProjectsAction(input: AddDependencyProjectsIn
  * Removes a project with its manifests, updates and PR records. The PR ownership is released by the
  * cascade; open pull requests stay on GitHub.
  */
-export async function removeDependencyProjectAction(input: { projectId: string }): Promise<ActionResult<{ projectId: string }>> {
+export async function removeDependencyProjectAction(input: {
+  projectId: string;
+}): Promise<ActionResult<{ projectId: string }>> {
   try {
     const user = await getCurrentUserOrThrow();
     const parsed = projectIdInput.safeParse(input);
     if (!parsed.success) return invalidInput(parsed.error);
-    const { count } = await prisma.dependencyProject.deleteMany({ where: { id: parsed.data.projectId, userId: user.id } });
+    const { count } = await prisma.dependencyProject.deleteMany({
+      where: { id: parsed.data.projectId, userId: user.id },
+    });
     if (count === 0) return fail("NOT_FOUND", "Project not found.");
     revalidateDependencies();
     return ok({ projectId: parsed.data.projectId });
@@ -518,7 +572,9 @@ function sameStrings(a: readonly string[], b: readonly string[]): boolean {
  * (`CONFLICT` naming the owner when another project has it). Switching to `NOTIFY` releases it.
  * New ignore rules apply to stored rows at once; policy changes (and removed rules) queue a re-check.
  */
-export async function updateDependencyProjectSettingsAction(input: DependencySettingsInput): Promise<ActionResult<DependencySettingsResult>> {
+export async function updateDependencyProjectSettingsAction(
+  input: DependencySettingsInput,
+): Promise<ActionResult<DependencySettingsResult>> {
   try {
     const user = await getCurrentUserOrThrow();
     const parsed = dependencySettingsInput.safeParse(input);
@@ -530,7 +586,10 @@ export async function updateDependencyProjectSettingsAction(input: DependencySet
       const rules = ignoreRulesSchema.safeParse(rawRules);
       if (!rules.success) return invalidInput(rules.error);
       ignoreRules = rules.data.reduce<IgnoreRuleValue[]>(
-        (list, rule) => (list.some((r) => sameIgnoreRule(r, rule)) ? list : [...list, rule.versions ? { name: rule.name, versions: rule.versions } : { name: rule.name }]),
+        (list, rule) =>
+          list.some((r) => sameIgnoreRule(r, rule))
+            ? list
+            : [...list, rule.versions ? { name: rule.name, versions: rule.versions } : { name: rule.name }],
         [],
       );
     }
@@ -540,7 +599,11 @@ export async function updateDependencyProjectSettingsAction(input: DependencySet
       for (const raw of rawPaths) {
         if (raw.trim() === "") continue;
         const path = normalizeWatchedPath(raw);
-        if (!path) return fail("INVALID_INPUT", `"${raw.slice(0, 60)}" is not a valid path. Use a path relative to the repository root.`);
+        if (!path)
+          return fail(
+            "INVALID_INPUT",
+            `"${raw.slice(0, 60)}" is not a valid path. Use a path relative to the repository root.`,
+          );
         if (!manifestPaths.includes(path)) manifestPaths.push(path);
       }
     }
@@ -573,7 +636,9 @@ export async function updateDependencyProjectSettingsAction(input: DependencySet
 
     const storedRules = readIgnoreRules(project.ignoreRules);
     const addedRules = ignoreRules?.filter((rule) => !storedRules.some((r) => sameIgnoreRule(r, rule))) ?? [];
-    const removedRules = ignoreRules ? storedRules.filter((rule) => !ignoreRules.some((r) => sameIgnoreRule(r, rule))) : [];
+    const removedRules = ignoreRules
+      ? storedRules.filter((rule) => !ignoreRules.some((r) => sameIgnoreRule(r, rule)))
+      : [];
     const policyChanged =
       (fields.maxUpdateLevel !== undefined && fields.maxUpdateLevel !== project.maxUpdateLevel) ||
       (fields.includePrereleases !== undefined && fields.includePrereleases !== project.includePrereleases) ||
@@ -604,7 +669,9 @@ export async function updateDependencyProjectSettingsAction(input: DependencySet
       return applyIgnoreRules(tx, project.id, addedRules);
     });
 
-    const rescanQueued = policyChanged ? await queueRecheck(project.id, user.id, "updateDependencyProjectSettingsAction") : false;
+    const rescanQueued = policyChanged
+      ? await queueRecheck(project.id, user.id, "updateDependencyProjectSettingsAction")
+      : false;
     revalidateDependencies();
     return ok({
       projectId: project.id,
@@ -615,7 +682,11 @@ export async function updateDependencyProjectSettingsAction(input: DependencySet
       rescanQueued,
     });
   } catch (error) {
-    if (isUniqueConstraintError(error)) return fail("CONFLICT", "Pull requests for this repository were just claimed by another project. Reload the page.");
+    if (isUniqueConstraintError(error))
+      return fail(
+        "CONFLICT",
+        "Pull requests for this repository were just claimed by another project. Reload the page.",
+      );
     return toDependencyActionError(error, "updateDependencyProjectSettingsAction");
   }
 }
@@ -629,7 +700,9 @@ export type DependencyScanResult =
   | { status: "COOLDOWN"; fullName: string; retryAfterSeconds: number };
 
 /** "Check now": a priority scan, at most once every 5 minutes per project (on `lastScannedAt`). */
-export async function triggerDependencyScanAction(input: { projectId: string }): Promise<ActionResult<DependencyScanResult>> {
+export async function triggerDependencyScanAction(input: {
+  projectId: string;
+}): Promise<ActionResult<DependencyScanResult>> {
   try {
     const user = await getCurrentUserOrThrow();
     const parsed = projectIdInput.safeParse(input);
@@ -671,15 +744,15 @@ export interface CreateProjectPullRequestsResult {
   groupKeys: string[];
 }
 
-async function enqueueUpdateGroup(queue: Queue<DepsUpdateJobData>, projectId: string, groupKey: string): Promise<void> {
-  const jobId = depsUpdateJobId(projectId, groupKey);
-  const existing = await queue.getJob(jobId);
-  if (!existing) {
-    await queue.add(DEPS_JOB_NAMES.update, { projectId, groupKey, trigger: "manual" }, { jobId, priority: DEPS_UPDATE_PRIORITY.manual });
-    return;
-  }
-  const state = await existing.getState();
-  if (state === "waiting" || state === "prioritized") await existing.changePriority({ priority: DEPS_UPDATE_PRIORITY.manual });
+async function enqueueUpdateGroup(queue: DepsUpdateQueue, projectId: string, groupKey: string): Promise<void> {
+  await enqueueDeduplicated({
+    queue,
+    name: DEPS_JOB_NAMES.update,
+    data: { projectId, groupKey, trigger: "manual" },
+    deduplicationId: depsUpdateJobId(projectId, groupKey),
+    priority: DEPS_UPDATE_PRIORITY.manual,
+    queueIfActive: true,
+  });
 }
 
 async function loadPrOwnedProject(userId: string, projectId: string) {
@@ -708,7 +781,10 @@ async function loadPrOwnedProject(userId: string, projectId: string) {
   if (!project) return { ok: false as const, error: fail("NOT_FOUND", "Project not found.") };
   if (!(await isDepsEnabled())) return { ok: false as const, error: fail("UNAVAILABLE", DISABLED_MESSAGE) };
   if (project.updateMode === "NOTIFY") {
-    return { ok: false as const, error: fail("CONFLICT", "This project only notifies. Choose a pull request mode in its settings first.") };
+    return {
+      ok: false as const,
+      error: fail("CONFLICT", "This project only notifies. Choose a pull request mode in its settings first."),
+    };
   }
   if (!project.prOwnership) {
     const owner = await prisma.dependencyPrOwner.findUnique({
@@ -727,7 +803,13 @@ async function loadPrOwnedProject(userId: string, projectId: string) {
   }
 
   const groups = groupUpdates(
-    project.updates.map((u) => ({ ecosystem: u.manifest.ecosystem, name: u.name, manifestPath: u.manifest.path, level: u.level, manifest: u.manifest })),
+    project.updates.map((u) => ({
+      ecosystem: u.manifest.ecosystem,
+      name: u.name,
+      manifestPath: u.manifest.path,
+      level: u.level,
+      manifest: u.manifest,
+    })),
     project.groupMode,
     project.maxOpenPrs,
   );
@@ -784,13 +866,19 @@ export async function createDependencyPullRequestAction(input: {
     const group = groups.find((g) => g.groupKey === groupKey);
     if (!group) return fail("NOT_FOUND", "Nothing to update in this group any more. Check the project again.");
     const pr = prByGroup.get(groupKey);
-    const disabled = groupDisabledMessage(group, pr?.state, project.maxOpenPrs, await readLockfileRegenerationAvailable());
+    const disabled = groupDisabledMessage(
+      group,
+      pr?.state,
+      project.maxOpenPrs,
+      await readLockfileRegenerationAvailable(),
+    );
     if (disabled) return fail("CONFLICT", disabled);
 
     const access = await checkRepoAccess(user, project, "write");
     if (!access.ok) return fail(access.code, access.message);
 
-    if (!isRealtimeConfigured()) throw new RealtimeUnavailableError("Background jobs are not configured (REDIS_URL is not set).");
+    if (!isRealtimeConfigured())
+      throw new RealtimeUnavailableError("Background jobs are not configured (REDIS_URL is not set).");
     const queue = getDepsUpdateQueue();
     await withRedisTimeout(enqueueUpdateGroup(queue, project.id, groupKey));
     return ok({ status: "QUEUED", groupKey });
@@ -824,7 +912,12 @@ export async function createProjectDependencyPullRequestsAction(input: {
     const eligible: string[] = [];
     let firstDisabledReason: string | null = null;
     for (const group of groups) {
-      const disabled = groupDisabledMessage(group, prByGroup.get(group.groupKey)?.state, project.maxOpenPrs, lockfileRegeneration);
+      const disabled = groupDisabledMessage(
+        group,
+        prByGroup.get(group.groupKey)?.state,
+        project.maxOpenPrs,
+        lockfileRegeneration,
+      );
       if (disabled) {
         firstDisabledReason ??= disabled;
         continue;
@@ -839,7 +932,8 @@ export async function createProjectDependencyPullRequestsAction(input: {
     const access = await checkRepoAccess(user, project, "write");
     if (!access.ok) return fail(access.code, access.message);
 
-    if (!isRealtimeConfigured()) throw new RealtimeUnavailableError("Background jobs are not configured (REDIS_URL is not set).");
+    if (!isRealtimeConfigured())
+      throw new RealtimeUnavailableError("Background jobs are not configured (REDIS_URL is not set).");
     const queue = getDepsUpdateQueue();
     await withRedisTimeout(Promise.all(eligible.map((groupKey) => enqueueUpdateGroup(queue, project.id, groupKey))));
     return ok({ status: "QUEUED", groupKeys: eligible });
@@ -872,7 +966,9 @@ export async function ignoreDependencyAction(input: IgnoreDependencyInput): Prom
     if (!parsed.success) return invalidInput(parsed.error);
     const ruleParsed = ignoreRuleSchema.safeParse({ name: parsed.data.name, versions: parsed.data.versions });
     if (!ruleParsed.success) return invalidInput(ruleParsed.error);
-    const rule: IgnoreRuleValue = ruleParsed.data.versions ? { name: ruleParsed.data.name, versions: ruleParsed.data.versions } : { name: ruleParsed.data.name };
+    const rule: IgnoreRuleValue = ruleParsed.data.versions
+      ? { name: ruleParsed.data.name, versions: ruleParsed.data.versions }
+      : { name: ruleParsed.data.name };
 
     const project = await prisma.dependencyProject.findFirst({
       where: { id: parsed.data.projectId, userId: user.id },
@@ -881,7 +977,8 @@ export async function ignoreDependencyAction(input: IgnoreDependencyInput): Prom
     if (!project) return fail("NOT_FOUND", "Project not found.");
     const rules = readIgnoreRules(project.ignoreRules);
     if (rules.some((r) => sameIgnoreRule(r, rule))) return ok({ ignoreRules: rules, ignored: 0, rescanQueued: false });
-    if (rules.length >= MAX_IGNORE_RULES) return fail("INVALID_INPUT", `A project can have at most ${MAX_IGNORE_RULES} ignore rules.`);
+    if (rules.length >= MAX_IGNORE_RULES)
+      return fail("INVALID_INPUT", `A project can have at most ${MAX_IGNORE_RULES} ignore rules.`);
     const next = [...rules, rule];
 
     const ignored = await prisma.$transaction(async (tx) => {

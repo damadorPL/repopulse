@@ -26,8 +26,7 @@ export function AssignTagsPopover({
   const [selected, setSelected] = useState<string[]>(assignedTagIds);
   const [pending, startTransition] = useTransition();
 
-  const changed =
-    selected.length !== assignedTagIds.length || selected.some((id) => !assignedTagIds.includes(id));
+  const changed = selected.length !== assignedTagIds.length || selected.some((id) => !assignedTagIds.includes(id));
 
   function toggle(id: string, checked: boolean) {
     setSelected((current) => (checked ? [...current, id] : current.filter((t) => t !== id)));

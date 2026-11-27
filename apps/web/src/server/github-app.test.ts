@@ -53,7 +53,10 @@ describe("statesMatch", () => {
 
 describe("completeManifestCallback", () => {
   it("exchanges the code and stores the App when the state matches", async () => {
-    const target = await completeManifestCallback({ code: "abc123", state: "s1", cookieState: "s1" }, { convert, save });
+    const target = await completeManifestCallback(
+      { code: "abc123", state: "s1", cookieState: "s1" },
+      { convert, save },
+    );
     expect(target).toBe("/admin/github-app?created=1");
     expect(convert).toHaveBeenCalledWith("abc123");
     expect(save).toHaveBeenCalledWith(APP);
@@ -70,7 +73,9 @@ describe("completeManifestCallback", () => {
   });
 
   it("needs a code", async () => {
-    expect(await completeManifestCallback({ code: " ", state: "s1", cookieState: "s1" }, { convert, save })).toBe("/admin/github-app?error=code");
+    expect(await completeManifestCallback({ code: " ", state: "s1", cookieState: "s1" }, { convert, save })).toBe(
+      "/admin/github-app?error=code",
+    );
     expect(convert).not.toHaveBeenCalled();
   });
 

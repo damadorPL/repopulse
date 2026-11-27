@@ -9,5 +9,7 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.{ts,tsx}"],
     environment: "node",
+    unstubEnvs: true,
+    restoreMocks: true,
   },
 });

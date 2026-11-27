@@ -116,24 +116,27 @@ describe("requestDeepBackfillAction", () => {
     });
   });
 
-  it.each(["NONE", "ERROR"] as const)("enqueues with trigger 'retry' and keeps target when status is %s", async (backfillStatus) => {
-    prisma.userSubscription.findUnique.mockResolvedValueOnce({
-      repository: {
-        fullName: "acme/web",
-        backfillStatus,
-        backfillTarget: 100,
-        backfillNextPage: null,
-        backfillRequestedAt: null,
-      },
-    });
+  it.each(["NONE", "ERROR"] as const)(
+    "enqueues with trigger 'retry' and keeps target when status is %s",
+    async (backfillStatus) => {
+      prisma.userSubscription.findUnique.mockResolvedValueOnce({
+        repository: {
+          fullName: "acme/web",
+          backfillStatus,
+          backfillTarget: 100,
+          backfillNextPage: null,
+          backfillRequestedAt: null,
+        },
+      });
 
-    const result = await requestDeepBackfillAction({ repositoryId: "repo1" });
-    expect(result).toEqual({
-      ok: true,
-      data: { status: "QUEUED", fullName: "acme/web", target: 100, retry: true },
-    });
-    expect(enqueueReleaseBackfill).toHaveBeenCalledWith({ repositoryId: "repo1", trigger: "retry" }, 1);
-  });
+      const result = await requestDeepBackfillAction({ repositoryId: "repo1" });
+      expect(result).toEqual({
+        ok: true,
+        data: { status: "QUEUED", fullName: "acme/web", target: 100, retry: true },
+      });
+      expect(enqueueReleaseBackfill).toHaveBeenCalledWith({ repositoryId: "repo1", trigger: "retry" }, 1);
+    },
+  );
 
   it("raises target by deepStep (clamped to hardCap) and enqueues with trigger 'deep' when DONE with more pages", async () => {
     prisma.userSubscription.findUnique.mockResolvedValueOnce({

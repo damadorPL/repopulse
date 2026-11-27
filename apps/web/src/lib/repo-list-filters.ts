@@ -5,6 +5,7 @@
  * `getTrackedRepositories` result. Shared by server and client code: no server-only imports.
  */
 
+import type { Route } from "next";
 import { MAX_SEARCH_LENGTH } from "./feed-filters";
 
 export const REPO_LIST_SORTS = ["name", "-name", "added", "-added", "updated", "synced", "unread", "stars"] as const;
@@ -81,7 +82,7 @@ export function repoListSearchParams(filters: Partial<RepoListFilters>): URLSear
   return params;
 }
 
-export function repoListHref(filters: Partial<RepoListFilters> = {}): string {
+export function repoListHref(filters: Partial<RepoListFilters> = {}): Route {
   const query = repoListSearchParams(filters).toString();
   return query ? `/repositories?${query}` : "/repositories";
 }
@@ -90,15 +91,15 @@ export function repoListHref(filters: Partial<RepoListFilters> = {}): string {
  * The settings page of a tracked repository. `from` carries the list's query string, so the page's
  * back link returns to the same search, sort and filters.
  */
-export function repositorySettingsHref(fullName: string, from?: Partial<RepoListFilters>): string {
+export function repositorySettingsHref(fullName: string, from?: Partial<RepoListFilters>): Route {
   const [owner = "", name = ""] = fullName.split("/");
   const path = `/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
   const query = from ? repoListSearchParams(from).toString() : "";
-  return query ? `${path}?from=${encodeURIComponent(query)}` : path;
+  return (query ? `${path}?from=${encodeURIComponent(query)}` : path) as Route;
 }
 
 /** The list URL to return to from a settings page's `?from=` value (re-parsed, so it can only point at the list). */
-export function repoListHrefFrom(from: string | string[] | undefined): string {
+export function repoListHrefFrom(from: string | string[] | undefined): Route {
   const value = Array.isArray(from) ? from[0] : from;
   if (!value || value.length > 1000) return "/repositories";
   return repoListHref(parseRepoListFilters(new URLSearchParams(value)));
@@ -130,7 +131,13 @@ export interface RepoListRow {
 
 /** Lower-cased text a search query is matched against. */
 function haystack(row: RepoListRow): string {
-  return [row.repository.fullName, row.repository.description ?? "", row.note ?? "", ...row.tags.map((t) => t.name), ...row.watchedPaths]
+  return [
+    row.repository.fullName,
+    row.repository.description ?? "",
+    row.note ?? "",
+    ...row.tags.map((t) => t.name),
+    ...row.watchedPaths,
+  ]
     .join("\n")
     .toLowerCase();
 }

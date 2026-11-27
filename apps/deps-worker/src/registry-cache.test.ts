@@ -6,7 +6,7 @@ import {
   createRedisLockfileCache,
   createRedisRegistryCache,
   lockfileCacheKey,
-} from "./registry-cache";
+} from "./registry-cache.js";
 
 function fakeRedis() {
   const store = new Map<string, string>();
@@ -25,7 +25,12 @@ describe("createRedisRegistryCache", () => {
 
     expect(await cache.get("deps:reg:npm:react")).toBeNull();
     await cache.set("deps:reg:npm:react", { body: '{"ok":true}', storedAt: 1000, etag: '"e1"' }, 1234.6);
-    expect(redis.set).toHaveBeenCalledWith("deps:reg:npm:react", '{"body":"{\\"ok\\":true}","storedAt":1000,"etag":"\\"e1\\""}', "PX", 1235);
+    expect(redis.set).toHaveBeenCalledWith(
+      "deps:reg:npm:react",
+      '{"body":"{\\"ok\\":true}","storedAt":1000,"etag":"\\"e1\\""}',
+      "PX",
+      1235,
+    );
     expect(await cache.get("deps:reg:npm:react")).toEqual({ body: '{"ok":true}', storedAt: 1000, etag: '"e1"' });
 
     redis.store.set("bad-json", "{broken");

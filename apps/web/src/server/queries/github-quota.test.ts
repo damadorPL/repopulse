@@ -19,16 +19,17 @@ describe("getGitHubQuotaView", () => {
       githubAccessTokenEncrypted: "admin_token",
     };
 
-    const mockFetch = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          rate: { limit: 5000, remaining: 4900, reset: 1700000000, used: 100 },
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
+    const mockFetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            rate: { limit: 5000, remaining: 4900, reset: 1700000000, used: 100 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
     );
 
-    const result = await getGitHubQuotaView(adminUser as never, { fetch: mockFetch as never });
+    const result = await getGitHubQuotaView(adminUser as never, { fetch: mockFetch });
 
     expect(result).toEqual({
       ok: true,
@@ -56,16 +57,17 @@ describe("getGitHubQuotaView", () => {
       githubLogin: "subscriber_user",
     });
 
-    const mockFetch = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          rate: { limit: 5000, remaining: 4800, reset: 1700001000, used: 200 },
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
+    const mockFetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            rate: { limit: 5000, remaining: 4800, reset: 1700001000, used: 200 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
     );
 
-    const result = await getGitHubQuotaView(adminUser as never, { fetch: mockFetch as never });
+    const result = await getGitHubQuotaView(adminUser as never, { fetch: mockFetch });
 
     expect(result).toEqual({
       ok: true,
@@ -90,16 +92,17 @@ describe("getGitHubQuotaView", () => {
 
     prisma.user.findFirst.mockResolvedValueOnce(null);
 
-    const mockFetch = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          rate: { limit: 60, remaining: 55, reset: 1700002000, used: 5 },
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
+    const mockFetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            rate: { limit: 60, remaining: 55, reset: 1700002000, used: 5 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
     );
 
-    const result = await getGitHubQuotaView(adminUser as never, { fetch: mockFetch as never });
+    const result = await getGitHubQuotaView(adminUser as never, { fetch: mockFetch });
 
     expect(result).toEqual({
       ok: true,
@@ -122,14 +125,15 @@ describe("getGitHubQuotaView", () => {
       githubAccessTokenEncrypted: "token",
     };
 
-    const mockFetch = vi.fn(async () =>
-      new Response(JSON.stringify({ message: "Bad credentials" }), {
-        status: 401,
-        headers: { "content-type": "application/json" },
-      }),
+    const mockFetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ message: "Bad credentials" }), {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        }),
     );
 
-    const result = await getGitHubQuotaView(adminUser as never, { fetch: mockFetch as never });
+    const result = await getGitHubQuotaView(adminUser as never, { fetch: mockFetch });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {

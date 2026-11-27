@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { format } from "date-fns";
 import { RelativeTime } from "@/components/feed/relative-time";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -29,7 +29,7 @@ function formatDays(days: number): string {
  */
 export function ActivityStats({ items }: { items: ActivityItem[] }) {
   const now = useClientNow();
-  const stats = useMemo(() => (now ? computeActivityStats(items, now) : null), [items, now]);
+  const stats = now ? computeActivityStats(items, now) : null;
 
   if (!stats) {
     return (
@@ -54,7 +54,9 @@ export function ActivityStats({ items }: { items: ActivityItem[] }) {
         {stats.busiestMonth ? `${format(stats.busiestMonth.date, "MMM yyyy")} (${stats.busiestMonth.count})` : "—"}
       </Stat>
       <Stat label="Weekly streak">
-        {stats.currentStreakWeeks > 0 ? `${stats.currentStreakWeeks} week${stats.currentStreakWeeks === 1 ? "" : "s"}` : "—"}
+        {stats.currentStreakWeeks > 0
+          ? `${stats.currentStreakWeeks} week${stats.currentStreakWeeks === 1 ? "" : "s"}`
+          : "—"}
       </Stat>
     </dl>
   );

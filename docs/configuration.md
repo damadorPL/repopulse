@@ -26,7 +26,7 @@
 | `AUTH_SECRET` | web | — | `openssl rand -hex 32` |
 | `AUTH_GITHUB_ID` / `AUTH_GITHUB_SECRET` | web | — | GitHub OAuth App; callback `<origin>/api/auth/callback/github` |
 | `SERVICE_URL_WEB` | compose → `NEXTAUTH_URL`, `APP_BASE_URL` | — | Public URL **with the scheme**, set by Coolify. Set it by hand for local compose. Replaces `SERVICE_FQDN_WEB` (a bare host) |
-| `NEXTAUTH_URL` / `AUTH_URL` | web | — | Auth.js base URL. Compose sets `NEXTAUTH_URL` |
+| `NEXTAUTH_URL` / `AUTH_URL` | web | — | Auth base URL. Compose sets `NEXTAUTH_URL` |
 | `TOKEN_ENCRYPTION_KEY` | web, worker, deps-worker | — | 64 hex chars. Encrypts GitHub tokens, the SMTP password and the GitHub App key / webhook secret. **Changing it makes them unreadable** |
 | `POLL_INTERVAL_CRON` | worker | `*/30 * * * *` | The scheduler cron |
 | `REPO_POLL_CONCURRENCY` | worker | `5` | |

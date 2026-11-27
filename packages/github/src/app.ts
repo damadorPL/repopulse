@@ -1,7 +1,14 @@
-import { createPrivateKey } from "node:crypto";
+import { createHash, createPrivateKey } from "node:crypto";
 import { createAppAuth } from "@octokit/auth-app";
-import { Octokit } from "@octokit/rest";
-import { GITHUB_USER_AGENT, isGitHubHttpError } from "./client.js";
+import type { Octokit } from "@octokit/rest";
+import {
+  DEFAULT_GITHUB_RETRIES,
+  DO_NOT_RETRY_STATUSES,
+  GITHUB_USER_AGENT,
+  instantiateOctokit,
+  isGitHubHttpError,
+  wrapFetchWithSignal,
+} from "./client.js";
 import { rethrowRateLimit, toRateLimitError } from "./git-write.js";
 import { trimTrailingChar } from "./text.js";
 
@@ -24,6 +31,14 @@ export interface GitHubAppRequestOptions {
   fetch?: typeof globalThis.fetch;
   /** API base URL (default `https://api.github.com`). */
   baseUrl?: string;
+  /** Per-attempt request timeout in milliseconds. */
+  timeoutMs?: number;
+  /** Abort signal applied to the request(s). */
+  signal?: AbortSignal;
+  /** Retry attempts for transient failures (defaults to 2 in production, 0 when custom `fetch` is passed). */
+  retries?: number;
+  /** Base backoff in ms used by `@octokit/plugin-retry` (defaults to 1000). */
+  retryAfterBaseValue?: number;
 }
 
 /** The App id, key or installation was rejected (401 / bad PEM). Safe to show to the super admin. */
@@ -49,29 +64,76 @@ export class GitHubAppInstallationError extends Error {
 }
 
 const noop = () => {};
+const MAX_APP_OCTOKIT_CACHE_SIZE = 16;
+const appOctokitCache = new Map<string, Octokit>();
+
+/** Clears the cached App Octokit instances (used by tests). */
+export function clearAppOctokitCache(): void {
+  appOctokitCache.clear();
+}
+
+function requestOptions(signal: AbortSignal | undefined) {
+  return signal ? { request: { signal } } : {};
+}
 
 function octokitOptions(options: GitHubAppRequestOptions) {
+  const retries = options.retries ?? (options.fetch ? 0 : DEFAULT_GITHUB_RETRIES);
+  const needsWrappedFetch =
+    options.fetch !== undefined || options.timeoutMs !== undefined || options.signal !== undefined;
+  const fetchFn = needsWrappedFetch
+    ? wrapFetchWithSignal(options.fetch ?? globalThis.fetch, {
+        ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+        ...(options.signal !== undefined ? { signal: options.signal } : {}),
+      })
+    : undefined;
   return {
     userAgent: GITHUB_USER_AGENT,
     log: { debug: noop, info: noop, warn: console.warn.bind(console), error: noop },
+    retry: {
+      enabled: retries > 0,
+      retries,
+      doNotRetry: DO_NOT_RETRY_STATUSES,
+      ...(options.retryAfterBaseValue !== undefined ? { retryAfterBaseValue: options.retryAfterBaseValue } : {}),
+    },
     ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
-    ...(options.fetch ? { request: { fetch: options.fetch } } : {}),
+    ...(fetchFn ? { request: { fetch: fetchFn } } : {}),
   };
+}
+
+function cleanPem(privateKey: string): string {
+  return `${privateKey.replace(/\\n/g, "\n").trim()}\n`;
 }
 
 /** Restores escaped line breaks and checks the PEM parses, without ever echoing it. */
 function normalizePrivateKey(privateKey: string): string {
-  const pem = privateKey.replace(/\\n/g, "\n").trim();
+  const pem = cleanPem(privateKey);
   try {
     createPrivateKey(pem);
   } catch {
     throw new GitHubAppAuthError("The GitHub App private key is not a valid PEM private key.");
   }
-  return `${pem}\n`;
+  return pem;
 }
 
 function assertAppId(appId: number): void {
-  if (!Number.isSafeInteger(appId) || appId <= 0) throw new GitHubAppAuthError("The GitHub App id must be a positive integer.");
+  if (!Number.isSafeInteger(appId) || appId <= 0)
+    throw new GitHubAppAuthError("The GitHub App id must be a positive integer.");
+}
+
+function appOctokitCacheKey(appId: number, pem: string, options: GitHubAppRequestOptions): string {
+  const retries = options.retries ?? DEFAULT_GITHUB_RETRIES;
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        appId,
+        pem,
+        options.baseUrl ?? null,
+        options.timeoutMs ?? null,
+        retries,
+        options.retryAfterBaseValue ?? null,
+      ]),
+    )
+    .digest("hex");
 }
 
 /**
@@ -79,37 +141,87 @@ function assertAppId(appId: number): void {
  * `@octokit/auth-app`). Only App-level routes work with it (`/app`, `/app/installations/…`,
  * `/repos/{o}/{r}/installation`, …); repository content needs an installation token
  * ({@link createInstallationToken}).
+ *
+ * Instances without custom `fetch` or per-call `signal` are cached (LRU, max 16) by SHA-256 of the
+ * App id, PEM and request options, reusing `@octokit/auth-app`'s internal token cache without
+ * re-parsing the PEM on every call.
  */
 export function createAppOctokit(auth: GitHubAppAuth, options: GitHubAppRequestOptions = {}): Octokit {
   assertAppId(auth.appId);
+  const canCache = options.fetch === undefined && options.signal === undefined;
+  if (canCache) {
+    const pem = cleanPem(auth.privateKey);
+    const key = appOctokitCacheKey(auth.appId, pem, options);
+    const cached = appOctokitCache.get(key);
+    if (cached) {
+      appOctokitCache.delete(key);
+      appOctokitCache.set(key, cached);
+      return cached;
+    }
+    const privateKey = normalizePrivateKey(auth.privateKey);
+    const octokit = instantiateOctokit({
+      ...octokitOptions(options),
+      authStrategy: createAppAuth,
+      auth: { appId: auth.appId, privateKey },
+    });
+    if (appOctokitCache.size >= MAX_APP_OCTOKIT_CACHE_SIZE) {
+      const oldest = appOctokitCache.keys().next().value;
+      if (oldest !== undefined) appOctokitCache.delete(oldest);
+    }
+    appOctokitCache.set(key, octokit);
+    return octokit;
+  }
   const privateKey = normalizePrivateKey(auth.privateKey);
-  return new Octokit({
+  return instantiateOctokit({
     ...octokitOptions(options),
     authStrategy: createAppAuth,
     auth: { appId: auth.appId, privateKey },
   });
 }
 
+const SIGNING_ERROR_PATTERN = /universal-github-app-jwt|private\s*key|\bpem\b|pkcs|openssl|\bsign(?:er|ing)\b/i;
+const SIGNING_ERROR_NAMES = new Set(["DataError", "InvalidCharacterError", "NotSupportedError"]);
+
+function isKeyOrSigningError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const record = error as { code?: unknown; name?: unknown; message?: unknown };
+  if (
+    typeof record.code === "string" &&
+    (record.code.startsWith("ERR_OSSL_") || record.code.startsWith("ERR_CRYPTO_"))
+  ) {
+    return true;
+  }
+  if (typeof record.name === "string" && SIGNING_ERROR_NAMES.has(record.name)) {
+    return true;
+  }
+  return typeof record.message === "string" && SIGNING_ERROR_PATTERN.test(record.message);
+}
+
 /**
- * Maps errors of App-authenticated calls: rate limits → `GitHubRateLimitError`, 401 →
- * {@link GitHubAppAuthError}, non-HTTP errors (the JWT signer) → {@link GitHubAppAuthError} without
- * the original error (it may describe the key). Other HTTP errors are re-thrown as they are
- * (Octokit redacts the `authorization` header).
+ * Maps errors of App-authenticated calls: rate limits → `GitHubRateLimitError`, 401/403 →
+ * {@link GitHubAppAuthError}, key/crypto/JWT-signing errors → {@link GitHubAppAuthError} without
+ * the original error (it may describe the key). Other HTTP and transient network/timeout errors
+ * are re-thrown as they are (Octokit redacts the `authorization` header).
  */
 export function rethrowAppError(error: unknown, notFound?: () => never): never {
   if (error instanceof GitHubAppAuthError || error instanceof GitHubAppInstallationError) throw error;
   const rateLimited = toRateLimitError(error);
   if (rateLimited) throw rateLimited;
   if (isGitHubHttpError(error)) {
-    if (error.status === 401) {
-      throw new GitHubAppAuthError("GitHub rejected the App credentials. Check the App id and the private key.", 401);
+    if (error.status === 401 || error.status === 403) {
+      throw new GitHubAppAuthError(
+        "GitHub rejected the App credentials. Check the App id and the private key.",
+        error.status,
+      );
     }
     if (error.status === 404 && notFound) notFound();
     throw error;
   }
-  throw new GitHubAppAuthError("Could not sign a GitHub App token with this private key.");
+  if (isKeyOrSigningError(error)) {
+    throw new GitHubAppAuthError("Could not sign a GitHub App token with this private key.");
+  }
+  throw error;
 }
-
 
 export interface GitHubAppInfo {
   id: number;
@@ -145,10 +257,13 @@ function mapApp(data: AppData): GitHubAppInfo {
  * App's public data. Throws {@link GitHubAppAuthError} on a bad key or id (GitHub answers 401 for a
  * JWT whose `iss` doesn't match the key, and 404 when the App doesn't exist).
  */
-export async function getAuthenticatedApp(auth: GitHubAppAuth, options: GitHubAppRequestOptions = {}): Promise<GitHubAppInfo> {
+export async function getAuthenticatedApp(
+  auth: GitHubAppAuth,
+  options: GitHubAppRequestOptions = {},
+): Promise<GitHubAppInfo> {
   const octokit = createAppOctokit(auth, options);
   try {
-    const response = await octokit.request("GET /app");
+    const response = await octokit.request("GET /app", requestOptions(options.signal));
     if (!response.data) throw new GitHubAppAuthError("GitHub returned no App for these credentials.");
     return mapApp(response.data as AppData);
   } catch (error) {
@@ -174,11 +289,17 @@ export interface ConvertedAppManifest {
  * Completes the manifest flow: `POST /app-manifests/{code}/conversions` (unauthenticated; the code is
  * single-use and expires after one hour). The result contains the App's secrets: encrypt before storing.
  */
-export async function convertAppManifest(code: string, options: GitHubAppRequestOptions = {}): Promise<ConvertedAppManifest> {
+export async function convertAppManifest(
+  code: string,
+  options: GitHubAppRequestOptions = {},
+): Promise<ConvertedAppManifest> {
   if (!/^[A-Za-z0-9_-]{1,200}$/.test(code)) throw new GitHubAppAuthError("The GitHub App manifest code is malformed.");
-  const octokit = new Octokit(octokitOptions(options));
+  const octokit = instantiateOctokit(octokitOptions(options));
   try {
-    const response = await octokit.request("POST /app-manifests/{code}/conversions", { code });
+    const response = await octokit.request("POST /app-manifests/{code}/conversions", {
+      code,
+      ...requestOptions(options.signal),
+    });
     const data = response.data as AppData & {
       client_id: string;
       client_secret: string;
@@ -194,7 +315,10 @@ export async function convertAppManifest(code: string, options: GitHubAppRequest
     };
   } catch (error) {
     if (isGitHubHttpError(error) && (error.status === 404 || error.status === 422)) {
-      throw new GitHubAppAuthError("GitHub did not accept the App manifest code. It is single-use and expires after an hour; start again.", error.status);
+      throw new GitHubAppAuthError(
+        "GitHub did not accept the App manifest code. It is single-use and expires after an hour; start again.",
+        error.status,
+      );
     }
     rethrowRateLimit(error);
   }
@@ -212,7 +336,11 @@ export async function getRepoInstallation(
 ): Promise<{ installationId: number; accountLogin: string } | null> {
   const octokit = options.octokit ?? createAppOctokit(auth, options);
   try {
-    const response = await octokit.request("GET /repos/{owner}/{repo}/installation", { owner, repo });
+    const response = await octokit.request("GET /repos/{owner}/{repo}/installation", {
+      owner,
+      repo,
+      ...requestOptions(options.signal),
+    });
     const account = response.data.account as { login?: string; slug?: string } | null;
     return { installationId: response.data.id, accountLogin: account?.login ?? account?.slug ?? owner };
   } catch (error) {
@@ -240,6 +368,7 @@ export async function createInstallationToken(
       installation_id: installationId,
       repository_ids: opts.repositoryIds,
       permissions: opts.permissions,
+      ...requestOptions(options.signal),
     });
     return { token: response.data.token, expiresAt: new Date(response.data.expires_at) };
   } catch (error) {
@@ -254,7 +383,10 @@ export async function createInstallationToken(
         );
       }
       if (error.status === 403 && !toRateLimitError(error)) {
-        throw new GitHubAppInstallationError("The GitHub App installation is suspended or not allowed to create this token.", 403);
+        throw new GitHubAppInstallationError(
+          "The GitHub App installation is suspended or not allowed to create this token.",
+          403,
+        );
       }
     }
     rethrowAppError(error);
@@ -266,7 +398,9 @@ export type CollaboratorPermission = "admin" | "maintain" | "write" | "triage" |
 const PERMISSIONS: readonly CollaboratorPermission[] = ["admin", "maintain", "write", "triage", "read", "none"];
 
 function asPermission(value: unknown): CollaboratorPermission | null {
-  return typeof value === "string" && (PERMISSIONS as readonly string[]).includes(value) ? (value as CollaboratorPermission) : null;
+  return typeof value === "string" && (PERMISSIONS as readonly string[]).includes(value)
+    ? (value as CollaboratorPermission)
+    : null;
 }
 
 /**
@@ -279,12 +413,14 @@ export async function getCollaboratorPermission(
   owner: string,
   repo: string,
   username: string,
+  options: { signal?: AbortSignal } = {},
 ): Promise<CollaboratorPermission | null> {
   try {
     const response = await octokit.request("GET /repos/{owner}/{repo}/collaborators/{username}/permission", {
       owner,
       repo,
       username,
+      ...requestOptions(options.signal),
     });
     const data = response.data as { permission?: string; role_name?: string };
     return asPermission(data.role_name) ?? asPermission(data.permission) ?? "none";
@@ -326,7 +462,9 @@ export const GITHUB_APP_NAME_MAX_LENGTH = 34;
 
 function truncateName(name: string): string {
   const chars = Array.from(name.trim());
-  return chars.length <= GITHUB_APP_NAME_MAX_LENGTH ? chars.join("") : chars.slice(0, GITHUB_APP_NAME_MAX_LENGTH).join("").trimEnd();
+  return chars.length <= GITHUB_APP_NAME_MAX_LENGTH
+    ? chars.join("")
+    : chars.slice(0, GITHUB_APP_NAME_MAX_LENGTH).join("").trimEnd();
 }
 
 /** "RepoPulse (<host>)", with the host cut so the whole name fits in 34 characters. */
@@ -340,7 +478,8 @@ export function defaultAppName(appBaseUrl: string): string {
 export function buildAppManifest(opts: { appBaseUrl: string; name?: string }): Record<string, unknown> {
   const base = trimTrailingChar(opts.appBaseUrl.trim(), "/");
   const parsed = new URL(base);
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new Error("APP_BASE_URL must be an http(s) URL.");
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:")
+    throw new Error("APP_BASE_URL must be an http(s) URL.");
   const name = opts.name?.trim() ? truncateName(opts.name) : defaultAppName(base);
   return {
     name,
@@ -375,11 +514,18 @@ export function appManifestFormUrl(state: string, organization?: string): string
 }
 
 /** `GET /user/{account_id}`: the current login of a GitHub user id (logins can change). `null` on 404. */
-export async function getUserLoginById(octokit: Octokit, githubId: string | number): Promise<string | null> {
+export async function getUserLoginById(
+  octokit: Octokit,
+  githubId: string | number,
+  options: { signal?: AbortSignal } = {},
+): Promise<string | null> {
   const id = String(githubId);
   if (!/^\d{1,20}$/.test(id)) return null;
   try {
-    const response = await octokit.request("GET /user/{account_id}", { account_id: Number(id) });
+    const response = await octokit.request("GET /user/{account_id}", {
+      account_id: Number(id),
+      ...requestOptions(options.signal),
+    });
     return (response.data as { login?: string }).login ?? null;
   } catch (error) {
     if (isGitHubHttpError(error) && error.status === 404) return null;

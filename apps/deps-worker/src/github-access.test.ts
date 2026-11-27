@@ -1,21 +1,29 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GitHubAppKeyUnreadableError } from "@repopulse/db";
 import { GitHubAppAuthError, GitHubAppInstallationError } from "@repopulse/github";
-import { GitHubAccess, PRIVATE_WITHOUT_APP_MESSAGE, TOKEN_REFRESH_MARGIN_MS } from "./github-access";
+import { GitHubAccess, PRIVATE_WITHOUT_APP_MESSAGE, TOKEN_REFRESH_MARGIN_MS } from "./github-access.js";
 
 const APP = { appId: 1, slug: "repopulse", clientId: null, owner: null, privateKey: "PEM", webhookSecret: null };
 const PROJECT = { owner: "acme", name: "widget", githubRepoId: 42, isPrivate: false };
 const USER = { id: "u1", githubAccessTokenEncrypted: "enc" };
 
-function setup(options: { app?: typeof APP | null | Error; installed?: boolean; tokenError?: Error } = {}) {
+function setup(
+  options: {
+    app?: typeof APP | null | Error;
+    installed?: boolean;
+    tokenError?: Error;
+    log?: { warn: (arg1: string | Record<string, unknown>, arg2?: string) => void };
+  } = {},
+) {
   let clock = 1_000_000;
   let issued = 0;
-  const createInstallationToken = vi.fn(async (_auth: unknown, _id: number, opts: { repositoryIds: number[]; permissions: Record<string, string> }) => {
-    if (options.tokenError) throw options.tokenError;
-    issued++;
-    void opts;
-    return { token: `ghs_secret_${issued}`, expiresAt: new Date(clock + 60 * 60_000) };
-  });
+  const createInstallationToken = vi.fn(
+    async (_auth: unknown, _id: number, _opts: { repositoryIds: number[]; permissions: Record<string, string> }) => {
+      if (options.tokenError) throw options.tokenError;
+      issued++;
+      return { token: `ghs_secret_${issued}`, expiresAt: new Date(clock + 60 * 60_000) };
+    },
+  );
   const access = new GitHubAccess({
     loadApp: async () => {
       if (options.app instanceof Error) throw options.app;
@@ -23,14 +31,17 @@ function setup(options: { app?: typeof APP | null | Error; installed?: boolean; 
     },
     github: {
       createAppOctokit: vi.fn(() => ({}) as never),
-      getRepoInstallation: vi.fn(async () => (options.installed === false ? null : { installationId: 7, accountLogin: "acme" })),
-      createInstallationToken: createInstallationToken as never,
+      getRepoInstallation: vi.fn(async () =>
+        options.installed === false ? null : { installationId: 7, accountLogin: "acme" },
+      ),
+      createInstallationToken,
     },
     decrypt: (value) => {
       if (value === "corrupt") throw new Error("bad key");
       return `gho_${value}`;
     },
     now: () => clock,
+    ...(options.log ? { log: options.log } : {}),
   });
   return { access, createInstallationToken, tick: (ms: number) => (clock += ms) };
 }
@@ -44,8 +55,14 @@ describe("GitHubAccess", () => {
     expect(await access.installationToken(app, 7, 42, "read")).toBe("ghs_secret_1");
     expect(await access.installationToken(app, 7, 42, "read")).toBe("ghs_secret_1");
     expect(await access.installationToken(app, 7, 42, "write")).toBe("ghs_secret_2");
-    expect(createInstallationToken.mock.calls[0]![2]).toEqual({ repositoryIds: [42], permissions: { contents: "read", pull_requests: "read" } });
-    expect(createInstallationToken.mock.calls[1]![2]).toEqual({ repositoryIds: [42], permissions: { contents: "write", pull_requests: "write" } });
+    expect(createInstallationToken.mock.calls[0]![2]).toEqual({
+      repositoryIds: [42],
+      permissions: { contents: "read", pull_requests: "read" },
+    });
+    expect(createInstallationToken.mock.calls[1]![2]).toEqual({
+      repositoryIds: [42],
+      permissions: { contents: "write", pull_requests: "write" },
+    });
 
     tick(60 * 60_000 - TOKEN_REFRESH_MARGIN_MS - 1);
     expect(await access.installationToken(app, 7, 42, "read")).toBe("ghs_secret_1");
@@ -82,8 +99,15 @@ describe("GitHubAccess", () => {
   });
 
   it("refuses a private repository without the App (no retry, user-safe message)", async () => {
-    for (const ctx of [setup({ app: null }), setup({ installed: false }), setup({ tokenError: new GitHubAppInstallationError("lacks permissions", 422) })]) {
-      expect(await ctx.access.readAccess({ ...PROJECT, isPrivate: true }, USER)).toEqual({ kind: "private-without-app", message: PRIVATE_WITHOUT_APP_MESSAGE });
+    for (const ctx of [
+      setup({ app: null }),
+      setup({ installed: false }),
+      setup({ tokenError: new GitHubAppInstallationError("lacks permissions", 422) }),
+    ]) {
+      expect(await ctx.access.readAccess({ ...PROJECT, isPrivate: true }, USER)).toEqual({
+        kind: "private-without-app",
+        message: PRIVATE_WITHOUT_APP_MESSAGE,
+      });
     }
   });
 
@@ -123,18 +147,22 @@ describe("GitHubAccess", () => {
     privateKey = "BAD";
     const appBad = (await access.app())!;
     expect(await access.installation(appBad, "acme", "widget")).toBeNull();
-    await expect(access.installation(appBad, "acme", "widget", { strict: true })).rejects.toBeInstanceOf(GitHubAppAuthError);
+    await expect(access.installation(appBad, "acme", "widget", { strict: true })).rejects.toBeInstanceOf(
+      GitHubAppAuthError,
+    );
   });
 
   it("never logs tokens", async () => {
     const lines: string[] = [];
-    for (const method of ["log", "warn", "error", "info"] as const) {
-      vi.spyOn(console, method).mockImplementation((...args: unknown[]) => void lines.push(args.join(" ")));
-    }
-    const { access } = setup();
+    const log = {
+      warn: (arg1: string | Record<string, unknown>, arg2?: string) => {
+        lines.push(typeof arg1 === "string" ? arg1 : `${JSON.stringify(arg1)} ${arg2 ?? ""}`);
+      },
+    };
+    const { access } = setup({ log });
     await access.readAccess(PROJECT, USER);
     await access.readAccess({ ...PROJECT, isPrivate: true }, { id: "u1", githubAccessTokenEncrypted: "corrupt" });
-    const noApp = setup({ installed: false });
+    const noApp = setup({ installed: false, log });
     await noApp.access.readAccess(PROJECT, USER);
     expect(lines.join("\n")).not.toMatch(/ghs_secret|gho_/);
   });

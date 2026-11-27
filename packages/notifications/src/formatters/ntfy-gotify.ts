@@ -15,7 +15,17 @@ const GOTIFY_MESSAGE_LIMIT = 3800;
 /** HTTP headers must be Latin-1; ntfy decodes RFC 2047 encoded words for anything else. */
 export function encodeHeaderValue(value: string): string {
   const singleLine = value.replace(/[\r\n]+/g, " ");
-  return /^[\x20-\x7e]*$/.test(singleLine) ? singleLine : `=?UTF-8?B?${Buffer.from(singleLine, "utf8").toString("base64")}?=`;
+  return /^[\x20-\x7e]*$/.test(singleLine)
+    ? singleLine
+    : `=?UTF-8?B?${Buffer.from(singleLine, "utf8").toString("base64")}?=`;
+}
+
+/** Strips CR/LF and percent-encodes `,` and `;` so URLs cannot inject headers or extra ntfy Actions. */
+export function sanitizeNtfyHeaderUrl(url: string): string {
+  return url
+    .replace(/[\r\n]+/g, "")
+    .replace(/,/g, "%2C")
+    .replace(/;/g, "%3B");
 }
 
 function pushBody(ctx: MessageContext): string {
@@ -35,12 +45,17 @@ export function buildNtfyRequest(ctx: MessageContext, destinationUrl: string): P
     url: new URL(destinationUrl),
     headers: {
       "Content-Type": "text/markdown; charset=utf-8",
-      Title: encodeHeaderValue(truncateText(`${release.source === "COMMIT" ? "New Commit" : "New Release"}: ${repository.fullName} ${release.tagName}`, 250)),
+      Title: encodeHeaderValue(
+        truncateText(
+          `${release.source === "COMMIT" ? "New Commit" : "New Release"}: ${repository.fullName} ${release.tagName}`,
+          250,
+        ),
+      ),
       Priority: release.semverType === "MAJOR" ? "high" : "default",
       Tags: "package,rocket",
-      Click: release.htmlUrl,
+      Click: sanitizeNtfyHeaderUrl(release.htmlUrl),
       Markdown: "yes",
-      Actions: `view, Open in RepoPulse, ${ctx.readerUrl}`,
+      Actions: `view, Open in RepoPulse, ${sanitizeNtfyHeaderUrl(ctx.readerUrl)}`,
     },
     body: truncateBytes(pushBody(ctx), NTFY_BODY_LIMIT_BYTES),
   };
@@ -54,7 +69,10 @@ export function buildNtfyRequest(ctx: MessageContext, destinationUrl: string): P
 export function resolveGotifyEndpoint(destinationUrl: string): { url: URL; token: string } {
   const url = new URL(destinationUrl);
   const token = url.searchParams.get("token") ?? "";
-  if (!token) throw new WebhookUrlError("The Gotify URL needs the application token, e.g. https://gotify.example.com/message?token=…");
+  if (!token)
+    throw new WebhookUrlError(
+      "The Gotify URL needs the application token, e.g. https://gotify.example.com/message?token=…",
+    );
   url.searchParams.delete("token");
   if (!/\/message\/?$/.test(url.pathname)) url.pathname = `${url.pathname.replace(/\/+$/, "")}/message`;
   return { url, token };
@@ -73,7 +91,10 @@ export interface GotifyMessage {
 export function formatGotifyMessage(ctx: MessageContext): GotifyMessage {
   const { release, repository } = ctx;
   return {
-    title: truncateText(`${release.source === "COMMIT" ? "New Commit" : "New Release"}: ${repository.fullName} ${release.tagName}`, 250),
+    title: truncateText(
+      `${release.source === "COMMIT" ? "New Commit" : "New Release"}: ${repository.fullName} ${release.tagName}`,
+      250,
+    ),
     message: `${truncateText(pushBody(ctx), GOTIFY_MESSAGE_LIMIT)}\n\n${releaseKindLabel(release)} · [Open in RepoPulse](${ctx.readerUrl})`,
     priority: release.semverType === "MAJOR" ? 8 : 5,
     extras: {

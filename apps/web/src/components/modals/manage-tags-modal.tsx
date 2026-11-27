@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition, type FormEvent, type ReactNode } from "react";
-import { CheckIcon, PencilIcon, Trash2Icon, XIcon } from "lucide-react";
+import { CheckIcon, PencilIcon, TrashIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { TagDot } from "@/components/feed/tag-pill";
 import { Button } from "@/components/ui/button";
@@ -42,14 +42,24 @@ export function ManageTagsModal({ tags, children }: { tags: SidebarTag[]; childr
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-muted-foreground">No tags yet. Create one above, then assign it on the Tracked Repositories page.</p>
+          <p className="text-sm text-muted-foreground">
+            No tags yet. Create one above, then assign it on the Tracked Repositories page.
+          </p>
         )}
       </DialogContent>
     </Dialog>
   );
 }
 
-function ColorPicker({ value, onChange, idPrefix }: { value: string; onChange: (hex: string) => void; idPrefix: string }) {
+function ColorPicker({
+  value,
+  onChange,
+  idPrefix,
+}: {
+  value: string;
+  onChange: (hex: string) => void;
+  idPrefix: string;
+}) {
   return (
     <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Tag color">
       {TAG_COLOR_PRESETS.map((color) => {
@@ -63,7 +73,7 @@ function ColorPicker({ value, onChange, idPrefix }: { value: string; onChange: (
             aria-label={color}
             onClick={() => onChange(color)}
             className={cn(
-              "flex size-6 items-center justify-center rounded-full ring-offset-2 ring-offset-background outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "flex size-6 items-center justify-center rounded-full ring-offset-2 ring-offset-background outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
               selected && "ring-2 ring-foreground/60",
             )}
             style={{ backgroundColor: color }}
@@ -125,7 +135,10 @@ function CreateTagForm() {
         <Label htmlFor="new-tag-name">New tag</Label>
         <div className="flex gap-2">
           <div className="relative flex-1">
-            <TagDot color={isHexColor(color) ? color : DEFAULT_TAG_COLOR} className="absolute left-3 top-1/2 size-2.5 -translate-y-1/2" />
+            <TagDot
+              color={isHexColor(color) ? color : DEFAULT_TAG_COLOR}
+              className="absolute left-3 top-1/2 size-2.5 -translate-y-1/2"
+            />
             <Input
               id="new-tag-name"
               value={name}
@@ -201,7 +214,12 @@ function TagRow({ tag }: { tag: SidebarTag }) {
               aria-label="Tag name"
               autoFocus
             />
-            <Button type="submit" size="icon" disabled={pending || unchanged || !name.trim() || !isHexColor(color)} aria-label="Save">
+            <Button
+              type="submit"
+              size="icon"
+              disabled={pending || unchanged || !name.trim() || !isHexColor(color)}
+              aria-label="Save"
+            >
               <CheckIcon />
             </Button>
             <Button
@@ -261,7 +279,7 @@ function TagRow({ tag }: { tag: SidebarTag }) {
             className="hover:text-destructive"
             onClick={() => setMode("confirm-delete")}
           >
-            <Trash2Icon />
+            <TrashIcon />
           </Button>
         </>
       )}

@@ -3,8 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { encryptToken, INSTANCE_SETTINGS_ID, prisma, SmtpPasswordUnreadableError } from "@repopulse/db";
-import { buildTestRelease, dispatchNotification, isNotificationDeliveryError, resolveAppBaseUrl } from "@repopulse/notifications";
-import { smtpSettingsInput, type SmtpSettingsInput } from "@/lib/smtp";
+import {
+  buildTestRelease,
+  dispatchNotification,
+  isNotificationDeliveryError,
+  resolveAppBaseUrl,
+} from "@repopulse/notifications";
+import { smtpSettingsInput, type SmtpSettingsInput } from "@/lib/smtp-schema";
 import { fail, invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
 import { getSuperAdminOrThrow } from "@/server/session";
 import { fromSmtpSecurity, getSmtpConfig, getSmtpSettingsView, type SmtpSettingsView } from "@/server/smtp-settings";
@@ -12,13 +17,14 @@ import { fromSmtpSecurity, getSmtpConfig, getSmtpSettingsView, type SmtpSettings
 const EMAIL_SETTINGS_PATH = "/admin/email";
 /** Test email cooldown, so the button can't be used to flood an inbox. */
 const TEST_COOLDOWN_MS = 10_000;
+const emailSchema = z.email();
 
 const testInput = z.object({
   to: z
     .string()
     .trim()
     .max(320)
-    .refine((v) => !v || z.email().safeParse(v).success, "Enter a valid email address, or leave it empty")
+    .refine((v) => !v || emailSchema.safeParse(v).success, "Enter a valid email address, or leave it empty")
     .default(""),
 });
 
@@ -44,7 +50,11 @@ export async function saveSmtpSettingsAction(input: SmtpSettingsInput): Promise<
 
     // No username = no authentication, so a saved password would never be used.
     const passwordUpdate =
-      !user || clearPassword ? { smtpPasswordEncrypted: null } : password ? { smtpPasswordEncrypted: encryptToken(password) } : {};
+      !user || clearPassword
+        ? { smtpPasswordEncrypted: null }
+        : password
+          ? { smtpPasswordEncrypted: encryptToken(password) }
+          : {};
     const data = {
       smtpHost: host,
       smtpPort: port,
@@ -69,7 +79,14 @@ export async function saveSmtpSettingsAction(input: SmtpSettingsInput): Promise<
 export async function removeSmtpSettingsAction(): Promise<ActionResult<SmtpSettingsView>> {
   try {
     await getSuperAdminOrThrow();
-    const data = { smtpHost: null, smtpPort: 587, smtpSecure: null, smtpUser: null, smtpPasswordEncrypted: null, smtpFrom: null };
+    const data = {
+      smtpHost: null,
+      smtpPort: 587,
+      smtpSecure: null,
+      smtpUser: null,
+      smtpPasswordEncrypted: null,
+      smtpFrom: null,
+    };
     await prisma.instanceSettings.upsert({
       where: { id: INSTANCE_SETTINGS_ID },
       create: { id: INSTANCE_SETTINGS_ID, ...data },

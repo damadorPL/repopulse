@@ -1,9 +1,14 @@
 import { UnrecoverableError, type Job } from "bullmq";
 import { loadSmtpSettings, SmtpPasswordUnreadableError, type PrismaClient } from "@repopulse/db";
-import { dispatchNotification, isDeliverableChannel, NotificationDeliveryError, toSmtpConfig } from "@repopulse/notifications";
-import type { NotificationJobData } from "@repopulse/queue";
-import { createLogger } from "../logger";
-import { isSnoozed, passesNotificationLevel } from "./fan-out";
+import {
+  dispatchNotification,
+  isDeliverableChannel,
+  NotificationDeliveryError,
+  toSmtpConfig,
+} from "@repopulse/notifications";
+import { QUEUE_NAMES, type NotificationJobData } from "@repopulse/queue";
+import { createLogger } from "../logger.js";
+import { isSnoozed, passesNotificationLevel } from "./fan-out.js";
 
 const log = createLogger("notification-dispatch");
 
@@ -47,10 +52,14 @@ export interface NotificationDeps {
  * Email rules read the SMTP settings (Admin → Email) on every job, so changes saved in the UI
  * apply without restarting the worker.
  */
-export async function processNotification(job: Job<NotificationJobData>, deps: NotificationDeps): Promise<NotificationOutcome> {
+export async function processNotification(
+  job: Job<NotificationJobData>,
+  deps: NotificationDeps,
+): Promise<NotificationOutcome> {
   const { ruleId, releaseId, userId } = job.data;
+  const ctx = { queue: QUEUE_NAMES.notification, jobId: job.id, ruleId, releaseId, userId };
   const skip = (reason: NotificationSkipReason): NotificationOutcome => {
-    log.info(`rule ${ruleId} / release ${releaseId}: skipped (${reason})`);
+    log.info({ ...ctx, reason }, `rule ${ruleId} / release ${releaseId}: skipped (${reason})`);
     return { status: "SKIPPED", reason };
   };
 
@@ -112,15 +121,30 @@ export async function processNotification(job: Job<NotificationJobData>, deps: N
       { rule, release, repository: release.repository, user },
       { smtp, ...(deps.signal ? { signal: deps.signal } : {}) },
     );
-    log.info(`${label}: delivered to ${result.destination}${result.status ? ` (HTTP ${result.status})` : ""}`);
+    log.info(
+      {
+        ...ctx,
+        repositoryId: release.repositoryId,
+        channel: result.channel,
+        destination: result.destination,
+        ...(result.status ? { status: result.status } : {}),
+      },
+      `${label}: delivered to ${result.destination}${result.status ? ` (HTTP ${result.status})` : ""}`,
+    );
     return { status: "SENT", channel: result.channel, destination: result.destination };
   } catch (error) {
     if (error instanceof NotificationDeliveryError && error.permanent) {
-      log.warn(`${label}: permanent failure, not retrying: ${error.message}`);
+      log.warn(
+        { ...ctx, repositoryId: release.repositoryId, err: error },
+        `${label}: permanent failure, not retrying: ${error.message}`,
+      );
       throw new UnrecoverableError(error.message);
     }
     const attempts = job.opts.attempts ?? 1;
-    log.warn(`${label}: attempt ${job.attemptsMade + 1}/${attempts} failed: ${error instanceof Error ? error.message : String(error)}`);
+    log.warn(
+      { ...ctx, repositoryId: release.repositoryId, attempt: job.attemptsMade + 1, maxAttempts: attempts, err: error },
+      `${label}: attempt ${job.attemptsMade + 1}/${attempts} failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
     throw error;
   }
 }

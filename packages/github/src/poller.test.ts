@@ -170,7 +170,12 @@ describe("pollRepoReleases", () => {
       return json([]);
     });
 
-    await pollRepoReleases({ owner: "acme", name: "widget", signal: controller.signal, octokit: createOctokit({ fetch }) });
+    await pollRepoReleases({
+      owner: "acme",
+      name: "widget",
+      signal: controller.signal,
+      octokit: createOctokit({ fetch }),
+    });
 
     expect(fetch).toHaveBeenCalledOnce();
   });
@@ -211,7 +216,12 @@ describe("fetchReleasesPage", () => {
       });
     });
 
-    const result = await fetchReleasesPage({ owner: "acme", name: "widget", page: 2, octokit: createOctokit({ fetch }) });
+    const result = await fetchReleasesPage({
+      owner: "acme",
+      name: "widget",
+      page: 2,
+      octokit: createOctokit({ fetch }),
+    });
 
     expect(result.hasNextPage).toBe(true);
     expect(result.rateLimitRemaining).toBe(4321);
@@ -223,14 +233,25 @@ describe("fetchReleasesPage", () => {
 
   it("reports the last page from the Link header, not the page length", async () => {
     const fetch = mockFetch(() => json([release(1, "v1.0.0")], { headers: { link: LINK_LAST_PAGE } }));
-    const result = await fetchReleasesPage({ owner: "acme", name: "widget", page: 9, perPage: 1, octokit: createOctokit({ fetch }) });
+    const result = await fetchReleasesPage({
+      owner: "acme",
+      name: "widget",
+      page: 9,
+      perPage: 1,
+      octokit: createOctokit({ fetch }),
+    });
     expect(result.hasNextPage).toBe(false);
     expect(result.releases).toHaveLength(1);
   });
 
   it("returns hasNextPage false when there is no Link header", async () => {
     const fetch = mockFetch(() => json([]));
-    const result = await fetchReleasesPage({ owner: "acme", name: "widget", page: 1, octokit: createOctokit({ fetch }) });
+    const result = await fetchReleasesPage({
+      owner: "acme",
+      name: "widget",
+      page: 1,
+      octokit: createOctokit({ fetch }),
+    });
     expect(result).toMatchObject({ releases: [], hasNextPage: false });
   });
 
@@ -242,15 +263,34 @@ describe("fetchReleasesPage", () => {
   });
 
   it.each([
-    [403, { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1798761600" }],
-    [429, { "x-ratelimit-reset": "1798761600" }],
-  ])("throws GitHubRateLimitError on %i with an exhausted quota", async (status, headers) => {
+    [403, { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1798761600" }, new Date(1798761600 * 1000)],
+    [429, { "x-ratelimit-reset": "1798761600" }, new Date(1798761600 * 1000)],
+    [403, { "retry-after": "Wed, 21 Oct 2026 07:28:00 GMT" }, new Date("Wed, 21 Oct 2026 07:28:00 GMT")],
+  ])("throws GitHubRateLimitError on %i with rate-limit headers", async (status, headers, expectedReset) => {
     const fetch = mockFetch(() => json({ message: "API rate limit exceeded" }, { status, headers }));
-    const error = await fetchReleasesPage({ owner: "acme", name: "widget", page: 3, octokit: createOctokit({ fetch }) }).catch(
-      (e: unknown) => e,
-    );
+    const error = await fetchReleasesPage({
+      owner: "acme",
+      name: "widget",
+      page: 3,
+      octokit: createOctokit({ fetch }),
+    }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(GitHubRateLimitError);
-    expect((error as GitHubRateLimitError).resetAt).toEqual(new Date(1798761600 * 1000));
+    expect((error as GitHubRateLimitError).resetAt).toEqual(expectedReset);
+  });
+
+  it("throws GitHubRateLimitError on 403 with numeric retry-after", async () => {
+    const before = Date.now();
+    const fetch = mockFetch(() =>
+      json({ message: "secondary rate limit" }, { status: 403, headers: { "retry-after": "45" } }),
+    );
+    const error = await fetchReleasesPage({
+      owner: "acme",
+      name: "widget",
+      page: 1,
+      octokit: createOctokit({ fetch }),
+    }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitHubRateLimitError);
+    expect((error as GitHubRateLimitError).resetAt!.getTime()).toBeGreaterThanOrEqual(before + 44_000);
   });
 });
 
@@ -339,21 +379,29 @@ describe("edge cases in mapRelease, hasNextLink, validateAndFetchRepo & pollRepo
 
   it("pollRepoReleases handles 304 without lastEtag, 200 without ETag, and 404/429 errors", async () => {
     const notModFetch = mockFetch(() => new Response(null, { status: 304 }));
-    const notMod = await pollRepoReleases({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: notModFetch }) });
+    const notMod = await pollRepoReleases({
+      owner: "acme",
+      name: "widget",
+      octokit: createOctokit({ fetch: notModFetch }),
+    });
     expect(notMod).toEqual({ status: "NOT_MODIFIED", etag: null, releases: [], rateLimitRemaining: null });
 
     const okNoEtagFetch = mockFetch(() => json([release(1, "v1.0.0")]));
-    const updated = await pollRepoReleases({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: okNoEtagFetch }) });
+    const updated = await pollRepoReleases({
+      owner: "acme",
+      name: "widget",
+      octokit: createOctokit({ fetch: okNoEtagFetch }),
+    });
     expect(updated.etag).toBeNull();
 
     const notFoundFetch = mockFetch(() => json({ message: "Not Found" }, { status: 404 }));
-    await expect(pollRepoReleases({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: notFoundFetch }) })).rejects.toBeInstanceOf(
-      GitHubRepositoryNotFoundError,
-    );
+    await expect(
+      pollRepoReleases({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: notFoundFetch }) }),
+    ).rejects.toBeInstanceOf(GitHubRepositoryNotFoundError);
 
     const rateLimitFetch = mockFetch(() => json({ message: "Too Many Requests" }, { status: 429 }));
-    await expect(pollRepoReleases({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: rateLimitFetch }) })).rejects.toBeInstanceOf(
-      GitHubRateLimitError,
-    );
+    await expect(
+      pollRepoReleases({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: rateLimitFetch }) }),
+    ).rejects.toBeInstanceOf(GitHubRateLimitError);
   });
 });

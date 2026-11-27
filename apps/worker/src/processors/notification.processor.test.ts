@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { UnrecoverableError, type Job } from "bullmq";
 import { NotificationDeliveryError, type dispatchNotification } from "@repopulse/notifications";
 import type { NotificationJobData } from "@repopulse/queue";
-import { processNotification } from "./notification.processor";
+import { processNotification } from "./notification.processor.js";
 
 type SemverType = "MAJOR" | "MINOR" | "PATCH" | "PRERELEASE" | "OTHER";
 
@@ -11,7 +11,7 @@ const RULE = {
   userId: "u1",
   tagId: "critical" as string | null,
   channel: "DISCORD_WEBHOOK" as string,
-  destinationUrl: "https://discord.com/api/webhooks/1/secret",
+  destinationUrl: "https://discord.com/api/webhooks/1/secret" as string | null,
   onlyMajorReleases: true,
   enabled: true,
   events: ["RELEASES"] as string[],
@@ -55,8 +55,14 @@ function fakePrisma(options: {
       })),
     },
     notificationRule: { findUnique: vi.fn(async () => (options.rule === null ? null : { ...RULE, ...options.rule })) },
-    release: { findUnique: vi.fn(async () => (options.release === undefined ? releaseRow("v2.0.0", "MAJOR") : options.release)) },
-    user: { findUnique: vi.fn(async () => (options.user === undefined ? { id: "u1", email: "dev@example.com", name: "Dev" } : options.user)) },
+    release: {
+      findUnique: vi.fn(async () => (options.release === undefined ? releaseRow("v2.0.0", "MAJOR") : options.release)),
+    },
+    user: {
+      findUnique: vi.fn(async () =>
+        options.user === undefined ? { id: "u1", email: "dev@example.com", name: "Dev" } : options.user,
+      ),
+    },
     userSubscription: {
       findUnique: vi.fn(async () =>
         options.subscriptionTags === null
@@ -73,11 +79,19 @@ function fakePrisma(options: {
 }
 
 function job(releaseId = "rel-v2.0.0", attemptsMade = 0): Job<NotificationJobData> {
-  return { data: { ruleId: "rule1", releaseId, userId: "u1" }, attemptsMade, opts: { attempts: 3 } } as Job<NotificationJobData>;
+  return {
+    data: { ruleId: "rule1", releaseId, userId: "u1" },
+    attemptsMade,
+    opts: { attempts: 3 },
+  } as Job<NotificationJobData>;
 }
 
 const delivered = () =>
-  vi.fn<typeof dispatchNotification>(async ({ rule }) => ({ channel: rule.channel, destination: "discord.com/api/webhooks/1/secr••••", status: 204 }));
+  vi.fn<typeof dispatchNotification>(async ({ rule }) => ({
+    channel: rule.channel,
+    destination: "discord.com/api/webhooks/1/secr••••",
+    status: 204,
+  }));
 
 describe("processNotification", () => {
   it("Slice 05 acceptance: dispatches a Critical + major-only rule for v2.0.0 (MAJOR)", async () => {
@@ -85,7 +99,11 @@ describe("processNotification", () => {
     const dispatch = delivered();
     const outcome = await processNotification(job(), { prisma: prisma as never, dispatch });
 
-    expect(outcome).toEqual({ status: "SENT", channel: "DISCORD_WEBHOOK", destination: "discord.com/api/webhooks/1/secr••••" });
+    expect(outcome).toEqual({
+      status: "SENT",
+      channel: "DISCORD_WEBHOOK",
+      destination: "discord.com/api/webhooks/1/secr••••",
+    });
     expect(dispatch).toHaveBeenCalledTimes(1);
     const [input] = dispatch.mock.calls[0]!;
     expect(input.release.tagName).toBe("v2.0.0");
@@ -118,11 +136,19 @@ describe("processNotification", () => {
     ["NOTIFICATION_LEVEL", { subscription: { notificationLevel: "NONE" } }],
     [
       "NOTIFICATION_LEVEL",
-      { rule: { onlyMajorReleases: false }, release: releaseRow("v2.1.0", "MINOR"), subscription: { notificationLevel: "MAJOR_ONLY" } },
+      {
+        rule: { onlyMajorReleases: false },
+        release: releaseRow("v2.1.0", "MINOR"),
+        subscription: { notificationLevel: "MAJOR_ONLY" },
+      },
     ],
     [
       "NOTIFICATION_LEVEL",
-      { rule: { onlyMajorReleases: false }, release: releaseRow("v2.0.1", "PATCH"), subscription: { notificationLevel: "MINOR_AND_UP" } },
+      {
+        rule: { onlyMajorReleases: false },
+        release: releaseRow("v2.0.1", "PATCH"),
+        subscription: { notificationLevel: "MINOR_AND_UP" },
+      },
     ],
   ] as const)("skips with %s", async (reason, options) => {
     const dispatch = delivered();
@@ -133,20 +159,29 @@ describe("processNotification", () => {
 
   it("delivers again once a snooze has ended (Slice 07)", async () => {
     const dispatch = delivered();
-    const prisma = fakePrisma({ subscription: { snoozedUntil: new Date(Date.now() - 60_000), notificationLevel: "MAJOR_ONLY" } });
+    const prisma = fakePrisma({
+      subscription: { snoozedUntil: new Date(Date.now() - 60_000), notificationLevel: "MAJOR_ONLY" },
+    });
     expect((await processNotification(job(), { prisma: prisma as never, dispatch })).status).toBe("SENT");
   });
 
   it("delivers untagged rules for any subscription and non-major releases when allowed", async () => {
     const dispatch = delivered();
-    const prisma = fakePrisma({ rule: { tagId: null, tag: null, onlyMajorReleases: false }, release: releaseRow("v2.0.1", "PATCH"), subscriptionTags: [] });
+    const prisma = fakePrisma({
+      rule: { tagId: null, tag: null, onlyMajorReleases: false },
+      release: releaseRow("v2.0.1", "PATCH"),
+      subscriptionTags: [],
+    });
     expect((await processNotification(job("rel-v2.0.1"), { prisma: prisma as never, dispatch })).status).toBe("SENT");
   });
 
   it("passes the SMTP settings saved in the UI to email rules only and forwards AbortSignal", async () => {
     const dispatch = delivered();
     const controller = new AbortController();
-    const email = fakePrisma({ rule: { channel: "EMAIL_INSTANT", destinationUrl: null }, smtpHost: "smtp.example.com" });
+    const email = fakePrisma({
+      rule: { channel: "EMAIL_INSTANT", destinationUrl: null },
+      smtpHost: "smtp.example.com",
+    });
     await processNotification(job(), { prisma: email as never, dispatch, signal: controller.signal });
     expect(dispatch.mock.calls[0]![1]).toMatchObject({
       smtp: { host: "smtp.example.com", port: 587, from: "RepoPulse <repopulse@smtp.example.com>" },
@@ -178,15 +213,22 @@ describe("processNotification", () => {
 
   it("turns permanent delivery failures into UnrecoverableError (no retries)", async () => {
     const dispatch = vi.fn<typeof dispatchNotification>(async () => {
-      throw new NotificationDeliveryError("Discord rejected the notification: HTTP 404 (Unknown Webhook).", { permanent: true, status: 404 });
+      throw new NotificationDeliveryError("Discord rejected the notification: HTTP 404 (Unknown Webhook).", {
+        permanent: true,
+        status: 404,
+      });
     });
-    const error = await processNotification(job(), { prisma: fakePrisma({}) as never, dispatch }).catch((e: unknown) => e);
+    const error = await processNotification(job(), { prisma: fakePrisma({}) as never, dispatch }).catch(
+      (e: unknown) => e,
+    );
     expect(error).toBeInstanceOf(UnrecoverableError);
     expect((error as Error).message).toContain("Unknown Webhook");
   });
 
   it("rethrows transient failures so BullMQ retries with backoff", async () => {
-    const transient = new NotificationDeliveryError("Discord request to discord.com/… timed out after 10 s.", { permanent: false });
+    const transient = new NotificationDeliveryError("Discord request to discord.com/… timed out after 10 s.", {
+      permanent: false,
+    });
     const dispatch = vi.fn<typeof dispatchNotification>(async () => {
       throw transient;
     });

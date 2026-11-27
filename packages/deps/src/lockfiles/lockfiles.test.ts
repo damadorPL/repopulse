@@ -57,7 +57,10 @@ describe("readPackageLock", () => {
   });
 
   it("reads lockfileVersion 1", () => {
-    const v1 = JSON.stringify({ lockfileVersion: 1, dependencies: { a: { version: "1.0.0" }, b: { version: "file:../b" } } });
+    const v1 = JSON.stringify({
+      lockfileVersion: 1,
+      dependencies: { a: { version: "1.0.0" }, b: { version: "file:../b" } },
+    });
     const result = readPackageLock(v1);
     expect(result.formatVersion).toBe("1");
     expect(entries(result.versions)).toEqual([["a", "1.0.0"]]);
@@ -96,7 +99,14 @@ describe("readPnpmLock", () => {
   it("strips suffixes and skips non-registry protocols", () => {
     expect(stripPnpmVersionSuffix("1.2.3(react@18.2.0)(react-dom@18.2.0)")).toBe("1.2.3");
     expect(stripPnpmVersionSuffix("1.2.0_react@18.2.0")).toBe("1.2.0");
-    for (const protocol of ["link:../ui", "file:../pkg", "workspace:*", "git:github.com/a/b", "http://x/a.tgz", "https://x/a.tgz"]) {
+    for (const protocol of [
+      "link:../ui",
+      "file:../pkg",
+      "workspace:*",
+      "git:github.com/a/b",
+      "http://x/a.tgz",
+      "https://x/a.tgz",
+    ]) {
       expect(stripPnpmVersionSuffix(protocol), protocol).toBeNull();
     }
   });
@@ -330,7 +340,13 @@ describe("readLockfile", () => {
       dependencies: [],
     });
     expect(pnpm.versions.get("typescript")).toBe("5.4.5");
-    const lockb = readLockfile({ packageManager: "BUN", lockfilePath: "bun.lockb", text: "", importer: "", dependencies: [] });
+    const lockb = readLockfile({
+      packageManager: "BUN",
+      lockfilePath: "bun.lockb",
+      text: "",
+      importer: "",
+      dependencies: [],
+    });
     expect(lockb.warnings[0]).toMatch(/bun.lockb is binary/);
     const pins = readLockfile({
       packageManager: "PIP_TOOLS",

@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { ShieldIcon } from "lucide-react";
 import { AdminNav } from "@/components/admin/admin-nav";
 import { requireSuperAdmin } from "@/server/session";
@@ -7,7 +6,7 @@ import { requireSuperAdmin } from "@/server/session";
  * The admin panel: every instance-wide setting, super admin only. Layouts and pages render in
  * parallel, so each page calls `requireSuperAdmin()` itself too.
  */
-export default async function AdminLayout({ children }: { children: ReactNode }) {
+export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
   await requireSuperAdmin();
 
   return (
@@ -18,7 +17,9 @@ export default async function AdminLayout({ children }: { children: ReactNode })
             <ShieldIcon className="size-5 text-muted-foreground" aria-hidden />
             Admin
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">Instance-wide settings. Only the super admin sees this panel.</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Instance-wide settings. Only the super admin sees this panel.
+          </p>
         </div>
         <AdminNav />
       </div>

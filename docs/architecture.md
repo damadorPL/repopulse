@@ -10,11 +10,11 @@
 
 | Path | Package | Role | Runtime |
 | --- | --- | --- | --- |
-| `apps/web` | `@repopulse/web` | Next.js 16 App Router UI, Server Actions, Auth.js v5, SSE endpoint, `GET /api/health` | Node, port 3000 |
+| `apps/web` | `@repopulse/web` | Next.js 16 App Router UI, Server Actions, Better Auth, SSE endpoint, `GET /api/health` | Node, port 3000 |
 | `apps/worker` | `@repopulse/worker` | BullMQ workers (scheduler, repo-poll, release-backfill, notification-dispatch), `GET :3001/health` | Node, port 3001 |
 | `apps/deps-worker` | `@repopulse/deps-worker` | Dependencies module: BullMQ workers (deps-scheduler, deps-scan, deps-update, deps-notify), Redis heartbeat, `GET :3002/health` | Node, port 3002 |
 | `apps/deps-sandbox` | `@repopulse/deps-sandbox` | Runs package managers to regenerate lockfiles (`POST /v1/lock`, `GET /health`); no secrets, internal network only | Node + npm / pnpm / Bun / uv / Poetry, port 3003 |
-| `packages/db` | `@repopulse/db` | Prisma 7 schema and migrations, singleton client (`@prisma/adapter-pg`), AES-256-GCM crypto, SMTP settings loader | library (CJS dist) |
+| `packages/db` | `@repopulse/db` | Prisma 7 schema and migrations, singleton client (`@prisma/adapter-pg`), AES-256-GCM crypto, SMTP settings loader | library (ESM dist) |
 | `packages/github` | `@repopulse/github` | Octokit wrapper, repo-input parser, SemVer classifier, ETag polling, release paging, GraphQL tags, commit compare; GitHub App, Git Data API writes, webhook signatures | library (ESM) |
 | `packages/queue` | `@repopulse/queue` | Queue and job names, payload types, job options, jobId helpers, Redis factory, `RealtimeEvent` contract | library (ESM) |
 | `packages/notifications` | `@repopulse/notifications` | Channel formatters, `dispatchNotification()`, `dispatchDependencyNotification()`, SSRF guard, SMTP transport | library (ESM) |

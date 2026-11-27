@@ -1,26 +1,33 @@
-import { Queue } from "bullmq";
 import {
   createRedisConnection,
+  createReleaseBackfillQueue,
+  createRepoPollQueue,
   publishUserEvent,
-  QUEUE_NAMES,
-  RELEASE_BACKFILL_JOB_OPTIONS,
-  REPO_POLL_JOB_OPTIONS,
+  userEventsChannel,
   type RealtimeEvent,
   type Redis,
-  type ReleaseBackfillJobData,
-  type RepoPollJobData,
+  type ReleaseBackfillQueue,
+  type RepoPollQueue,
 } from "@repopulse/queue";
 
 /**
  * Server-side Redis access for apps/web: the `repo-poll` producer used by "Sync now", the
  * `release-backfill` producer ("Add repository", "Load older releases"), Pub/Sub
- * publishing, and per-request subscribers for the SSE stream.
+ * publishing, and a process-wide multiplexed ref-counted subscriber for SSE streams.
  *
  * Never import from client components.
  */
 
 /** Upper bound for a single Redis round trip from a request handler. */
 const REDIS_REQUEST_TIMEOUT_MS = 5_000;
+
+export type UserEventListener = (raw: string) => void;
+
+interface SubscriberState {
+  redis: Redis;
+  channels: Map<string, Set<UserEventListener>>;
+  pendingSubscribes: Map<string, Promise<unknown>>;
+}
 
 export class RealtimeUnavailableError extends Error {
   constructor(message = "Background sync is unavailable right now. Please try again later.") {
@@ -36,37 +43,43 @@ export function isRealtimeConfigured(): boolean {
 // Cached on globalThis: Next.js dev HMR re-evaluates modules and would leak connections.
 const globalForRealtime = globalThis as unknown as {
   repopulseRedis?: Redis;
-  repopulseRepoPollQueue?: Queue<RepoPollJobData>;
-  repopulseReleaseBackfillQueue?: Queue<ReleaseBackfillJobData>;
+  repopulseRepoPollQueue?: RepoPollQueue;
+  repopulseReleaseBackfillQueue?: ReleaseBackfillQueue;
+  repopulseSubscriberState?: SubscriberState;
 };
 
 /**
  * Shared command connection. Unlike the worker, requests must fail fast when Redis is down
- * instead of queueing forever, so `maxRetriesPerRequest` is finite here.
+ * instead of queueing or buffering offline commands, so `maxRetriesPerRequest: 1` and
+ * `enableOfflineQueue: false` are set here.
  */
 export function getRedis(): Redis {
-  if (!isRealtimeConfigured()) throw new RealtimeUnavailableError("Background sync is not configured (REDIS_URL is not set).");
+  if (!isRealtimeConfigured())
+    throw new RealtimeUnavailableError("Background sync is not configured (REDIS_URL is not set).");
   if (!globalForRealtime.repopulseRedis) {
-    const redis = createRedisConnection({ connectionName: "repopulse-web", maxRetriesPerRequest: 1, connectTimeout: 5_000 });
+    const redis = createRedisConnection({
+      connectionName: "repopulse-web",
+      maxRetriesPerRequest: 1,
+      enableOfflineQueue: false,
+      connectTimeout: 5_000,
+    });
     redis.on("error", (err) => console.error(`[realtime] redis error: ${err.message}`));
     globalForRealtime.repopulseRedis = redis;
   }
   return globalForRealtime.repopulseRedis;
 }
 
-export function getRepoPollQueue(): Queue<RepoPollJobData> {
-  globalForRealtime.repopulseRepoPollQueue ??= new Queue<RepoPollJobData>(QUEUE_NAMES.repoPoll, {
-    connection: getRedis(),
-    defaultJobOptions: REPO_POLL_JOB_OPTIONS,
-  });
+export function getRepoPollQueue(): RepoPollQueue {
+  globalForRealtime.repopulseRepoPollQueue ??= createRepoPollQueue(getRedis(), (err) =>
+    console.error(`[realtime] repo-poll queue error: ${err.message}`),
+  );
   return globalForRealtime.repopulseRepoPollQueue;
 }
 
-export function getReleaseBackfillQueue(): Queue<ReleaseBackfillJobData> {
-  globalForRealtime.repopulseReleaseBackfillQueue ??= new Queue<ReleaseBackfillJobData>(QUEUE_NAMES.releaseBackfill, {
-    connection: getRedis(),
-    defaultJobOptions: RELEASE_BACKFILL_JOB_OPTIONS,
-  });
+export function getReleaseBackfillQueue(): ReleaseBackfillQueue {
+  globalForRealtime.repopulseReleaseBackfillQueue ??= createReleaseBackfillQueue(getRedis(), (err) =>
+    console.error(`[realtime] release-backfill queue error: ${err.message}`),
+  );
   return globalForRealtime.repopulseReleaseBackfillQueue;
 }
 
@@ -96,11 +109,95 @@ export async function publishToUser(userId: string, event: RealtimeEvent): Promi
   }
 }
 
+function getSubscriberState(): SubscriberState {
+  if (!isRealtimeConfigured()) {
+    throw new RealtimeUnavailableError("Live updates are not configured (REDIS_URL is not set).");
+  }
+  if (!globalForRealtime.repopulseSubscriberState) {
+    const redis = createRedisConnection({ connectionName: "repopulse-web-sse", connectTimeout: 5_000 });
+    const channels = new Map<string, Set<UserEventListener>>();
+    const pendingSubscribes = new Map<string, Promise<unknown>>();
+
+    redis.on("error", (err: Error) => console.error(`[sse] redis subscriber error: ${err.message}`));
+    redis.on("message", (channel: string, raw: string) => {
+      const listeners = channels.get(channel);
+      if (!listeners) return;
+      for (const listener of Array.from(listeners)) {
+        try {
+          listener(raw);
+        } catch (err) {
+          console.error("[sse] user event listener threw", err);
+        }
+      }
+    });
+    redis.on("ready", () => {
+      if (channels.size === 0) return;
+      void redis.subscribe(...channels.keys()).catch((err: unknown) => {
+        console.error("[sse] could not re-subscribe active channels after reconnect", err);
+      });
+    });
+
+    globalForRealtime.repopulseSubscriberState = { redis, channels, pendingSubscribes };
+  }
+  return globalForRealtime.repopulseSubscriberState;
+}
+
 /**
- * A dedicated connection for one SSE stream. A connection in subscriber mode can't run other
- * commands, so it can't be shared; ioredis re-subscribes on its own after a reconnect.
+ * Subscribes a listener to `user:{userId}:events` over a single process-wide multiplexed Redis
+ * subscriber connection. Reference-counts channels (`0 -> 1` subscribes, `1 -> 0` unsubscribes)
+ * and returns an idempotent async `unsubscribe` callback.
  */
-export function createSubscriber(): Redis {
-  if (!isRealtimeConfigured()) throw new RealtimeUnavailableError("Live updates are not configured (REDIS_URL is not set).");
-  return createRedisConnection({ connectionName: "repopulse-web-sse", connectTimeout: 5_000 });
+export async function subscribeUserEvents(userId: string, listener: UserEventListener): Promise<() => Promise<void>> {
+  const state = getSubscriberState();
+  const channel = userEventsChannel(userId);
+  let listeners = state.channels.get(channel);
+  if (!listeners) {
+    listeners = new Set();
+    state.channels.set(channel, listeners);
+  }
+  const wasEmpty = listeners.size === 0;
+  listeners.add(listener);
+
+  if (wasEmpty) {
+    const pending = state.redis.subscribe(channel);
+    state.pendingSubscribes.set(channel, pending);
+    try {
+      await pending;
+    } catch (error) {
+      listeners.delete(listener);
+      if (listeners.size === 0) state.channels.delete(channel);
+      throw error;
+    } finally {
+      if (state.pendingSubscribes.get(channel) === pending) {
+        state.pendingSubscribes.delete(channel);
+      }
+    }
+  } else {
+    const pending = state.pendingSubscribes.get(channel);
+    if (pending) {
+      try {
+        await pending;
+      } catch (error) {
+        listeners.delete(listener);
+        if (listeners.size === 0) state.channels.delete(channel);
+        throw error;
+      }
+    }
+  }
+
+  let removed = false;
+  return async () => {
+    if (removed) return;
+    removed = true;
+    const current = state.channels.get(channel);
+    if (!current) return;
+    current.delete(listener);
+    if (current.size > 0) return;
+    state.channels.delete(channel);
+    try {
+      await state.redis.unsubscribe(channel);
+    } catch (err) {
+      console.warn(`[sse] could not unsubscribe ${channel}`, err);
+    }
+  };
 }

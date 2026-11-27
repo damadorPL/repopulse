@@ -49,7 +49,9 @@ export function NotificationEventCheckboxes({
             <span className={allowed ? "grid gap-0.5" : "grid gap-0.5 opacity-60"}>
               {NOTIFICATION_EVENT_LABELS[event]}
               <span className="text-xs text-muted-foreground">
-                {allowed ? NOTIFICATION_EVENT_HINTS[event] : "Not available for rules limited to a tag: dependency projects have no tags."}
+                {allowed
+                  ? NOTIFICATION_EVENT_HINTS[event]
+                  : "Not available for rules limited to a tag: dependency projects have no tags."}
               </span>
             </span>
           </Label>

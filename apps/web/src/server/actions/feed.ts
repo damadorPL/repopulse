@@ -9,7 +9,10 @@ import { getReleaseFeed, type FeedPage } from "@/server/queries/feed";
  * "Load more" for the release feed. Takes the feed's query string (same parsing as the page)
  * so client and server can never disagree on filter semantics.
  */
-export async function loadMoreReleasesAction(input: { query: string; cursor: string }): Promise<ActionResult<FeedPage>> {
+export async function loadMoreReleasesAction(input: {
+  query: string;
+  cursor: string;
+}): Promise<ActionResult<FeedPage>> {
   try {
     const user = await getCurrentUserOrThrow();
     const query = typeof input.query === "string" ? input.query.slice(0, 1000) : "";

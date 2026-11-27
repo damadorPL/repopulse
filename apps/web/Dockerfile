@@ -18,11 +18,11 @@ COPY --from=pruner /app/out/json/ .
 COPY --from=pruner /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
 # turbo prune preserves the `allowBuilds` block in out/json/pnpm-workspace.yaml,
 # so Prisma's install scripts run (pnpm blocks build scripts otherwise).
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile
 COPY --from=pruner /app/out/full/ .
 # `build` depends on `^db:generate`, so `prisma generate` runs here on Alpine and
 # writes the Prisma 7 client into packages/db/src/generated, compiled into db/dist.
-RUN pnpm turbo run build --filter=@repopulse/web
+RUN --mount=type=cache,id=nextjs,target=/app/apps/web/.next/cache pnpm turbo run build --filter=@repopulse/web
 
 # ---- Stage 3: minimal runtime image (default target)
 FROM node:26-alpine AS runner
@@ -48,5 +48,7 @@ COPY --from=installer --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/we
 
 USER nextjs
 EXPOSE 3000
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
+  CMD wget -qO- http://localhost:3000/api/health >/dev/null || exit 1
 
 CMD ["node", "apps/web/server.js"]

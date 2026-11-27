@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useId, useState, type KeyboardEvent, type MouseEvent } from "react";
 import {
   ChevronRightIcon,
   CornerLeftUpIcon,
@@ -47,7 +47,12 @@ function trimTrailingSlash(value: string): string {
 }
 
 function treeKey(repo: string): string {
-  return trimTrailingSlash(repo.trim().toLowerCase().replace(/\.git$/, ""));
+  return trimTrailingSlash(
+    repo
+      .trim()
+      .toLowerCase()
+      .replace(/\.git$/, ""),
+  );
 }
 
 export function rootLabel(repo: string | null): string {
@@ -215,19 +220,18 @@ export function WatchedPathsPicker({
   const query = draft.trim().replace(/^(\.\/|\/)+/, "");
   const normalizedDraft = normalizeWatchedPath(draft);
 
-  const options = useMemo<Option[]>(() => {
-    const entries: Option[] = index
-      ? searchRepoPaths(index, query, SUGGESTION_LIMIT).map((suggestion) => ({
-          type: "entry",
-          suggestion,
-          covered: coveringPath(suggestion.path, paths),
-        }))
-      : [];
-    // Offer the typed text as-is when it isn't an exact match: a path not on the default branch yet.
-    const exact = entries.some((option) => option.type === "entry" && option.suggestion.path === normalizedDraft);
-    if (index && normalizedDraft && !exact && !coveringPath(normalizedDraft, paths)) entries.push({ type: "raw", path: normalizedDraft });
-    return entries;
-  }, [index, query, paths, normalizedDraft]);
+  const entries: Option[] = index
+    ? searchRepoPaths(index, query, SUGGESTION_LIMIT).map((suggestion) => ({
+        type: "entry",
+        suggestion,
+        covered: coveringPath(suggestion.path, paths),
+      }))
+    : [];
+  // Offer the typed text as-is when it isn't an exact match: a path not on the default branch yet.
+  const exact = entries.some((option) => option.type === "entry" && option.suggestion.path === normalizedDraft);
+  if (index && normalizedDraft && !exact && !coveringPath(normalizedDraft, paths))
+    entries.push({ type: "raw", path: normalizedDraft });
+  const options = entries;
 
   const showList = listOpen && options.length > 0;
   const activeOption = showList && active >= 0 && active < options.length ? options[active] : undefined;
@@ -248,7 +252,10 @@ export function WatchedPathsPicker({
   /** Adds one path; returns an error message instead when it can't be added. */
   function addPath(current: string[], raw: string): { paths: string[] } | { error: string } {
     const path = normalizeWatchedPath(raw);
-    if (!path) return { error: `"${raw.trim()}" is not a valid path. Use a path relative to the repository root, like packages/cli.` };
+    if (!path)
+      return {
+        error: `"${raw.trim()}" is not a valid path. Use a path relative to the repository root, like packages/cli.`,
+      };
     const covering = coveringPath(path, current);
     if (covering) return { paths: current };
     const next = addCoveringPath(current, path);
@@ -396,7 +403,13 @@ export function WatchedPathsPicker({
               event.preventDefault();
               commitText(`${draft}${text}`);
             }}
-            placeholder={atMax ? `${MAX_WATCHED_PATHS} paths watched` : paths.length > 0 ? "Add another file or folder…" : WATCHED_PATHS_PLACEHOLDER}
+            placeholder={
+              atMax
+                ? `${MAX_WATCHED_PATHS} paths watched`
+                : paths.length > 0
+                  ? "Add another file or folder…"
+                  : WATCHED_PATHS_PLACEHOLDER
+            }
             autoComplete="off"
             spellCheck={false}
             autoFocus={autoFocus}
@@ -440,7 +453,10 @@ export function WatchedPathsPicker({
                 <li
                   key="raw"
                   {...common}
-                  className={cn("flex cursor-pointer items-center gap-2 rounded px-2 py-1.5", highlighted && "bg-accent")}
+                  className={cn(
+                    "flex cursor-pointer items-center gap-2 rounded px-2 py-1.5",
+                    highlighted && "bg-accent",
+                  )}
                 >
                   <PlusIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
                   <span className="min-w-0 truncate">
@@ -468,7 +484,13 @@ export function WatchedPathsPicker({
                   {suggestion.kind === "dir" ? "/" : null}
                 </span>
                 <span className="ml-auto shrink-0 text-muted-foreground">
-                  {covered ? (covered === suggestion.path ? "Watched" : `In ${covered}/`) : highlighted && suggestion.kind === "dir" ? "Tab to open" : null}
+                  {covered
+                    ? covered === suggestion.path
+                      ? "Watched"
+                      : `In ${covered}/`
+                    : highlighted && suggestion.kind === "dir"
+                      ? "Tab to open"
+                      : null}
                 </span>
               </li>
             );
@@ -572,7 +594,9 @@ export function WatchedPathsPicker({
               Loading files…
             </span>
           ) : null}
-          {tree.status === "error" ? `Couldn't list the files: ${tree.message.replace(/\.$/, "")}. You can still type paths.` : null}
+          {tree.status === "error"
+            ? `Couldn't list the files: ${tree.message.replace(/\.$/, "")}. You can still type paths.`
+            : null}
           {tree.status === "ready"
             ? `${tree.tree.dirs.length.toLocaleString("en")} folders, ${tree.tree.files.length.toLocaleString("en")} files on ${tree.tree.defaultBranch}.${
                 tree.tree.truncated ? " Large repository: not every file is listed, type any path." : ""

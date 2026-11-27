@@ -14,14 +14,18 @@ describe("ChangelogMarkdown — XSS sanitization", () => {
   });
 
   it("removes event-handler attributes such as onerror=", () => {
-    const html = render(`<img src="https://example.com/x.png" onerror="alert(1)">\n\n<a href="https://example.com" onclick="steal()">x</a>`);
+    const html = render(
+      `<img src="https://example.com/x.png" onerror="alert(1)">\n\n<a href="https://example.com" onclick="steal()">x</a>`,
+    );
     expect(html).not.toMatch(/onerror/i);
     expect(html).not.toMatch(/onclick/i);
     expect(html).toContain('src="https://example.com/x.png"');
   });
 
   it("neutralizes javascript: URLs in markdown and raw HTML links", () => {
-    const html = render(`[click](javascript:alert(1))\n\n<a href="javascript:alert(2)">raw</a>\n\n<a href="JaVaScRiPt:alert(3)">mixed</a>`);
+    const html = render(
+      `[click](javascript:alert(1))\n\n<a href="javascript:alert(2)">raw</a>\n\n<a href="JaVaScRiPt:alert(3)">mixed</a>`,
+    );
     expect(html).not.toMatch(/javascript:/i);
   });
 

@@ -7,13 +7,27 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const root = path.resolve(import.meta.dirname, "..");
 
-const args = new Set(process.argv.slice(2));
+let values;
+try {
+  ({ values } = parseArgs({
+    options: {
+      "outdated-only": { type: "boolean", default: false },
+      json: { type: "boolean", default: false },
+      "no-fail": { type: "boolean", default: false },
+      help: { type: "boolean", short: "h", default: false },
+    },
+    strict: true,
+  }));
+} catch (err) {
+  console.error(err instanceof Error ? err.message : String(err));
+  process.exit(1);
+}
 
-if (args.has("--help") || args.has("-h")) {
+if (values.help) {
   console.log(`Usage: node scripts/check-updates.mjs [options]
 
 Options:
@@ -25,9 +39,9 @@ Options:
   process.exit(0);
 }
 
-const outdatedOnly = args.has("--outdated-only");
-const outputJson = args.has("--json");
-const noFail = args.has("--no-fail");
+const outdatedOnly = values["outdated-only"];
+const outputJson = values.json;
+const noFail = values["no-fail"];
 
 /** Find all files matching a filename in a directory, ignoring node_modules, dist, .next */
 function findFilesNamed(dir, filename) {
@@ -40,7 +54,12 @@ function findFilesNamed(dir, filename) {
   }
 
   for (const entry of entries) {
-    if (entry.name === "node_modules" || entry.name === "dist" || entry.name === ".next" || entry.name.startsWith(".")) {
+    if (
+      entry.name === "node_modules" ||
+      entry.name === "dist" ||
+      entry.name === ".next" ||
+      entry.name.startsWith(".")
+    ) {
       continue;
     }
     const fullPath = path.join(dir, entry.name);
@@ -78,6 +97,61 @@ function recordPackage(pkgName, version, consumer) {
   versionMap.get(version).add(consumer);
 }
 
+function recordPackageSpec(depName, versionSpec, consumer) {
+  if (versionSpec.startsWith("workspace:") || versionSpec.startsWith("catalog:")) return;
+
+  // Handle npm aliases like "typescript": "npm:@typescript/typescript6@6.0.2"
+  let actualName = depName;
+  let actualVersion = versionSpec;
+  if (versionSpec.startsWith("npm:")) {
+    const spec = versionSpec.slice(4);
+    const lastAt = spec.lastIndexOf("@");
+    if (lastAt > 0) {
+      actualName = spec.slice(0, lastAt);
+      actualVersion = spec.slice(lastAt + 1);
+    } else {
+      actualName = spec;
+      actualVersion = "latest";
+    }
+  }
+
+  recordPackage(actualName, actualVersion, consumer);
+}
+
+const workspaceYamlPath = path.join(root, "pnpm-workspace.yaml");
+try {
+  const wsLines = readFileSync(workspaceYamlPath, "utf8").split(/\r?\n/);
+  let inCatalog = false;
+  for (const line of wsLines) {
+    if (/^catalog:\s*$/.test(line)) {
+      inCatalog = true;
+      continue;
+    }
+    if (inCatalog && /^\S/.test(line)) {
+      inCatalog = false;
+      continue;
+    }
+    if (!inCatalog) continue;
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const colonIdx = trimmed.indexOf(":");
+    if (colonIdx <= 0) continue;
+    const pkgName = trimmed
+      .slice(0, colonIdx)
+      .trim()
+      .replace(/^['"]|['"]$/g, "");
+    const versionSpec = trimmed
+      .slice(colonIdx + 1)
+      .trim()
+      .replace(/^['"]|['"]$/g, "");
+    if (pkgName && versionSpec) {
+      recordPackageSpec(pkgName, versionSpec, "pnpm-workspace.yaml (catalog)");
+    }
+  }
+} catch (err) {
+  console.error(`Failed to parse ${workspaceYamlPath}: ${err.message}`);
+}
+
 for (const filePath of packageJsonFiles) {
   try {
     const content = JSON.parse(readFileSync(filePath, "utf8"));
@@ -97,24 +171,7 @@ for (const filePath of packageJsonFiles) {
       if (!deps || typeof deps !== "object") continue;
 
       for (const [depName, versionSpec] of Object.entries(deps)) {
-        if (versionSpec.startsWith("workspace:")) continue;
-
-        // Handle npm aliases like "typescript": "npm:@typescript/typescript6@6.0.2"
-        let actualName = depName;
-        let actualVersion = versionSpec;
-        if (versionSpec.startsWith("npm:")) {
-          const spec = versionSpec.slice(4);
-          const lastAt = spec.lastIndexOf("@");
-          if (lastAt > 0) {
-            actualName = spec.slice(0, lastAt);
-            actualVersion = spec.slice(lastAt + 1);
-          } else {
-            actualName = spec;
-            actualVersion = "latest";
-          }
-        }
-
-        recordPackage(actualName, actualVersion, consumerName);
+        recordPackageSpec(depName, versionSpec, consumerName);
       }
     }
   } catch (err) {
@@ -163,6 +220,7 @@ async function fetchLatestInfo(pkgName) {
       headers: {
         Accept: "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8",
       },
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!res.ok) {
@@ -207,7 +265,7 @@ if (!outputJson) {
   console.log(`Checking ${externalPackages.size} unique packages across workspace...\n`);
 }
 
-const packageNames = Array.from(externalPackages.keys()).sort();
+const packageNames = Array.from(externalPackages.keys()).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 const registryResults = await mapConcurrent(packageNames, 10, fetchLatestInfo);
 
 const report = [];
@@ -246,41 +304,38 @@ for (const res of registryResults) {
   });
 }
 
+const { outdated = [], "up-to-date": upToDate = [], error: errors = [] } = Object.groupBy(report, (r) => r.status);
+
 if (outputJson) {
   console.log(JSON.stringify(report, null, 2));
-  process.exit(0);
-}
-
-const outdated = report.filter((r) => r.status === "outdated");
-const upToDate = report.filter((r) => r.status === "up-to-date");
-const errors = report.filter((r) => r.status === "error");
-
-if (outdated.length > 0) {
-  console.log("OUTDATED PACKAGES:");
-  for (const item of outdated) {
-    const depsStr = item.dependents.join(", ");
-    console.log(`  ✖ ${item.package}: ${item.current} → ${item.latest} (used in: ${depsStr})`);
+} else {
+  if (outdated.length > 0) {
+    console.log("OUTDATED PACKAGES:");
+    for (const item of outdated) {
+      const depsStr = item.dependents.join(", ");
+      console.log(`  ✖ ${item.package}: ${item.current} → ${item.latest} (used in: ${depsStr})`);
+    }
+    console.log("");
   }
-  console.log("");
-}
 
-if (!outdatedOnly) {
-  console.log(`UP-TO-DATE PACKAGES (${upToDate.length}):`);
-  for (const item of upToDate) {
-    console.log(`  ✔ ${item.package} (${item.current})`);
+  if (!outdatedOnly) {
+    console.log(`UP-TO-DATE PACKAGES (${upToDate.length}):`);
+    for (const item of upToDate) {
+      console.log(`  ✔ ${item.package} (${item.current})`);
+    }
+    console.log("");
   }
-  console.log("");
-}
 
-if (errors.length > 0) {
-  console.log(`ERRORS CHECKING (${errors.length}):`);
-  for (const item of errors) {
-    console.log(`  ! ${item.package}: ${item.error}`);
+  if (errors.length > 0) {
+    console.log(`ERRORS CHECKING (${errors.length}):`);
+    for (const item of errors) {
+      console.log(`  ! ${item.package}: ${item.error}`);
+    }
+    console.log("");
   }
-  console.log("");
-}
 
-console.log(`Summary: ${upToDate.length} up-to-date, ${outdated.length} outdated, ${errors.length} errors.`);
+  console.log(`Summary: ${upToDate.length} up-to-date, ${outdated.length} outdated, ${errors.length} errors.`);
+}
 
 if (outdated.length > 0 && !noFail) {
   process.exit(1);

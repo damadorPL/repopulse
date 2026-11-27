@@ -48,7 +48,9 @@ describe("visibleReleasesWhere", () => {
           OR: [
             {
               source: "RELEASE",
-              repository: { subscriptions: { some: { userId: USER, trackMode: { in: ["RELEASES", "TAGS_AND_COMMITS"] } } } },
+              repository: {
+                subscriptions: { some: { userId: USER, trackMode: { in: ["RELEASES", "TAGS_AND_COMMITS"] } } },
+              },
             },
             { source: "TAG", repository: { subscriptions: { some: { userId: USER, trackMode: "TAGS_AND_COMMITS" } } } },
             {
@@ -75,9 +77,7 @@ describe("buildFeedWhere", () => {
 
   it("filters by tag through the user's own subscription", () => {
     const where = buildFeedWhere(USER, { tagSlug: "critical" });
-    expect(where.AND).toEqual([
-      visibleReleasesWhere(USER, { tags: { some: { tag: { slug: "critical" } } } }),
-    ]);
+    expect(where.AND).toEqual([visibleReleasesWhere(USER, { tags: { some: { tag: { slug: "critical" } } } })]);
   });
 
   it("combines repository, unread, semver and search filters", () => {
@@ -115,9 +115,12 @@ describe("keyset feed cursor", () => {
     expect(decodeFeedCursor(encodeFeedCursor(row))).toEqual(row);
   });
 
-  it.each(["", "cmabc123", "abc.cm1", "123.", "123.a b", "1".repeat(16) + ".x"])("rejects malformed cursor %j", (cursor) => {
-    expect(decodeFeedCursor(cursor)).toBeNull();
-  });
+  it.each(["", "cmabc123", "abc.cm1", "123.", "123.a b", "1".repeat(16) + ".x"])(
+    "rejects malformed cursor %j",
+    (cursor) => {
+      expect(decodeFeedCursor(cursor)).toBeNull();
+    },
+  );
 
   it("continues strictly after the cursor row in either direction (no skip: 1)", () => {
     expect(afterCursorWhere(row, "desc")).toEqual({

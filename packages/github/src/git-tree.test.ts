@@ -75,14 +75,20 @@ describe("fetchGitTree", () => {
   it("returns metadata, the head commit and the tree", async () => {
     const fetch = mockFetch((url) => {
       if (url.pathname === "/repositories/42") return json(REPO);
-      if (url.pathname === "/repos/acme/widget/git/ref/heads/main") return json({ ref: "refs/heads/main", object: { sha: "head1" } });
+      if (url.pathname === "/repos/acme/widget/git/ref/heads/main")
+        return json({ ref: "refs/heads/main", object: { sha: "head1" } });
       if (url.pathname === "/repos/acme/widget/git/trees/head1") {
         expect(url.searchParams.get("recursive")).toBe("1");
         return json(TREE);
       }
       return json({ message: "Not Found" }, { status: 404 });
     });
-    const snapshot = await fetchGitTree({ owner: "old", name: "name", repositoryId: 42, octokit: createOctokit({ fetch }) });
+    const snapshot = await fetchGitTree({
+      owner: "old",
+      name: "name",
+      repositoryId: 42,
+      octokit: createOctokit({ fetch }),
+    });
     expect(snapshot.repository).toEqual({
       id: 42,
       owner: "acme",
@@ -113,7 +119,9 @@ describe("fetchGitTree", () => {
         ? json(REPO)
         : json({ ref: "refs/heads/main-other", object: { sha: "head1" } }),
     );
-    expect(await fetchGitTree({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: prefixMismatch }) })).toMatchObject({
+    expect(
+      await fetchGitTree({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: prefixMismatch }) }),
+    ).toMatchObject({
       commitSha: null,
       entries: [],
       truncated: false,
@@ -121,10 +129,13 @@ describe("fetchGitTree", () => {
 
     const tree409 = mockFetch((url) => {
       if (url.pathname === "/repos/acme/widget") return json(REPO);
-      if (url.pathname === "/repos/acme/widget/git/ref/heads/main") return json({ ref: "refs/heads/main", object: { sha: "head1" } });
+      if (url.pathname === "/repos/acme/widget/git/ref/heads/main")
+        return json({ ref: "refs/heads/main", object: { sha: "head1" } });
       return json({ message: "Git Repository is empty." }, { status: 409 });
     });
-    expect(await fetchGitTree({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: tree409 }) })).toMatchObject({
+    expect(
+      await fetchGitTree({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: tree409 }) }),
+    ).toMatchObject({
       commitSha: "head1",
       entries: [],
       truncated: false,
@@ -133,14 +144,41 @@ describe("fetchGitTree", () => {
 
   it("maps 404 and rate limits", async () => {
     const missing = mockFetch(() => json({ message: "Not Found" }, { status: 404 }));
-    await expect(fetchGitTree({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: missing }) })).rejects.toBeInstanceOf(
-      GitHubRepositoryNotFoundError,
-    );
+    await expect(
+      fetchGitTree({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: missing }) }),
+    ).rejects.toBeInstanceOf(GitHubRepositoryNotFoundError);
     const limited = mockFetch(() =>
-      json({ message: "rate limit" }, { status: 403, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1900000000" } }),
+      json(
+        { message: "rate limit" },
+        { status: 403, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1900000000" } },
+      ),
     );
-    await expect(fetchGitTree({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: limited }) })).rejects.toBeInstanceOf(
-      GitHubRateLimitError,
-    );
+    await expect(
+      fetchGitTree({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: limited }) }),
+    ).rejects.toBeInstanceOf(GitHubRateLimitError);
+  });
+
+  it("skips fetching the recursive tree when knownCommitSha matches the branch head", async () => {
+    const fetch = mockFetch((url) => {
+      if (url.pathname === "/repos/acme/widget") return json(REPO);
+      if (url.pathname === "/repos/acme/widget/git/ref/heads/main")
+        return json({ ref: "refs/heads/main", object: { sha: "head1" } });
+      if (url.pathname === "/repos/acme/widget/git/trees/head1") return json(TREE);
+      return json({ message: "Not Found" }, { status: 404 });
+    });
+    const octokit = createOctokit({ fetch });
+    const unchanged = await fetchGitTree({ owner: "acme", name: "widget", knownCommitSha: "head1", octokit });
+    expect(unchanged).toMatchObject({
+      commitSha: "head1",
+      entries: [],
+      truncated: false,
+      unchanged: true,
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    const changed = await fetchGitTree({ owner: "acme", name: "widget", knownCommitSha: "old-sha", octokit });
+    expect(changed.unchanged).toBeUndefined();
+    expect(changed.entries).toHaveLength(4);
+    expect(fetch).toHaveBeenCalledTimes(5);
   });
 });

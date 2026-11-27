@@ -76,8 +76,8 @@ export function TagSettings({
         </ManageTagsModal>
       </div>
       <p className="text-xs text-muted-foreground">
-        Tags group repositories in the sidebar and feed. To send this repository&apos;s notifications to a specific channel, tag
-        it and add a notification rule for that tag.
+        Tags group repositories in the sidebar and feed. To send this repository&apos;s notifications to a specific
+        channel, tag it and add a notification rule for that tag.
       </p>
     </div>
   );

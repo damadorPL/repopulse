@@ -14,7 +14,10 @@ export async function getSmtpConfig(): Promise<SmtpConfig | null> {
 
 /** Whether a host is saved; cheap (no decryption), for showing or hiding the email channel. */
 export async function isSmtpConfigured(): Promise<boolean> {
-  const row = await prisma.instanceSettings.findUnique({ where: { id: INSTANCE_SETTINGS_ID }, select: { smtpHost: true } });
+  const row = await prisma.instanceSettings.findUnique({
+    where: { id: INSTANCE_SETTINGS_ID },
+    select: { smtpHost: true },
+  });
   return Boolean(row?.smtpHost?.trim());
 }
 

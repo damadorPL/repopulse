@@ -1,17 +1,22 @@
 import { describe, expect, it } from "vitest";
+import { rateLimitDelayMs } from "@repopulse/queue";
 import {
   isSnoozed,
   mayNotify,
   passesNotificationLevel,
   planFanOut,
-  rateLimitDelayMs,
   ruleMatches,
   selectFreshReleases,
   type FanOutRule,
   type FanOutSubscriber,
   type StoredRelease,
-} from "./fan-out";
-import { dueRepositoriesWhere, ERROR_REPOLL_AFTER_MS, REPOLL_AFTER_MS, STALE_POLLING_MS } from "./scheduler.processor";
+} from "./fan-out.js";
+import {
+  dueRepositoriesWhere,
+  ERROR_REPOLL_AFTER_MS,
+  REPOLL_AFTER_MS,
+  STALE_POLLING_MS,
+} from "./scheduler.processor.js";
 
 const day = (n: number) => new Date(Date.UTC(2026, 9, n));
 
@@ -75,7 +80,10 @@ describe("ruleMatches", () => {
   });
 
   it("Slice 05 acceptance: a Critical + major-only rule fires for v2.0.0 and skips v2.0.1", () => {
-    const critical = subscriber("u1", { tagIds: ["critical"], rules: [rule("r1", { tagId: "critical", onlyMajorReleases: true })] });
+    const critical = subscriber("u1", {
+      tagIds: ["critical"],
+      rules: [rule("r1", { tagId: "critical", onlyMajorReleases: true })],
+    });
     const v200 = release("v2.0.0", 5, { tagName: "v2.0.0", semverType: "MAJOR" });
     const v201 = release("v2.0.1", 6, { tagName: "v2.0.1", semverType: "PATCH" });
 
@@ -109,7 +117,12 @@ describe("planFanOut", () => {
   });
 
   it("caps per subscriber after the pre-release filter", () => {
-    const fresh = [release("p1", 9, { isPrerelease: true }), release("p2", 8, { isPrerelease: true }), release("a", 7), release("b", 6)];
+    const fresh = [
+      release("p1", 9, { isPrerelease: true }),
+      release("p2", 8, { isPrerelease: true }),
+      release("a", 7),
+      release("b", 6),
+    ];
     const plan = planFanOut([subscriber("u1")], fresh, 1);
     expect(plan.states).toEqual([{ userId: "u1", releaseId: "a" }]);
   });
@@ -120,7 +133,12 @@ describe("planFanOut", () => {
       [
         subscriber("u1", {
           tagIds: ["t1"],
-          rules: [rule("all"), rule("major", { onlyMajorReleases: true }), rule("other-tag", { tagId: "t9" }), rule("app", { channel: "IN_APP" })],
+          rules: [
+            rule("all"),
+            rule("major", { onlyMajorReleases: true }),
+            rule("other-tag", { tagId: "t9" }),
+            rule("app", { channel: "IN_APP" }),
+          ],
         }),
       ],
       [major, stable],
@@ -150,13 +168,27 @@ describe("notification level and snooze (Slice 07)", () => {
   });
 
   it("passesNotificationLevel: MINOR_AND_UP skips patch, pre-release and other (commits)", () => {
-    expect([major, minor, patch, commit, pre].map((r) => passesNotificationLevel("MINOR_AND_UP", r))).toEqual([true, true, false, false, false]);
+    expect([major, minor, patch, commit, pre].map((r) => passesNotificationLevel("MINOR_AND_UP", r))).toEqual([
+      true,
+      true,
+      false,
+      false,
+      false,
+    ]);
   });
 
   it("passesNotificationLevel: MAJOR_ONLY keeps major releases only", () => {
-    expect([major, minor, patch, commit, pre].map((r) => passesNotificationLevel("MAJOR_ONLY", r))).toEqual([true, false, false, false, false]);
+    expect([major, minor, patch, commit, pre].map((r) => passesNotificationLevel("MAJOR_ONLY", r))).toEqual([
+      true,
+      false,
+      false,
+      false,
+      false,
+    ]);
     // A pre-release flagged on GitHub never counts as major, whatever its tag says.
-    expect(passesNotificationLevel("MAJOR_ONLY", release("x", 1, { semverType: "MAJOR", isPrerelease: true }))).toBe(false);
+    expect(passesNotificationLevel("MAJOR_ONLY", release("x", 1, { semverType: "MAJOR", isPrerelease: true }))).toBe(
+      false,
+    );
   });
 
   it("isSnoozed only while snoozedUntil lies in the future", () => {
@@ -201,7 +233,10 @@ describe("notification level and snooze (Slice 07)", () => {
 
   it("the level is per subscriber: a second subscriber of the same repository is unaffected", () => {
     const plan = planFanOut(
-      [subscriber("quiet", { rules: [rule("q")], notificationLevel: "NONE" }), subscriber("loud", { rules: [rule("l")] })],
+      [
+        subscriber("quiet", { rules: [rule("q")], notificationLevel: "NONE" }),
+        subscriber("loud", { rules: [rule("l")] }),
+      ],
       [patch],
       10,
       now,

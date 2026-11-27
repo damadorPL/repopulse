@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   callbackErrorMessage,
-  enableGitHubAppWebhooksInput,
   GITHUB_APP_CALLBACK_ERRORS,
   githubAppPublicUrl,
   githubAppSettingsUrl,
@@ -40,13 +39,6 @@ describe("githubAppWebhookTarget", () => {
   });
 });
 
-describe("enableGitHubAppWebhooksInput", () => {
-  it("defaults rotateSecret to false and rejects unknown fields", () => {
-    expect(enableGitHubAppWebhooksInput.parse({})).toEqual({ rotateSecret: false });
-    expect(enableGitHubAppWebhooksInput.safeParse({ secret: "x" }).success).toBe(false);
-  });
-});
-
 describe("githubAppWebhookSettingsUrls", () => {
   it("links the App's general, events and advanced settings", () => {
     expect(githubAppWebhookSettingsUrls("https://github.com/settings/apps/repopulse")).toEqual({
@@ -76,8 +68,6 @@ describe("githubAppPublicUrl and githubAppSettingsUrl", () => {
     expect(githubAppSettingsUrl("repopulse-app", "acme-org", true)).toBe(
       "https://github.com/organizations/acme-org/settings/apps/repopulse-app",
     );
-    expect(githubAppSettingsUrl("repopulse-app", null, true)).toBe(
-      "https://github.com/settings/apps/repopulse-app",
-    );
+    expect(githubAppSettingsUrl("repopulse-app", null, true)).toBe("https://github.com/settings/apps/repopulse-app");
   });
 });

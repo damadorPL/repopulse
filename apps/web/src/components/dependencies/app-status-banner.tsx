@@ -2,7 +2,15 @@ import { CircleCheckIcon, CircleDashedIcon, ExternalLinkIcon, InfoIcon, UsersIco
 import { cn } from "@/lib/utils";
 import type { AppRepoStatus, PrOwnerView } from "@/server/queries/dependencies";
 
-function Banner({ tone, icon, children }: { tone: "ok" | "warn" | "muted"; icon: React.ReactNode; children: React.ReactNode }) {
+function Banner({
+  tone,
+  icon,
+  children,
+}: {
+  tone: "ok" | "warn" | "muted";
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <div
       role="status"
@@ -24,12 +32,20 @@ function Banner({ tone, icon, children }: { tone: "ok" | "warn" | "muted"; icon:
  * install link that pre-selects the repository when possible), installed, or PRs managed by another
  * RepoPulse user.
  */
-export function AppStatusBanner({ status, prOwner, fullName }: { status: AppRepoStatus; prOwner: PrOwnerView; fullName: string }) {
+export function AppStatusBanner({
+  status,
+  prOwner,
+  fullName,
+}: {
+  status: AppRepoStatus;
+  prOwner: PrOwnerView;
+  fullName: string;
+}) {
   if (prOwner.kind === "other") {
     return (
       <Banner tone="warn" icon={<UsersIcon aria-hidden />}>
-        <span className="font-medium">PRs are managed by another RepoPulse user</span> ({prOwner.ownerName}). Only one RepoPulse project
-        per repository opens update pull requests; this one can notify you.
+        <span className="font-medium">PRs are managed by another RepoPulse user</span> ({prOwner.ownerName}). Only one
+        RepoPulse project per repository opens update pull requests; this one can notify you.
       </Banner>
     );
   }
@@ -37,15 +53,20 @@ export function AppStatusBanner({ status, prOwner, fullName }: { status: AppRepo
     case "not_configured":
       return (
         <Banner tone="muted" icon={<InfoIcon aria-hidden />}>
-          Update pull requests need the RepoPulse GitHub App, which the administrator has not set up. Checks and notifications work
-          without it.
+          Update pull requests need the RepoPulse GitHub App, which the administrator has not set up. Checks and
+          notifications work without it.
         </Banner>
       );
     case "not_installed":
       return (
         <Banner tone="warn" icon={<CircleDashedIcon aria-hidden />}>
           <span className="font-medium">Not installed:</span>{" "}
-          <a href={status.installUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium underline underline-offset-2">
+          <a
+            href={status.installUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 font-medium underline underline-offset-2"
+          >
             install the RepoPulse App on {fullName}
             <ExternalLinkIcon className="size-3.5" aria-hidden />
           </a>{" "}

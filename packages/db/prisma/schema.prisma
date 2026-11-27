@@ -1,7 +1,8 @@
 generator client {
-  provider     = "prisma-client"
-  output       = "../src/generated/prisma"
-  moduleFormat = "cjs"
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  moduleFormat    = "esm"
+  previewFeatures = ["relationJoins"]
 }
 
 datasource db {
@@ -80,6 +81,7 @@ enum NotificationChannel {
 model User {
   id                         String              @id @default(cuid())
   email                      String              @unique
+  emailVerified              Boolean             @default(false)
   name                       String?
   avatarUrl                  String?
   githubId                   String              @unique
@@ -91,6 +93,8 @@ model User {
   isSuperAdmin               Boolean             @default(false)
   createdAt                  DateTime            @default(now())
   updatedAt                  DateTime            @updatedAt
+  sessions                   Session[]
+  accounts                   Account[]
   subscriptions              UserSubscription[]
   tags                       Tag[]
   releaseStates              UserReleaseState[]
@@ -98,6 +102,51 @@ model User {
   dependencyProjects         DependencyProject[]
   invitesCreated             Invite[]            @relation("InviteCreatedBy")
   inviteUsed                 Invite?             @relation("InviteUsedBy")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
 }
 
 /// Instance-wide settings: a single row with `id = 1`; a missing row means the defaults.
@@ -155,6 +204,7 @@ model Invite {
   usedBy      User?     @relation("InviteUsedBy", fields: [usedById], references: [id], onDelete: SetNull)
 
   @@index([createdAt(sort: Desc)])
+  @@index([createdById])
 }
 
 model Repository {
@@ -223,6 +273,8 @@ model Release {
   @@unique([repositoryId, githubReleaseId])
   @@unique([repositoryId, source, tagName])
   @@index([repositoryId, publishedAt(sort: Desc)])
+  @@index([publishedAt(sort: Desc), id(sort: Desc)])
+  @@index([repositoryId, source, publishedAt(sort: Desc)])
 }
 
 model UserSubscription {
@@ -252,6 +304,7 @@ model UserSubscription {
   tags               SubscriptionTag[]
 
   @@unique([userId, repositoryId])
+  @@index([repositoryId])
 }
 
 model Tag {
@@ -274,6 +327,7 @@ model SubscriptionTag {
   tag            Tag              @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@id([subscriptionId, tagId])
+  @@index([tagId])
 }
 
 model UserReleaseState {
@@ -286,6 +340,7 @@ model UserReleaseState {
 
   @@id([userId, releaseId])
   @@index([userId, isRead])
+  @@index([releaseId])
 }
 
 model NotificationRule {
@@ -302,6 +357,9 @@ model NotificationRule {
   createdAt         DateTime            @default(now())
   user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   tag               Tag?                @relation(fields: [tagId], references: [id], onDelete: SetNull)
+
+  @@index([userId, enabled])
+  @@index([tagId])
 }
 
 // ---------------------------------------------------------------------------
@@ -443,6 +501,7 @@ model DependencyProject {
   @@unique([userId, githubRepoId])
   @@index([nextScanAt, scanStatus])
   @@index([githubRepoId])
+  @@index([repositoryId])
 }
 
 /// Exact bot commit prepared before a branch write, allowing safe retry reconciliation.
@@ -512,7 +571,7 @@ model DependencyUpdate {
   manifest         DependencyManifest     @relation(fields: [manifestId], references: [id], onDelete: Cascade)
 
   @@unique([manifestId, name, kind, group])
-  @@index([projectId, status])
+  @@index([projectId, status, level])
 }
 
 model DependencyPullRequest {
@@ -553,4 +612,5 @@ model DependencyNotificationOutbox {
   project   DependencyProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([createdAt])
+  @@index([projectId])
 }

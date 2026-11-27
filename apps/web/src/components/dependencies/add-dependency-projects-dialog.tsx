@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState, useTransition, type FormEvent, type ReactNode } from "react";
+import { useId, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { LoaderCircleIcon, SearchIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -20,7 +20,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { dependencyProjectHref } from "@/lib/dependency-list-filters";
-import { MAX_PROJECTS_PER_ADD, UPDATE_MODE_OPTIONS, type AddDependencySource, type DepsUpdateModeValue } from "@/lib/dependency-settings";
+import {
+  MAX_PROJECTS_PER_ADD,
+  UPDATE_MODE_OPTIONS,
+  type AddDependencySource,
+  type DepsUpdateModeValue,
+} from "@/lib/dependency-settings";
 import { cn } from "@/lib/utils";
 import { addDependencyProjectsAction, type AddDependencyProjectsResult } from "@/server/actions/dependencies";
 import type { AddableSubscription } from "@/server/queries/dependencies";
@@ -64,10 +69,8 @@ export function AddDependencyProjectsDialog({
 
   const limit = Math.max(0, Math.min(MAX_PROJECTS_PER_ADD, remaining));
   const words = search.toLowerCase().split(/\s+/).filter(Boolean);
-  const filtered = useMemo(
-    () => subscriptions.filter((s) => words.every((w) => s.fullName.toLowerCase().includes(w) || (s.description ?? "").toLowerCase().includes(w))),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `words` derives from `search`.
-    [subscriptions, search],
+  const filtered = subscriptions.filter((s) =>
+    words.every((w) => s.fullName.toLowerCase().includes(w) || (s.description ?? "").toLowerCase().includes(w)),
   );
   const sourceCount = tab === "tracked" ? selected.length : repo.trim() ? 1 : 0;
   const single = sourceCount <= 1;
@@ -122,13 +125,21 @@ export function AddDependencyProjectsDialog({
     setError(null);
     setFailures([]);
     const sources: AddDependencySource[] =
-      tab === "tracked" ? selected.map((subscriptionId) => ({ subscriptionId })) : repo.trim() ? [{ repoUrlOrSlug: repo.trim() }] : [];
+      tab === "tracked"
+        ? selected.map((subscriptionId) => ({ subscriptionId }))
+        : repo.trim()
+          ? [{ repoUrlOrSlug: repo.trim() }]
+          : [];
     if (sources.length === 0) {
       setError(tab === "tracked" ? "Choose at least one repository." : "Enter a repository.");
       return;
     }
     startTransition(async () => {
-      const result = await addDependencyProjectsAction({ sources, updateMode: effectiveMode, notifyOnFirstScan: notifyNow });
+      const result = await addDependencyProjectsAction({
+        sources,
+        updateMode: effectiveMode,
+        notifyOnFirstScan: notifyNow,
+      });
       if (!result.ok) {
         if (result.error.code === "UNAUTHORIZED") router.push("/login");
         setError(result.error.message);
@@ -137,7 +148,11 @@ export function AddDependencyProjectsDialog({
       const { added, existing, failed, scansQueued } = result.data;
       if (added.length === 1) {
         const [project] = added;
-        if (scansQueued) toast.loading(`Checking the dependencies of ${project!.fullName}…`, { id: depsScanToastId(project!.projectId), duration: 120_000 });
+        if (scansQueued)
+          toast.loading(`Checking the dependencies of ${project!.fullName}…`, {
+            id: depsScanToastId(project!.projectId),
+            duration: 120_000,
+          });
         else toast.success(`Added ${project!.fullName}`, { description: "Its first check starts shortly." });
       } else if (added.length > 1) {
         toast.success(`Added ${plural(added.length, "project")}`, {
@@ -146,7 +161,9 @@ export function AddDependencyProjectsDialog({
       }
       if (existing.length > 0) {
         toast.info(
-          existing.length === 1 ? `${existing[0]!.fullName} is already a project` : `${plural(existing.length, "repository")} already were projects`,
+          existing.length === 1
+            ? `${existing[0]!.fullName} is already a project`
+            : `${plural(existing.length, "repository")} already were projects`,
         );
       }
       if (failed.length > 0) {
@@ -175,11 +192,16 @@ export function AddDependencyProjectsDialog({
         <DialogHeader>
           <DialogTitle>Check dependencies</DialogTitle>
           <DialogDescription>
-            RepoPulse reads the npm, Bun and Python manifests of these repositories and tells you which dependencies are outdated.
+            RepoPulse reads the npm, Bun and Python manifests of these repositories and tells you which dependencies are
+            outdated.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="grid gap-4">
-          <div role="tablist" aria-label="Where to add from" className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1 text-sm">
+          <div
+            role="tablist"
+            aria-label="Where to add from"
+            className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1 text-sm"
+          >
             {(
               [
                 ["tracked", "From tracked repositories"],
@@ -208,7 +230,12 @@ export function AddDependencyProjectsDialog({
           </div>
 
           {tab === "tracked" ? (
-            <div role="tabpanel" id={`${ids}-panel-tracked`} aria-labelledby={`${ids}-tab-tracked`} className="grid gap-2">
+            <div
+              role="tabpanel"
+              id={`${ids}-panel-tracked`}
+              aria-labelledby={`${ids}-tab-tracked`}
+              className="grid gap-2"
+            >
               {subscriptions.length === 0 ? (
                 <p className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
                   Every repository you track is already a project. Use “By URL” to add another one.
@@ -216,7 +243,10 @@ export function AddDependencyProjectsDialog({
               ) : (
                 <>
                   <div className="relative">
-                    <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                    <SearchIcon
+                      className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+                      aria-hidden
+                    />
                     <Input
                       type="search"
                       value={search}
@@ -229,7 +259,11 @@ export function AddDependencyProjectsDialog({
                   </div>
                   <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
                     <label className="flex items-center gap-2">
-                      <Checkbox checked={allVisibleSelected} onCheckedChange={(checked) => toggleAll(checked === true)} disabled={filtered.length === 0} />
+                      <Checkbox
+                        checked={allVisibleSelected}
+                        onCheckedChange={(checked) => toggleAll(checked === true)}
+                        disabled={filtered.length === 0}
+                      />
                       Select all{words.length > 0 ? " shown" : ""}
                     </label>
                     <span aria-live="polite">
@@ -238,14 +272,19 @@ export function AddDependencyProjectsDialog({
                   </div>
                   <ul className="max-h-64 divide-y overflow-y-auto rounded-md border">
                     {filtered.length === 0 ? (
-                      <li className="px-3 py-4 text-center text-sm text-muted-foreground">No tracked repository matches.</li>
+                      <li className="px-3 py-4 text-center text-sm text-muted-foreground">
+                        No tracked repository matches.
+                      </li>
                     ) : (
                       filtered.map((s) => {
                         const checked = selected.includes(s.subscriptionId);
                         const id = `${ids}-${s.subscriptionId}`;
                         return (
                           <li key={s.subscriptionId}>
-                            <label htmlFor={id} className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-accent/50">
+                            <label
+                              htmlFor={id}
+                              className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-accent/50"
+                            >
                               <Checkbox
                                 id={id}
                                 checked={checked}
@@ -255,7 +294,9 @@ export function AddDependencyProjectsDialog({
                               <RepoAvatar src={s.avatarUrl} name={s.fullName} className="size-6" />
                               <span className="min-w-0 flex-1">
                                 <span className="block truncate text-sm font-medium">{s.fullName}</span>
-                                {s.description ? <span className="block truncate text-xs text-muted-foreground">{s.description}</span> : null}
+                                {s.description ? (
+                                  <span className="block truncate text-xs text-muted-foreground">{s.description}</span>
+                                ) : null}
                               </span>
                             </label>
                           </li>
@@ -280,7 +321,9 @@ export function AddDependencyProjectsDialog({
                 autoComplete="off"
                 maxLength={500}
               />
-              <p className="text-xs text-muted-foreground">Any repository you can read. Private ones need the RepoPulse GitHub App.</p>
+              <p className="text-xs text-muted-foreground">
+                Any repository you can read. Private ones need the RepoPulse GitHub App.
+              </p>
             </div>
           )}
 
@@ -293,7 +336,10 @@ export function AddDependencyProjectsDialog({
                 <label
                   key={option.value}
                   htmlFor={id}
-                  className={cn("flex items-start gap-2.5 text-sm", disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer")}
+                  className={cn(
+                    "flex items-start gap-2.5 text-sm",
+                    disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+                  )}
                 >
                   <input
                     id={id}
@@ -307,7 +353,9 @@ export function AddDependencyProjectsDialog({
                   />
                   <span>
                     <span className="font-medium">{option.label}</span>
-                    <span className="block text-xs text-muted-foreground">{option.value === "NOTIFY" ? option.hint : disabled ? prModeHint : option.hint}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {option.value === "NOTIFY" ? option.hint : disabled ? prModeHint : option.hint}
+                    </span>
                   </span>
                 </label>
               );
@@ -315,7 +363,11 @@ export function AddDependencyProjectsDialog({
           </fieldset>
 
           <label className="flex items-start gap-2.5 text-sm">
-            <Checkbox checked={notifyNow} onCheckedChange={(checked) => setNotifyNow(checked === true)} className="mt-0.5" />
+            <Checkbox
+              checked={notifyNow}
+              onCheckedChange={(checked) => setNotifyNow(checked === true)}
+              className="mt-0.5"
+            />
             <span>
               Notify about what is outdated now
               <span className="block text-xs text-muted-foreground">
@@ -346,7 +398,11 @@ export function AddDependencyProjectsDialog({
               {pending ? "Adding…" : sourceCount > 1 ? `Add ${plural(sourceCount, "project")}` : "Add project"}
             </Button>
           </DialogFooter>
-          {limit === 0 ? <p className="text-xs text-muted-foreground">You have reached the project limit. Remove a project to add another.</p> : null}
+          {limit === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              You have reached the project limit. Remove a project to add another.
+            </p>
+          ) : null}
         </form>
       </DialogContent>
     </Dialog>

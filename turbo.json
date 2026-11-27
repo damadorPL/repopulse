@@ -1,71 +1,37 @@
 {
   "$schema": "https://turborepo.com/schema.json",
   "ui": "stream",
-  "globalEnv": [
-    "NODE_ENV"
-  ],
+  "globalEnv": ["NODE_ENV"],
   "tasks": {
     "db:generate": {
-      "inputs": [
-        "prisma/schema.prisma",
-        "prisma.config.ts"
-      ],
-      "outputs": [],
-      "cache": false
+      "inputs": ["prisma/schema.prisma", "prisma.config.ts"],
+      "outputs": ["src/generated/**"],
+      "cache": true
     },
     "db:migrate:deploy": {
       "cache": false,
-      "env": [
-        "DATABASE_URL"
-      ]
+      "env": ["DATABASE_URL"]
     },
     "build": {
-      "dependsOn": [
-        "db:generate",
-        "^db:generate",
-        "^build"
-      ],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "!.env*",
-        "!**/*.test.ts"
-      ],
-      "outputs": [
-        "dist/**",
-        ".next/**",
-        "!.next/cache/**"
-      ]
+      "dependsOn": ["db:generate", "^db:generate", "^build"],
+      "inputs": ["$TURBO_DEFAULT$", "!.env*", "!**/*.test.ts", "!**/*.test.tsx", "!**/*.test-data.ts"],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
     },
     "dev": {
-      "dependsOn": [
-        "db:generate",
-        "^db:generate",
-        "^build"
-      ],
+      "dependsOn": ["db:generate", "^db:generate", "^build"],
       "persistent": true,
       "cache": false
     },
     "lint": {
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/eslint.config.mjs"],
-      "dependsOn": [
-        "db:generate",
-        "^db:generate"
-      ]
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/.oxlintrc.json"],
+      "dependsOn": ["db:generate", "^db:generate"]
     },
     "typecheck": {
-      "dependsOn": [
-        "^db:generate",
-        "db:generate"
-      ]
+      "dependsOn": ["^db:generate", "db:generate"]
     },
     "test": {
-      "dependsOn": [
-        "^db:generate",
-        "db:generate"
-      ],
-      "env": [
-        "TOKEN_ENCRYPTION_KEY"
-      ]
+      "dependsOn": ["^db:generate", "db:generate", "^build"],
+      "env": ["TOKEN_ENCRYPTION_KEY"]
     }
   }
 }

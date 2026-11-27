@@ -12,7 +12,8 @@ import {
 } from "@repopulse/notifications";
 import { CHANNEL_INFO, DELIVERABLE_CHANNELS } from "@repopulse/notifications/channels";
 import { getCurrentUserOrThrow } from "@/lib/auth";
-import { notificationEventsSchema, validateEventsForScope, type NotificationEventValue } from "@/lib/notification-events";
+import { validateEventsForScope, type NotificationEventValue } from "@/lib/notification-events";
+import { notificationEventsSchema } from "@/lib/notification-events-schema";
 import { fail, invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
 import { normalizeDestination } from "@/server/notification-destination";
 import { getSmtpConfig, isSmtpConfigured } from "@/server/smtp-settings";
@@ -28,17 +29,15 @@ const SETTINGS_PATH = "/settings/notifications";
 const TEST_COOLDOWN_MS = 10_000;
 
 const id = z.string().min(1).max(64);
-const createInput = z
-  .object({
-    tagId: id.nullable(),
-    channel: z.enum(DELIVERABLE_CHANNELS, "Choose a channel"),
-    destinationUrl: z.string().max(2048, "The destination can be at most 2048 characters").default(""),
-    onlyMajorReleases: z.boolean(),
-    events: notificationEventsSchema,
-  })
-  .strict();
+const createInput = z.strictObject({
+  tagId: id.nullable(),
+  channel: z.enum(DELIVERABLE_CHANNELS, "Choose a channel"),
+  destinationUrl: z.string().max(2048, "The destination can be at most 2048 characters").default(""),
+  onlyMajorReleases: z.boolean(),
+  events: notificationEventsSchema,
+});
 const toggleInput = z.object({ ruleId: id, enabled: z.boolean() });
-const eventsInput = z.object({ ruleId: id, events: notificationEventsSchema }).strict();
+const eventsInput = z.strictObject({ ruleId: id, events: notificationEventsSchema });
 const ruleInput = z.object({ ruleId: id });
 
 const lastTestAt = new Map<string, number>();
@@ -72,7 +71,15 @@ export async function createNotificationRuleAction(input: {
     if (!destination.ok) return destination;
 
     const rule = await prisma.notificationRule.create({
-      data: { userId: user.id, tagId, channel, destinationUrl: destination.data, onlyMajorReleases, events, enabled: true },
+      data: {
+        userId: user.id,
+        tagId,
+        channel,
+        destinationUrl: destination.data,
+        onlyMajorReleases,
+        events,
+        enabled: true,
+      },
       select: notificationRuleSelect,
     });
     revalidatePath(SETTINGS_PATH);
@@ -92,7 +99,10 @@ export async function toggleNotificationRuleAction(input: {
     if (!parsed.success) return invalidInput(parsed.error);
     const { ruleId, enabled } = parsed.data;
 
-    const { count } = await prisma.notificationRule.updateMany({ where: { id: ruleId, userId: user.id }, data: { enabled } });
+    const { count } = await prisma.notificationRule.updateMany({
+      where: { id: ruleId, userId: user.id },
+      data: { enabled },
+    });
     if (count === 0) return fail("NOT_FOUND", "Notification rule not found.");
     revalidatePath(SETTINGS_PATH);
     return ok({ ruleId, enabled });
@@ -115,14 +125,23 @@ export async function updateNotificationRuleEventsAction(input: {
     if (!parsed.success) return invalidInput(parsed.error);
     const { ruleId, events } = parsed.data;
 
-    const rule = await prisma.notificationRule.findFirst({ where: { id: ruleId, userId: user.id }, select: { tagId: true } });
+    const rule = await prisma.notificationRule.findFirst({
+      where: { id: ruleId, userId: user.id },
+      select: { tagId: true },
+    });
     if (!rule) return fail("NOT_FOUND", "Notification rule not found.");
     const scopeError = validateEventsForScope(events, rule.tagId !== null);
     if (scopeError) return fail("INVALID_INPUT", scopeError);
 
-    const { count } = await prisma.notificationRule.updateMany({ where: { id: ruleId, userId: user.id }, data: { events } });
+    const { count } = await prisma.notificationRule.updateMany({
+      where: { id: ruleId, userId: user.id },
+      data: { events },
+    });
     if (count === 0) return fail("NOT_FOUND", "Notification rule not found.");
-    const updated = await prisma.notificationRule.findFirst({ where: { id: ruleId, userId: user.id }, select: notificationRuleSelect });
+    const updated = await prisma.notificationRule.findFirst({
+      where: { id: ruleId, userId: user.id },
+      select: notificationRuleSelect,
+    });
     if (!updated) return fail("NOT_FOUND", "Notification rule not found.");
     revalidatePath(SETTINGS_PATH);
     return ok(toNotificationRuleView(updated));
@@ -132,7 +151,9 @@ export async function updateNotificationRuleEventsAction(input: {
 }
 
 /** Already queued jobs of a deleted rule are skipped by the worker (`RULE_GONE`). */
-export async function deleteNotificationRuleAction(input: { ruleId: string }): Promise<ActionResult<{ ruleId: string }>> {
+export async function deleteNotificationRuleAction(input: {
+  ruleId: string;
+}): Promise<ActionResult<{ ruleId: string }>> {
   try {
     const user = await getCurrentUserOrThrow();
     const parsed = ruleInput.safeParse(input);
@@ -164,7 +185,13 @@ export async function sendTestNotificationAction(input: {
 
     const rule = await prisma.notificationRule.findFirst({
       where: { id: ruleId, userId: user.id },
-      select: { id: true, channel: true, destinationUrl: true, onlyMajorReleases: true, tag: { select: { name: true, colorHex: true } } },
+      select: {
+        id: true,
+        channel: true,
+        destinationUrl: true,
+        onlyMajorReleases: true,
+        tag: { select: { name: true, colorHex: true } },
+      },
     });
     if (!rule) return fail("NOT_FOUND", "Notification rule not found.");
     if (!isDeliverableChannel(rule.channel)) return fail("INVALID_INPUT", "This rule's channel cannot be tested.");

@@ -2,7 +2,7 @@
 
 import { useOptimistic, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { LoaderCircleIcon, SendIcon, SlidersHorizontalIcon, Trash2Icon } from "lucide-react";
+import { LoaderCircleIcon, SendIcon, SlidersHorizontalIcon, TrashIcon } from "lucide-react";
 import { toast } from "sonner";
 import { channelLabel } from "@repopulse/notifications/channels";
 import { TagPill } from "@/components/feed/tag-pill";
@@ -65,7 +65,11 @@ export function NotificationRuleItem({ rule }: { rule: NotificationRuleView }) {
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {rule.tag ? (
-              <TagPill name={rule.tag.name} colorHex={rule.tag.colorHex} title={`Repositories tagged “${rule.tag.name}”`} />
+              <TagPill
+                name={rule.tag.name}
+                colorHex={rule.tag.colorHex}
+                title={`Repositories tagged “${rule.tag.name}”`}
+              />
             ) : (
               <Badge variant="outline" className="rounded-full text-[11px] font-medium text-muted-foreground">
                 All repositories
@@ -77,7 +81,9 @@ export function NotificationRuleItem({ rule }: { rule: NotificationRuleView }) {
               </Badge>
             ))}
             {rule.onlyMajorReleases ? (
-              <Badge className="rounded-full border-transparent bg-red-500/10 text-[11px] text-red-700 dark:text-red-400">Major only</Badge>
+              <Badge className="rounded-full border-transparent bg-red-500/10 text-[11px] text-red-700 dark:text-red-400">
+                Major only
+              </Badge>
             ) : null}
             {!enabled ? (
               <Badge variant="secondary" className="rounded-full text-[11px]">
@@ -141,7 +147,12 @@ function EditEventsButton({ rule, label }: { rule: NotificationRuleView; label: 
       }}
     >
       <DialogTrigger asChild>
-        <Button variant="ghost" size="icon-sm" className="text-muted-foreground" aria-label={`Choose what the ${label} rule notifies about`}>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="text-muted-foreground"
+          aria-label={`Choose what the ${label} rule notifies about`}
+        >
           <SlidersHorizontalIcon />
         </Button>
       </DialogTrigger>
@@ -149,10 +160,18 @@ function EditEventsButton({ rule, label }: { rule: NotificationRuleView; label: 
         <DialogHeader>
           <DialogTitle>What should this {label} rule notify about?</DialogTitle>
           <DialogDescription>
-            {rule.tag ? `This rule is limited to repositories tagged “${rule.tag.name}”, so it can only notify about releases.` : "Pick one or more."}
+            {rule.tag
+              ? `This rule is limited to repositories tagged “${rule.tag.name}”, so it can only notify about releases.`
+              : "Pick one or more."}
           </DialogDescription>
         </DialogHeader>
-        <NotificationEventCheckboxes idPrefix={`rule-${rule.id}-event`} value={events} onChange={setEvents} tagScoped={rule.tag !== null} disabled={pending} />
+        <NotificationEventCheckboxes
+          idPrefix={`rule-${rule.id}-event`}
+          value={events}
+          onChange={setEvents}
+          tagScoped={rule.tag !== null}
+          disabled={pending}
+        />
         {error ? (
           <p role="alert" className="text-sm text-destructive">
             {error}
@@ -193,14 +212,21 @@ function DeleteRuleButton({ ruleId, label }: { ruleId: string; label: string }) 
   return (
     <Dialog open={open} onOpenChange={(next) => !pending && setOpen(next)}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-destructive" aria-label={`Delete ${label} rule`}>
-          <Trash2Icon />
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="text-muted-foreground hover:text-destructive"
+          aria-label={`Delete ${label} rule`}
+        >
+          <TrashIcon />
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Delete this {label} rule?</DialogTitle>
-          <DialogDescription>New releases will no longer be sent to this destination. Notifications already on their way are dropped.</DialogDescription>
+          <DialogDescription>
+            New releases will no longer be sent to this destination. Notifications already on their way are dropped.
+          </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <DialogClose asChild>

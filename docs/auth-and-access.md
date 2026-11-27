@@ -1,7 +1,6 @@
 # Auth, super admin & access
 
-> **Summary:** GitHub OAuth through Auth.js v5 (`next-auth@5.0.0-beta.32`) with JWT sessions that carry only
-> `userId`. The **first account is the super admin** (`User.isSuperAdmin`), the only role besides "member". The super
+> **Summary:** GitHub OAuth through Better Auth (`better-auth@1.7.28`) with Prisma database sessions. The **first account is the super admin** (`User.isSuperAdmin`), the only role besides "member". The super
 > admin manages every instance setting: registration, invite links, SMTP, the RepoPulse GitHub App and the
 > Dependencies switch. Registration can be invite-only. Writes to users' repositories (update PRs) go through the
 > GitHub App, never the sign-in token.
@@ -10,9 +9,10 @@
 
 | Concern | File |
 | --- | --- |
-| Auth.js config, callbacks, `getCurrentUserOrThrow`, `UnauthorizedError`, `ForbiddenError` | `apps/web/src/lib/auth.ts` |
+| Better Auth config, database hooks, `getCurrentUserOrThrow`, `UnauthorizedError`, `ForbiddenError` | `apps/web/src/lib/auth.ts` |
+| Client auth instance | `apps/web/src/lib/auth-client.ts` |
 | Page and action guards | `apps/web/src/server/session.ts` |
-| Registration gate | `apps/web/src/server/registration.ts` (`admitGitHubUser`) |
+| Registration gate | `apps/web/src/server/registration.ts` (`admitNewGitHubUser`) |
 | Invite tokens | `apps/web/src/server/invite-tokens.ts`, `apps/web/src/lib/invites.ts` |
 | Invite acceptance page | `apps/web/src/app/invite/[token]/page.tsx` |
 | Admin panel | `apps/web/src/app/(dashboard)/admin/layout.tsx` (super admin guard, tabs from `components/admin/admin-nav.tsx`), `admin/page.tsx` (overview) |
@@ -41,20 +41,15 @@
 
 ## Sign-in flow
 
-1. `/login` → `signIn("github")` with scope `read:user user:email`.
-2. `signIn` callback → `admitGitHubUser(fields, inviteCookie)`:
-   - an existing user (by `githubId`) → allowed;
-   - `User.count() === 0` → created with `isSuperAdmin: true` (fresh install);
-   - an invite cookie with a usable token → one transaction: claim the invite (`updateMany … usedAt: null,
-     expiresAt > now`, expect count 1), create the user, set `usedById`. A stale invite falls back to public
-     registration, or redirects to `/login?error=InviteInvalid`;
-   - otherwise → allowed only if `publicRegistration`, else `/login?error=InviteRequired`.
-   - On success the invite cookie is deleted.
-3. `jwt` callback (sign-in request only) → upsert the `User` by `githubId` (refreshes profile, `githubLogin` and the
-   encrypted token) → `token.userId`.
-4. `session` callback → `session.user.id = token.userId`.
-5. `getCurrentUserOrThrow()` (React `cache`, once per request) loads the `User` row. A missing row counts as signed
-   out.
+1. `/login` → `auth.api.signInSocial({ provider: "github" })` with scope `read:user user:email`.
+2. Better Auth OAuth callback (`/api/auth/callback/github`) runs inside a Prisma transaction (`AsyncLocalStorage` + `transaction: true`):
+   - existing users (matched by `Account` `(providerId, accountId)`) sign in directly and refresh profile/`githubLogin` + encrypted token;
+   - new users run `databaseHooks.user.create.before` → `admitNewGitHubUser(inviteCookie, tx)`:
+     - `User.count() === 0` → admitted with `isSuperAdmin: true` (fresh install, under `pg_advisory_xact_lock`);
+     - an invite cookie with a usable token → atomically claims the invite (`updateMany … usedAt: null, expiresAt > now`, expect count 1) and links `usedById` on `account.create.before` (stale invites fall back to public registration or redirect to `/login?error=InviteInvalid`);
+     - otherwise → allowed only if `publicRegistration`, else `/login?error=InviteRequired`.
+3. `databaseHooks.account.create.before` / `update` encrypts the GitHub token onto `User.githubAccessTokenEncrypted` and clears plaintext tokens from `Account`.
+4. `getCurrentUserOrThrow()` (React `cache`, once per request) reads `auth.api.getSession({ headers })` and loads the `User` row (with `omit: { githubAccessTokenEncrypted: false }`). A missing row counts as signed out.
 
 The email falls back to `<githubId>+<login>@users.noreply.github.com` when GitHub returns none, so `User.email` is
 never empty.

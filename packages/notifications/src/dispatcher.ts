@@ -66,14 +66,20 @@ function jsonRequest(url: string, payload: unknown): PreparedRequest {
  * Rule filters (`enabled`, `onlyMajorReleases`, tag scope) are the caller's job: the worker
  * applies them, "Send Test" deliberately skips them.
  */
-export async function dispatchNotification(input: DispatchInput, options: DispatchOptions = {}): Promise<DispatchResult> {
+export async function dispatchNotification(
+  input: DispatchInput,
+  options: DispatchOptions = {},
+): Promise<DispatchResult> {
   const env = options.env ?? process.env;
   const { rule } = input;
   const channel = rule.channel;
   if (!isDeliverableChannel(channel)) {
-    throw new NotificationDeliveryError(`${channelLabel(channel)} rules are not delivered by the notification dispatcher.`, {
-      permanent: true,
-    });
+    throw new NotificationDeliveryError(
+      `${channelLabel(channel)} rules are not delivered by the notification dispatcher.`,
+      {
+        permanent: true,
+      },
+    );
   }
   const destination = maskDestination(channel, rule.destinationUrl);
   const appBaseUrl = trimTrailingChar(options.appBaseUrl ?? resolveAppBaseUrl(env), "/");
@@ -97,9 +103,12 @@ export async function dispatchNotification(input: DispatchInput, options: Dispat
 
   const url = rule.destinationUrl?.trim();
   if (!url) {
-    throw new NotificationDeliveryError(`This ${CHANNEL_INFO[channel].label} rule has no ${CHANNEL_INFO[channel].destinationLabel}.`, {
-      permanent: true,
-    });
+    throw new NotificationDeliveryError(
+      `This ${CHANNEL_INFO[channel].label} rule has no ${CHANNEL_INFO[channel].destinationLabel}.`,
+      {
+        permanent: true,
+      },
+    );
   }
 
   let request: PreparedRequest;

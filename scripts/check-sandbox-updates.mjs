@@ -7,14 +7,28 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const root = path.resolve(import.meta.dirname, "..");
 const dockerfilePath = path.join(root, "apps", "deps-sandbox", "Dockerfile");
 
-const args = new Set(process.argv.slice(2));
+let values;
+try {
+  ({ values } = parseArgs({
+    options: {
+      "outdated-only": { type: "boolean", default: false },
+      json: { type: "boolean", default: false },
+      "no-fail": { type: "boolean", default: false },
+      help: { type: "boolean", short: "h", default: false },
+    },
+    strict: true,
+  }));
+} catch (err) {
+  console.error(err instanceof Error ? err.message : String(err));
+  process.exit(1);
+}
 
-if (args.has("--help") || args.has("-h")) {
+if (values.help) {
   console.log(`Usage: node scripts/check-sandbox-updates.mjs [options]
 
 Options:
@@ -26,9 +40,9 @@ Options:
   process.exit(0);
 }
 
-const outdatedOnly = args.has("--outdated-only");
-const outputJson = args.has("--json");
-const noFail = args.has("--no-fail");
+const outdatedOnly = values["outdated-only"];
+const outputJson = values.json;
+const noFail = values["no-fail"];
 
 const dockerfileContent = readFileSync(dockerfilePath, "utf8");
 
@@ -44,7 +58,7 @@ const tools = [
     current: readArg("NPM_VERSION"),
     source: "npm",
     fetchLatest: async () => {
-      const res = await fetch("https://registry.npmjs.org/npm/latest");
+      const res = await fetch("https://registry.npmjs.org/npm/latest", { signal: AbortSignal.timeout(15_000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       const data = await res.json();
       return { latest: data.version };
@@ -56,7 +70,7 @@ const tools = [
     current: readArg("PNPM_VERSION"),
     source: "npm",
     fetchLatest: async () => {
-      const res = await fetch("https://registry.npmjs.org/pnpm/latest");
+      const res = await fetch("https://registry.npmjs.org/pnpm/latest", { signal: AbortSignal.timeout(15_000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       const data = await res.json();
       return { latest: data.version };
@@ -68,7 +82,7 @@ const tools = [
     current: readArg("BUN_VERSION"),
     source: "npm",
     fetchLatest: async () => {
-      const res = await fetch("https://registry.npmjs.org/bun/latest");
+      const res = await fetch("https://registry.npmjs.org/bun/latest", { signal: AbortSignal.timeout(15_000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       const data = await res.json();
       return { latest: data.version };
@@ -80,7 +94,7 @@ const tools = [
     current: readArg("POETRY_VERSION"),
     source: "pypi",
     fetchLatest: async () => {
-      const res = await fetch("https://pypi.org/pypi/poetry/json");
+      const res = await fetch("https://pypi.org/pypi/poetry/json", { signal: AbortSignal.timeout(15_000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       const data = await res.json();
       return { latest: data.info?.version };
@@ -92,8 +106,13 @@ const tools = [
     current: readArg("UV_VERSION"),
     source: "github",
     fetchLatest: async () => {
+      const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
       const res = await fetch("https://api.github.com/repos/astral-sh/uv/releases/latest", {
-        headers: { Accept: "application/vnd.github+json" },
+        headers: {
+          Accept: "application/vnd.github+json",
+          ...(githubToken ? { Authorization: `Bearer ${githubToken}` } : {}),
+        },
+        signal: AbortSignal.timeout(15_000),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       const data = await res.json();
@@ -154,43 +173,40 @@ const report = await Promise.all(
         error: err.message,
       };
     }
-  })
+  }),
 );
+
+const { outdated = [], "up-to-date": upToDate = [], error: errors = [] } = Object.groupBy(report, (r) => r.status);
 
 if (outputJson) {
   console.log(JSON.stringify(report, null, 2));
-  process.exit(0);
-}
-
-const outdated = report.filter((r) => r.status === "outdated");
-const upToDate = report.filter((r) => r.status === "up-to-date");
-const errors = report.filter((r) => r.status === "error");
-
-if (outdated.length > 0) {
-  console.log("OUTDATED SANDBOX TOOLS:");
-  for (const item of outdated) {
-    console.log(`  ✖ ${item.tool}: ${item.current} → ${item.latest} (${item.arg}, source: ${item.source})`);
+} else {
+  if (outdated.length > 0) {
+    console.log("OUTDATED SANDBOX TOOLS:");
+    for (const item of outdated) {
+      console.log(`  ✖ ${item.tool}: ${item.current} → ${item.latest} (${item.arg}, source: ${item.source})`);
+    }
+    console.log("");
   }
-  console.log("");
-}
 
-if (!outdatedOnly) {
-  console.log(`UP-TO-DATE SANDBOX TOOLS (${upToDate.length}):`);
-  for (const item of upToDate) {
-    console.log(`  ✔ ${item.tool} (${item.current})`);
+  if (!outdatedOnly) {
+    console.log(`UP-TO-DATE SANDBOX TOOLS (${upToDate.length}):`);
+    for (const item of upToDate) {
+      console.log(`  ✔ ${item.tool} (${item.current})`);
+    }
+    console.log("");
   }
-  console.log("");
-}
 
-if (errors.length > 0) {
-  console.log(`ERRORS CHECKING (${errors.length}):`);
-  for (const item of errors) {
-    console.log(`  ! ${item.tool}: ${item.error}`);
+  if (errors.length > 0) {
+    console.log(`ERRORS CHECKING (${errors.length}):`);
+    for (const item of errors) {
+      console.log(`  ! ${item.tool}: ${item.error}`);
+    }
+    console.log("");
   }
-  console.log("");
-}
 
-console.log(`Summary: ${upToDate.length} up-to-date, ${outdated.length} outdated, ${errors.length} errors.`);
+  console.log(`Summary: ${upToDate.length} up-to-date, ${outdated.length} outdated, ${errors.length} errors.`);
+}
 
 if (outdated.length > 0 && !noFail) {
   process.exit(1);

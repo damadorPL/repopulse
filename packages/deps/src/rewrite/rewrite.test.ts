@@ -53,14 +53,26 @@ describe("rewritePackageJson", () => {
   });
 
   it("rejects missing, stale and unsafe edits", () => {
-    expectCode(() => rewritePackageJson(text, [{ name: "vue", kind: "PROD", group: "", from: "1", to: "2" }]), "NOT_FOUND");
-    expectCode(() => rewritePackageJson(text, [{ name: "react", kind: "PROD", group: "", from: "^18.0.0", to: "^19" }]), "STALE");
-    expectCode(() => rewritePackageJson(text, [{ name: "react", kind: "PROD", group: "", from: "^18.2.0", to: '1", "x": "y' }]), "INVALID_VALUE");
+    expectCode(
+      () => rewritePackageJson(text, [{ name: "vue", kind: "PROD", group: "", from: "1", to: "2" }]),
+      "NOT_FOUND",
+    );
+    expectCode(
+      () => rewritePackageJson(text, [{ name: "react", kind: "PROD", group: "", from: "^18.0.0", to: "^19" }]),
+      "STALE",
+    );
+    expectCode(
+      () => rewritePackageJson(text, [{ name: "react", kind: "PROD", group: "", from: "^18.2.0", to: '1", "x": "y' }]),
+      "INVALID_VALUE",
+    );
   });
 
   it("refuses values with escapes", () => {
     const escaped = `{"dependencies":{"a":"\\u005e1.0.0"}}`;
-    expectCode(() => rewritePackageJson(escaped, [{ name: "a", kind: "PROD", group: "", from: "^1.0.0", to: "^1.1.0" }]), "NOT_REWRITABLE");
+    expectCode(
+      () => rewritePackageJson(escaped, [{ name: "a", kind: "PROD", group: "", from: "^1.0.0", to: "^1.1.0" }]),
+      "NOT_REWRITABLE",
+    );
   });
 });
 
@@ -114,19 +126,44 @@ describe("rewriteRequirements", () => {
 
   it("edits unhashed specifiers and leaves the rest untouched", () => {
     const text = "flask>=2.0,<3  # web\nclick==8.0\n";
-    expect(rewriteRequirements(text, [{ name: "flask", kind: "PROD", group: "", from: ">=2.0,<3", to: ">=2.3,<3" }])).toBe(
-      "flask>=2.3,<3  # web\nclick==8.0\n",
-    );
+    expect(
+      rewriteRequirements(text, [{ name: "flask", kind: "PROD", group: "", from: ">=2.0,<3", to: ">=2.3,<3" }]),
+    ).toBe("flask>=2.3,<3  # web\nclick==8.0\n");
   });
 
   it("requires hashes for hashed lines and rejects stale / missing / unpinned", () => {
     const text = `a==1.0 --hash=sha256:${A}\nb\n`;
-    expectCode(() => rewriteRequirements(text, [{ name: "a", kind: "PROD", group: "", from: "==1.0", to: "==1.1" }]), "HASHES_REQUIRED");
-    expectCode(() => rewriteRequirements(text, [{ name: "a", kind: "PROD", group: "", from: "==0.9", to: "==1.1", hashes: [B] }]), "STALE");
-    expectCode(() => rewriteRequirements(text, [{ name: "zzz", kind: "PROD", group: "", from: "", to: "==1" }]), "NOT_FOUND");
-    expectCode(() => rewriteRequirements(text, [{ name: "b", kind: "PROD", group: "", from: "", to: "==1" }]), "NOT_REWRITABLE");
-    expectCode(() => rewriteRequirements(text, [{ name: "a", kind: "PROD", group: "", from: "==1.0", to: "==1.1 # x", hashes: [B] }]), "INVALID_VALUE");
-    expectCode(() => rewriteRequirements(text, [{ name: "a", kind: "PROD", group: "", from: "==1.0", to: "==1.1", hashes: ["nothex"] }]), "INVALID_VALUE");
+    expectCode(
+      () => rewriteRequirements(text, [{ name: "a", kind: "PROD", group: "", from: "==1.0", to: "==1.1" }]),
+      "HASHES_REQUIRED",
+    );
+    expectCode(
+      () =>
+        rewriteRequirements(text, [{ name: "a", kind: "PROD", group: "", from: "==0.9", to: "==1.1", hashes: [B] }]),
+      "STALE",
+    );
+    expectCode(
+      () => rewriteRequirements(text, [{ name: "zzz", kind: "PROD", group: "", from: "", to: "==1" }]),
+      "NOT_FOUND",
+    );
+    expectCode(
+      () => rewriteRequirements(text, [{ name: "b", kind: "PROD", group: "", from: "", to: "==1" }]),
+      "NOT_REWRITABLE",
+    );
+    expectCode(
+      () =>
+        rewriteRequirements(text, [
+          { name: "a", kind: "PROD", group: "", from: "==1.0", to: "==1.1 # x", hashes: [B] },
+        ]),
+      "INVALID_VALUE",
+    );
+    expectCode(
+      () =>
+        rewriteRequirements(text, [
+          { name: "a", kind: "PROD", group: "", from: "==1.0", to: "==1.1", hashes: ["nothex"] },
+        ]),
+      "INVALID_VALUE",
+    );
   });
 
   it("normalizes hashes", () => {
@@ -170,14 +207,25 @@ requests = { version = "^2.31", extras = ["socks"] }
   });
 
   it("rejects wrong groups, stale specs and quotes", () => {
-    expectCode(() => rewritePyproject(text, [{ name: "pytest", kind: "GROUP", group: "test", from: ">=8", to: ">=9" }]), "NOT_FOUND");
-    expectCode(() => rewritePyproject(text, [{ name: "httpx", kind: "PROD", group: "", from: ">=0.1", to: ">=0.28" }]), "STALE");
-    expectCode(() => rewritePyproject(text, [{ name: "httpx", kind: "PROD", group: "", from: ">=0.27,<1", to: '>=1"' }]), "INVALID_VALUE");
+    expectCode(
+      () => rewritePyproject(text, [{ name: "pytest", kind: "GROUP", group: "test", from: ">=8", to: ">=9" }]),
+      "NOT_FOUND",
+    );
+    expectCode(
+      () => rewritePyproject(text, [{ name: "httpx", kind: "PROD", group: "", from: ">=0.1", to: ">=0.28" }]),
+      "STALE",
+    );
+    expectCode(
+      () => rewritePyproject(text, [{ name: "httpx", kind: "PROD", group: "", from: ">=0.27,<1", to: '>=1"' }]),
+      "INVALID_VALUE",
+    );
   });
 
   it("updates duplicate dependencies in the same group and rejects escaped strings with NOT_REWRITABLE", () => {
     const dupToml = `[project]\nname = "demo"\ndependencies = [\n  "urllib3>=1.26 ; python_version < '3.10'",\n  "urllib3>=1.26 ; python_version >= '3.10'",\n]\n`;
-    const updated = rewritePyproject(dupToml, [{ name: "urllib3", kind: "PROD", group: "", from: ">=1.26", to: ">=2.2" }]);
+    const updated = rewritePyproject(dupToml, [
+      { name: "urllib3", kind: "PROD", group: "", from: ">=1.26", to: ">=2.2" },
+    ]);
     expect(updated).toBe(
       `[project]\nname = "demo"\ndependencies = [\n  "urllib3>=2.2 ; python_version < '3.10'",\n  "urllib3>=2.2 ; python_version >= '3.10'",\n]\n`,
     );

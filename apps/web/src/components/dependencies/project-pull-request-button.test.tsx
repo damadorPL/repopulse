@@ -51,7 +51,9 @@ describe("ProjectPullRequestButton", () => {
         projectId="p1"
         fullName="acme/web"
         updateMode="AUTO_PR"
-        plans={[makePlan({ pullRequest: { number: 12, htmlUrl: "https://github.com/acme/web/pull/12", state: "OPEN" } })]}
+        plans={[
+          makePlan({ pullRequest: { number: 12, htmlUrl: "https://github.com/acme/web/pull/12", state: "OPEN" } }),
+        ]}
       />,
     );
     expect(updateHtml).toContain("Update PR");
@@ -91,7 +93,10 @@ describe("ProjectPullRequestButton", () => {
         fullName="acme/web"
         updateMode="MANUAL_PR"
         plans={[
-          makePlan({ groupKey: "all", pullRequest: { number: 12, htmlUrl: "https://github.com/acme/web/pull/12", state: "OPEN" } }),
+          makePlan({
+            groupKey: "all",
+            pullRequest: { number: 12, htmlUrl: "https://github.com/acme/web/pull/12", state: "OPEN" },
+          }),
           makePlan({
             groupKey: "major-vite",
             isMajor: true,

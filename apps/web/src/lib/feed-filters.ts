@@ -1,3 +1,5 @@
+import type { Route } from "next";
+
 /**
  * Feed filter state lives in the URL (`/?tag=…&semver=major&unread=1&q=…`) so views are
  * shareable, survive reloads and are rendered on the server. Shared by server and client code,
@@ -79,7 +81,7 @@ export function feedSearchParams(filters: Partial<FeedFilters>, releaseId?: stri
   return params;
 }
 
-export function feedHref(filters: Partial<FeedFilters> = {}, releaseId?: string | null): string {
+export function feedHref(filters: Partial<FeedFilters> = {}, releaseId?: string | null): Route {
   const query = feedSearchParams(filters, releaseId).toString();
   return query ? `/?${query}` : "/";
 }

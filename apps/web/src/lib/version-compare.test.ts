@@ -11,13 +11,22 @@ import {
 } from "./version-compare";
 
 const day = (n: number) => new Date(Date.UTC(2026, 0, n));
-const row = (tagName: string, n: number, semverType = "MINOR"): VersionRow => ({ tagName, publishedAt: day(n), semverType });
+const row = (tagName: string, n: number, semverType = "MINOR"): VersionRow => ({
+  tagName,
+  publishedAt: day(n),
+  semverType,
+});
 
 describe("parseVersion", () => {
   it("normalizes common tag shapes", () => {
     expect(parseVersion("v1.2.3")).toEqual({ major: 1, minor: 2, patch: 3, prerelease: [] });
     expect(parseVersion("release-1.2.3")).toEqual({ major: 1, minor: 2, patch: 3, prerelease: [] });
-    expect(parseVersion("@scope/pkg@4.0.0-beta.2")).toEqual({ major: 4, minor: 0, patch: 0, prerelease: ["beta", "2"] });
+    expect(parseVersion("@scope/pkg@4.0.0-beta.2")).toEqual({
+      major: 4,
+      minor: 0,
+      patch: 0,
+      prerelease: ["beta", "2"],
+    });
     expect(parseVersion("coolify@4.0.0-beta.380")).toMatchObject({ major: 4, prerelease: ["beta", "380"] });
     expect(parseVersion("v2")).toEqual({ major: 2, minor: 0, patch: 0, prerelease: [] });
   });

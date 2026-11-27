@@ -1,11 +1,10 @@
-import { Queue } from "bullmq";
 import {
+  createDepsScanQueue,
+  deduplicatedJobOptions,
   DEPS_JOB_NAMES,
-  DEPS_QUEUE_NAMES,
-  DEPS_SCAN_JOB_OPTIONS,
   DEPS_SCAN_PRIORITY,
   depsScanJobId,
-  type DepsScanJobData,
+  type DepsScanQueue,
 } from "@repopulse/queue";
 import { getRedis, isRealtimeConfigured, RealtimeUnavailableError, withRedisTimeout } from "@/server/realtime";
 
@@ -15,25 +14,30 @@ import { getRedis, isRealtimeConfigured, RealtimeUnavailableError, withRedisTime
  * Shares the cached `Queue` instance with the Dependencies actions (same `globalThis` key, same
  * options), so the web process holds one producer for the queue.
  */
-const globalForDeps = globalThis as unknown as { repopulseDepsScanQueue?: Queue<DepsScanJobData> };
+const globalForDeps = globalThis as unknown as { repopulseDepsScanQueue?: DepsScanQueue };
 
-function getDepsScanQueue(): Queue<DepsScanJobData> {
-  globalForDeps.repopulseDepsScanQueue ??= new Queue<DepsScanJobData>(DEPS_QUEUE_NAMES.scan, {
-    connection: getRedis(),
-    defaultJobOptions: DEPS_SCAN_JOB_OPTIONS,
-  });
+function getDepsScanQueue(): DepsScanQueue {
+  globalForDeps.repopulseDepsScanQueue ??= createDepsScanQueue(getRedis(), (err) =>
+    console.error(`[deps-webhook] queue error: ${err.message}`),
+  );
   return globalForDeps.repopulseDepsScanQueue;
 }
 
 /**
- * Queues a `deps-scan` with `trigger: "webhook"`. The jobId `deps-scan-{projectId}` absorbs bursts of
- * pushes: a scan that is already queued (scheduled, manual or from an earlier delivery) is left as it is.
- * Throws {@link RealtimeUnavailableError} when Redis is not configured or does not answer.
+ * Queues a `deps-scan` with `trigger: "webhook"`. Deduplication (`deps-scan-{projectId}`,
+ * `keepLastIfActive: true`) absorbs bursts of pushes and schedules at most one follow-up if a scan
+ * is currently active. Throws {@link RealtimeUnavailableError} when Redis is not configured or does
+ * not answer.
  */
 export async function enqueueWebhookScan(projectId: string): Promise<void> {
-  if (!isRealtimeConfigured()) throw new RealtimeUnavailableError("Background jobs are not configured (REDIS_URL is not set).");
+  if (!isRealtimeConfigured())
+    throw new RealtimeUnavailableError("Background jobs are not configured (REDIS_URL is not set).");
   const queue = getDepsScanQueue();
-  const jobId = depsScanJobId(projectId);
-  // BullMQ ignores an add whose jobId already exists (waiting, delayed or active).
-  await withRedisTimeout(queue.add(DEPS_JOB_NAMES.scan, { projectId, trigger: "webhook" }, { jobId, priority: DEPS_SCAN_PRIORITY.webhook }));
+  await withRedisTimeout(
+    queue.add(
+      DEPS_JOB_NAMES.scan,
+      { projectId, trigger: "webhook" },
+      deduplicatedJobOptions(depsScanJobId(projectId), DEPS_SCAN_PRIORITY.webhook),
+    ),
+  );
 }

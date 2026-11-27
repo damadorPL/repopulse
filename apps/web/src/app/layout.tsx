@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import type { ReactNode } from "react";
 import { cookies } from "next/headers";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
@@ -11,7 +10,7 @@ export const metadata: Metadata = {
   description: "Self-hosted GitHub release and dependency monitoring.",
 };
 
-export default async function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
   const theme = parseThemePreference((await cookies()).get(THEME_COOKIE)?.value);
 
   return (

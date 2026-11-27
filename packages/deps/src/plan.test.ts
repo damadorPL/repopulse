@@ -20,7 +20,15 @@ const NOW = new Date("2026-11-03T12:00:00Z");
 const daysAgo = (days: number): Date => new Date(NOW.getTime() - days * 24 * 60 * 60 * 1000);
 
 function v(version: string, ageDays = 30, extra: Partial<RegistryVersion> = {}): RegistryVersion {
-  return { version, publishedAt: daysAgo(ageDays), deprecated: false, yanked: false, requiresPython: null, sha256: [], ...extra };
+  return {
+    version,
+    publishedAt: daysAgo(ageDays),
+    deprecated: false,
+    yanked: false,
+    requiresPython: null,
+    sha256: [],
+    ...extra,
+  };
 }
 
 const POLICY: DepsPolicy = {
@@ -31,7 +39,11 @@ const POLICY: DepsPolicy = {
   ignoreRules: [],
 };
 
-const npmDep = (declared: string, currentVersion: string | null, extra: Partial<PlanDependency> = {}): PlanDependency => ({
+const npmDep = (
+  declared: string,
+  currentVersion: string | null,
+  extra: Partial<PlanDependency> = {},
+): PlanDependency => ({
   ecosystem: "NPM",
   name: "react",
   kind: "PROD",
@@ -74,7 +86,12 @@ describe("selectTarget", () => {
 
   it("ABOVE_LEVEL when only majors exist", () => {
     const result = selectTarget([v("18.2.0"), v("19.0.0")], npmDep("^18.2.0", "18.2.0"), POLICY, NOW);
-    expect(result).toMatchObject({ status: "ABOVE_LEVEL", targetVersion: null, consideredVersion: "19.0.0", level: "MAJOR" });
+    expect(result).toMatchObject({
+      status: "ABOVE_LEVEL",
+      targetVersion: null,
+      consideredVersion: "19.0.0",
+      level: "MAJOR",
+    });
   });
 
   it("TOO_NEW for a 1-day-old release with minReleaseAgeDays = 3, falls back to an older one", () => {
@@ -97,9 +114,14 @@ describe("selectTarget", () => {
 
   it("UP_TO_DATE when nothing newer passes", () => {
     expect(selectTarget([v("1.0.0")], npmDep("^1.0.0", "1.0.0"), POLICY, NOW).status).toBe("UP_TO_DATE");
-    expect(selectTarget([v("1.0.0"), v("2.0.0-rc.1")], npmDep("^1.0.0", "1.0.0"), { ...POLICY, maxUpdateLevel: "MAJOR" }, NOW).status).toBe(
-      "UP_TO_DATE",
-    );
+    expect(
+      selectTarget(
+        [v("1.0.0"), v("2.0.0-rc.1")],
+        npmDep("^1.0.0", "1.0.0"),
+        { ...POLICY, maxUpdateLevel: "MAJOR" },
+        NOW,
+      ).status,
+    ).toBe("UP_TO_DATE");
   });
 
   it("allows pre-releases of the same line only when opted in and current is a pre-release", () => {
@@ -115,9 +137,16 @@ describe("selectTarget", () => {
 
   it("applies ignore rules (whole dependency or version ranges)", () => {
     const candidates = [v("1.0.0"), v("1.1.0"), v("1.2.0")];
-    expect(selectTarget(candidates, npmDep("^1.0.0", "1.0.0"), { ...POLICY, ignoreRules: [{ name: "re*" }] }, NOW).status).toBe("IGNORED");
     expect(
-      selectTarget(candidates, npmDep("^1.0.0", "1.0.0"), { ...POLICY, ignoreRules: [{ name: "react", versions: ">=1.2.0" }] }, NOW),
+      selectTarget(candidates, npmDep("^1.0.0", "1.0.0"), { ...POLICY, ignoreRules: [{ name: "re*" }] }, NOW).status,
+    ).toBe("IGNORED");
+    expect(
+      selectTarget(
+        candidates,
+        npmDep("^1.0.0", "1.0.0"),
+        { ...POLICY, ignoreRules: [{ name: "react", versions: ">=1.2.0" }] },
+        NOW,
+      ),
     ).toMatchObject({ status: "OUTDATED", targetVersion: "1.1.0" });
   });
 
@@ -140,8 +169,16 @@ describe("selectTarget", () => {
   });
 
   it("BUMP: an upper bound that excludes the target blocks it", () => {
-    const dep: PlanDependency = { ...npmDep(">=1.2,<1.3", "1.2"), ecosystem: "PYPI", name: "foo", rangeSyntax: "pep440" };
-    expect(selectTarget([v("1.2"), v("1.3")], dep, POLICY, NOW)).toMatchObject({ status: "BLOCKED_BY_RANGE", consideredVersion: "1.3" });
+    const dep: PlanDependency = {
+      ...npmDep(">=1.2,<1.3", "1.2"),
+      ecosystem: "PYPI",
+      name: "foo",
+      rangeSyntax: "pep440",
+    };
+    expect(selectTarget([v("1.2"), v("1.3")], dep, POLICY, NOW)).toMatchObject({
+      status: "BLOCKED_BY_RANGE",
+      consideredVersion: "1.3",
+    });
     expect(selectTarget([v("1.2"), v("1.2.5"), v("1.3")], dep, POLICY, NOW)).toMatchObject({
       status: "OUTDATED",
       targetVersion: "1.2.5",
@@ -150,19 +187,48 @@ describe("selectTarget", () => {
   });
 
   it("peer dependencies are never bumped beyond the declared range", () => {
-    const result = selectTarget([v("17.0.0"), v("17.5.0"), v("18.0.0")], npmDep(">=17 <18", null, { kind: "PEER" }), { ...POLICY, maxUpdateLevel: "MAJOR" }, NOW);
-    expect(result).toMatchObject({ status: "OUTDATED", targetVersion: "17.5.0", newDeclared: ">=17 <18", currentFromLockfile: false, currentVersion: "17.0.0" });
+    const result = selectTarget(
+      [v("17.0.0"), v("17.5.0"), v("18.0.0")],
+      npmDep(">=17 <18", null, { kind: "PEER" }),
+      { ...POLICY, maxUpdateLevel: "MAJOR" },
+      NOW,
+    );
+    expect(result).toMatchObject({
+      status: "OUTDATED",
+      targetVersion: "17.5.0",
+      newDeclared: ">=17 <18",
+      currentFromLockfile: false,
+      currentVersion: "17.0.0",
+    });
   });
 
   it("DISMISSED for the same version, OUTDATED again for a newer one", () => {
     const dep = npmDep("^1.0.0", "1.0.0", { dismissedVersion: "1.1.0" });
-    expect(selectTarget([v("1.0.0"), v("1.1.0")], dep, POLICY, NOW)).toMatchObject({ status: "DISMISSED", targetVersion: "1.1.0" });
-    expect(selectTarget([v("1.0.0"), v("1.1.0"), v("1.2.0")], dep, POLICY, NOW)).toMatchObject({ status: "OUTDATED", targetVersion: "1.2.0" });
+    expect(selectTarget([v("1.0.0"), v("1.1.0")], dep, POLICY, NOW)).toMatchObject({
+      status: "DISMISSED",
+      targetVersion: "1.1.0",
+    });
+    expect(selectTarget([v("1.0.0"), v("1.1.0"), v("1.2.0")], dep, POLICY, NOW)).toMatchObject({
+      status: "OUTDATED",
+      targetVersion: "1.2.0",
+    });
   });
 
   it("filters by requires-python", () => {
-    const dep: PlanDependency = { ecosystem: "PYPI", name: "lib", kind: "PROD", declared: "==1.0", rangeSyntax: "pep440", currentVersion: "1.0", supported: true };
-    const candidates = [v("1.0"), v("1.1", 30, { requiresPython: [">=3.8"] }), v("1.2", 30, { requiresPython: [">=3.13"] })];
+    const dep: PlanDependency = {
+      ecosystem: "PYPI",
+      name: "lib",
+      kind: "PROD",
+      declared: "==1.0",
+      rangeSyntax: "pep440",
+      currentVersion: "1.0",
+      supported: true,
+    };
+    const candidates = [
+      v("1.0"),
+      v("1.1", 30, { requiresPython: [">=3.8"] }),
+      v("1.2", 30, { requiresPython: [">=3.13"] }),
+    ];
     expect(selectTarget(candidates, dep, { ...POLICY, requiresPython: ">=3.9,<3.12" }, NOW)).toMatchObject({
       status: "OUTDATED",
       targetVersion: "1.1",
@@ -174,7 +240,15 @@ describe("selectTarget", () => {
   });
 
   it("uses the declared lower bound without a lockfile and handles Poetry syntax", () => {
-    const dep: PlanDependency = { ecosystem: "PYPI", name: "django", kind: "PROD", declared: "^4.2", rangeSyntax: "poetry", currentVersion: null, supported: true };
+    const dep: PlanDependency = {
+      ecosystem: "PYPI",
+      name: "django",
+      kind: "PROD",
+      declared: "^4.2",
+      rangeSyntax: "poetry",
+      currentVersion: null,
+      supported: true,
+    };
     expect(selectTarget([v("4.2"), v("4.2.7"), v("5.0")], dep, POLICY, NOW)).toMatchObject({
       status: "OUTDATED",
       currentVersion: "4.2",
@@ -185,7 +259,14 @@ describe("selectTarget", () => {
   });
 
   it("UNSUPPORTED_SOURCE for unsupported specs and registry misses", () => {
-    expect(selectTarget([], npmDep("workspace:*", null, { supported: false, unsupportedReason: "Workspace dependency" }), POLICY, NOW)).toMatchObject({
+    expect(
+      selectTarget(
+        [],
+        npmDep("workspace:*", null, { supported: false, unsupportedReason: "Workspace dependency" }),
+        POLICY,
+        NOW,
+      ),
+    ).toMatchObject({
       status: "UNSUPPORTED_SOURCE",
       reason: "Workspace dependency",
     });
@@ -223,7 +304,8 @@ describe("selectTarget", () => {
 
 describe("ignore rules", () => {
   it("validates patterns", () => {
-    for (const ok of ["react", "@types/*", "*-plugin", "*eslint*", "*", "zope.interface"]) expect(isValidIgnorePattern(ok), ok).toBe(true);
+    for (const ok of ["react", "@types/*", "*-plugin", "*eslint*", "*", "zope.interface"])
+      expect(isValidIgnorePattern(ok), ok).toBe(true);
     for (const bad of ["", "re*ct", "**", "a b", "@types/**x"]) expect(isValidIgnorePattern(bad), bad).toBe(false);
   });
 
@@ -237,10 +319,12 @@ describe("ignore rules", () => {
   });
 
   it("zod schema accepts valid rules and rejects bad ones", () => {
-    expect(ignoreRulesSchema.parse([{ name: "react", versions: ">=19" }, { name: "django", versions: "" }])).toEqual([
-      { name: "react", versions: ">=19" },
-      { name: "django" },
-    ]);
+    expect(
+      ignoreRulesSchema.parse([
+        { name: "react", versions: ">=19" },
+        { name: "django", versions: "" },
+      ]),
+    ).toEqual([{ name: "react", versions: ">=19" }, { name: "django" }]);
     expect(ignoreRulesSchema.safeParse([{ name: "re*ct" }]).success).toBe(false);
     expect(ignoreRulesSchema.safeParse([{ name: "a", versions: "not a range" }]).success).toBe(false);
     expect(ignoreRulesSchema.safeParse([{ name: "a", extra: 1 }]).success).toBe(false);
@@ -298,7 +382,9 @@ describe("groupUpdates", () => {
 describe("groupCapability", () => {
   it("allows manifest-only updates", () => {
     expect(
-      groupCapability([{ path: "requirements.txt", packageManager: "PIP", lockfilePath: null }], { lockfileRegeneration: false }),
+      groupCapability([{ path: "requirements.txt", packageManager: "PIP", lockfilePath: null }], {
+        lockfileRegeneration: false,
+      }),
     ).toEqual({ canCreatePr: true, needsLockfile: false, lockfiles: [], reason: null });
   });
 
@@ -312,7 +398,10 @@ describe("groupCapability", () => {
       needsLockfile: true,
       lockfiles: ["pnpm-lock.yaml"],
     });
-    expect(groupCapability(manifests, { lockfileRegeneration: true })).toMatchObject({ canCreatePr: true, needsLockfile: true });
+    expect(groupCapability(manifests, { lockfileRegeneration: true })).toMatchObject({
+      canCreatePr: true,
+      needsLockfile: true,
+    });
   });
 
   it("is check only for Yarn, bun.lockb and pip-tools", () => {

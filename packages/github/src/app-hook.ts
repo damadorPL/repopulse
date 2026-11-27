@@ -52,11 +52,14 @@ function assertHttpsUrl(url: string): void {
 }
 
 /** `GET /app/hook/config` (App JWT). */
-export async function getAppWebhookConfig(auth: GitHubAppAuth, options: GitHubAppRequestOptions = {}): Promise<AppWebhookConfig> {
+export async function getAppWebhookConfig(
+  auth: GitHubAppAuth,
+  options: GitHubAppRequestOptions = {},
+): Promise<AppWebhookConfig> {
   const octokit = createAppOctokit(auth, options);
   try {
     const response = await octokit.request("GET /app/hook/config");
-    return mapConfig(response.data as WebhookConfigData);
+    return mapConfig(response.data);
   } catch (error) {
     rethrowAppError(error);
   }
@@ -72,7 +75,8 @@ export async function updateAppWebhookConfig(
   options: GitHubAppRequestOptions = {},
 ): Promise<AppWebhookConfig> {
   assertHttpsUrl(input.url);
-  if (input.secret !== undefined && input.secret.length < 16) throw new Error("The webhook secret must be at least 16 characters.");
+  if (input.secret !== undefined && input.secret.length < 16)
+    throw new Error("The webhook secret must be at least 16 characters.");
   const octokit = createAppOctokit(auth, options);
   try {
     // The body goes in `data`: a top-level `url` parameter would replace the route's own URL in Octokit.
@@ -84,7 +88,7 @@ export async function updateAppWebhookConfig(
         ...(input.secret !== undefined ? { secret: input.secret } : {}),
       },
     });
-    return mapConfig(response.data as WebhookConfigData);
+    return mapConfig(response.data);
   } catch (error) {
     rethrowAppError(error);
   }
@@ -96,7 +100,11 @@ const SIGNATURE_PATTERN = /^sha256=([0-9a-f]{64})$/i;
  * Verifies `X-Hub-Signature-256` (`sha256=<hex HMAC-SHA256 of the raw body>`) in constant time.
  * `false` for a missing / malformed header or an empty secret.
  */
-export function verifyWebhookSignature(rawBody: Buffer | string, signatureHeader: string | null, secret: string): boolean {
+export function verifyWebhookSignature(
+  rawBody: Buffer | string,
+  signatureHeader: string | null,
+  secret: string,
+): boolean {
   if (!secret || !signatureHeader) return false;
   const match = SIGNATURE_PATTERN.exec(signatureHeader.trim());
   if (!match?.[1]) return false;

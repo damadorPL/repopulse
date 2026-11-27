@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { BanIcon, EllipsisIcon, ExternalLinkIcon, FileTextIcon, RssIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -22,7 +22,6 @@ import {
   statusExplanation,
   type DependencyUpdateStatusValue,
 } from "@/lib/dependency-settings";
-import type { SemverTypeValue } from "@/lib/feed-filters";
 import { cn } from "@/lib/utils";
 import { ignoreDependencyAction } from "@/server/actions/dependencies";
 import { addRepositoryAction } from "@/server/actions/repositories";
@@ -79,7 +78,11 @@ function FilterSelect({
 }
 
 function Version({ value, className }: { value: string | null; className?: string }) {
-  return value ? <code className={cn("font-mono text-xs", className)}>{value}</code> : <span className="text-muted-foreground">—</span>;
+  return value ? (
+    <code className={cn("font-mono text-xs", className)}>{value}</code>
+  ) : (
+    <span className="text-muted-foreground">—</span>
+  );
 }
 
 /** Row actions: ignore this version / the dependency, changelog, and "Track releases" (the bridge back to the feed). */
@@ -111,7 +114,9 @@ function RowActions({
       if (!result.ok) return handle(result.error.code, result.error.message);
       setOpen(false);
       toast.success(versions ? `Ignoring ${row.name} ${versions}` : `Ignoring ${row.name}`, {
-        description: result.data.rescanQueued ? "Re-checking the project for other versions…" : "Remove the rule in Settings to undo.",
+        description: result.data.rescanQueued
+          ? "Re-checking the project for other versions…"
+          : "Remove the rule in Settings to undo.",
       });
     });
   }
@@ -119,7 +124,11 @@ function RowActions({
   function track() {
     if (!source) return;
     startTransition(async () => {
-      const result = await addRepositoryAction({ repoUrlOrSlug: source.fullName, includePrereleases: false, tagIds: [] });
+      const result = await addRepositoryAction({
+        repoUrlOrSlug: source.fullName,
+        includePrereleases: false,
+        tagIds: [],
+      });
       if (!result.ok) return handle(result.error.code, result.error.message);
       setOpen(false);
       toast.success(`Tracking the releases of ${result.data.fullName}`);
@@ -160,7 +169,12 @@ function RowActions({
             </button>
           ) : null}
           {changelog ? (
-            <a href={changelog} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent">
+            <a
+              href={changelog}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent"
+            >
               <FileTextIcon className="size-4 text-muted-foreground" aria-hidden />
               Changelog
               <ExternalLinkIcon className="ml-auto size-3.5 text-muted-foreground" aria-hidden />
@@ -176,7 +190,12 @@ function RowActions({
             {row.ecosystem === "NPM" ? "npm" : "PyPI"} page
           </a>
           {source && !tracked ? (
-            <button type="button" className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-accent" onClick={track} disabled={pending}>
+            <button
+              type="button"
+              className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-accent"
+              onClick={track}
+              disabled={pending}
+            >
               <RssIcon className="size-4 text-muted-foreground" aria-hidden />
               Track releases of {source.fullName}
             </button>
@@ -205,7 +224,7 @@ export function OutdatedTable({
   trackedFullNames: string[];
 }) {
   const [filters, setFilters] = useState<UpdateTableFilters>({});
-  const tracked = useMemo(() => new Set(trackedFullNames), [trackedFullNames]);
+  const tracked = new Set(trackedFullNames);
   const ecosystems = [...new Set(manifests.map((m) => m.ecosystem))];
   const shown = filterUpdateRows(rows, filters);
   const byManifest = manifests
@@ -337,7 +356,7 @@ export function OutdatedTable({
                       <td className="px-2 py-2">
                         <Version value={row.latestVersion} />
                       </td>
-                      <td className="px-2 py-2">{row.level ? <SemverBadge type={row.level as SemverTypeValue} /> : null}</td>
+                      <td className="px-2 py-2">{row.level ? <SemverBadge type={row.level} /> : null}</td>
                       <td className="px-2 py-2 text-xs text-muted-foreground">
                         {row.targetReleasedAt ? <RelativeTime date={row.targetReleasedAt} /> : "—"}
                       </td>
@@ -348,7 +367,11 @@ export function OutdatedTable({
                         {explanation ? <span className="block text-muted-foreground">{explanation}</span> : null}
                       </td>
                       <td className="px-2 py-1 text-right">
-                        <RowActions projectId={projectId} row={row} tracked={!source || tracked.has(source.fullName.toLowerCase())} />
+                        <RowActions
+                          projectId={projectId}
+                          row={row}
+                          tracked={!source || tracked.has(source.fullName.toLowerCase())}
+                        />
                       </td>
                     </tr>
                   );

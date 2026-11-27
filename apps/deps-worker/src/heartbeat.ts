@@ -5,8 +5,8 @@ import {
   type DepsWorkerHeartbeat,
 } from "@repopulse/deps";
 import type { Redis } from "@repopulse/queue";
-import { createLogger } from "./logger";
-import type { SandboxClient } from "./sandbox-client";
+import { createLogger, type ServiceLogger } from "./logger.js";
+import type { SandboxClient } from "./sandbox-client.js";
 
 const log = createLogger("heartbeat");
 
@@ -17,17 +17,29 @@ export async function writeHeartbeat(
   now: () => Date = () => new Date(),
 ): Promise<DepsWorkerHeartbeat> {
   const health = sandbox ? await sandbox.health() : null;
-  const payload: DepsWorkerHeartbeat = { at: now().toISOString(), sandbox: health ? { status: "ok", tools: health.tools } : null };
+  const payload: DepsWorkerHeartbeat = {
+    at: now().toISOString(),
+    sandbox: health ? { status: "ok", tools: health.tools } : null,
+  };
   await redis.set(DEPS_WORKER_HEARTBEAT_KEY, JSON.stringify(payload), "EX", DEPS_WORKER_HEARTBEAT_TTL_SECONDS);
   return payload;
 }
 
 /** Writes the heartbeat now and every 30 s; returns a stop function. Failures are logged, never thrown. */
-export function startHeartbeat(redis: Pick<Redis, "set">, sandbox: Pick<SandboxClient, "health"> | null): () => void {
+export function startHeartbeat(
+  redis: Pick<Redis, "set">,
+  sandbox: Pick<SandboxClient, "health"> | null,
+  heartbeatLog: Pick<ServiceLogger, "warn"> = log,
+): () => void {
   const beat = () =>
-    writeHeartbeat(redis, sandbox).catch((error: unknown) => log.warn(`could not write the heartbeat: ${error instanceof Error ? error.message : String(error)}`));
+    writeHeartbeat(redis, sandbox).catch((error: unknown) =>
+      heartbeatLog.warn(
+        { err: error },
+        `could not write the heartbeat: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+    );
   void beat();
-  const timer = setInterval(beat, DEPS_WORKER_HEARTBEAT_INTERVAL_MS);
+  const timer = setInterval(() => void beat(), DEPS_WORKER_HEARTBEAT_INTERVAL_MS);
   timer.unref();
   return () => clearInterval(timer);
 }

@@ -61,7 +61,10 @@ function nonNegativeInt(env: Record<string, string | undefined>, name: string, f
 export function readBackfillConfig(env: Record<string, string | undefined> = process.env): BackfillConfig {
   const hardCap = Math.max(1, nonNegativeInt(env, "RELEASE_BACKFILL_HARD_CAP", BACKFILL_DEFAULTS.hardCap));
   return {
-    defaultTarget: Math.min(hardCap, nonNegativeInt(env, "RELEASE_BACKFILL_DEFAULT_TARGET", BACKFILL_DEFAULTS.defaultTarget)),
+    defaultTarget: Math.min(
+      hardCap,
+      nonNegativeInt(env, "RELEASE_BACKFILL_DEFAULT_TARGET", BACKFILL_DEFAULTS.defaultTarget),
+    ),
     maxAgeDays: nonNegativeInt(env, "RELEASE_BACKFILL_MAX_AGE_DAYS", BACKFILL_DEFAULTS.maxAgeDays),
     hardCap,
     minQuota: nonNegativeInt(env, "RELEASE_BACKFILL_MIN_QUOTA", BACKFILL_DEFAULTS.minQuota),
@@ -80,7 +83,10 @@ function clamp(value: number, key: BackfillSettingKey): number {
  * are validated on save; this guards hand-edited rows), and the default target never exceeds the
  * hard cap, as in `readBackfillConfig`.
  */
-export function applyBackfillOverrides(base: BackfillConfig, overrides: BackfillOverrides | null | undefined): BackfillConfig {
+export function applyBackfillOverrides(
+  base: BackfillConfig,
+  overrides: BackfillOverrides | null | undefined,
+): BackfillConfig {
   const merged = { ...base };
   for (const key of Object.keys(base) as BackfillSettingKey[]) {
     const value = overrides?.[key];

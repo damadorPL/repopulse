@@ -21,7 +21,10 @@ const createInviteInput = z.object({
     .transform((v) => v || null),
   expiresInDays: z
     .number()
-    .refine((d) => (INVITE_EXPIRY_DAYS as readonly number[]).includes(d), `Choose ${INVITE_EXPIRY_DAYS.join(", ")} days`),
+    .refine(
+      (d) => (INVITE_EXPIRY_DAYS as readonly number[]).includes(d),
+      `Choose ${INVITE_EXPIRY_DAYS.join(", ")} days`,
+    ),
 });
 const deleteInviteInput = z.object({ inviteId: z.string().min(1).max(64) });
 
@@ -30,7 +33,9 @@ function revalidateAccess(): void {
   revalidatePath("/admin");
 }
 
-export async function setPublicRegistrationAction(input: { enabled: boolean }): Promise<ActionResult<{ enabled: boolean }>> {
+export async function setPublicRegistrationAction(input: {
+  enabled: boolean;
+}): Promise<ActionResult<{ enabled: boolean }>> {
   try {
     await getSuperAdminOrThrow();
     const parsed = setRegistrationInput.safeParse(input);

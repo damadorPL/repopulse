@@ -1,3 +1,4 @@
+import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { MAX_SANDBOX_BODY_BYTES } from "@repopulse/deps/limits";
 import type { ParsedLockRequest, ParsedLockResponse } from "@repopulse/deps/sandbox-contract";
@@ -84,7 +85,7 @@ describe("isAuthorized", () => {
 });
 
 describe("sandbox server", () => {
-  it("GET and HEAD /health report 200 without auth, and POST /health returns 405 with Allow: GET", async () => {
+  it("GET and HEAD /health report 200 without auth, and POST /health returns 405 with Allow: GET, HEAD", async () => {
     const { base } = await start(async () => OK);
     const res = await fetch(`${base}/health`);
     expect(res.status).toBe(200);
@@ -95,7 +96,7 @@ describe("sandbox server", () => {
 
     const postRes = await fetch(`${base}/health`, { method: "POST" });
     expect(postRes.status).toBe(405);
-    expect(postRes.headers.get("allow")).toBe("GET");
+    expect(postRes.headers.get("allow")).toBe("GET, HEAD");
   });
 
   it("rejects requests without the right token", async () => {
@@ -145,7 +146,6 @@ describe("sandbox server", () => {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
       body: stream,
-      // @ts-expect-error Node fetch requires duplex: "half" for ReadableStream request bodies
       duplex: "half",
     });
     expect(streamedRes.status).toBe(413);
@@ -205,6 +205,56 @@ describe("sandbox server", () => {
     expect(sandbox.server.listening).toBe(false);
   });
 
+  it("aborts the running job and releases the lock when the client disconnects mid-run", async () => {
+    let firstSignal: AbortSignal | undefined;
+    let secondSignal: AbortSignal | undefined;
+    let calls = 0;
+    const sandbox = createSandboxServer({
+      config: CONFIG,
+      tools: TOOLS,
+      runLock: (_req, opts) => {
+        calls += 1;
+        if (calls === 1) {
+          firstSignal = opts.signal;
+          return new Promise((resolve) => {
+            opts.signal?.addEventListener(
+              "abort",
+              () => resolve({ ok: false, code: "TIMEOUT", stderrTail: "aborted" }),
+              { once: true },
+            );
+          });
+        }
+        secondSignal = opts.signal;
+        return Promise.resolve(OK);
+      },
+    });
+    current = sandbox;
+    await new Promise<void>((resolve) => sandbox.server.listen(0, "127.0.0.1", resolve));
+    const { port } = sandbox.server.address() as AddressInfo;
+    const base = `http://127.0.0.1:${port}`;
+
+    const clientAbort = new AbortController();
+    const pending = fetch(`${base}/v1/lock`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify(REQUEST),
+      signal: clientAbort.signal,
+    });
+    await vi.waitFor(() => expect(firstSignal).toBeDefined());
+    expect(firstSignal?.aborted).toBe(false);
+    expect(sandbox.isBusy()).toBe(true);
+
+    clientAbort.abort();
+    await expect(pending).rejects.toThrow();
+    await vi.waitFor(() => expect(firstSignal?.aborted).toBe(true));
+    await vi.waitFor(() => expect(sandbox.isBusy()).toBe(false));
+
+    const followUp = await post(base, REQUEST);
+    expect(followUp.status).toBe(200);
+    expect(await followUp.json()).toEqual(OK);
+    expect(secondSignal?.aborted).toBe(false);
+  });
+
   it("returns 503 BUSY when shutting down and 500 INTERNAL when runLock throws or returns invalid schema", async () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
@@ -221,7 +271,8 @@ describe("sandbox server", () => {
       const invalidSandbox = createSandboxServer({
         config: CONFIG,
         tools: TOOLS,
-        runLock: async () => ({ ok: true, lockfile: { path: "../escape", contentBase64: "e30=" } }) as unknown as ParsedLockResponse,
+        runLock: async () =>
+          ({ ok: true, lockfile: { path: "../escape", contentBase64: "e30=" } }) as unknown as ParsedLockResponse,
       });
       current = invalidSandbox;
       await new Promise<void>((resolve) => invalidSandbox.server.listen(0, "127.0.0.1", resolve));
@@ -234,7 +285,8 @@ describe("sandbox server", () => {
       // Directly invoke the request listener after close() sets shuttingDown = true.
       await invalidSandbox.close();
       current = null;
-      const req = new (await import("node:stream")).PassThrough() as unknown as import("node:http").IncomingMessage;
+      const stream = new (await import("node:stream")).PassThrough();
+      const req = stream as unknown as IncomingMessage;
       req.url = "/v1/lock";
       req.method = "POST";
       req.headers = { authorization: `Bearer ${TOKEN}` };
@@ -248,9 +300,9 @@ describe("sandbox server", () => {
         end(b?: string) {
           payload = b ?? "";
         },
-      } as unknown as import("node:http").ServerResponse;
+      } as unknown as ServerResponse;
       invalidSandbox.server.emit("request", req, res);
-      req.end();
+      stream.end();
       await vi.waitFor(() => expect(status).toBe(503));
       expect(JSON.parse(payload)).toEqual({ ok: false, code: "BUSY", stderrTail: "sandbox is shutting down" });
     } finally {

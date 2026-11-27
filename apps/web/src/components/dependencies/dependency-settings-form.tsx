@@ -32,7 +32,11 @@ import {
 } from "@/lib/dependency-settings";
 import type { NotificationLevelValue } from "@/lib/subscription-settings";
 import { cn } from "@/lib/utils";
-import { ignoreDependencyAction, removeIgnoreRuleAction, updateDependencyProjectSettingsAction } from "@/server/actions/dependencies";
+import {
+  ignoreDependencyAction,
+  removeIgnoreRuleAction,
+  updateDependencyProjectSettingsAction,
+} from "@/server/actions/dependencies";
 
 export interface DependencySettingsValues {
   updateMode: DepsUpdateModeValue;
@@ -48,7 +52,17 @@ export interface DependencySettingsValues {
   commitPrefix: string;
 }
 
-function Row({ label, htmlFor, hint, children }: { label: string; htmlFor?: string; hint?: ReactNode; children: ReactNode }) {
+function Row({
+  label,
+  htmlFor,
+  hint,
+  children,
+}: {
+  label: string;
+  htmlFor?: string;
+  hint?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <div className="grid gap-1.5 sm:grid-cols-[14rem_1fr] sm:items-start sm:gap-4">
       <div>
@@ -145,7 +159,9 @@ export function DependencySettingsForm({
   };
 
   const prMode = form.updateMode !== "NOTIFY";
-  const suggestions = [...new Set([...detectedManifests, ...MANIFEST_PATH_SUGGESTIONS])].filter((path) => !form.manifestPaths.includes(path)).slice(0, 8);
+  const suggestions = [...new Set([...detectedManifests, ...MANIFEST_PATH_SUGGESTIONS])]
+    .filter((path) => !form.manifestPaths.includes(path))
+    .slice(0, 8);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -163,7 +179,8 @@ export function DependencySettingsForm({
     const next = { ...form, minReleaseAgeDays, maxOpenPrs, manifestPaths };
     const changed: Record<string, unknown> = {};
     for (const key of Object.keys(next) as Array<keyof DependencySettingsValues>) {
-      const same = key === "manifestPaths" ? samePaths(next.manifestPaths, values.manifestPaths) : next[key] === values[key];
+      const same =
+        key === "manifestPaths" ? samePaths(next.manifestPaths, values.manifestPaths) : next[key] === values[key];
       if (!same) changed[key] = next[key];
     }
     if (Object.keys(changed).length === 0) {
@@ -171,7 +188,10 @@ export function DependencySettingsForm({
       return;
     }
     startTransition(async () => {
-      const result = await updateDependencyProjectSettingsAction({ projectId, ...(changed as Partial<DependencySettingsValues>) });
+      const result = await updateDependencyProjectSettingsAction({
+        projectId,
+        ...(changed as Partial<DependencySettingsValues>),
+      });
       if (!result.ok) {
         if (result.error.code === "UNAUTHORIZED") router.push("/login");
         setError(result.error.message);
@@ -186,7 +206,11 @@ export function DependencySettingsForm({
 
   return (
     <form onSubmit={submit} className="grid gap-5">
-      <Row label="Updates" htmlFor={`${id}-mode`} hint={UPDATE_MODE_OPTIONS.find((o) => o.value === form.updateMode)?.hint}>
+      <Row
+        label="Updates"
+        htmlFor={`${id}-mode`}
+        hint={UPDATE_MODE_OPTIONS.find((o) => o.value === form.updateMode)?.hint}
+      >
         <OptionSelect
           id={`${id}-mode`}
           value={form.updateMode}
@@ -195,21 +219,46 @@ export function DependencySettingsForm({
           disabled={pending}
           isDisabled={(value) => value !== "NOTIFY" && prModeReason !== null && values.updateMode === "NOTIFY"}
         />
-        {prModeReason && values.updateMode === "NOTIFY" ? <p className="text-xs text-muted-foreground">Pull request modes: {prModeReason}</p> : null}
+        {prModeReason && values.updateMode === "NOTIFY" ? (
+          <p className="text-xs text-muted-foreground">Pull request modes: {prModeReason}</p>
+        ) : null}
       </Row>
 
-      <Row label="Maximum update level" htmlFor={`${id}-level`} hint={UPDATE_LEVEL_OPTIONS.find((o) => o.value === form.maxUpdateLevel)?.hint}>
-        <OptionSelect id={`${id}-level`} value={form.maxUpdateLevel} onChange={(value) => set("maxUpdateLevel", value)} options={UPDATE_LEVEL_OPTIONS} disabled={pending} />
+      <Row
+        label="Maximum update level"
+        htmlFor={`${id}-level`}
+        hint={UPDATE_LEVEL_OPTIONS.find((o) => o.value === form.maxUpdateLevel)?.hint}
+      >
+        <OptionSelect
+          id={`${id}-level`}
+          value={form.maxUpdateLevel}
+          onChange={(value) => set("maxUpdateLevel", value)}
+          options={UPDATE_LEVEL_OPTIONS}
+          disabled={pending}
+        />
       </Row>
 
-      <Row label="Pre-releases" htmlFor={`${id}-pre`} hint="Only when the current version is itself a pre-release of the same line.">
+      <Row
+        label="Pre-releases"
+        htmlFor={`${id}-pre`}
+        hint="Only when the current version is itself a pre-release of the same line."
+      >
         <div className="flex items-center gap-2">
-          <Switch id={`${id}-pre`} checked={form.includePrereleases} onCheckedChange={(checked) => set("includePrereleases", checked)} disabled={pending} />
+          <Switch
+            id={`${id}-pre`}
+            checked={form.includePrereleases}
+            onCheckedChange={(checked) => set("includePrereleases", checked)}
+            disabled={pending}
+          />
           <span className="text-sm text-muted-foreground">{form.includePrereleases ? "Included" : "Ignored"}</span>
         </div>
       </Row>
 
-      <Row label="Minimum release age" htmlFor={`${id}-age`} hint="Newer releases are held back, a guard against compromised releases.">
+      <Row
+        label="Minimum release age"
+        htmlFor={`${id}-age`}
+        hint="Newer releases are held back, a guard against compromised releases."
+      >
         <div className="flex items-center gap-2">
           <Input
             id={`${id}-age`}
@@ -229,12 +278,32 @@ export function DependencySettingsForm({
         </div>
       </Row>
 
-      <Row label="Range strategy" htmlFor={`${id}-range`} hint={RANGE_STRATEGY_OPTIONS.find((o) => o.value === form.rangeStrategy)?.hint}>
-        <OptionSelect id={`${id}-range`} value={form.rangeStrategy} onChange={(value) => set("rangeStrategy", value)} options={RANGE_STRATEGY_OPTIONS} disabled={pending} />
+      <Row
+        label="Range strategy"
+        htmlFor={`${id}-range`}
+        hint={RANGE_STRATEGY_OPTIONS.find((o) => o.value === form.rangeStrategy)?.hint}
+      >
+        <OptionSelect
+          id={`${id}-range`}
+          value={form.rangeStrategy}
+          onChange={(value) => set("rangeStrategy", value)}
+          options={RANGE_STRATEGY_OPTIONS}
+          disabled={pending}
+        />
       </Row>
 
-      <Row label="Grouping" htmlFor={`${id}-group`} hint={GROUP_MODE_OPTIONS.find((o) => o.value === form.groupMode)?.hint}>
-        <OptionSelect id={`${id}-group`} value={form.groupMode} onChange={(value) => set("groupMode", value)} options={GROUP_MODE_OPTIONS} disabled={pending} />
+      <Row
+        label="Grouping"
+        htmlFor={`${id}-group`}
+        hint={GROUP_MODE_OPTIONS.find((o) => o.value === form.groupMode)?.hint}
+      >
+        <OptionSelect
+          id={`${id}-group`}
+          value={form.groupMode}
+          onChange={(value) => set("groupMode", value)}
+          options={GROUP_MODE_OPTIONS}
+          disabled={pending}
+        />
       </Row>
 
       <Row label="Open pull requests" htmlFor={`${id}-prs`} hint="At most this many at a time; majors wait last.">
@@ -275,7 +344,11 @@ export function DependencySettingsForm({
         />
       </Row>
 
-      <Row label="Notifications" htmlFor={`${id}-notify`} hint={DEPS_NOTIFICATION_LEVEL_OPTIONS.find((o) => o.value === form.notificationLevel)?.hint}>
+      <Row
+        label="Notifications"
+        htmlFor={`${id}-notify`}
+        hint={DEPS_NOTIFICATION_LEVEL_OPTIONS.find((o) => o.value === form.notificationLevel)?.hint}
+      >
         <OptionSelect
           id={`${id}-notify`}
           value={form.notificationLevel}
@@ -365,7 +438,11 @@ export function IgnoreRulesEditor({ projectId, rules }: { projectId: string; rul
       return;
     }
     startTransition(async () => {
-      const result = await ignoreDependencyAction({ projectId, name: name.trim(), versions: versions.trim() || undefined });
+      const result = await ignoreDependencyAction({
+        projectId,
+        name: name.trim(),
+        versions: versions.trim() || undefined,
+      });
       if (!result.ok) return handleError(result.error.code, result.error.message);
       setName("");
       setVersions("");
@@ -393,11 +470,16 @@ export function IgnoreRulesEditor({ projectId, rules }: { projectId: string; rul
   return (
     <div className="grid gap-3">
       {rules.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No ignore rules. Use a row&apos;s menu in the table, or add one here.</p>
+        <p className="text-sm text-muted-foreground">
+          No ignore rules. Use a row&apos;s menu in the table, or add one here.
+        </p>
       ) : (
         <ul className="flex flex-wrap gap-1.5">
           {rules.map((rule) => (
-            <li key={formatIgnoreRule(rule)} className="inline-flex items-center gap-1 rounded-full border py-0.5 pr-1 pl-2.5 font-mono text-xs">
+            <li
+              key={formatIgnoreRule(rule)}
+              className="inline-flex items-center gap-1 rounded-full border py-0.5 pr-1 pl-2.5 font-mono text-xs"
+            >
               {rule.name}
               {rule.versions ? <span className="text-muted-foreground">{rule.versions}</span> : null}
               <button

@@ -1,4 +1,9 @@
-import { commitMatchesAnyPath, MAX_WATCHED_PATHS, normalizeWatchedPath, parseWatchedPaths } from "@repopulse/github/watched-paths";
+import {
+  commitMatchesAnyPath,
+  MAX_WATCHED_PATHS,
+  normalizeWatchedPath,
+  parseWatchedPaths,
+} from "@repopulse/github/watched-paths";
 
 /**
  * Watched path helpers ("Files / folders" tracking) shared by Server Actions and client forms.
@@ -20,7 +25,10 @@ export function validateWatchedPaths(input: string | readonly string[]): Watched
   const { paths, invalid, tooMany } = parseWatchedPaths(input);
   if (invalid.length > 0) {
     const shown = invalid[0]!.length > 60 ? `${invalid[0]!.slice(0, 59)}…` : invalid[0]!;
-    return { ok: false, message: `"${shown}" is not a valid path. Use a path relative to the repository root, like packages/cli.` };
+    return {
+      ok: false,
+      message: `"${shown}" is not a valid path. Use a path relative to the repository root, like packages/cli.`,
+    };
   }
   if (tooMany) return { ok: false, message: `Watch at most ${MAX_WATCHED_PATHS} paths.` };
   if (paths.length === 0) return { ok: false, message: "Enter at least one file or folder path." };

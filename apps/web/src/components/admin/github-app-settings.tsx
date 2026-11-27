@@ -2,7 +2,16 @@
 
 import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { ExternalLinkIcon, KeyRoundIcon, LoaderCircleIcon, PlusIcon, RefreshCwIcon, SaveIcon, Trash2Icon, WebhookIcon } from "lucide-react";
+import {
+  ExternalLinkIcon,
+  KeyRoundIcon,
+  LoaderCircleIcon,
+  PlusIcon,
+  RefreshCwIcon,
+  SaveIcon,
+  TrashIcon,
+  WebhookIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,7 +33,7 @@ import {
 import type { GitHubAppView } from "@/server/queries/github-app";
 
 const textareaClass =
-  "min-h-32 w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-[12px] shadow-xs outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive";
+  "min-h-32 w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-[12px] shadow-xs outline-hidden transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive";
 
 function ErrorText({ children }: { children: string | null }) {
   if (!children) return null;
@@ -93,8 +102,9 @@ export function GitHubAppStatusCard({ app }: { app: GitHubAppView }) {
           </dl>
           {!app.keyReadable ? (
             <p role="alert" className="text-sm text-amber-700 dark:text-amber-400">
-              The saved private key can&apos;t be decrypted (was <code className="text-[12px]">TOKEN_ENCRYPTION_KEY</code> changed?).
-              Generate a new key in the App&apos;s settings on GitHub and save it below.
+              The saved private key can&apos;t be decrypted (was{" "}
+              <code className="text-[12px]">TOKEN_ENCRYPTION_KEY</code> changed?). Generate a new key in the App&apos;s
+              settings on GitHub and save it below.
             </p>
           ) : null}
           <div className="flex flex-wrap gap-2">
@@ -162,8 +172,8 @@ export function CreateGitHubAppForm({ appBaseUrl, replaces }: { appBaseUrl: stri
           Create the GitHub App
         </h2>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          GitHub creates a RepoPulse App from a prepared manifest (contents and pull requests: write, metadata: read; webhooks off) and
-          sends you back here. {replaces ? "The new App replaces the current one." : null}
+          GitHub creates a RepoPulse App from a prepared manifest (contents and pull requests: write, metadata: read;
+          webhooks off) and sends you back here. {replaces ? "The new App replaces the current one." : null}
         </p>
       </div>
       <form onSubmit={start} className="grid gap-4">
@@ -180,7 +190,9 @@ export function CreateGitHubAppForm({ appBaseUrl, replaces }: { appBaseUrl: stri
               maxLength={39}
               disabled={pending || redirecting}
             />
-            <p className="text-xs text-muted-foreground">Empty = owned by your personal GitHub account. You must be an owner of the organization.</p>
+            <p className="text-xs text-muted-foreground">
+              Empty = owned by your personal GitHub account. You must be an owner of the organization.
+            </p>
           </div>
           <div className="grid gap-2">
             <Label htmlFor="github-app-name">App name (optional)</Label>
@@ -193,12 +205,15 @@ export function CreateGitHubAppForm({ appBaseUrl, replaces }: { appBaseUrl: stri
               maxLength={GITHUB_APP_NAME_MAX}
               disabled={pending || redirecting}
             />
-            <p className="text-xs text-muted-foreground">Must be unique on GitHub. You can rename it on GitHub before creating it.</p>
+            <p className="text-xs text-muted-foreground">
+              Must be unique on GitHub. You can rename it on GitHub before creating it.
+            </p>
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          Callback: <code className="break-all text-[11px]">{appBaseUrl}/api/github-app/manifest/callback</code>. It comes from{" "}
-          <code className="text-[11px]">APP_BASE_URL</code>, which must be the address you use to open RepoPulse.
+          Callback: <code className="break-all text-[11px]">{appBaseUrl}/api/github-app/manifest/callback</code>. It
+          comes from <code className="text-[11px]">APP_BASE_URL</code>, which must be the address you use to open
+          RepoPulse.
         </p>
         <ErrorText>{error}</ErrorText>
         <div>
@@ -244,18 +259,25 @@ export function ManualGitHubAppForm({ app }: { app: GitHubAppView }) {
       }
       setPrivateKey("");
       setWebhookSecret("");
-      toast.success("GitHub App saved", { description: `${result.data.slug} (owner: ${result.data.owner ?? "unknown"}) answered with this key.` });
+      toast.success("GitHub App saved", {
+        description: `${result.data.slug} (owner: ${result.data.owner ?? "unknown"}) answered with this key.`,
+      });
     });
   }
 
   return (
-    <form onSubmit={submit} className="grid gap-4 rounded-lg border bg-card p-4 sm:p-5" aria-labelledby="github-app-manual">
+    <form
+      onSubmit={submit}
+      className="grid gap-4 rounded-lg border bg-card p-4 sm:p-5"
+      aria-labelledby="github-app-manual"
+    >
       <div>
         <h2 id="github-app-manual" className="font-medium">
           Use an existing App
         </h2>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          Enter the App ID, the slug and a private key from the App&apos;s settings on GitHub. RepoPulse checks them with GitHub before saving.
+          Enter the App ID, the slug and a private key from the App&apos;s settings on GitHub. RepoPulse checks them
+          with GitHub before saving.
         </p>
       </div>
       <div className="grid items-start gap-4 sm:grid-cols-2">
@@ -302,7 +324,9 @@ export function ManualGitHubAppForm({ app }: { app: GitHubAppView }) {
           disabled={pending}
         />
         <p className="text-xs text-muted-foreground">
-          {app.keySaved ? "A key is saved; it is never shown again. Paste a key to replace it." : "Encrypted before it is stored, and never shown again."}
+          {app.keySaved
+            ? "A key is saved; it is never shown again. Paste a key to replace it."
+            : "Encrypted before it is stored, and never shown again."}
         </p>
       </div>
       <div className="grid gap-2">
@@ -316,7 +340,9 @@ export function ManualGitHubAppForm({ app }: { app: GitHubAppView }) {
           disabled={pending}
         />
         <p className="text-xs text-muted-foreground">
-          {app.webhookSecretSaved ? "Empty keeps the saved secret for the same App." : "Only for an App whose webhook already has a secret. Otherwise leave it empty: “Enable webhooks” generates one."}
+          {app.webhookSecretSaved
+            ? "Empty keeps the saved secret for the same App."
+            : "Only for an App whose webhook already has a secret. Otherwise leave it empty: “Enable webhooks” generates one."}
         </p>
       </div>
       <ErrorText>{error}</ErrorText>
@@ -349,21 +375,24 @@ export function RemoveGitHubAppButton() {
   }
 
   return (
-    <section aria-labelledby="github-app-remove" className="grid gap-3 rounded-lg border border-destructive/30 bg-card p-4 sm:p-5">
+    <section
+      aria-labelledby="github-app-remove"
+      className="grid gap-3 rounded-lg border border-destructive/30 bg-card p-4 sm:p-5"
+    >
       <div>
         <h2 id="github-app-remove" className="font-medium">
           Remove the App from RepoPulse
         </h2>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          Forgets the App ID, slug, key and webhook secret. Projects keep checking in notify mode; update pull requests stop. The App stays on
-          GitHub.
+          Forgets the App ID, slug, key and webhook secret. Projects keep checking in notify mode; update pull requests
+          stop. The App stays on GitHub.
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {confirming ? (
           <>
             <Button type="button" variant="destructive" disabled={pending} onClick={remove}>
-              {pending ? <LoaderCircleIcon className="animate-spin" /> : <Trash2Icon />}
+              {pending ? <LoaderCircleIcon className="animate-spin" /> : <TrashIcon />}
               Remove GitHub App
             </Button>
             <Button type="button" variant="ghost" disabled={pending} onClick={() => setConfirming(false)}>
@@ -372,7 +401,7 @@ export function RemoveGitHubAppButton() {
           </>
         ) : (
           <Button type="button" variant="outline" onClick={() => setConfirming(true)}>
-            <Trash2Icon />
+            <TrashIcon />
             Remove…
           </Button>
         )}
@@ -383,7 +412,12 @@ export function RemoveGitHubAppButton() {
 
 function ExternalLink({ href, children }: { href: string; children: string }) {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium underline underline-offset-2">
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 font-medium underline underline-offset-2"
+    >
       {children}
       <ExternalLinkIcon className="size-3" aria-hidden />
     </a>
@@ -425,8 +459,9 @@ export function GitHubAppWebhooksCard({ app, target }: { app: GitHubAppView; tar
           Webhooks (optional)
         </h2>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          With webhooks, a push that changes a manifest or lockfile on a project&apos;s default branch is checked right away, and merged or
-          closed update pull requests are recorded at once. Without them, scheduled checks pick up the same changes later.
+          With webhooks, a push that changes a manifest or lockfile on a project&apos;s default branch is checked right
+          away, and merged or closed update pull requests are recorded at once. Without them, scheduled checks pick up
+          the same changes later.
         </p>
       </div>
 
@@ -437,20 +472,29 @@ export function GitHubAppWebhooksCard({ app, target }: { app: GitHubAppView; tar
           </p>
           <ol className="grid list-decimal gap-2 pl-5 text-sm">
             <li>
-              <span className="font-medium">Enable webhooks</span> below. RepoPulse sets this URL and a webhook secret on the App (content type
-              JSON, SSL verification on){app.webhookSecretSaved ? ", reusing the saved secret" : ""}.
+              <span className="font-medium">Enable webhooks</span> below. RepoPulse sets this URL and a webhook secret
+              on the App (content type JSON, SSL verification on)
+              {app.webhookSecretSaved ? ", reusing the saved secret" : ""}.
             </li>
             <li>
-              In the App&apos;s {links ? <ExternalLink href={links.general}>General settings</ExternalLink> : "General settings"}, under Webhook,
-              tick <span className="font-medium">Active</span> and save. GitHub&apos;s API can&apos;t switch this on.
+              In the App&apos;s{" "}
+              {links ? <ExternalLink href={links.general}>General settings</ExternalLink> : "General settings"}, under
+              Webhook, tick <span className="font-medium">Active</span> and save. GitHub&apos;s API can&apos;t switch
+              this on.
             </li>
             <li>
-              In {links ? <ExternalLink href={links.events}>Permissions &amp; events</ExternalLink> : "Permissions & events"}, under Subscribe to
-              events, tick <span className="font-medium">Push</span> and <span className="font-medium">Pull request</span> and save.
+              In{" "}
+              {links ? (
+                <ExternalLink href={links.events}>Permissions &amp; events</ExternalLink>
+              ) : (
+                "Permissions & events"
+              )}
+              , under Subscribe to events, tick <span className="font-medium">Push</span> and{" "}
+              <span className="font-medium">Pull request</span> and save.
             </li>
             <li>
-              Optional: {links ? <ExternalLink href={links.advanced}>Advanced</ExternalLink> : "Advanced"} lists recent deliveries. The ping GitHub
-              sends after activation should show 204.
+              Optional: {links ? <ExternalLink href={links.advanced}>Advanced</ExternalLink> : "Advanced"} lists recent
+              deliveries. The ping GitHub sends after activation should show 204.
             </li>
           </ol>
           <ErrorText>{error}</ErrorText>
@@ -465,7 +509,12 @@ export function GitHubAppWebhooksCard({ app, target }: { app: GitHubAppView; tar
               Enable webhooks
             </Button>
             {app.webhookSecretSaved ? (
-              <Button type="button" variant="outline" disabled={pending || !app.keyReadable} onClick={() => enable(true)}>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={pending || !app.keyReadable}
+                onClick={() => enable(true)}
+              >
                 <RefreshCwIcon />
                 Replace the secret
               </Button>
@@ -474,8 +523,8 @@ export function GitHubAppWebhooksCard({ app, target }: { app: GitHubAppView; tar
         </>
       ) : (
         <p className="text-sm text-muted-foreground">
-          Not available here: {target.reason} Set <code className="text-[12px]">APP_BASE_URL</code> to the public https:// address of this
-          instance to enable webhooks.
+          Not available here: {target.reason} Set <code className="text-[12px]">APP_BASE_URL</code> to the public
+          https:// address of this instance to enable webhooks.
         </p>
       )}
     </section>

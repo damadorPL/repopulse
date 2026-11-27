@@ -14,11 +14,11 @@
 | --- | --- | --- |
 | `app/(dashboard)/` | Signed-in pages sharing `layout.tsx` (sidebar, top bar, `SseListener`) | anything server-side |
 | `app/login`, `app/invite/[token]` | Public pages | |
-| `app/api/auth/[...nextauth]`, `app/api/events/stream`, `app/api/health`, `app/api/github-app/{manifest/callback,webhook}` | Route handlers | |
+| `app/api/auth/[...all]`, `app/api/events/stream`, `app/api/health`, `app/api/github-app/{manifest/callback,webhook}` | Route handlers | |
 | `server/actions/*.ts` | `"use server"` mutations, one file per area | `server/*`, `lib/*`, packages |
 | `server/queries/*.ts` | Read queries and view types for pages | `server/*`, `lib/*`, packages |
 | `server/*.ts` | Server-only helpers, **not** `"use server"`, so they are not callable from the browser and can be unit-tested | packages |
-| `lib/*.ts` | Code shared by client and server (constants, zod schemas, pure helpers). `lib/auth.ts` is server-only (Auth.js) | no `@repopulse/db`, no `server/*` |
+| `lib/*.ts` | Code shared by client and server (constants, pure helpers; Zod schemas live in `*-schema.ts` for server actions only). `lib/auth.ts` is server-only (Better Auth) | no `@repopulse/db`, no `server/*` |
 | `components/<area>/` | Client and server components by feature: `access`, `admin`, `dependencies`, `email`, `feed`, `layout`, `modals`, `notifications`, `reader`, `realtime`, `repositories`, `theme` | `lib/*`, `server/actions/*`, **type-only** imports from `server/*` |
 | `components/ui/` | shadcn/ui primitives (badge, button, checkbox, dialog, input, label, popover, select, sheet, skeleton, sonner, switch, all on `radix-ui`) | |
 
@@ -42,9 +42,9 @@ Path alias: `@/*` → `apps/web/src/*` (tsconfig and `vitest.config.ts`).
 | `/admin/dependencies` | `app/(dashboard)/admin/dependencies/page.tsx` | **super admin**. Module switch, `deps-worker` heartbeat, sandbox tools, App state, counts |
 | `/login` | `app/login/page.tsx` | public. GitHub sign-in, error messages (`?error=InviteRequired`, `InviteInvalid`, …) |
 | `/invite/[token]` | `app/invite/[token]/page.tsx` | public. Accepts an invite: sets the cookie, then GitHub sign-in |
-| `GET /api/events/stream` | `app/api/events/stream/route.ts` | user. SSE relay of `user:{id}:events` (`runtime = "nodejs"`, `dynamic = "force-dynamic"`) |
+| `GET /api/events/stream` | `app/api/events/stream/route.ts` | user. SSE relay of `user:{id}:events` via multiplexed Redis subscriber |
 | `GET /api/health` | `app/api/health/route.ts` | public. Container healthcheck |
-| `/api/auth/*` | `app/api/auth/[...nextauth]/route.ts` | Auth.js handlers |
+| `/api/auth/*` | `app/api/auth/[...all]/route.ts` | Better Auth handlers |
 | `GET /api/github-app/manifest/callback` | `app/api/github-app/manifest/callback/route.ts` | **super admin** (404 otherwise). Manifest code exchange, checks the state cookie |
 | `POST /api/github-app/webhook` | `app/api/github-app/webhook/route.ts` | public, `X-Hub-Signature-256` only. Enqueues `deps-scan`; no database writes ([dependencies.md](./dependencies.md#webhooks-part-e-optional)) |
 

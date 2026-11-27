@@ -2,14 +2,20 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildTestRelease, dispatchNotification, releaseReaderUrl, resolveAppBaseUrl } from "./dispatcher.js";
-import { NotificationDeliveryError, WebhookUrlError } from "./errors.js";
+import { WebhookUrlError, type NotificationDeliveryError } from "./errors.js";
 import { describeResponseBody, postWebhook, type WebhookSender } from "./http.js";
 import type { ResolveAll } from "./ssrf-guard.js";
 import type { DispatchInput, NotificationChannel } from "./types.js";
 
 function input(channel: NotificationChannel, destinationUrl: string | null): DispatchInput {
   return {
-    rule: { id: "rule1", channel, destinationUrl, onlyMajorReleases: true, tag: { name: "Critical", colorHex: "#EF4444" } },
+    rule: {
+      id: "rule1",
+      channel,
+      destinationUrl,
+      onlyMajorReleases: true,
+      tag: { name: "Critical", colorHex: "#EF4444" },
+    },
     release: {
       id: "rel1",
       tagName: "v2.0.0",
@@ -51,7 +57,14 @@ describe("dispatchNotification", () => {
 
   it("sends email to the rule's address, or the user's email by default", async () => {
     const sendMail = vi.fn(async () => {});
-    const smtp = { host: "smtp.example.com", port: 587, secure: false, user: undefined, pass: undefined, from: "Releases <r@example.com>" };
+    const smtp = {
+      host: "smtp.example.com",
+      port: 587,
+      secure: false,
+      user: undefined,
+      pass: undefined,
+      from: "Releases <r@example.com>",
+    };
     await dispatchNotification(input("EMAIL_INSTANT", null), { env: {}, smtp, sendMail });
     await dispatchNotification(input("EMAIL_INSTANT", "team@example.com"), { env: {}, smtp, sendMail });
     const sent = sendMail.mock.calls.map((call) => (call as unknown as [{ to: string; from: string }])[0]);
@@ -60,17 +73,23 @@ describe("dispatchNotification", () => {
   });
 
   it("fails permanently when SMTP is not configured or the channel is not deliverable", async () => {
-    await expect(dispatchNotification(input("EMAIL_INSTANT", null), { env: {} })).rejects.toMatchObject({ permanent: true });
+    await expect(dispatchNotification(input("EMAIL_INSTANT", null), { env: {} })).rejects.toMatchObject({
+      permanent: true,
+    });
     // SMTP_* env vars are no longer read: email is set up in the UI only.
     await expect(
       dispatchNotification(input("EMAIL_INSTANT", null), { env: { SMTP_HOST: "smtp.example.com" }, smtp: null }),
     ).rejects.toMatchObject({ permanent: true, message: expect.stringContaining("Admin → Email") });
     await expect(dispatchNotification(input("IN_APP", null), { env: {} })).rejects.toMatchObject({ permanent: true });
-    await expect(dispatchNotification(input("DISCORD_WEBHOOK", null), { env: {} })).rejects.toMatchObject({ permanent: true });
+    await expect(dispatchNotification(input("DISCORD_WEBHOOK", null), { env: {} })).rejects.toMatchObject({
+      permanent: true,
+    });
   });
 
   it("blocks a private destination before sending anything (real transport)", async () => {
-    const error = await dispatchNotification(input("CUSTOM_WEBHOOK", "http://127.0.0.1:9/hook"), { env: {} }).catch((e) => e);
+    const error = await dispatchNotification(input("CUSTOM_WEBHOOK", "http://127.0.0.1:9/hook"), { env: {} }).catch(
+      (e) => e,
+    );
     expect(error).toBeInstanceOf(WebhookUrlError);
     expect(error.permanent).toBe(true);
   });
@@ -101,12 +120,20 @@ describe("postWebhook against a local server", () => {
       req.on("end", () => {
         received.push({ url: req.url ?? "", headers: req.headers, body });
         if (req.url === "/ok") return void res.writeHead(204).end();
-        if (req.url === "/gone") return void res.writeHead(404, { "content-type": "application/json" }).end('{"message":"Unknown Webhook","code":10015}');
+        if (req.url === "/gone")
+          return void res
+            .writeHead(404, { "content-type": "application/json" })
+            .end('{"message":"Unknown Webhook","code":10015}');
         if (req.url === "/bad") return void res.writeHead(400).end("bad request");
         if (req.url === "/status-408") return void res.writeHead(408).end("timeout");
         if (req.url === "/status-425") return void res.writeHead(425).end("too early");
         if (req.url === "/status-429") return void res.writeHead(429).end("rate limited");
         if (req.url === "/huge") return void res.writeHead(200).end("x".repeat(32 * 1024));
+        if (req.url === "/huge-chunked") {
+          res.writeHead(200);
+          for (let i = 0; i < 6; i++) res.write("y".repeat(6 * 1024));
+          return void res.end();
+        }
         if (req.url === "/busy") return void res.writeHead(503).end("try later");
         if (req.url === "/moved") return void res.writeHead(302, { location: "http://169.254.169.254/" }).end();
         if (req.url === "/slow") return void setTimeout(() => res.writeHead(200).end(), 2_000);
@@ -121,7 +148,13 @@ describe("postWebhook against a local server", () => {
 
   const send = (path: string, options: { timeoutMs?: number } = {}) =>
     postWebhook(
-      { url: new URL(`${base}${path}`), headers: { "Content-Type": "application/json" }, body: '{"hello":"world"}', service: "Test", destination: "hooks.test" },
+      {
+        url: new URL(`${base}${path}`),
+        headers: { "Content-Type": "application/json" },
+        body: '{"hello":"world"}',
+        service: "Test",
+        destination: "hooks.test",
+      },
       { policy: allowAll, resolveAll: localDns, ...options },
     );
 
@@ -135,7 +168,13 @@ describe("postWebhook against a local server", () => {
 
   it("turns credentials in the URL into a Basic Authorization header unless Authorization is already set", async () => {
     await postWebhook(
-      { url: new URL(base.replace("http://", "http://alice:s%40cret@") + "/ok"), headers: {}, body: "x", service: "Test", destination: "hooks.test" },
+      {
+        url: new URL(base.replace("http://", "http://alice:s%40cret@") + "/ok"),
+        headers: {},
+        body: "x",
+        service: "Test",
+        destination: "hooks.test",
+      },
       { policy: allowAll, resolveAll: localDns },
     );
     expect(received.at(-1)!.headers.authorization).toBe(`Basic ${Buffer.from("alice:s@cret").toString("base64")}`);
@@ -161,6 +200,9 @@ describe("postWebhook against a local server", () => {
     const huge = await send("/huge");
     expect(huge.body).toHaveLength(16 * 1024);
 
+    const hugeChunked = await send("/huge-chunked");
+    expect(hugeChunked.body).toHaveLength(16 * 1024);
+
     await expect(send("/bad")).rejects.toMatchObject({ permanent: true, status: 400 });
     await expect(send("/status-408")).rejects.toMatchObject({ permanent: false, status: 408 });
     await expect(send("/status-425")).rejects.toMatchObject({ permanent: false, status: 425 });
@@ -185,7 +227,13 @@ describe("postWebhook against a local server", () => {
     const closedPort = (closedServer.address() as AddressInfo).port;
     await new Promise<void>((resolve) => closedServer.close(() => resolve()));
     const connRefused = (await postWebhook(
-      { url: new URL(`http://hooks.test:${closedPort}/ok`), headers: {}, body: "x", service: "Test", destination: "hooks.test" },
+      {
+        url: new URL(`http://hooks.test:${closedPort}/ok`),
+        headers: {},
+        body: "x",
+        service: "Test",
+        destination: "hooks.test",
+      },
       { policy: allowAll, resolveAll: localDns },
     ).catch((e: unknown) => e)) as NotificationDeliveryError;
     expect(connRefused).toMatchObject({ permanent: false });
@@ -204,7 +252,7 @@ describe("postWebhook against a local server", () => {
     expect(received.length).toBe(before);
   });
 
-  it("checks the address again at connect time (DNS rebinding)", async () => {
+  it("checks the address again at connect time (DNS rebinding) and does not reuse keep-alive sockets across calls", async () => {
     let calls = 0;
     // First answer (validation) is public, the second (socket lookup) is loopback.
     const rebinding: ResolveAll = async () => (calls++ === 0 ? publicDns("x") : localDns("x"));
@@ -216,6 +264,23 @@ describe("postWebhook against a local server", () => {
       ),
     ).rejects.toBeInstanceOf(WebhookUrlError);
     expect(received.length).toBe(before);
+
+    // A succeeding call followed by a rebind to loopback must still invoke guarded lookup (agent: false).
+    let lookups = 0;
+    const allowThenBlock: ResolveAll = async () =>
+      lookups++ < 2 ? localDns("x") : [{ address: "169.254.169.254", family: 4 }];
+    await expect(
+      postWebhook(
+        { url: new URL(`${base}/ok`), headers: {}, body: "x", service: "Test", destination: "hooks.test" },
+        { policy: allowAll, resolveAll: allowThenBlock },
+      ),
+    ).resolves.toMatchObject({ status: 204 });
+    await expect(
+      postWebhook(
+        { url: new URL(`${base}/ok`), headers: {}, body: "x", service: "Test", destination: "hooks.test" },
+        { policy: allowAll, resolveAll: allowThenBlock },
+      ),
+    ).rejects.toBeInstanceOf(WebhookUrlError);
   });
 });
 

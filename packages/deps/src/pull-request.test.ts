@@ -57,7 +57,9 @@ describe("commit message and targets", () => {
     expect(buildCommitMessage("chore(deps):", [react, { ...react, manifestPath: "package.json" }])).toBe(
       "chore(deps): update react to 19.3.0",
     );
-    expect(buildCommitMessage("chore(deps):", [react, { ...react, toVersion: "18.3.1" }])).toBe("chore(deps): update react");
+    expect(buildCommitMessage("chore(deps):", [react, { ...react, toVersion: "18.3.1" }])).toBe(
+      "chore(deps): update react",
+    );
     const seven = Array.from({ length: 7 }, (_, i) => ({ ...react, name: `dep${i}` }));
     expect(buildCommitMessage("chore(deps):", seven)).toBe("chore(deps): update 7 dependencies");
     expect(buildCommitMessage("  ", [react])).toBe("Update react to 19.3.0");
@@ -69,9 +71,16 @@ describe("commit message and targets", () => {
 
   it("formats and parses targets", () => {
     expect(formatTarget(typesNode)).toBe("package.json#@types/node@24.1.0");
-    expect(parseTarget("package.json#@types/node@24.1.0")).toEqual({ manifestPath: "package.json", name: "@types/node", version: "24.1.0" });
+    expect(parseTarget("package.json#@types/node@24.1.0")).toEqual({
+      manifestPath: "package.json",
+      name: "@types/node",
+      version: "24.1.0",
+    });
     expect(parseTarget("nope")).toBeNull();
-    expect(buildTargets([react, typesNode, react])).toEqual(["apps/web/package.json#react@19.3.0", "package.json#@types/node@24.1.0"]);
+    expect(buildTargets([react, typesNode, react])).toEqual([
+      "apps/web/package.json#react@19.3.0",
+      "package.json#@types/node@24.1.0",
+    ]);
   });
 });
 
@@ -80,14 +89,18 @@ describe("buildPrBody", () => {
     const body = buildPrBody({
       groupKey: "all",
       updates: [react, typesNode],
-      skipped: [{ name: "@babel/core", manifestPath: "package.json", reason: "8.0.0 is younger than 3 days (@someone)" }],
+      skipped: [
+        { name: "@babel/core", manifestPath: "package.json", reason: "8.0.0 is younger than 3 days (@someone)" },
+      ],
       projectUrl: "https://repopulse.example.com/dependencies/acme/web",
     });
     expect(body).toContain("| Dependency | Manifest | Version | Level | Released | Changelog |");
     expect(body).toContain(
       "| `react` | `apps/web/package.json` | `19.2.0` → `19.3.0` | minor | 2026-10-20 | [releases](https://github.com/facebook/react/releases) · [npm](https://www.npmjs.com/package/react/v/19.3.0) |",
     );
-    expect(body).toContain("| `@types/node` | `package.json` | — → `24.1.0` | major | — | [npm](https://www.npmjs.com/package/@types/node/v/24.1.0) |");
+    expect(body).toContain(
+      "| `@types/node` | `package.json` | — → `24.1.0` | major | — | [npm](https://www.npmjs.com/package/@types/node/v/24.1.0) |",
+    );
     expect(body).toContain("Opened by RepoPulse · settings: https://repopulse.example.com/dependencies/acme/web");
     expect(body.endsWith("<!-- repopulse:deps:all -->")).toBe(true);
     // Every `@` outside code spans and URLs is defused.
@@ -109,7 +122,11 @@ describe("buildPrBody", () => {
   });
 
   it("stays below the GitHub size limit and collapses huge skipped lists", () => {
-    const many = Array.from({ length: 3000 }, (_, i) => ({ ...react, name: `package-number-${i}`, manifestPath: `apps/app-${i}/package.json` }));
+    const many = Array.from({ length: 3000 }, (_, i) => ({
+      ...react,
+      name: `package-number-${i}`,
+      manifestPath: `apps/app-${i}/package.json`,
+    }));
     const body = buildPrBody({ groupKey: "all", updates: many, projectUrl: "https://x" });
     expect(body.length).toBeLessThanOrEqual(PR_BODY_MAX_LENGTH);
     expect(body).toMatch(/…and \d+ more/);

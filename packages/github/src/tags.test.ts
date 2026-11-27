@@ -38,7 +38,10 @@ describe("fetchRecentTags", () => {
   it("queries refs/tags by commit date and maps lightweight and annotated tags", async () => {
     const fetch = mockFetch((url, init) => {
       expect(url.pathname).toBe("/graphql");
-      const body = JSON.parse(String(init.body)) as { query: string; variables: Record<string, unknown> };
+      const body = JSON.parse(typeof init.body === "string" ? init.body : "") as {
+        query: string;
+        variables: Record<string, unknown>;
+      };
       expect(body.query).toContain('refPrefix: "refs/tags/"');
       expect(body.query).toContain("TAG_COMMIT_DATE");
       expect(body.variables).toEqual({ owner: "acme", name: "widget", first: 20 });
@@ -65,7 +68,12 @@ describe("fetchRecentTags", () => {
       });
     });
 
-    const tags = await fetchRecentTags({ owner: "acme", name: "widget", accessToken: "t", octokit: createOctokit({ fetch }) });
+    const tags = await fetchRecentTags({
+      owner: "acme",
+      name: "widget",
+      accessToken: "t",
+      octokit: createOctokit({ fetch }),
+    });
 
     expect(tags).toEqual([
       {
@@ -91,7 +99,10 @@ describe("fetchRecentTags", () => {
 
   it("maps a missing repository to GitHubRepositoryNotFoundError", async () => {
     const fetch = mockFetch(() =>
-      json({ data: { repository: null }, errors: [{ type: "NOT_FOUND", message: "Could not resolve to a Repository" }] }),
+      json({
+        data: { repository: null },
+        errors: [{ type: "NOT_FOUND", message: "Could not resolve to a Repository" }],
+      }),
     );
     await expect(
       fetchRecentTags({ owner: "acme", name: "gone", accessToken: "t", octokit: createOctokit({ fetch }) }),
@@ -105,9 +116,12 @@ describe("fetchRecentTags", () => {
         { headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1798761600" } },
       ),
     );
-    const error = await fetchRecentTags({ owner: "acme", name: "widget", accessToken: "t", octokit: createOctokit({ fetch }) }).catch(
-      (e: unknown) => e,
-    );
+    const error = await fetchRecentTags({
+      owner: "acme",
+      name: "widget",
+      accessToken: "t",
+      octokit: createOctokit({ fetch }),
+    }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(GitHubRateLimitError);
     expect((error as GitHubRateLimitError).resetAt).toEqual(new Date(1798761600 * 1000));
   });
@@ -121,16 +135,30 @@ describe("fetchRecentTags", () => {
     for (const [status, headers] of [
       [429, {}],
       [403, { "x-ratelimit-remaining": "0" }],
+      [403, { "retry-after": "30" }],
+      [403, { "retry-after": "Wed, 21 Oct 2026 07:28:00 GMT" }],
     ] as const) {
       const rateFetch = mockFetch(() => json({ message: "rate limit" }, { status, headers }));
       await expect(
-        fetchRecentTags({ owner: "acme", name: "widget", accessToken: "t", octokit: createOctokit({ fetch: rateFetch }) }),
+        fetchRecentTags({
+          owner: "acme",
+          name: "widget",
+          accessToken: "t",
+          octokit: createOctokit({ fetch: rateFetch }),
+        }),
       ).rejects.toBeInstanceOf(GitHubRateLimitError);
     }
 
-    const unknownGql = mockFetch(() => json({ data: null, errors: [{ type: "FORBIDDEN", message: "Resource not accessible" }] }));
+    const unknownGql = mockFetch(() =>
+      json({ data: null, errors: [{ type: "FORBIDDEN", message: "Resource not accessible" }] }),
+    );
     await expect(
-      fetchRecentTags({ owner: "acme", name: "widget", accessToken: "t", octokit: createOctokit({ fetch: unknownGql }) }),
+      fetchRecentTags({
+        owner: "acme",
+        name: "widget",
+        accessToken: "t",
+        octokit: createOctokit({ fetch: unknownGql }),
+      }),
     ).rejects.toThrow(/Resource not accessible/);
   });
 });
@@ -174,21 +202,47 @@ describe("compareCommits", () => {
         html_url: "https://github.com/acme/widget/compare/v1.0.0...v1.1.0",
         total_commits: 2,
         commits: [
-          { sha: "1111111aaa", html_url: "https://github.com/acme/widget/commit/1111111aaa", commit: { message: "Older\n\nbody" }, author: null },
-          { sha: "2222222bbb", html_url: "https://github.com/acme/widget/commit/2222222bbb", commit: { message: "Newer" }, author: { login: "octo" } },
+          {
+            sha: "1111111aaa",
+            html_url: "https://github.com/acme/widget/commit/1111111aaa",
+            commit: { message: "Older\n\nbody" },
+            author: null,
+          },
+          {
+            sha: "2222222bbb",
+            html_url: "https://github.com/acme/widget/commit/2222222bbb",
+            commit: { message: "Newer" },
+            author: { login: "octo" },
+          },
         ],
       });
     });
 
-    const result = await compareCommits({ owner: "acme", name: "widget", base: "v1.0.0", head: "v1.1.0", octokit: createOctokit({ fetch }) });
+    const result = await compareCommits({
+      owner: "acme",
+      name: "widget",
+      base: "v1.0.0",
+      head: "v1.1.0",
+      octokit: createOctokit({ fetch }),
+    });
 
     expect(result).toEqual({
       base: "v1.0.0",
       htmlUrl: "https://github.com/acme/widget/compare/v1.0.0...v1.1.0",
       totalCommits: 2,
       commits: [
-        { sha: "2222222bbb", subject: "Newer", htmlUrl: "https://github.com/acme/widget/commit/2222222bbb", authorLogin: "octo" },
-        { sha: "1111111aaa", subject: "Older", htmlUrl: "https://github.com/acme/widget/commit/1111111aaa", authorLogin: null },
+        {
+          sha: "2222222bbb",
+          subject: "Newer",
+          htmlUrl: "https://github.com/acme/widget/commit/2222222bbb",
+          authorLogin: "octo",
+        },
+        {
+          sha: "1111111aaa",
+          subject: "Older",
+          htmlUrl: "https://github.com/acme/widget/commit/1111111aaa",
+          authorLogin: null,
+        },
       ],
     });
   });
@@ -233,7 +287,12 @@ describe("buildTagChangelog", () => {
   });
 
   it("caps the commit list and counts the rest", () => {
-    const commits = Array.from({ length: 100 }, (_, i) => ({ sha: `${i}`.padStart(7, "0"), subject: `c${i}`, htmlUrl: "u", authorLogin: null }));
+    const commits = Array.from({ length: 100 }, (_, i) => ({
+      sha: `${i}`.padStart(7, "0"),
+      subject: `c${i}`,
+      htmlUrl: "u",
+      authorLogin: null,
+    }));
     const body = buildTagChangelog(TAG, { base: "v1.0.0", htmlUrl: "u", totalCommits: 340, commits });
     expect(body.match(/^- \[/gm)).toHaveLength(TAG_CHANGELOG_MAX_COMMITS);
     expect(body).toContain(`- …and ${340 - TAG_CHANGELOG_MAX_COMMITS} more commits`);

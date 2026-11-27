@@ -9,9 +9,9 @@ import {
   toSmtpConfig,
   type DependencyUpdateInput,
 } from "@repopulse/notifications";
-import type { DepsNotifyJobData } from "@repopulse/queue";
-import { createLogger } from "../logger";
-import { passesDependencyNotificationLevel } from "./notify-jobs";
+import { DEPS_QUEUE_NAMES, type DepsNotifyJobData } from "@repopulse/queue";
+import { createLogger } from "../logger.js";
+import { passesDependencyNotificationLevel } from "./notify-jobs.js";
 
 const log = createLogger("deps-notify");
 
@@ -28,7 +28,9 @@ export type DepsNotifySkipReason =
   | "PULL_REQUEST_GONE"
   | "NOTHING_LEFT";
 
-export type DepsNotifyOutcome = { status: "SKIPPED"; reason: DepsNotifySkipReason } | { status: "SENT"; channel: string; destination: string };
+export type DepsNotifyOutcome =
+  | { status: "SKIPPED"; reason: DepsNotifySkipReason }
+  | { status: "SENT"; channel: string; destination: string };
 
 export interface DepsNotifyDeps {
   prisma: PrismaClient;
@@ -46,8 +48,15 @@ export interface DepsNotifyDeps {
 export async function processDepsNotify(job: Job<DepsNotifyJobData>, deps: DepsNotifyDeps): Promise<DepsNotifyOutcome> {
   const data = job.data;
   const { prisma } = deps;
+  const ctx = {
+    queue: DEPS_QUEUE_NAMES.notify,
+    jobId: job.id,
+    ruleId: data.ruleId,
+    projectId: data.projectId,
+    kind: data.kind,
+  };
   const skip = (reason: DepsNotifySkipReason): DepsNotifyOutcome => {
-    log.info(`rule ${data.ruleId} / project ${data.projectId} (${data.kind}): skipped (${reason})`);
+    log.info({ ...ctx, reason }, `rule ${data.ruleId} / project ${data.projectId} (${data.kind}): skipped (${reason})`);
     return { status: "SKIPPED", reason };
   };
   if (!(await loadDepsEnabled(prisma))) return skip("DISABLED");
@@ -62,24 +71,43 @@ export async function processDepsNotify(job: Job<DepsNotifyJobData>, deps: DepsN
   if (!project) return skip("PROJECT_GONE");
   if (!rule || rule.userId !== project.userId) return skip("RULE_GONE");
   if (!rule.enabled) return skip("RULE_DISABLED");
-  if (!rule.events.includes(data.kind === "digest" ? "DEPENDENCY_UPDATES" : "DEPENDENCY_PULL_REQUESTS")) return skip("EVENT_DISABLED");
+  if (!rule.events.includes(data.kind === "digest" ? "DEPENDENCY_UPDATES" : "DEPENDENCY_PULL_REQUESTS"))
+    return skip("EVENT_DISABLED");
   if (rule.tagId !== null) return skip("TAG_SCOPED");
   if (!isDeliverableChannel(rule.channel)) return skip("UNSUPPORTED_CHANNEL");
   if (project.notificationLevel === "NONE") return skip("NOTIFICATION_LEVEL");
 
-  const manifests = await prisma.dependencyManifest.findMany({ where: { projectId: project.id }, select: { id: true, path: true, ecosystem: true } });
+  const manifests = await prisma.dependencyManifest.findMany({
+    where: { projectId: project.id },
+    select: { id: true, path: true, ecosystem: true },
+  });
   const manifestById = new Map(manifests.map((m) => [m.id, m]));
   let updates: DependencyUpdateInput[];
-  let pullRequest: { event: "opened" | "updated" | "edited" | "access_lost"; number: number | null; url: string | null } | null = null;
+  let pullRequest: {
+    event: "opened" | "updated" | "edited" | "access_lost";
+    number: number | null;
+    url: string | null;
+  } | null = null;
 
   if (data.kind === "digest") {
-    const rows = await prisma.dependencyUpdate.findMany({ where: { projectId: project.id, id: { in: data.updateIds }, status: "OUTDATED" } });
+    const rows = await prisma.dependencyUpdate.findMany({
+      where: { projectId: project.id, id: { in: data.updateIds }, status: "OUTDATED" },
+    });
     updates = rows
       .filter((row) => row.targetVersion && passesDependencyNotificationLevel(project.notificationLevel, row.level))
       .flatMap((row) => {
         const manifest = manifestById.get(row.manifestId);
         return manifest
-          ? [{ name: row.name, from: row.currentVersion, to: row.targetVersion!, level: row.level, manifest: manifest.path, ecosystem: manifest.ecosystem }]
+          ? [
+              {
+                name: row.name,
+                from: row.currentVersion,
+                to: row.targetVersion!,
+                level: row.level,
+                manifest: manifest.path,
+                ecosystem: manifest.ecosystem,
+              },
+            ]
           : [];
       });
     if (updates.length === 0) return skip("NOTHING_LEFT");
@@ -129,14 +157,25 @@ export async function processDepsNotify(job: Job<DepsNotifyJobData>, deps: DepsN
       },
       { smtp, appBaseUrl, ...(deps.signal ? { signal: deps.signal } : {}) },
     );
-    log.info(`${label}: delivered to ${result.destination}${result.status ? ` (HTTP ${result.status})` : ""}`);
+    log.info(
+      {
+        ...ctx,
+        channel: result.channel,
+        destination: result.destination,
+        ...(result.status ? { status: result.status } : {}),
+      },
+      `${label}: delivered to ${result.destination}${result.status ? ` (HTTP ${result.status})` : ""}`,
+    );
     return { status: "SENT", channel: result.channel, destination: result.destination };
   } catch (error) {
     if (error instanceof NotificationDeliveryError && error.permanent) {
-      log.warn(`${label}: permanent failure, not retrying: ${error.message}`);
+      log.warn({ ...ctx, err: error }, `${label}: permanent failure, not retrying: ${error.message}`);
       throw new UnrecoverableError(error.message);
     }
-    log.warn(`${label}: attempt ${job.attemptsMade + 1}/${job.opts.attempts ?? 1} failed: ${error instanceof Error ? error.message : String(error)}`);
+    log.warn(
+      { ...ctx, attempt: job.attemptsMade + 1, maxAttempts: job.opts.attempts ?? 1, err: error },
+      `${label}: attempt ${job.attemptsMade + 1}/${job.opts.attempts ?? 1} failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
     throw error;
   }
 }
@@ -146,7 +185,8 @@ async function loadSmtp(prisma: PrismaClient) {
   try {
     return await loadSmtpSettings(prisma);
   } catch (error) {
-    if (error instanceof SmtpPasswordUnreadableError) throw new NotificationDeliveryError(error.message, { permanent: true, cause: error });
+    if (error instanceof SmtpPasswordUnreadableError)
+      throw new NotificationDeliveryError(error.message, { permanent: true, cause: error });
     throw error;
   }
 }

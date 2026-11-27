@@ -156,8 +156,16 @@ export function buildPrBody(input: PrBodyInput): string {
     "| Dependency | Manifest | Version | Level | Released | Changelog |",
     "| --- | --- | --- | --- | --- | --- |",
   ];
-  const sorted = [...input.updates].sort(
-    (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.manifestPath < b.manifestPath ? -1 : a.manifestPath > b.manifestPath ? 1 : 0),
+  const sorted = [...input.updates].sort((a, b) =>
+    a.name < b.name
+      ? -1
+      : a.name > b.name
+        ? 1
+        : a.manifestPath < b.manifestPath
+          ? -1
+          : a.manifestPath > b.manifestPath
+            ? 1
+            : 0,
   );
   const rows = sorted.map(
     (update) =>
@@ -167,16 +175,12 @@ export function buildPrBody(input: PrBodyInput): string {
   if (input.skipped && input.skipped.length > 0) {
     notes.push("", "**Not included:**", "");
     for (const skipped of input.skipped) {
-      notes.push(`- ${markdownCodeSpan(skipped.name)} in ${markdownCodeSpan(skipped.manifestPath)}: ${escapeMarkdownText(skipped.reason)}`);
+      notes.push(
+        `- ${markdownCodeSpan(skipped.name)} in ${markdownCodeSpan(skipped.manifestPath)}: ${escapeMarkdownText(skipped.reason)}`,
+      );
     }
   }
-  const footer = [
-    "",
-    "---",
-    `Opened by RepoPulse · settings: ${input.projectUrl}`,
-    "",
-    depsPrMarker(input.groupKey),
-  ];
+  const footer = ["", "---", `Opened by RepoPulse · settings: ${input.projectUrl}`, "", depsPrMarker(input.groupKey)];
   const budget = PR_BODY_MAX_LENGTH - [...header, ...footer].join("\n").length - 200;
   const kept: string[] = [];
   let used = 0;

@@ -1,7 +1,12 @@
-import { escapeHtml, truncateBytes, truncateText } from "../markdown.js";
+import { escapeHtml, safeHttpUrl, truncateBytes, truncateText } from "../markdown.js";
 import type { NotificationChannel, SemverType } from "../types.js";
 import { DISCORD_COLORS } from "./discord.js";
-import { encodeHeaderValue, resolveGotifyEndpoint, type PreparedRequest } from "./ntfy-gotify.js";
+import {
+  encodeHeaderValue,
+  resolveGotifyEndpoint,
+  sanitizeNtfyHeaderUrl,
+  type PreparedRequest,
+} from "./ntfy-gotify.js";
 
 /**
  * Dependency notifications (Slice 08, §3.11): a digest of outdated dependencies after a scan, and
@@ -86,7 +91,10 @@ export function dependencyLevelLabel(level: DependencyUpdateLevel | null): strin
   return LEVEL_LABELS[level ?? "OTHER"];
 }
 
-export function buildDependencyContext(input: DependencyNotificationInput, appBaseUrl: string): DependencyMessageContext {
+export function buildDependencyContext(
+  input: DependencyNotificationInput,
+  appBaseUrl: string,
+): DependencyMessageContext {
   const sorted = [...input.updates].sort((a, b) => LEVEL_RANK[b.level ?? "OTHER"] - LEVEL_RANK[a.level ?? "OTHER"]);
   const shown = sorted.slice(0, DIGEST_MAX_ITEMS);
   const total = Math.max(input.totalUpdates ?? 0, input.updates.length);
@@ -196,7 +204,10 @@ export interface DependencyDiscordPayload {
 }
 
 /** Embed colored by the highest update level; edited / access-lost PR events are amber. */
-export function formatDependencyDiscordPayload(ctx: DependencyMessageContext, now = new Date()): DependencyDiscordPayload {
+export function formatDependencyDiscordPayload(
+  ctx: DependencyMessageContext,
+  now = new Date(),
+): DependencyDiscordPayload {
   const links = [`[Open in RepoPulse](${ctx.project.url})`];
   const prUrl = pullRequestUrl(ctx);
   if (prUrl) links.push(`[View ${prLabel(ctx)}](${prUrl})`);
@@ -235,7 +246,10 @@ export interface DependencySlackPayload {
     | { type: "header"; text: SlackText }
     | { type: "context"; elements: SlackText[] }
     | { type: "section"; text: SlackText }
-    | { type: "actions"; elements: Array<{ type: "button"; text: SlackText; url: string; style?: "primary"; action_id: string }> }
+    | {
+        type: "actions";
+        elements: Array<{ type: "button"; text: SlackText; url: string; style?: "primary"; action_id: string }>;
+      }
   >;
   unfurl_links: boolean;
   unfurl_media: boolean;
@@ -264,7 +278,8 @@ export function formatDependencySlackPayload(ctx: DependencyMessageContext): Dep
   if (intro) blocks.push({ type: "section", text: { type: "mrkdwn", text: truncateText(escapeSlack(intro), 2900) } });
   if (ctx.shown.length) {
     const lines = ctx.shown.map(
-      (u) => `• \`${escapeSlack(plainName(u.name))}\` ${escapeSlack(versionChange(u))} · ${dependencyLevelLabel(u.level)} · ${escapeSlack(u.manifest)}`,
+      (u) =>
+        `• \`${escapeSlack(plainName(u.name))}\` ${escapeSlack(versionChange(u))} · ${dependencyLevelLabel(u.level)} · ${escapeSlack(u.manifest)}`,
     );
     const more = moreLine(ctx);
     if (more) lines.push(`_${more}_`);
@@ -272,10 +287,22 @@ export function formatDependencySlackPayload(ctx: DependencyMessageContext): Dep
     blocks.push({ type: "section", text: { type: "mrkdwn", text: truncateText(lines.join("\n"), 2900) } });
   }
   const buttons: Array<{ type: "button"; text: SlackText; url: string; style?: "primary"; action_id: string }> = [
-    { type: "button", text: { type: "plain_text", text: "Open in RepoPulse" }, url: ctx.project.url, style: "primary", action_id: "open_repopulse" },
+    {
+      type: "button",
+      text: { type: "plain_text", text: "Open in RepoPulse" },
+      url: ctx.project.url,
+      style: "primary",
+      action_id: "open_repopulse",
+    },
   ];
   const prUrl = pullRequestUrl(ctx);
-  if (prUrl) buttons.push({ type: "button", text: { type: "plain_text", text: "View pull request" }, url: prUrl, action_id: "open_pull_request" });
+  if (prUrl)
+    buttons.push({
+      type: "button",
+      text: { type: "plain_text", text: "View pull request" },
+      url: prUrl,
+      action_id: "open_pull_request",
+    });
   blocks.push({ type: "actions", elements: buttons });
 
   return { text: headline, blocks, unfurl_links: false, unfurl_media: false };
@@ -288,9 +315,10 @@ const GOTIFY_MESSAGE_LIMIT = 3800;
 
 /** ntfy: Markdown body; priority `high` when a major update is present; the click opens the project page. */
 export function buildDependencyNtfyRequest(ctx: DependencyMessageContext, destinationUrl: string): PreparedRequest {
-  const actions = [`view, Open in RepoPulse, ${ctx.project.url}`];
+  const projectUrl = sanitizeNtfyHeaderUrl(ctx.project.url);
+  const actions = [`view, Open in RepoPulse, ${projectUrl}`];
   const prUrl = pullRequestUrl(ctx);
-  if (prUrl) actions.push(`view, View pull request, ${prUrl}`);
+  if (prUrl) actions.push(`view, View pull request, ${sanitizeNtfyHeaderUrl(prUrl)}`);
   const warning = ctx.pullRequest?.event === "edited" || ctx.pullRequest?.event === "access_lost";
   return {
     url: new URL(destinationUrl),
@@ -299,7 +327,7 @@ export function buildDependencyNtfyRequest(ctx: DependencyMessageContext, destin
       Title: encodeHeaderValue(truncateText(dependencyHeadline(ctx), 250)),
       Priority: ctx.hasMajor ? "high" : "default",
       Tags: warning ? "package,warning" : "package",
-      Click: ctx.project.url,
+      Click: projectUrl,
       Markdown: "yes",
       Actions: actions.join("; "),
     },
@@ -320,7 +348,9 @@ export interface DependencyGotifyMessage {
 /** Gotify: priority 8 when a major update is present, else 5. */
 export function formatDependencyGotifyMessage(ctx: DependencyMessageContext): DependencyGotifyMessage {
   const prUrl = pullRequestUrl(ctx);
-  const links = [`[Open in RepoPulse](${ctx.project.url})`, ...(prUrl ? [`[View pull request](${prUrl})`] : [])].join(" · ");
+  const links = [`[Open in RepoPulse](${ctx.project.url})`, ...(prUrl ? [`[View pull request](${prUrl})`] : [])].join(
+    " · ",
+  );
   const body = dependencyMarkdown(ctx);
   return {
     title: truncateText(dependencyHeadline(ctx), 250),
@@ -358,7 +388,12 @@ export interface DependencyWebhookPayload {
     ecosystem: "NPM" | "PYPI" | null;
   }>;
   totalUpdates: number;
-  pullRequest: { event: DependencyPullRequestEvent; number: number | null; url: string | null; title: string | null } | null;
+  pullRequest: {
+    event: DependencyPullRequestEvent;
+    number: number | null;
+    url: string | null;
+    title: string | null;
+  } | null;
   rule: { id: string | null };
   links: { repopulse: string; pullRequest: string | null };
 }
@@ -378,7 +413,9 @@ export function formatDependencyWebhookPayload(ctx: DependencyMessageContext): D
       ecosystem: u.ecosystem ?? null,
     })),
     totalUpdates: ctx.total,
-    pullRequest: pr ? { event: pr.event, number: pr.number ?? null, url: pr.url ?? null, title: pr.title ?? null } : null,
+    pullRequest: pr
+      ? { event: pr.event, number: pr.number ?? null, url: pr.url ?? null, title: pr.title ?? null }
+      : null,
     rule: { id: ctx.rule.id ?? null },
     links: { repopulse: ctx.project.url, pullRequest: pr?.url ?? null },
   };
@@ -395,10 +432,12 @@ const BADGE_COLORS: Record<DependencyUpdateLevel, { bg: string; fg: string }> = 
 };
 
 function emailButton(href: string, label: string, primary: boolean): string {
+  const safeHref = safeHttpUrl(href);
+  if (!safeHref) return "";
   const style = primary
     ? "background:#0f172a;color:#ffffff;border:1px solid #0f172a"
     : "background:#ffffff;color:#0f172a;border:1px solid #cbd5e1";
-  return `<a href="${escapeHtml(href)}" style="display:inline-block;${style};border-radius:6px;padding:10px 16px;font-size:14px;font-weight:600;text-decoration:none;margin:0 8px 8px 0">${escapeHtml(label)}</a>`;
+  return `<a href="${escapeHtml(safeHref)}" style="display:inline-block;${style};border-radius:6px;padding:10px 16px;font-size:14px;font-weight:600;text-decoration:none;margin:0 8px 8px 0">${escapeHtml(label)}</a>`;
 }
 
 export interface RenderedDependencyEmail {
@@ -438,7 +477,8 @@ export function renderDependencyEmail(ctx: DependencyMessageContext): RenderedDe
       return `<tr><td style="${cell};font-family:SFMono-Regular,Consolas,monospace;word-break:break-all">${escapeHtml(u.name)}</td><td style="${cell};color:#64748b;word-break:break-all">${escapeHtml(u.manifest)}</td><td style="${cell};white-space:nowrap">${escapeHtml(u.from ?? "—")} → <strong>${escapeHtml(u.to)}</strong></td><td style="${cell}"><span style="display:inline-block;padding:2px 8px;border-radius:999px;background:${badge.bg};color:${badge.fg};font-size:12px;font-weight:600">${escapeHtml(dependencyLevelLabel(u.level))}</span></td></tr>`;
     })
     .join("\n");
-  const head = "padding:8px 10px;border-bottom:2px solid #e2e8f0;font-size:12px;text-align:left;color:#64748b;font-weight:600";
+  const head =
+    "padding:8px 10px;border-bottom:2px solid #e2e8f0;font-size:12px;text-align:left;color:#64748b;font-weight:600";
   const table = ctx.shown.length
     ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 12px">
 <tr><th style="${head}">Dependency</th><th style="${head}">Manifest</th><th style="${head}">Version</th><th style="${head}">Level</th></tr>

@@ -7,7 +7,7 @@ import {
   SandboxUnavailableError,
   validateLockfile,
   type LockfileExpectation,
-} from "./sandbox-client";
+} from "./sandbox-client.js";
 
 const b64 = (text: string) => Buffer.from(text, "utf8").toString("base64");
 
@@ -20,7 +20,10 @@ const REQUEST: LockRequest = {
 };
 
 function respond(status: number, body: unknown) {
-  return vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(typeof body === "string" ? body : JSON.stringify(body), { status }));
+  return vi.fn(
+    async (_url: string | URL | Request, _init?: RequestInit) =>
+      new Response(typeof body === "string" ? body : JSON.stringify(body), { status }),
+  );
 }
 
 describe("createSandboxClient().lock", () => {
@@ -30,17 +33,32 @@ describe("createSandboxClient().lock", () => {
     expect(await client.lock(REQUEST)).toEqual({ path: "package-lock.json", text: "LOCK" });
     const [url, init] = fetch.mock.calls[0]!;
     expect(url).toBe("http://deps-sandbox:3003/v1/lock");
-    expect(init).toMatchObject({ method: "POST", headers: { Authorization: "Bearer sandbox-token", "Content-Type": "application/json" } });
-    expect(JSON.parse(init!.body as string)).toMatchObject({ packageManager: "NPM", lockfileOnly: false, expectLockfile: "package-lock.json" });
+    expect(init).toMatchObject({
+      method: "POST",
+      headers: { Authorization: "Bearer sandbox-token", "Content-Type": "application/json" },
+    });
+    expect(JSON.parse(init!.body as string)).toMatchObject({
+      packageManager: "NPM",
+      lockfileOnly: false,
+      expectLockfile: "package-lock.json",
+    });
   });
 
   it("maps 503 BUSY to a retryable error", async () => {
-    const client = createSandboxClient({ baseUrl: "http://s", token: "t", fetch: respond(503, { ok: false, code: "BUSY", stderrTail: "" }) });
+    const client = createSandboxClient({
+      baseUrl: "http://s",
+      token: "t",
+      fetch: respond(503, { ok: false, code: "BUSY", stderrTail: "" }),
+    });
     await expect(client.lock(REQUEST)).rejects.toBeInstanceOf(SandboxBusyError);
   });
 
   it("maps ok:false to a permanent error that keeps stderr out of the message", async () => {
-    const client = createSandboxClient({ baseUrl: "http://s", token: "t", fetch: respond(422, { ok: false, code: "COMMAND_FAILED", stderrTail: "npm ERR! E404" }) });
+    const client = createSandboxClient({
+      baseUrl: "http://s",
+      token: "t",
+      fetch: respond(422, { ok: false, code: "COMMAND_FAILED", stderrTail: "npm ERR! E404" }),
+    });
     const error = await client.lock(REQUEST).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(SandboxLockError);
     expect(error).toMatchObject({ code: "COMMAND_FAILED", stderrTail: "npm ERR! E404" });
@@ -48,7 +66,11 @@ describe("createSandboxClient().lock", () => {
   });
 
   it("rejects responses outside the contract", async () => {
-    const extra = createSandboxClient({ baseUrl: "http://s", token: "t", fetch: respond(200, { ok: true, lockfile: { path: "../etc/passwd", contentBase64: "" } }) });
+    const extra = createSandboxClient({
+      baseUrl: "http://s",
+      token: "t",
+      fetch: respond(200, { ok: true, lockfile: { path: "../etc/passwd", contentBase64: "" } }),
+    });
     await expect(extra.lock(REQUEST)).rejects.toBeInstanceOf(SandboxUnavailableError);
     const garbage = createSandboxClient({ baseUrl: "http://s", token: "t", fetch: respond(200, "<html>") });
     await expect(garbage.lock(REQUEST)).rejects.toBeInstanceOf(SandboxUnavailableError);
@@ -110,20 +132,40 @@ describe("createSandboxClient().lock", () => {
     });
 
     // 503 with non-JSON or non-contract JSON maps to SandboxBusyError
-    const busyHtml = createSandboxClient({ baseUrl: "http://s", token: "t", fetch: respond(503, "Service Unavailable") });
+    const busyHtml = createSandboxClient({
+      baseUrl: "http://s",
+      token: "t",
+      fetch: respond(503, "Service Unavailable"),
+    });
     await expect(busyHtml.lock(REQUEST)).rejects.toBeInstanceOf(SandboxBusyError);
-    const busyBadJson = createSandboxClient({ baseUrl: "http://s", token: "t", fetch: respond(503, { status: "busy" }) });
+    const busyBadJson = createSandboxClient({
+      baseUrl: "http://s",
+      token: "t",
+      fetch: respond(503, { status: "busy" }),
+    });
     await expect(busyBadJson.lock(REQUEST)).rejects.toBeInstanceOf(SandboxBusyError);
   });
 });
 
 describe("createSandboxClient().health", () => {
   it("returns the tools, or null when unreachable, non-200, or invalid schema", async () => {
-    const ok = createSandboxClient({ baseUrl: "http://s", token: "", fetch: respond(200, { status: "ok", tools: { npm: "11.0.0" } }) });
+    const ok = createSandboxClient({
+      baseUrl: "http://s",
+      token: "",
+      fetch: respond(200, { status: "ok", tools: { npm: "11.0.0" } }),
+    });
     expect(await ok.health()).toEqual({ status: "ok", tools: { npm: "11.0.0" } });
-    const down = createSandboxClient({ baseUrl: "http://s", token: "", fetch: vi.fn(async () => Promise.reject(new Error("ECONNREFUSED"))) });
+    const down = createSandboxClient({
+      baseUrl: "http://s",
+      token: "",
+      fetch: vi.fn(async () => Promise.reject(new Error("ECONNREFUSED"))),
+    });
     expect(await down.health()).toBeNull();
-    const status500 = createSandboxClient({ baseUrl: "http://s", token: "", fetch: respond(500, { status: "ok", tools: {} }) });
+    const status500 = createSandboxClient({
+      baseUrl: "http://s",
+      token: "",
+      fetch: respond(500, { status: "ok", tools: {} }),
+    });
     expect(await status500.health()).toBeNull();
     const badSchema = createSandboxClient({ baseUrl: "http://s", token: "", fetch: respond(200, { status: "wrong" }) });
     expect(await badSchema.health()).toBeNull();
@@ -132,12 +174,22 @@ describe("createSandboxClient().health", () => {
 
 describe("validateLockfile", () => {
   const lock = (version: string, lockfileVersion = 3) =>
-    JSON.stringify({ lockfileVersion, packages: { "": { dependencies: { "left-pad": "^1.3.0" } }, "node_modules/left-pad": { version } } });
+    JSON.stringify({
+      lockfileVersion,
+      packages: { "": { dependencies: { "left-pad": "^1.3.0" } }, "node_modules/left-pad": { version } },
+    });
   const expectation: LockfileExpectation = {
     packageManager: "NPM",
     expectLockfile: "package-lock.json",
     inputFormatVersion: "3",
-    importers: [{ importer: "", ecosystem: "NPM", dependencies: [{ name: "left-pad", declared: "^1.3.0" }], expected: [{ name: "left-pad", version: "1.3.0" }] }],
+    importers: [
+      {
+        importer: "",
+        ecosystem: "NPM",
+        dependencies: [{ name: "left-pad", declared: "^1.3.0" }],
+        expected: [{ name: "left-pad", version: "1.3.0" }],
+      },
+    ],
   };
 
   it("accepts a lockfile at the expected path, same format, targets resolved", () => {

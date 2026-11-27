@@ -2,7 +2,13 @@
 import { parse as parseToml } from "smol-toml";
 import { parsePyproject } from "../manifests/pyproject.js";
 import { deepEqual, isRecord, normalizePypiName } from "../util.js";
-import { applyReplacements, assertSafeSpec, ManifestRewriteError, type ManifestEdit, type SpanReplacement } from "./common.js";
+import {
+  applyReplacements,
+  assertSafeSpec,
+  ManifestRewriteError,
+  type ManifestEdit,
+  type SpanReplacement,
+} from "./common.js";
 
 function setAtPath(root: unknown, path: ReadonlyArray<string | number>, update: (value: string) => string): boolean {
   let node: unknown = root;
@@ -14,11 +20,11 @@ function setAtPath(root: unknown, path: ReadonlyArray<string | number>, update: 
   }
   const last = path.at(-1);
   if (Array.isArray(node) && typeof last === "number" && typeof node[last] === "string") {
-    node[last] = update(node[last] as string);
+    node[last] = update(node[last]);
     return true;
   }
   if (isRecord(node) && typeof last === "string" && typeof node[last] === "string") {
-    node[last] = update(node[last] as string);
+    node[last] = update(node[last]);
     return true;
   }
   return false;
@@ -39,7 +45,12 @@ export function rewritePyproject(text: string, edits: readonly ManifestEdit[], p
     const byKey = manifest.dependencies.filter(
       (dependency) => dependency.name === name && dependency.kind === edit.kind && dependency.group === edit.group,
     );
-    if (byKey.length === 0) throw new ManifestRewriteError("NOT_FOUND", path, `${edit.name} (${edit.kind}${edit.group ? `/${edit.group}` : ""}) not found`);
+    if (byKey.length === 0)
+      throw new ManifestRewriteError(
+        "NOT_FOUND",
+        path,
+        `${edit.name} (${edit.kind}${edit.group ? `/${edit.group}` : ""}) not found`,
+      );
     const matching = byKey.filter((dependency) => dependency.declared === edit.from && dependency.supported);
     if (matching.length === 0) {
       throw new ManifestRewriteError("STALE", path, `${edit.name} is "${byKey[0]?.declared}", expected "${edit.from}"`);
@@ -62,8 +73,13 @@ export function rewritePyproject(text: string, edits: readonly ManifestEdit[], p
   }
   // Several edits may touch one string only through distinct dependencies; apply right-to-left per string.
   for (const change of [...planned].sort((a, b) => b.start - a.start)) {
-    const applied = setAtPath(expected, change.valuePath, (value) => value.slice(0, change.start) + change.to + value.slice(change.end));
-    if (!applied) throw new ManifestRewriteError("VERIFY_FAILED", path, `value at ${change.valuePath.join(".")} not found`);
+    const applied = setAtPath(
+      expected,
+      change.valuePath,
+      (value) => value.slice(0, change.start) + change.to + value.slice(change.end),
+    );
+    if (!applied)
+      throw new ManifestRewriteError("VERIFY_FAILED", path, `value at ${change.valuePath.join(".")} not found`);
   }
   if (!deepEqual(expected, actual)) {
     throw new ManifestRewriteError("VERIFY_FAILED", path, "the rewritten file differs from the plan");

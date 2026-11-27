@@ -15,8 +15,8 @@
 | `web` | `apps/web/Dockerfile` (standalone Next output, `node apps/web/server.js`, user `nextjs`, `HOSTNAME="::"`) | UI and SSE on 3000 | `wget localhost:3000/api/health` |
 | `worker` | `apps/worker/Dockerfile` target `runner` (`node apps/worker/dist/index.js`) | Jobs, health on 3001. `stop_grace_period: 30s` | `wget localhost:3001/health` |
 | `deps-worker` | `apps/deps-worker/Dockerfile` target `runner` (`node apps/deps-worker/dist/index.js`, user `node`) | Dependency scans, update PRs, dependency notifications; health on 3002. Networks `default` + `deps_sandbox`. `stop_grace_period: 30s` | `wget localhost:3002/health` |
-| `deps-sandbox` | `apps/deps-sandbox/Dockerfile` (`node:26-trixie-slim`, Python 3.13, npm 12.2.1, pnpm 12.14.0, Bun 1.4.3, uv 0.13.1, Poetry 2.5.1, `tini`, uid 10001) | Lockfile regeneration on 3003. Network `deps_sandbox` only. Hardened (below) | `fetch 127.0.0.1:3003/health` |
-| `deps-egress` | `deploy/deps-egress/Dockerfile`: `ubuntu/squid:6.6-24.04_edge` pinned by digest with `squid.conf` baked in (Coolify keeps no repository files on the host, so a bind mount would fail) | The sandbox's only way out (port 3128). Networks `default` + `deps_sandbox` (alias `deps-egress`) | — |
+| `deps-sandbox` | `apps/deps-sandbox/Dockerfile` (`node:26-trixie-slim`, Python 3.13, npm 12.2.3, pnpm 12.23.0, Bun 1.4.5, uv 0.13.10, Poetry 2.5.2, `tini`, uid 10001) | Lockfile regeneration on 3003. Network `deps_sandbox` only. Hardened (below) | `fetch 127.0.0.1:3003/health` |
+| `deps-egress` | `deploy/deps-egress/Dockerfile`: `ubuntu/squid:6.6-24.04_edge` pinned by digest with `squid.conf` baked in (Coolify keeps no repository files on the host, so a bind mount would fail) | The sandbox's only way out (port 3128). Networks `default` + `deps_sandbox` (alias `deps-egress`) | TCP `:3128` |
 
 Startup order: `postgres` and `redis` healthy → `migrator` completed successfully → `web`, `worker` and `deps-worker`.
 `deps-sandbox` and `deps-egress` have no database dependency and start right away.

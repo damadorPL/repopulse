@@ -3,10 +3,8 @@
   "display": "RepoPulse Next.js",
   "extends": "./base.json",
   "compilerOptions": {
-    "lib": ["DOM", "DOM.Iterable", "ES2022"],
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "jsx": "preserve",
+    "lib": ["DOM", "DOM.Iterable", "ES2024", "ES2025.Collection"],
+    "jsx": "react-jsx",
     "allowJs": true,
     "noEmit": true,
     "incremental": true,

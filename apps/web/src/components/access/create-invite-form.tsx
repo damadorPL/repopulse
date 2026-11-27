@@ -52,7 +52,11 @@ export function CreateInviteForm() {
   }
 
   return (
-    <form onSubmit={submit} className="grid gap-4 rounded-lg border bg-card p-4 sm:p-5" aria-labelledby="create-invite-heading">
+    <form
+      onSubmit={submit}
+      className="grid gap-4 rounded-lg border bg-card p-4 sm:p-5"
+      aria-labelledby="create-invite-heading"
+    >
       <div>
         <h2 id="create-invite-heading" className="font-medium">
           Create invite link

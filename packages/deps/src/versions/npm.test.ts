@@ -40,7 +40,7 @@ describe("npm ranges", () => {
 });
 
 describe("npmBumpRange", () => {
-  const cases: Array<[string, string, string | "unchanged" | "blocked"]> = [
+  const cases: Array<[string, string, (string & {}) | "unchanged" | "blocked"]> = [
     ["1.2.3", "1.4.0", "1.4.0"],
     ["^1.2.3", "1.4.0", "^1.4.0"],
     ["~1.2.3", "1.2.9", "~1.2.9"],

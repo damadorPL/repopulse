@@ -10,9 +10,7 @@ export interface GitHubQuotaView {
   login: string | null;
 }
 
-export type GitHubQuotaResult =
-  | { ok: true; data: GitHubQuotaView }
-  | { ok: false; error: string };
+export type GitHubQuotaResult = { ok: true; data: GitHubQuotaView } | { ok: false; error: string };
 
 export interface GetGitHubQuotaOptions {
   fetch?: typeof globalThis.fetch;

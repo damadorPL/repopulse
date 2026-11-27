@@ -13,19 +13,16 @@ export default async function AdminHistoryPage() {
   const defaultTarget = settings.find((s) => s.key === "defaultTarget")!.value;
   const minQuota = settings.find((s) => s.key === "minQuota")!.value;
 
-  const [candidates, quotaResult] = await Promise.all([
-    getReapplyCandidates(defaultTarget),
-    getGitHubQuotaView(admin),
-  ]);
+  const [candidates, quotaResult] = await Promise.all([getReapplyCandidates(defaultTarget), getGitHubQuotaView(admin)]);
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold tracking-tight">Release history</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          How many older GitHub Releases RepoPulse imports per repository, automatically and through “Load older releases”.
-          Leave a field empty to use the environment variable or the built-in default. Changes apply to the worker&apos;s
-          next import, without a restart.
+          How many older GitHub Releases RepoPulse imports per repository, automatically and through “Load older
+          releases”. Leave a field empty to use the environment variable or the built-in default. Changes apply to the
+          worker&apos;s next import, without a restart.
         </p>
       </div>
 
@@ -34,8 +31,8 @@ export default async function AdminHistoryPage() {
       <BackfillSettingsForm settings={settings} candidates={candidates} />
 
       <p className="text-xs text-muted-foreground">
-        Git tags (“Releases + tags”) and commits of watched files and folders have no history import: each poll reads the
-        newest 20 tags and the newest 10 commits per watched path.
+        Git tags (“Releases + tags”) and commits of watched files and folders have no history import: each poll reads
+        the newest 20 tags and the newest 10 commits per watched path.
       </p>
     </div>
   );

@@ -1,7 +1,7 @@
 /** `yarn.lock` reader: classic (v1, custom format) and Berry (YAML with `resolution`). Check only. */
 import { parse as parseYaml } from "yaml";
 import { isRecord } from "../util.js";
-import { guardLockfile, type LockfileVersions } from "./common.js";
+import { formatLockfileVersion, guardLockfile, type LockfileVersions } from "./common.js";
 
 /** Splits a lock key `"name@range"` / `"name@npm:range"` into name and range. */
 function splitDescriptor(descriptor: string): { name: string; range: string } | null {
@@ -26,7 +26,8 @@ function parseClassic(text: string): Map<string, string> {
       continue;
     }
     const match = /^\s+version:?\s+"?([^"\s]+)"?/.exec(rawLine);
-    if (match && /^\s{2}\S/.test(rawLine)) for (const descriptor of descriptors) resolved.set(descriptor, match[1] as string);
+    if (match && /^\s{2}\S/.test(rawLine))
+      for (const descriptor of descriptors) resolved.set(descriptor, match[1] as string);
   }
   return resolved;
 }
@@ -49,7 +50,7 @@ export function readYarnLock(
       const data: unknown = parseYaml(text, { maxAliasCount: 100, uniqueKeys: false });
       if (!isRecord(data)) throw new Error("not a YAML mapping");
       const metadata = isRecord(data.__metadata) ? data.__metadata : {};
-      formatVersion = `berry/${metadata.version === undefined ? "unknown" : String(metadata.version)}`;
+      formatVersion = `berry/${formatLockfileVersion(metadata.version) ?? "unknown"}`;
       for (const [key, entry] of Object.entries(data)) {
         if (key === "__metadata" || !isRecord(entry)) continue;
         if (typeof entry.version !== "string" && typeof entry.version !== "number") continue;
@@ -62,8 +63,7 @@ export function readYarnLock(
       for (const [descriptor, version] of parseClassic(text)) byDescriptor.set(descriptor, version);
     }
     for (const { name, range } of declared) {
-      const version =
-        byDescriptor.get(`${name}@${range}`) ?? byDescriptor.get(`${name}@npm:${range}`);
+      const version = byDescriptor.get(`${name}@${range}`) ?? byDescriptor.get(`${name}@npm:${range}`);
       if (version) versions.set(name, version);
     }
     // Fallback: a single entry for the name (range spelled differently, e.g. normalized by Berry).
@@ -72,7 +72,8 @@ export function readYarnLock(
       const found = new Set<string>();
       for (const [descriptor, version] of byDescriptor) {
         const parts = splitDescriptor(descriptor);
-        if (parts?.name === name && !/^(?:workspace|patch|portal|link|file|git|https?):/.test(parts.range)) found.add(version);
+        if (parts?.name === name && !/^(?:workspace|patch|portal|link|file|git|https?):/.test(parts.range))
+          found.add(version);
       }
       if (found.size === 1) versions.set(name, [...found][0] as string);
     }

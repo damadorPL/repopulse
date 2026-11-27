@@ -50,7 +50,13 @@ describe("feedHref", () => {
   });
 
   it("round-trips through parseFeedFilters", () => {
-    const filters = parseFeedFilters({ tag: "critical", unread: "1", semver: "PATCH", q: "fix & feat", sort: "oldest" });
+    const filters = parseFeedFilters({
+      tag: "critical",
+      unread: "1",
+      semver: "PATCH",
+      q: "fix & feat",
+      sort: "oldest",
+    });
     const href = feedHref(filters, "rel_1");
     const params = new URLSearchParams(href.slice(2));
     expect(parseFeedFilters(params)).toEqual(filters);

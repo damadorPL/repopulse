@@ -24,8 +24,8 @@ export default async function AdminEmailPage() {
       <p className="flex items-start gap-2 text-xs text-muted-foreground">
         <ShieldCheckIcon className="mt-px size-3.5 shrink-0" aria-hidden />
         <span>
-          The password is encrypted with <code className="text-[11px]">TOKEN_ENCRYPTION_KEY</code> and never sent back to the browser.
-          Changes apply to the worker right away, without a restart.
+          The password is encrypted with <code className="text-[11px]">TOKEN_ENCRYPTION_KEY</code> and never sent back
+          to the browser. Changes apply to the worker right away, without a restart.
         </span>
       </p>
     </div>

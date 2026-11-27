@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { BACKFILL_SWEEP_BATCH, backfillSweepWhere, processSchedulerTick } from "./scheduler.processor";
+import { BACKFILL_SWEEP_BATCH, backfillSweepWhere, processSchedulerTick } from "./scheduler.processor.js";
 
 function fakePrisma(due: string[], pendingBackfills: Array<{ id: string; backfillStatus: string }>) {
   return {
@@ -16,19 +16,30 @@ function fakePrisma(due: string[], pendingBackfills: Array<{ id: string; backfil
 
 describe("processSchedulerTick backfill sweep", () => {
   it("queues never-backfilled repositories and re-asserts in-flight ones", async () => {
-    const prisma = fakePrisma(["p1"], [
-      { id: "a", backfillStatus: "NONE" },
-      { id: "b", backfillStatus: "RUNNING" },
-    ]);
-    const repoPollQueue = { addBulk: vi.fn(async () => []) };
+    const prisma = fakePrisma(
+      ["p1"],
+      [
+        { id: "a", backfillStatus: "NONE" },
+        { id: "b", backfillStatus: "RUNNING" },
+      ],
+    );
+    const repoPollQueue = { addBulk: vi.fn(async (_jobs: unknown[]) => []) };
     const releaseBackfillQueue = { addBulk: vi.fn(async () => []) };
 
     const result = await processSchedulerTick({ prisma: prisma as never, repoPollQueue, releaseBackfillQueue });
 
     expect(result).toEqual({ due: 1, backfills: 1 });
     expect(releaseBackfillQueue.addBulk).toHaveBeenCalledWith([
-      { name: "backfill-releases", data: { repositoryId: "a", trigger: "sweep" }, opts: { jobId: "backfill-a", priority: 10 } },
-      { name: "backfill-releases", data: { repositoryId: "b", trigger: "sweep" }, opts: { jobId: "backfill-b", priority: 10 } },
+      {
+        name: "backfill-releases",
+        data: { repositoryId: "a", trigger: "sweep" },
+        opts: { deduplication: { id: "backfill-a", keepLastIfActive: true }, priority: 10 },
+      },
+      {
+        name: "backfill-releases",
+        data: { repositoryId: "b", trigger: "sweep" },
+        opts: { deduplication: { id: "backfill-b", keepLastIfActive: true }, priority: 10 },
+      },
     ]);
     // Only NONE rows move to QUEUED.
     expect(prisma.repository.updateMany).toHaveBeenCalledWith({
@@ -39,11 +50,14 @@ describe("processSchedulerTick backfill sweep", () => {
   });
 
   it("re-asserts QUEUED and RUNNING backfills without calling updateMany when no NONE rows exist", async () => {
-    const prisma = fakePrisma([], [
-      { id: "q1", backfillStatus: "QUEUED" },
-      { id: "r1", backfillStatus: "RUNNING" },
-    ]);
-    const repoPollQueue = { addBulk: vi.fn(async () => []) };
+    const prisma = fakePrisma(
+      [],
+      [
+        { id: "q1", backfillStatus: "QUEUED" },
+        { id: "r1", backfillStatus: "RUNNING" },
+      ],
+    );
+    const repoPollQueue = { addBulk: vi.fn(async (_jobs: unknown[]) => []) };
     const releaseBackfillQueue = { addBulk: vi.fn(async () => []) };
 
     const result = await processSchedulerTick({ prisma: prisma as never, repoPollQueue, releaseBackfillQueue });
@@ -57,7 +71,7 @@ describe("processSchedulerTick backfill sweep", () => {
   it("enqueues > 500 due repositories in batches of 500", async () => {
     const dueIds = Array.from({ length: 505 }, (_, i) => `repo-${i + 1}`);
     const prisma = fakePrisma(dueIds, []);
-    const repoPollQueue = { addBulk: vi.fn(async () => []) };
+    const repoPollQueue = { addBulk: vi.fn(async (_jobs: unknown[]) => []) };
     const releaseBackfillQueue = { addBulk: vi.fn(async () => []) };
 
     const result = await processSchedulerTick({ prisma: prisma as never, repoPollQueue, releaseBackfillQueue });
@@ -72,9 +86,11 @@ describe("processSchedulerTick backfill sweep", () => {
   it("does not fail the poll tick when the backfill sweep fails", async () => {
     const prisma = fakePrisma(["p1"], [{ id: "a", backfillStatus: "NONE" }]);
     const releaseBackfillQueue = { addBulk: vi.fn(async () => Promise.reject(new Error("redis down"))) };
-    const repoPollQueue = { addBulk: vi.fn(async () => []) };
+    const repoPollQueue = { addBulk: vi.fn(async (_jobs: unknown[]) => []) };
 
-    await expect(processSchedulerTick({ prisma: prisma as never, repoPollQueue, releaseBackfillQueue })).resolves.toEqual({
+    await expect(
+      processSchedulerTick({ prisma: prisma as never, repoPollQueue, releaseBackfillQueue }),
+    ).resolves.toEqual({
       due: 1,
       backfills: 0,
     });

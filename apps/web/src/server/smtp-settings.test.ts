@@ -13,12 +13,7 @@ vi.mock("@repopulse/db", () => ({
   loadSmtpSettings,
 }));
 
-const {
-  fromSmtpSecurity,
-  getSmtpSettingsView,
-  isSmtpConfigured,
-  toSmtpSecurity,
-} = await import("./smtp-settings");
+const { fromSmtpSecurity, getSmtpSettingsView, isSmtpConfigured, toSmtpSecurity } = await import("./smtp-settings");
 
 beforeEach(() => {
   vi.clearAllMocks();

@@ -154,7 +154,12 @@ describe("other util helpers", () => {
     expect(isRecord({ a: 1 })).toBe(true);
     expect(isRecord([1])).toBe(false);
     expect(isRecord(null)).toBe(false);
-    expect(deepEqual({ a: [1, Number.NaN, new Date("2026-01-01T00:00:00Z")] }, { a: [1, Number.NaN, new Date("2026-01-01T00:00:00Z")] })).toBe(true);
+    expect(
+      deepEqual(
+        { a: [1, Number.NaN, new Date("2026-01-01T00:00:00Z")] },
+        { a: [1, Number.NaN, new Date("2026-01-01T00:00:00Z")] },
+      ),
+    ).toBe(true);
     expect(deepEqual({ a: 1 }, { a: 1, b: 2 })).toBe(false);
     expect(deepEqual([1], { 0: 1 })).toBe(false);
   });

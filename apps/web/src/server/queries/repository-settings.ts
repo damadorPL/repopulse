@@ -37,7 +37,11 @@ export function parseRepoSegment(segment: string): string | null {
  * The user's subscription to `owner/name` with everything the settings page shows, or `null` when
  * the repository is unknown or the user does not subscribe to it.
  */
-export async function getRepositorySettings(userId: string, owner: string, name: string): Promise<RepositorySettings | null> {
+export async function getRepositorySettings(
+  userId: string,
+  owner: string,
+  name: string,
+): Promise<RepositorySettings | null> {
   const ownerName = parseRepoSegment(owner);
   const repoName = parseRepoSegment(name);
   if (!ownerName || !repoName) return null;
@@ -83,7 +87,11 @@ export interface RepositoryActivity {
  * the feed and the unread counters agree (commit rows count only with a state row of the user).
  * Timestamps only: the browser buckets them by its local day.
  */
-export async function getRepositoryActivity(userId: string, repositoryId: string, now: Date = new Date()): Promise<RepositoryActivity> {
+export async function getRepositoryActivity(
+  userId: string,
+  repositoryId: string,
+  now: Date = new Date(),
+): Promise<RepositoryActivity> {
   const visible = { AND: [visibleReleasesWhere(userId, { repositoryId }), { repositoryId }] };
   const since = new Date(now.getTime() - ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000);
   const [rows, total, oldest] = await Promise.all([

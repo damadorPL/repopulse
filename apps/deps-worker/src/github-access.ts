@@ -1,8 +1,13 @@
 import { createHash } from "node:crypto";
 import { decryptToken, GitHubAppKeyUnreadableError, type DecryptedGitHubAppSettings } from "@repopulse/db";
-import { GitHubAppAuthError, GitHubAppInstallationError, type GitHubAppAuth, type InstallationPermissions } from "@repopulse/github";
-import { defaultGitHubApi, type GitHubApi, type Octokit } from "./github-api";
-import { createLogger } from "./logger";
+import {
+  GitHubAppAuthError,
+  GitHubAppInstallationError,
+  type GitHubAppAuth,
+  type InstallationPermissions,
+} from "@repopulse/github";
+import { defaultGitHubApi, type GitHubApi, type Octokit } from "./github-api.js";
+import { createLogger, type ServiceLogger } from "./logger.js";
 
 const log = createLogger("github-access");
 
@@ -50,19 +55,24 @@ export interface GitHubAccessOptions {
   github?: Pick<GitHubApi, "createAppOctokit" | "getRepoInstallation" | "createInstallationToken">;
   decrypt?: (encrypted: string) => string;
   now?: () => number;
+  log?: Pick<ServiceLogger, "warn">;
 }
 
 export class GitHubAccess {
   private readonly tokens = new Map<string, { token: string; expiresAt: number }>();
   private readonly appOctokits = new Map<string, Octokit>();
+  private readonly options: GitHubAccessOptions;
   private readonly github: NonNullable<GitHubAccessOptions["github"]>;
   private readonly decrypt: (encrypted: string) => string;
   private readonly now: () => number;
+  private readonly log: Pick<ServiceLogger, "warn">;
 
-  constructor(private readonly options: GitHubAccessOptions) {
+  constructor(options: GitHubAccessOptions) {
+    this.options = options;
     this.github = options.github ?? defaultGitHubApi;
     this.decrypt = options.decrypt ?? decryptToken;
     this.now = options.now ?? Date.now;
+    this.log = options.log ?? log;
   }
 
   /** The configured App, or `null` (not configured, or its key can't be decrypted). */
@@ -73,7 +83,7 @@ export class GitHubAccess {
       return { auth: { appId: settings.appId, privateKey: settings.privateKey }, slug: settings.slug };
     } catch (error) {
       if (error instanceof GitHubAppKeyUnreadableError) {
-        log.warn(error.message);
+        this.log.warn(error.message);
         return null;
       }
       throw error;
@@ -97,13 +107,18 @@ export class GitHubAccess {
    * `strict`, a credential failure (`GitHubAppAuthError`, which also covers a request that never reached GitHub)
    * is rethrown instead, so callers that act on "not installed" can tell the two apart.
    */
-  async installation(app: AppContext, owner: string, name: string, options: { strict?: boolean } = {}): Promise<number | null> {
+  async installation(
+    app: AppContext,
+    owner: string,
+    name: string,
+    options: { strict?: boolean } = {},
+  ): Promise<number | null> {
     try {
       const found = await this.github.getRepoInstallation(app.auth, owner, name, { octokit: this.appOctokit(app) });
       return found?.installationId ?? null;
     } catch (error) {
       if (error instanceof GitHubAppAuthError && !options.strict) {
-        log.warn(`GitHub App credentials rejected: ${error.message}`);
+        this.log.warn(`GitHub App credentials rejected: ${error.message}`);
         return null;
       }
       throw error;
@@ -111,7 +126,12 @@ export class GitHubAccess {
   }
 
   /** An installation token for one repository (`read` = contents + pull requests read; `write` = both write). */
-  async installationToken(app: AppContext, installationId: number, githubRepoId: number, scope: "read" | "write"): Promise<string> {
+  async installationToken(
+    app: AppContext,
+    installationId: number,
+    githubRepoId: number,
+    scope: "read" | "write",
+  ): Promise<string> {
     const key = `${app.auth.appId}:${installationId}:${githubRepoId}:${scope}`;
     const cached = this.tokens.get(key);
     if (cached && cached.expiresAt - TOKEN_REFRESH_MARGIN_MS > this.now()) return cached.token;
@@ -127,7 +147,8 @@ export class GitHubAccess {
 
   /** Forgets cached tokens of an installation (after GitHub rejected one). */
   invalidate(installationId: number): void {
-    for (const key of [...this.tokens.keys()]) if (key.split(":")[1] === String(installationId)) this.tokens.delete(key);
+    for (const key of Array.from(this.tokens.keys()))
+      if (key.split(":")[1] === String(installationId)) this.tokens.delete(key);
   }
 
   /** Number of cached tokens (tests). */
@@ -150,7 +171,7 @@ export class GitHubAccess {
           return { kind: "ok", candidates: [{ source: "app", token }], installationId, app };
         } catch (error) {
           if (!(error instanceof GitHubAppInstallationError)) throw error;
-          log.warn(`${project.owner}/${project.name}: ${error.message}`);
+          this.log.warn(`${project.owner}/${project.name}: ${error.message}`);
         }
       }
     }
@@ -161,7 +182,10 @@ export class GitHubAccess {
       try {
         candidates.push({ source: "oauth", token: this.decrypt(user.githubAccessTokenEncrypted) });
       } catch {
-        log.warn(`could not decrypt the GitHub token of user ${user.id}; reading anonymously`);
+        this.log.warn(
+          { userId: user.id },
+          `could not decrypt the GitHub token of user ${user.id}; reading anonymously`,
+        );
       }
     }
     candidates.push({ source: "anonymous", token: undefined });

@@ -45,7 +45,10 @@ export function formatSlackPayload(ctx: MessageContext): SlackWebhookPayload {
     blocks: [
       { type: "header", text: { type: "plain_text", text: truncateText(headline, HEADER_LIMIT), emoji: true } },
       { type: "context", elements: [{ type: "mrkdwn", text: context }] },
-      { type: "section", text: { type: "mrkdwn", text: truncateText(markdownToSlack(releaseSummary(release)), SECTION_LIMIT) } },
+      {
+        type: "section",
+        text: { type: "mrkdwn", text: truncateText(markdownToSlack(releaseSummary(release)), SECTION_LIMIT) },
+      },
       {
         type: "actions",
         elements: [

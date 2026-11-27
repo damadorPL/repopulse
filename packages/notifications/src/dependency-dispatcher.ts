@@ -1,5 +1,10 @@
 import { CHANNEL_INFO, channelLabel, isDeliverableChannel, maskDestination } from "./channels.js";
-import { resolveAppBaseUrl, SMTP_NOT_CONFIGURED_MESSAGE, type DispatchOptions, type DispatchResult } from "./dispatcher.js";
+import {
+  resolveAppBaseUrl,
+  SMTP_NOT_CONFIGURED_MESSAGE,
+  type DispatchOptions,
+  type DispatchResult,
+} from "./dispatcher.js";
 import { NotificationDeliveryError } from "./errors.js";
 import {
   buildDependencyContext,
@@ -41,9 +46,12 @@ export async function dispatchDependencyNotification(
   const { rule } = input;
   const channel = rule.channel;
   if (!isDeliverableChannel(channel)) {
-    throw new NotificationDeliveryError(`${channelLabel(channel)} rules are not delivered by the notification dispatcher.`, {
-      permanent: true,
-    });
+    throw new NotificationDeliveryError(
+      `${channelLabel(channel)} rules are not delivered by the notification dispatcher.`,
+      {
+        permanent: true,
+      },
+    );
   }
   const destination = maskDestination(channel, rule.destinationUrl);
   const appBaseUrl = trimTrailingChar(options.appBaseUrl ?? resolveAppBaseUrl(env), "/");
@@ -52,7 +60,9 @@ export async function dispatchDependencyNotification(
   if (channel === "EMAIL_INSTANT") {
     const to = rule.destinationUrl?.trim() || input.user?.email?.trim();
     if (!to) {
-      throw new NotificationDeliveryError("This email rule has no recipient and the account has no email address.", { permanent: true });
+      throw new NotificationDeliveryError("This email rule has no recipient and the account has no email address.", {
+        permanent: true,
+      });
     }
     const config = options.smtp ?? null;
     if (!config) throw new NotificationDeliveryError(SMTP_NOT_CONFIGURED_MESSAGE, { permanent: true });
@@ -63,9 +73,12 @@ export async function dispatchDependencyNotification(
 
   const url = rule.destinationUrl?.trim();
   if (!url) {
-    throw new NotificationDeliveryError(`This ${CHANNEL_INFO[channel].label} rule has no ${CHANNEL_INFO[channel].destinationLabel}.`, {
-      permanent: true,
-    });
+    throw new NotificationDeliveryError(
+      `This ${CHANNEL_INFO[channel].label} rule has no ${CHANNEL_INFO[channel].destinationLabel}.`,
+      {
+        permanent: true,
+      },
+    );
   }
 
   let request: PreparedRequest;

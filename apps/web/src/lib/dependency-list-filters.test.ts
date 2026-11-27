@@ -11,7 +11,12 @@ import {
 
 const counts = (major = 0, minor = 0, patch = 0) => ({ major, minor, patch, other: 0 });
 
-function row(fullName: string, outdated = counts(), lastScannedAt: Date | null = null, packageManagers: string[] = []): DependencyListRow {
+function row(
+  fullName: string,
+  outdated = counts(),
+  lastScannedAt: Date | null = null,
+  packageManagers: string[] = [],
+): DependencyListRow {
   return { fullName, outdated, lastScannedAt, packageManagers };
 }
 
@@ -43,9 +48,21 @@ describe("applyDependencyListFilters", () => {
   });
 
   it("sorts by name, outdated (majors first) and last check (never last)", () => {
-    expect(applyDependencyListFilters(rows, { sort: "name" }).map((r) => r.fullName)).toEqual(["a/api", "b/web", "c/cli"]);
-    expect(applyDependencyListFilters(rows, { sort: "outdated" }).map((r) => r.fullName)).toEqual(["a/api", "c/cli", "b/web"]);
-    expect(applyDependencyListFilters(rows, { sort: "checked" }).map((r) => r.fullName)).toEqual(["b/web", "a/api", "c/cli"]);
+    expect(applyDependencyListFilters(rows, { sort: "name" }).map((r) => r.fullName)).toEqual([
+      "a/api",
+      "b/web",
+      "c/cli",
+    ]);
+    expect(applyDependencyListFilters(rows, { sort: "outdated" }).map((r) => r.fullName)).toEqual([
+      "a/api",
+      "c/cli",
+      "b/web",
+    ]);
+    expect(applyDependencyListFilters(rows, { sort: "checked" }).map((r) => r.fullName)).toEqual([
+      "b/web",
+      "a/api",
+      "c/cli",
+    ]);
   });
 });
 

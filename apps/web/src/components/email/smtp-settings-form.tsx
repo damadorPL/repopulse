@@ -12,7 +12,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SMTP_SECURITY, SMTP_SECURITY_HINTS, SMTP_SECURITY_LABELS, type SmtpSecurity } from "@/lib/smtp";
 import { cn } from "@/lib/utils";
-import { removeSmtpSettingsAction, saveSmtpSettingsAction, sendSmtpTestEmailAction } from "@/server/actions/email-settings";
+import {
+  removeSmtpSettingsAction,
+  saveSmtpSettingsAction,
+  sendSmtpTestEmailAction,
+} from "@/server/actions/email-settings";
 import type { SmtpSettingsView } from "@/server/smtp-settings";
 
 interface FormState {
@@ -104,7 +108,10 @@ export function SmtpSettingsForm({ settings, adminEmail }: { settings: SmtpSetti
       const id = toast.loading("Sending a test email…");
       const result = await sendSmtpTestEmailAction({ to: testTo });
       if (result.ok) {
-        toast.success("Test email sent", { id, description: `Accepted by the SMTP server for ${result.data.to}. Check the inbox.` });
+        toast.success("Test email sent", {
+          id,
+          description: `Accepted by the SMTP server for ${result.data.to}. Check the inbox.`,
+        });
         return;
       }
       if (result.error.code === "UNAUTHORIZED") router.push("/login");
@@ -117,7 +124,11 @@ export function SmtpSettingsForm({ settings, adminEmail }: { settings: SmtpSetti
 
   return (
     <div className="space-y-6">
-      <form onSubmit={submit} className="grid gap-5 rounded-lg border bg-card p-4 sm:p-5" aria-labelledby="smtp-heading">
+      <form
+        onSubmit={submit}
+        className="grid gap-5 rounded-lg border bg-card p-4 sm:p-5"
+        aria-labelledby="smtp-heading"
+      >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 id="smtp-heading" className="font-medium">
@@ -127,7 +138,9 @@ export function SmtpSettingsForm({ settings, adminEmail }: { settings: SmtpSetti
           </div>
           <Badge
             variant="secondary"
-            className={cn(saved.enabled ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "text-muted-foreground")}
+            className={cn(
+              saved.enabled ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "text-muted-foreground",
+            )}
           >
             {saved.enabled ? "Email on" : "Email off"}
           </Badge>
@@ -245,8 +258,8 @@ export function SmtpSettingsForm({ settings, adminEmail }: { settings: SmtpSetti
             aria-describedby="smtp-from-hint"
           />
           <p id="smtp-from-hint" className="text-xs text-muted-foreground">
-            An address, optionally with a name. Empty: <span className="font-mono">RepoPulse &lt;username&gt;</span> when the username is
-            an address. Many providers only accept a sender they verified.
+            An address, optionally with a name. Empty: <span className="font-mono">RepoPulse &lt;username&gt;</span>{" "}
+            when the username is an address. Many providers only accept a sender they verified.
           </p>
         </div>
 
@@ -290,7 +303,9 @@ export function SmtpSettingsForm({ settings, adminEmail }: { settings: SmtpSetti
           <h2 id="smtp-test-heading" className="font-medium">
             Send a test email
           </h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">Delivers the sample v1.0.0 release through the saved settings.</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Delivers the sample v1.0.0 release through the saved settings.
+          </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
           <Label htmlFor="smtp-test-to" className="sr-only">

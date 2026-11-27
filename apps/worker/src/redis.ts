@@ -1,5 +1,5 @@
 import { createRedisConnection, type Redis } from "@repopulse/queue";
-import { createLogger } from "./logger";
+import { createLogger } from "./logger.js";
 
 const log = createLogger("redis");
 
@@ -12,6 +12,7 @@ const log = createLogger("redis");
 export function createWorkerRedis(): Redis {
   const redis = createRedisConnection({ connectionName: "repopulse-worker" });
   redis.on("error", (err) => log.error("connection error", err.message));
+  redis.on("reconnecting", (delayMs: number) => log.warn(`reconnecting in ${delayMs}ms`));
   redis.on("ready", () => log.info("connection ready"));
   return redis;
 }

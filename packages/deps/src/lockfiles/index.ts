@@ -49,7 +49,7 @@ export function readLockfile(input: ReadLockfileInput): LockfileVersions {
     case "poetry.lock":
       return readPoetryLock(input.text, names, input.lockfilePath);
     default:
-      if (input.packageManager === "PIP_TOOLS" || /\.txt$/.test(file)) {
+      if (input.packageManager === "PIP_TOOLS" || file.endsWith(".txt")) {
         return guardLockfile(input.text, input.lockfilePath, () => ({
           versions: readRequirementsPins(input.text, input.lockfilePath),
           formatVersion: null,

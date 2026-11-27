@@ -11,7 +11,10 @@ export default async function DependencyProjectNotFound() {
   await requireUser();
   return (
     <div className="mx-auto max-w-5xl space-y-5">
-      <Link href="/dependencies" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <Link
+        href="/dependencies"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+      >
         <ArrowLeftIcon className="size-4" aria-hidden />
         Dependencies
       </Link>
@@ -20,7 +23,9 @@ export default async function DependencyProjectNotFound() {
           <PackageSearchIcon className="size-5" aria-hidden />
         </span>
         <h1 className="mt-4 font-medium">This repository is not one of your projects</h1>
-        <p className="mt-1 max-w-md text-sm text-muted-foreground">Add it from the Dependencies page to check its dependencies.</p>
+        <p className="mt-1 max-w-md text-sm text-muted-foreground">
+          Add it from the Dependencies page to check its dependencies.
+        </p>
         <Button asChild className="mt-5" size="sm">
           <Link href="/dependencies">Go to Dependencies</Link>
         </Button>

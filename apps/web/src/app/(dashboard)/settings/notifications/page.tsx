@@ -24,7 +24,8 @@ export default async function NotificationSettingsPage() {
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Notifications</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Get new releases delivered to Discord, Slack, ntfy, Gotify, email or your own webhook. In-app unread badges are always on.
+          Get new releases delivered to Discord, Slack, ntfy, Gotify, email or your own webhook. In-app unread badges
+          are always on.
         </p>
       </div>
 
@@ -51,7 +52,9 @@ export default async function NotificationSettingsPage() {
           <div className="rounded-lg border border-dashed px-6 py-12 text-center">
             <BellRingIcon className="mx-auto size-6 text-muted-foreground" aria-hidden />
             <h3 className="mt-3 font-medium">No notification rules yet</h3>
-            <p className="mt-1 text-sm text-muted-foreground">Add one above, then use “Send Test” to check the delivery.</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Add one above, then use “Send Test” to check the delivery.
+            </p>
           </div>
         ) : (
           <ul className="divide-y overflow-hidden rounded-lg border bg-card">
@@ -65,9 +68,10 @@ export default async function NotificationSettingsPage() {
       <p className="flex items-start gap-2 text-xs text-muted-foreground">
         <ShieldCheckIcon className="mt-px size-3.5 shrink-0" aria-hidden />
         <span>
-          Webhook URLs are checked before every delivery. Addresses on private networks (localhost, 10.x, 172.16–31.x, 192.168.x) are
-          blocked unless the server sets <code className="text-[11px]">ALLOW_INTERNAL_WEBHOOK_HOSTS</code>. Cloud metadata addresses are
-          always blocked.
+          Webhook URLs are checked before every delivery. Addresses on private networks (localhost, 10.x, 172.16–31.x,
+          192.168.x) are blocked unless the server sets{" "}
+          <code className="text-[11px]">ALLOW_INTERNAL_WEBHOOK_HOSTS</code>. Cloud metadata addresses are always
+          blocked.
         </span>
       </p>
     </div>

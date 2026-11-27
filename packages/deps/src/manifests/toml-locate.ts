@@ -21,9 +21,12 @@ export function tomlPathKey(path: TomlPath): string {
 }
 
 export class TomlLocateError extends Error {
-  constructor(message: string, readonly offset: number) {
+  readonly offset: number;
+
+  constructor(message: string, offset: number) {
     super(`${message} at offset ${offset}`);
     this.name = "TomlLocateError";
+    this.offset = offset;
   }
 }
 

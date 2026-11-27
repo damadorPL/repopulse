@@ -18,7 +18,10 @@ export function trimChar(value: string, char: string): string {
 
 /** PEP 503 name normalization: lowercase, runs of `-`, `_`, `.` become one `-`. */
 export function normalizePypiName(name: string): string {
-  return name.trim().toLowerCase().replace(/[-_.]+/g, "-");
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[-_.]+/g, "-");
 }
 
 /** UTF-8 byte length without allocating (`Buffer` is not available in every consumer). */
@@ -274,7 +277,8 @@ export function deepEqual(a: unknown, b: unknown): boolean {
     return Number.isNaN(a) && Number.isNaN(b);
   }
   if (Array.isArray(a) !== Array.isArray(b)) return false;
-  if (a instanceof Date || b instanceof Date) return String(a) === String(b);
+  if (a instanceof Date || b instanceof Date)
+    return a instanceof Date && b instanceof Date && a.toString() === b.toString();
   if (Array.isArray(a) && Array.isArray(b)) {
     return a.length === b.length && a.every((item, index) => deepEqual(item, b[index]));
   }
@@ -283,7 +287,7 @@ export function deepEqual(a: unknown, b: unknown): boolean {
   const aKeys = Object.keys(aRecord);
   const bKeys = Object.keys(bRecord);
   if (aKeys.length !== bKeys.length) return false;
-  return aKeys.every((key) => Object.prototype.hasOwnProperty.call(bRecord, key) && deepEqual(aRecord[key], bRecord[key]));
+  return aKeys.every((key) => Object.hasOwn(bRecord, key) && deepEqual(aRecord[key], bRecord[key]));
 }
 
 /** `true` for a plain object (not an array, not null). */

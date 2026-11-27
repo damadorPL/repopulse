@@ -35,13 +35,14 @@ export type RewriteErrorCode =
 
 /** Aborts the update job: the bot writes only what it planned. */
 export class ManifestRewriteError extends Error {
-  constructor(
-    readonly code: RewriteErrorCode,
-    readonly path: string,
-    message: string,
-  ) {
+  readonly code: RewriteErrorCode;
+  readonly path: string;
+
+  constructor(code: RewriteErrorCode, path: string, message: string) {
     super(`${path}: ${message}`);
     this.name = "ManifestRewriteError";
+    this.code = code;
+    this.path = path;
   }
 }
 

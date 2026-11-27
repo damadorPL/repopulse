@@ -1,6 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CircleCheckIcon, ExternalLinkIcon, GitPullRequestIcon, LockIcon, PlusIcon, SearchXIcon, TriangleAlertIcon } from "lucide-react";
+import {
+  CircleCheckIcon,
+  ExternalLinkIcon,
+  GitPullRequestIcon,
+  LockIcon,
+  PlusIcon,
+  SearchXIcon,
+  TriangleExclamationPointIcon,
+} from "lucide-react";
 import { MAX_DEPENDENCY_PROJECTS_PER_USER } from "@repopulse/deps/limits";
 import { RelativeTime } from "@/components/feed/relative-time";
 import { RepoAvatar } from "@/components/feed/repo-avatar";
@@ -11,7 +19,12 @@ import { DepsDisabledNotice, DepsWorkerMissingNotice, OutdatedCounts } from "@/c
 import { ProjectPullRequestButton } from "@/components/dependencies/project-pull-request-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { applyDependencyListFilters, dependencyListHref, dependencyProjectHref, parseDependencyListFilters } from "@/lib/dependency-list-filters";
+import {
+  applyDependencyListFilters,
+  dependencyListHref,
+  dependencyProjectHref,
+  parseDependencyListFilters,
+} from "@/lib/dependency-list-filters";
 import { PACKAGE_MANAGER_LABELS, updateModeLabel } from "@/lib/dependency-settings";
 import { isDepsEnabled, lockfileRegenerationAvailable, readDepsWorkerStatus } from "@/server/deps-status";
 import { getAddableSubscriptions, getDependencyProjects, planListPullRequests } from "@/server/queries/dependencies";
@@ -20,13 +33,11 @@ import { requireUser } from "@/server/session";
 
 export const metadata: Metadata = { title: "Dependencies · RepoPulse" };
 
-type SearchParams = Promise<Record<string, string | string[] | undefined>>;
-
 /**
  * `/dependencies` (Slice 08 §3.7.1): the user's dependency projects with outdated counts, open
  * pull requests, mode and last check. Search and sort live in the URL.
  */
-export default async function DependenciesPage({ searchParams }: { searchParams: SearchParams }) {
+export default async function DependenciesPage({ searchParams }: PageProps<"/dependencies">) {
   const query = await searchParams;
   const filters = parseDependencyListFilters(query);
   const user = await requireUser();
@@ -66,7 +77,8 @@ export default async function DependenciesPage({ searchParams }: { searchParams:
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Dependencies</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Outdated npm, Bun and Python dependencies in your own repositories · {projects.length} of {MAX_DEPENDENCY_PROJECTS_PER_USER} projects
+            Outdated npm, Bun and Python dependencies in your own repositories · {projects.length} of{" "}
+            {MAX_DEPENDENCY_PROJECTS_PER_USER} projects
           </p>
         </div>
         {addButton}
@@ -74,22 +86,28 @@ export default async function DependenciesPage({ searchParams }: { searchParams:
 
       {worker.state === "missing" ? <DepsWorkerMissingNotice /> : null}
       {justInstalled ? (
-        <p role="status" className="flex items-start gap-2 rounded-lg border border-emerald-300/60 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-300">
+        <p
+          role="status"
+          className="flex items-start gap-2 rounded-lg border border-emerald-300/60 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-300"
+        >
           <CircleCheckIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
           <span>
-            The RepoPulse GitHub App was installed. Open a project and choose a pull request mode in its settings to get update pull
-            requests.
+            The RepoPulse GitHub App was installed. Open a project and choose a pull request mode in its settings to get
+            update pull requests.
           </span>
         </p>
       ) : null}
 
-      {projects.length > 0 ? <DependencyListToolbar filters={filters} shown={shown.length} total={projects.length} /> : null}
+      {projects.length > 0 ? (
+        <DependencyListToolbar filters={filters} shown={shown.length} total={projects.length} />
+      ) : null}
 
       {projects.length === 0 ? (
         <div className="flex flex-col items-center rounded-lg border border-dashed px-6 py-14 text-center">
           <h2 className="font-medium">No projects yet</h2>
           <p className="mt-1 max-w-md text-sm text-muted-foreground">
-            Add your own repositories to see which dependencies are outdated. Tracked repositories can be added in one click.
+            Add your own repositories to see which dependencies are outdated. Tracked repositories can be added in one
+            click.
           </p>
           <div className="mt-5">{addButton}</div>
         </div>
@@ -120,7 +138,9 @@ export default async function DependenciesPage({ searchParams }: { searchParams:
                       <Link href={href} className="truncate font-medium hover:underline">
                         {project.fullName}
                       </Link>
-                      {project.isPrivate ? <LockIcon className="size-3.5 text-muted-foreground" aria-label="Private repository" /> : null}
+                      {project.isPrivate ? (
+                        <LockIcon className="size-3.5 text-muted-foreground" aria-label="Private repository" />
+                      ) : null}
                       <a
                         href={`https://github.com/${project.fullName}`}
                         target="_blank"
@@ -133,7 +153,11 @@ export default async function DependenciesPage({ searchParams }: { searchParams:
                       {project.tracked ? <Badge variant="secondary">Tracked</Badge> : null}
                       <Badge variant="outline">{updateModeLabel(project.updateMode)}</Badge>
                       {project.packageManagers.map((pm) => (
-                        <Badge key={pm} variant="outline" className="font-mono text-[11px] font-normal text-muted-foreground">
+                        <Badge
+                          key={pm}
+                          variant="outline"
+                          className="font-mono text-[11px] font-normal text-muted-foreground"
+                        >
                           {PACKAGE_MANAGER_LABELS[pm]}
                         </Badge>
                       ))}
@@ -142,7 +166,11 @@ export default async function DependenciesPage({ searchParams }: { searchParams:
                       <div className="flex items-center gap-1">
                         <dt className="sr-only">Outdated</dt>
                         <dd>
-                          {project.lastScannedAt ? <OutdatedCounts counts={project.outdated} /> : <span>Not checked yet</span>}
+                          {project.lastScannedAt ? (
+                            <OutdatedCounts counts={project.outdated} />
+                          ) : (
+                            <span>Not checked yet</span>
+                          )}
                         </dd>
                       </div>
                       {project.openPullRequests.length > 0 ? (
@@ -151,7 +179,13 @@ export default async function DependenciesPage({ searchParams }: { searchParams:
                           <dt className="sr-only">Open pull requests</dt>
                           <dd className="flex flex-wrap gap-1.5">
                             {project.openPullRequests.map((pr) => (
-                              <a key={pr.id} href={pr.htmlUrl} target="_blank" rel="noopener noreferrer" className="hover:text-foreground hover:underline">
+                              <a
+                                key={pr.id}
+                                href={pr.htmlUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="hover:text-foreground hover:underline"
+                              >
                                 #{pr.number}
                               </a>
                             ))}
@@ -159,8 +193,11 @@ export default async function DependenciesPage({ searchParams }: { searchParams:
                         </div>
                       ) : null}
                       {project.scanStatus === "ERROR" ? (
-                        <div className="flex items-center gap-1 text-amber-700 dark:text-amber-400" title={project.scanError ?? undefined}>
-                          <TriangleAlertIcon className="size-3.5" aria-hidden />
+                        <div
+                          className="flex items-center gap-1 text-amber-700 dark:text-amber-400"
+                          title={project.scanError ?? undefined}
+                        >
+                          <TriangleExclamationPointIcon className="size-3.5" aria-hidden />
                           <dt className="sr-only">Status</dt>
                           <dd>Check failed</dd>
                         </div>

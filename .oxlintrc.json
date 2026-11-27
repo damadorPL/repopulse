@@ -1,0 +1,98 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/.next/**",
+    "**/.turbo/**",
+    "**/coverage/**",
+    "packages/db/src/generated/**",
+    "**/next-env.d.ts",
+    "PRD/**"
+  ],
+  "plugins": ["typescript", "react", "nextjs", "oxc", "unicorn"],
+  "settings": {
+    "next": {
+      "rootDir": "apps/web/"
+    }
+  },
+  "rules": {
+    "no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_"
+      }
+    ],
+    "typescript/consistent-type-imports": "error",
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-promises": "error",
+    "typescript/await-thenable": "error",
+    "typescript/no-unnecessary-type-assertion": "error",
+    "react/rules-of-hooks": "error",
+    "react/exhaustive-deps": "error",
+    "react/react-in-jsx-scope": "off"
+  },
+  "overrides": [
+    {
+      "files": ["**/*.test.{ts,tsx}"],
+      "rules": {
+        "typescript/unbound-method": "off"
+      }
+    },
+    {
+      "files": ["apps/web/src/components/**/*.{ts,tsx}"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "@repopulse/db",
+                "message": "UI components must not import @repopulse/db directly; pass serialized data from Server Components or call Server Actions."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/notifications/src/**/*.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "@repopulse/db",
+                "message": "@repopulse/notifications must remain decoupled from @repopulse/db."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "packages/queue/src/events.ts",
+        "packages/github/src/watched-paths.ts",
+        "packages/deps/src/limits.ts",
+        "packages/deps/src/sandbox-contract.ts"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["node:*"],
+                "message": "Browser-safe subpaths must not import Node.js built-in modules."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

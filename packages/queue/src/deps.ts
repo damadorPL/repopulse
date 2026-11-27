@@ -1,4 +1,5 @@
-import type { JobsOptions } from "bullmq";
+import type { ConnectionOptions, JobsOptions, Queue } from "bullmq";
+import { createQueue } from "./queues.js";
 
 /**
  * Slice 08: queues of the Dependencies module, consumed by `apps/deps-worker` only. Produced by `apps/web`
@@ -64,12 +65,21 @@ export type DepsNotifyJobData =
       dedupKey: string;
     };
 
-/** One scan per project at a time (BullMQ rejects `:` in custom ids, hence `-`). */
+export type DepsSchedulerQueue = Queue<
+  DepsSchedulerJobData,
+  unknown,
+  typeof DEPS_JOB_NAMES.schedule | typeof DEPS_SCHEDULER_ID
+>;
+export type DepsScanQueue = Queue<DepsScanJobData, unknown, typeof DEPS_JOB_NAMES.scan>;
+export type DepsUpdateQueue = Queue<DepsUpdateJobData, unknown, typeof DEPS_JOB_NAMES.update>;
+export type DepsNotifyQueue = Queue<DepsNotifyJobData, unknown, typeof DEPS_JOB_NAMES.notify>;
+
+/** Deduplication id for `deps-scan` (`keepLastIfActive: true`), one scan per project at a time. */
 export function depsScanJobId(projectId: string): string {
   return `deps-scan-${projectId}`;
 }
 
-/** One update per (project, group) at a time. */
+/** Deduplication id for `deps-update` (`keepLastIfActive: true`), one update per (project, group) at a time. */
 export function depsUpdateJobId(projectId: string, groupKey: string): string {
   return `deps-update-${projectId}-${groupKey}`;
 }
@@ -91,16 +101,17 @@ export const DEPS_UPDATE_PRIORITY = { manual: 1, auto: 10 } as const;
 export const DEPS_SCAN_JOB_OPTIONS = {
   attempts: 3,
   backoff: { type: "exponential", delay: 60_000 },
-  // A retained job would keep `deps-scan-{id}` taken and block the next scan.
-  removeOnComplete: true,
-  removeOnFail: true,
+  removeOnComplete: { count: 200 },
+  removeOnFail: { age: 7 * 24 * 3600, count: 200 },
+  keepLogs: 50,
 } satisfies JobsOptions;
 
 export const DEPS_UPDATE_JOB_OPTIONS = {
   attempts: 2,
   backoff: { type: "exponential", delay: 120_000 },
-  removeOnComplete: true,
-  removeOnFail: true,
+  removeOnComplete: { count: 200 },
+  removeOnFail: { age: 7 * 24 * 3600, count: 200 },
+  keepLogs: 50,
 } satisfies JobsOptions;
 
 export const DEPS_NOTIFY_JOB_OPTIONS = {
@@ -108,5 +119,48 @@ export const DEPS_NOTIFY_JOB_OPTIONS = {
   backoff: { type: "exponential", delay: 5_000 },
   // Kept for a week so the deterministic jobId deduplicates.
   removeOnComplete: { age: 7 * 24 * 3600, count: 5000 },
-  removeOnFail: { age: 7 * 24 * 3600 },
+  removeOnFail: { age: 7 * 24 * 3600, count: 5000 },
 } satisfies JobsOptions;
+
+export const DEPS_SCHEDULER_JOB_OPTIONS = {
+  removeOnComplete: true,
+  removeOnFail: { count: 50 },
+} satisfies JobsOptions;
+
+export function createDepsSchedulerQueue(
+  connection: ConnectionOptions,
+  onError?: (err: Error) => void,
+): DepsSchedulerQueue {
+  return createQueue<DepsSchedulerJobData, typeof DEPS_JOB_NAMES.schedule | typeof DEPS_SCHEDULER_ID>(
+    DEPS_QUEUE_NAMES.scheduler,
+    {
+      connection,
+      defaultJobOptions: DEPS_SCHEDULER_JOB_OPTIONS,
+      ...(onError ? { onError } : {}),
+    },
+  );
+}
+
+export function createDepsScanQueue(connection: ConnectionOptions, onError?: (err: Error) => void): DepsScanQueue {
+  return createQueue<DepsScanJobData, typeof DEPS_JOB_NAMES.scan>(DEPS_QUEUE_NAMES.scan, {
+    connection,
+    defaultJobOptions: DEPS_SCAN_JOB_OPTIONS,
+    ...(onError ? { onError } : {}),
+  });
+}
+
+export function createDepsUpdateQueue(connection: ConnectionOptions, onError?: (err: Error) => void): DepsUpdateQueue {
+  return createQueue<DepsUpdateJobData, typeof DEPS_JOB_NAMES.update>(DEPS_QUEUE_NAMES.update, {
+    connection,
+    defaultJobOptions: DEPS_UPDATE_JOB_OPTIONS,
+    ...(onError ? { onError } : {}),
+  });
+}
+
+export function createDepsNotifyQueue(connection: ConnectionOptions, onError?: (err: Error) => void): DepsNotifyQueue {
+  return createQueue<DepsNotifyJobData, typeof DEPS_JOB_NAMES.notify>(DEPS_QUEUE_NAMES.notify, {
+    connection,
+    defaultJobOptions: DEPS_NOTIFY_JOB_OPTIONS,
+    ...(onError ? { onError } : {}),
+  });
+}

@@ -68,7 +68,9 @@ describe("buildWeeks", () => {
   });
 
   it("has consecutive, unique days (no DST gaps)", () => {
-    const keys = buildWeeks(today).flat().map((day) => day.key);
+    const keys = buildWeeks(today)
+      .flat()
+      .map((day) => day.key);
     expect(new Set(keys).size).toBe(53 * 7);
     for (let i = 1; i < keys.length; i++) expect(keys[i]! > keys[i - 1]!).toBe(true);
   });
@@ -111,7 +113,7 @@ describe("monthLabels", () => {
     expect(weeks[oct.index]!.some((day) => day.key === "2026-10-01")).toBe(true);
     // Twelve month starts in 53 weeks (plus possibly the first column).
     expect(labels.filter((l) => l.index > 0).length).toBeGreaterThanOrEqual(12);
-    expect(labels.map((l) => l.index)).toEqual([...labels.map((l) => l.index)].sort((a, b) => a - b));
+    expect(labels.map((l) => l.index)).toEqual(labels.map((l) => l.index).sort((a, b) => a - b));
   });
 });
 
@@ -119,7 +121,8 @@ describe("computeActivityStats", () => {
   const now = new Date(2026, 9, 14, 12, 0); // Wed, local
 
   it("summarizes the last year, cadence, busiest month and streak", () => {
-    const local = (y: number, m: number, d: number, extra: Partial<ActivityItem> = {}) => item(new Date(y, m, d, 12).toISOString(), extra);
+    const local = (y: number, m: number, d: number, extra: Partial<ActivityItem> = {}) =>
+      item(new Date(y, m, d, 12).toISOString(), extra);
     const items = [
       local(2026, 9, 13), // this week
       local(2026, 9, 6), // last week
@@ -167,9 +170,11 @@ describe("describeDay / localDayKey", () => {
     const date = new Date(2026, 9, 14);
     expect(localDayKey(date)).toBe("2026-10-14");
     expect(describeDay(date, undefined)).toBe("No updates on Wed, 14 Oct 2026");
-    const [bucket] = bucketByLocalDay(
-      [item(new Date(2026, 9, 14, 9).toISOString()), item(new Date(2026, 9, 14, 10).toISOString(), { source: "COMMIT" }), item(new Date(2026, 9, 14, 11).toISOString(), { source: "COMMIT" })],
-    ).values();
+    const [bucket] = bucketByLocalDay([
+      item(new Date(2026, 9, 14, 9).toISOString()),
+      item(new Date(2026, 9, 14, 10).toISOString(), { source: "COMMIT" }),
+      item(new Date(2026, 9, 14, 11).toISOString(), { source: "COMMIT" }),
+    ]).values();
     expect(describeDay(date, bucket)).toBe("3 updates on Wed, 14 Oct 2026 · 1 release, 2 commits");
   });
 });

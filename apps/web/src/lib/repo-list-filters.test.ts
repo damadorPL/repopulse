@@ -96,7 +96,11 @@ describe("applyRepoListFilters", () => {
     ["acme/web", 1],
   ]);
   const rows = [
-    row("acme/web", { subscribedAt: day(5), latestActivityAt: day(9), repository: { starsCount: 50, lastPolledAt: day(2) } }),
+    row("acme/web", {
+      subscribedAt: day(5),
+      latestActivityAt: day(9),
+      repository: { starsCount: 50, lastPolledAt: day(2) },
+    }),
     row("acme/api", {
       subscribedAt: day(1),
       latestActivityAt: day(3),
@@ -115,7 +119,12 @@ describe("applyRepoListFilters", () => {
   ];
 
   it("sorts by name by default and keeps the input intact", () => {
-    expect(names(applyRepoListFilters(rows, filters(), unread))).toEqual(["acme/api", "acme/web", "vercel/next.js", "zeta/tool"]);
+    expect(names(applyRepoListFilters(rows, filters(), unread))).toEqual([
+      "acme/api",
+      "acme/web",
+      "vercel/next.js",
+      "zeta/tool",
+    ]);
     expect(names(rows)[0]).toBe("acme/web");
   });
 
@@ -145,8 +154,15 @@ describe("applyRepoListFilters", () => {
   });
 
   it("puts pinned repositories first within any sort", () => {
-    const pinned = rows.map((r) => (r.repository.fullName === "zeta/tool" || r.repository.fullName === "acme/web" ? { ...r, isPinned: true } : r));
-    expect(names(applyRepoListFilters(pinned, filters(), unread))).toEqual(["acme/web", "zeta/tool", "acme/api", "vercel/next.js"]);
+    const pinned = rows.map((r) =>
+      r.repository.fullName === "zeta/tool" || r.repository.fullName === "acme/web" ? { ...r, isPinned: true } : r,
+    );
+    expect(names(applyRepoListFilters(pinned, filters(), unread))).toEqual([
+      "acme/web",
+      "zeta/tool",
+      "acme/api",
+      "vercel/next.js",
+    ]);
     expect(names(applyRepoListFilters(pinned, filters({ sort: "stars" }), unread))).toEqual([
       "acme/web",
       "zeta/tool",
@@ -167,7 +183,10 @@ describe("applyRepoListFilters", () => {
 
   it("filters by tag and status chips (AND)", () => {
     expect(names(applyRepoListFilters(rows, filters({ tagSlug: "frontend" }), unread))).toEqual(["vercel/next.js"]);
-    expect(names(applyRepoListFilters(rows, filters({ statuses: ["unread"] }), unread))).toEqual(["acme/api", "acme/web"]);
+    expect(names(applyRepoListFilters(rows, filters({ statuses: ["unread"] }), unread))).toEqual([
+      "acme/api",
+      "acme/web",
+    ]);
     expect(names(applyRepoListFilters(rows, filters({ statuses: ["unread", "error"] }), unread))).toEqual(["acme/api"]);
     expect(names(applyRepoListFilters(rows, filters({ statuses: ["paths"] }), unread))).toEqual(["vercel/next.js"]);
     expect(names(applyRepoListFilters(rows, filters({ statuses: ["pinned"] }), unread))).toEqual([]);

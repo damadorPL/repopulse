@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Job } from "bullmq";
 import { GitHubRateLimitError, GitHubRepositoryNotFoundError, type pollRepoReleases } from "@repopulse/github";
 import type { RepoPollJobData } from "@repopulse/queue";
+import { MAX_ERROR_COUNT, processRepoPoll } from "./repo-poll.processor.js";
 
 vi.mock("@repopulse/db", () => ({
   decryptToken: (value: string) => {
@@ -10,12 +11,19 @@ vi.mock("@repopulse/db", () => ({
   },
 }));
 
-const { MAX_ERROR_COUNT, processRepoPoll } = await import("./repo-poll.processor");
-
-const REPO = { id: "repo1", owner: "acme", name: "widget", fullName: "acme/widget", htmlUrl: "https://github.com/acme/widget", lastEtag: '"old"' };
+const REPO = {
+  id: "repo1",
+  owner: "acme",
+  name: "widget",
+  fullName: "acme/widget",
+  htmlUrl: "https://github.com/acme/widget",
+  lastEtag: '"old"',
+};
 
 /** Minimal stand-in for the Prisma calls made by the processor (no transaction path). */
-function fakePrisma(options: { errorCount?: number; subscribers?: number; tokens?: Array<[string, string]>; polledPaths?: string[] } = {}) {
+function fakePrisma(
+  options: { errorCount?: number; subscribers?: number; tokens?: Array<[string, string]>; polledPaths?: string[] } = {},
+) {
   const repo = { ...REPO, errorCount: options.errorCount ?? 0, pollStatus: "IDLE" as string };
   const updates: Array<Record<string, unknown>> = [];
   const prisma = {
@@ -45,7 +53,11 @@ function fakePrisma(options: { errorCount?: number; subscribers?: number; tokens
 }
 
 function job(data: Partial<RepoPollJobData> = {}, attemptsMade = 0): Job<RepoPollJobData> {
-  return { data: { repositoryId: REPO.id, trigger: "schedule", ...data }, attemptsMade, opts: { attempts: 3 } } as Job<RepoPollJobData>;
+  return {
+    data: { repositoryId: REPO.id, trigger: "schedule", ...data },
+    attemptsMade,
+    opts: { attempts: 3 },
+  } as Job<RepoPollJobData>;
 }
 
 function deps(prisma: unknown, poll: typeof pollRepoReleases) {
@@ -59,7 +71,12 @@ function deps(prisma: unknown, poll: typeof pollRepoReleases) {
   };
 }
 
-const notModified = vi.fn(async () => ({ status: "NOT_MODIFIED" as const, etag: '"old"', releases: [] as [], rateLimitRemaining: 4999 }));
+const notModified = vi.fn(async () => ({
+  status: "NOT_MODIFIED" as const,
+  etag: '"old"',
+  releases: [] as [],
+  rateLimitRemaining: 4999,
+}));
 
 describe("processRepoPoll", () => {
   it("skips repositories deleted before the job runs", async () => {
@@ -82,31 +99,52 @@ describe("processRepoPoll", () => {
     const { prisma, repo, updates } = fakePrisma({ errorCount: 3 });
     const d = deps(prisma, notModified);
 
-    expect(await processRepoPoll(job({ trigger: "manual", requestedByUserId: "u1" }), d)).toEqual({ status: "NOT_MODIFIED" });
+    expect(await processRepoPoll(job({ trigger: "manual", requestedByUserId: "u1" }), d)).toEqual({
+      status: "NOT_MODIFIED",
+    });
 
     expect(updates[0]).toEqual({ pollStatus: "POLLING" });
     expect(repo).toMatchObject({ pollStatus: "IDLE", errorCount: 0 });
-    expect(notModified).toHaveBeenLastCalledWith(expect.objectContaining({ lastEtag: '"old"', owner: "acme", name: "widget" }));
+    expect(notModified).toHaveBeenLastCalledWith(
+      expect.objectContaining({ lastEtag: '"old"', owner: "acme", name: "widget" }),
+    );
     expect(d.redis.publish).toHaveBeenCalledWith(
       "user:u1:events",
-      JSON.stringify({ type: "SYNC_COMPLETED", repositoryId: "repo1", repositoryName: "acme/widget", result: "NOT_MODIFIED", newReleases: 0 }),
+      JSON.stringify({
+        type: "SYNC_COMPLETED",
+        repositoryId: "repo1",
+        repositoryName: "acme/widget",
+        result: "NOT_MODIFIED",
+        newReleases: 0,
+      }),
     );
   });
 
   it("uses the requester's token first and falls back past a rejected (401) token", async () => {
-    const { prisma } = fakePrisma({ tokens: [["u2", "t2"], ["u1", "t1"], ["u3", "corrupt"]] });
+    const { prisma } = fakePrisma({
+      tokens: [
+        ["u2", "t2"],
+        ["u1", "t1"],
+        ["u3", "corrupt"],
+      ],
+    });
     const poll = vi.fn(async ({ accessToken }: { accessToken?: string | null }) => {
       if (accessToken === "plain:t1") throw Object.assign(new Error("Bad credentials"), { status: 401 });
       return { status: "NOT_MODIFIED" as const, etag: null, releases: [] as [], rateLimitRemaining: null };
     });
 
-    await processRepoPoll(job({ requestedByUserId: "u1" }), deps(prisma, poll as never));
+    await processRepoPoll(job({ requestedByUserId: "u1" }), deps(prisma, poll));
 
     expect(poll.mock.calls.map(([p]) => p.accessToken)).toEqual(["plain:t1", "plain:t2"]);
   });
 
   it("stops fallback immediately on a non-401 error and rethrows the final 401 if all candidates fail", async () => {
-    const { prisma } = fakePrisma({ tokens: [["u1", "t1"], ["u2", "t2"]] });
+    const { prisma } = fakePrisma({
+      tokens: [
+        ["u1", "t1"],
+        ["u2", "t2"],
+      ],
+    });
     const serverErr = Object.assign(new Error("Internal Server Error"), { status: 500 });
     const poll500 = vi.fn(async () => {
       throw serverErr;
@@ -116,7 +154,7 @@ describe("processRepoPoll", () => {
     expect(poll500).toHaveBeenCalledTimes(1);
 
     const authErr = Object.assign(new Error("Bad credentials"), { status: 401 });
-    const pollAll401 = vi.fn(async () => {
+    const pollAll401 = vi.fn(async (_params: { accessToken?: string }) => {
       throw authErr;
     });
     const { prisma: prisma401 } = fakePrisma({ tokens: [["u1", "t1"]] });
@@ -129,9 +167,11 @@ describe("processRepoPoll", () => {
     const poll = vi.fn(async () => {
       throw new GitHubRateLimitError(new Date("2026-10-31T12:10:00Z"));
     });
-    const d = deps(prisma, poll as never);
+    const d = deps(prisma, poll);
 
-    await expect(processRepoPoll(job({ requestedByUserId: "u1" }), d)).rejects.toMatchObject({ name: "RateLimitError" });
+    await expect(processRepoPoll(job({ requestedByUserId: "u1" }), d)).rejects.toMatchObject({
+      name: "RateLimitError",
+    });
 
     expect(d.repoPollQueue.rateLimit).toHaveBeenCalledWith(10 * 60_000 + 1_000);
     expect(repo.pollStatus).toBe("IDLE");
@@ -145,7 +185,7 @@ describe("processRepoPoll", () => {
     });
 
     const below = fakePrisma({ errorCount: MAX_ERROR_COUNT - 2 });
-    const belowDeps = deps(below.prisma, poll as never);
+    const belowDeps = deps(below.prisma, poll);
     expect(await processRepoPoll(job({ trigger: "manual", requestedByUserId: "u1" }), belowDeps)).toEqual({
       status: "NOT_FOUND",
       errorCount: MAX_ERROR_COUNT - 1,
@@ -161,7 +201,10 @@ describe("processRepoPoll", () => {
     );
 
     const at = fakePrisma({ errorCount: MAX_ERROR_COUNT - 1 });
-    expect(await processRepoPoll(job(), deps(at.prisma, poll as never))).toEqual({ status: "NOT_FOUND", errorCount: MAX_ERROR_COUNT });
+    expect(await processRepoPoll(job(), deps(at.prisma, poll))).toEqual({
+      status: "NOT_FOUND",
+      errorCount: MAX_ERROR_COUNT,
+    });
     expect(at.repo.pollStatus).toBe("ERROR");
   });
 
@@ -177,11 +220,11 @@ describe("processRepoPoll", () => {
     });
 
     const early = fakePrisma();
-    await expect(processRepoPoll(job({}, 0), deps(early.prisma, poll as never))).rejects.toThrow("socket hang up");
+    await expect(processRepoPoll(job({}, 0), deps(early.prisma, poll))).rejects.toThrow("socket hang up");
     expect(early.repo).toMatchObject({ pollStatus: "IDLE", errorCount: 0 });
 
     const last = fakePrisma();
-    const d = deps(last.prisma, poll as never);
+    const d = deps(last.prisma, poll);
     await expect(processRepoPoll(job({ requestedByUserId: "u1" }, 2), d)).rejects.toThrow("socket hang up");
     expect(last.repo.errorCount).toBe(1);
     expect(d.redis.publish).toHaveBeenCalledWith("user:u1:events", expect.stringContaining('"reason":"ERROR"'));
@@ -193,7 +236,9 @@ describe("processRepoPoll", () => {
       if (updateCalls > 1) throw new Error("db connection lost");
       return { errorCount: 0 };
     });
-    await expect(processRepoPoll(job({}, 2), deps(failingUpdate.prisma, poll as never))).rejects.toThrow("socket hang up");
+    await expect(processRepoPoll(job({}, 2), deps(failingUpdate.prisma, poll as never))).rejects.toThrow(
+      "socket hang up",
+    );
   });
 });
 
@@ -228,11 +273,23 @@ describe("processRepoPoll release → tag promotion", () => {
         }),
       },
       userSubscription: {
-        findMany: vi.fn(async (args: { select: Record<string, unknown> }) =>
+        findMany: vi.fn(async (args: { select: Record<string, unknown> }): Promise<unknown[]> =>
           "trackMode" in args.select
             ? [
-                { userId: "tagger", includePrereleases: false, trackMode: "TAGS_AND_COMMITS", tags: [], user: { notificationRules: [] } },
-                { userId: "releaser", includePrereleases: false, trackMode: "RELEASES", tags: [], user: { notificationRules: [] } },
+                {
+                  userId: "tagger",
+                  includePrereleases: false,
+                  trackMode: "TAGS_AND_COMMITS",
+                  tags: [],
+                  user: { notificationRules: [] },
+                },
+                {
+                  userId: "releaser",
+                  includePrereleases: false,
+                  trackMode: "RELEASES",
+                  tags: [],
+                  user: { notificationRules: [] },
+                },
                 // Paths-only subscribers never get GitHub Releases.
                 {
                   userId: "pather",
@@ -289,10 +346,12 @@ describe("processRepoPoll release → tag promotion", () => {
       rateLimitRemaining: 4000,
     }));
 
-    const outcome = await processRepoPoll(job(), deps(db.prisma, poll as never));
+    const outcome = await processRepoPoll(job(), deps(db.prisma, poll));
 
     expect(outcome).toMatchObject({ status: "UPDATED", stored: 1, promoted: 1, fresh: 2 });
-    expect(db.updatedRows).toEqual([{ id: "tagrow", data: expect.objectContaining({ source: "RELEASE", githubReleaseId: 200n, tagSha: null }) }]);
+    expect(db.updatedRows).toEqual([
+      { id: "tagrow", data: expect.objectContaining({ source: "RELEASE", githubReleaseId: 200n, tagSha: null }) },
+    ]);
     // v2.1.0 is new for everyone; the promoted v2.0.0 only for the release-mode subscriber.
     expect(db.states).toEqual(
       expect.arrayContaining([
@@ -329,7 +388,7 @@ describe("processRepoPoll release → tag promotion", () => {
       rateLimitRemaining: 4000,
     }));
 
-    const outcome = await processRepoPoll(job(), deps(db.prisma, poll as never));
+    const outcome = await processRepoPoll(job(), deps(db.prisma, poll));
 
     expect(outcome).toMatchObject({ status: "UPDATED", received: 4, stored: 1, promoted: 1, fresh: 2 });
     expect(db.prisma.release.createManyAndReturn).toHaveBeenCalledWith(
@@ -351,9 +410,16 @@ describe("processRepoPoll release → tag promotion", () => {
       rateLimitRemaining: 4000,
     }));
 
-    const outcome = await processRepoPoll(job(), deps(db.prisma, poll as never));
+    const outcome = await processRepoPoll(job(), deps(db.prisma, poll));
 
-    expect(outcome).toMatchObject({ status: "UPDATED", received: 2, stored: 2, promoted: 0, fresh: 0, notifications: 0 });
+    expect(outcome).toMatchObject({
+      status: "UPDATED",
+      received: 2,
+      stored: 2,
+      promoted: 0,
+      fresh: 0,
+      notifications: 0,
+    });
     expect(db.states).toEqual([]);
     expect(db.prisma.userReleaseState.createMany).not.toHaveBeenCalled();
   });
@@ -370,7 +436,13 @@ describe("processRepoPoll release → tag promotion", () => {
               tags: [],
               user: {
                 notificationRules: [
-                  { id: "rule-1", tagId: null, channel: "DISCORD_WEBHOOK", onlyMajorReleases: false, events: ["RELEASES"] },
+                  {
+                    id: "rule-1",
+                    tagId: null,
+                    channel: "DISCORD_WEBHOOK",
+                    onlyMajorReleases: false,
+                    events: ["RELEASES"],
+                  },
                 ],
               },
             },
@@ -383,7 +455,7 @@ describe("processRepoPoll release → tag promotion", () => {
       releases: [mapped(201, "v2.1.0", "2026-10-31T00:00:00Z")],
       rateLimitRemaining: 4000,
     }));
-    const d = deps(db.prisma, poll as never);
+    const d = deps(db.prisma, poll);
     d.redis.publish.mockRejectedValueOnce(new Error("redis hiccup"));
     d.notificationQueue.addBulk.mockRejectedValueOnce(new Error("queue down"));
 
@@ -445,20 +517,25 @@ describe("processRepoPoll release → tag promotion", () => {
       release: {
         findFirst: vi.fn(async () => ({ publishedAt: new Date("2026-10-01T00:00:00Z") })),
         findMany: vi.fn(async () => []),
-        createManyAndReturn: vi.fn(async ({ data }: { data: Array<{ tagName: string; publishedAt: Date; tagSha?: string; changedPaths?: string[] }> }) =>
-          data.map((r) => ({
-            id: `id-${r.tagName}`,
-            tagName: r.tagName,
-            tagSha: r.tagSha ?? null,
-            changedPaths: r.changedPaths ?? [],
-            isPrerelease: false,
-            semverType: "MINOR" as const,
-            publishedAt: r.publishedAt,
-          })),
+        createManyAndReturn: vi.fn(
+          async ({
+            data,
+          }: {
+            data: Array<{ tagName: string; publishedAt: Date; tagSha?: string; changedPaths?: string[] }>;
+          }) =>
+            data.map((r) => ({
+              id: `id-${r.tagName}`,
+              tagName: r.tagName,
+              tagSha: r.tagSha ?? null,
+              changedPaths: r.changedPaths ?? [],
+              isPrerelease: false,
+              semverType: "MINOR" as const,
+              publishedAt: r.publishedAt,
+            })),
         ),
       },
       userSubscription: {
-        findMany: vi.fn(async (args: { select: Record<string, unknown> }) =>
+        findMany: vi.fn(async (args: { select: Record<string, unknown> }): Promise<unknown[]> =>
           "trackMode" in args.select
             ? [
                 {

@@ -17,7 +17,9 @@ describe("lockRequestSchema", () => {
       ...VALID_REQUEST,
       lockfileOnly: false,
     });
-    expect(lockRequestSchema.parse({ ...VALID_REQUEST, workdir: "apps/web", expectLockfile: "apps/web/package-lock.json" })).toMatchObject({
+    expect(
+      lockRequestSchema.parse({ ...VALID_REQUEST, workdir: "apps/web", expectLockfile: "apps/web/package-lock.json" }),
+    ).toMatchObject({
       workdir: "apps/web",
     });
   });
@@ -41,32 +43,55 @@ describe("lockRequestSchema", () => {
       "a".repeat(1025),
     ];
     for (const bad of badPaths) {
-      expect(sandboxFileSchema.safeParse({ path: bad, contentBase64: "" }).success, `file.path=${JSON.stringify(bad)}`).toBe(false);
-      expect(lockRequestSchema.safeParse({ ...VALID_REQUEST, expectLockfile: bad }).success, `expectLockfile=${JSON.stringify(bad)}`).toBe(false);
+      expect(
+        sandboxFileSchema.safeParse({ path: bad, contentBase64: "" }).success,
+        `file.path=${JSON.stringify(bad)}`,
+      ).toBe(false);
+      expect(
+        lockRequestSchema.safeParse({ ...VALID_REQUEST, expectLockfile: bad }).success,
+        `expectLockfile=${JSON.stringify(bad)}`,
+      ).toBe(false);
     }
 
     for (const badWorkdir of badPaths.filter((p) => p !== "")) {
-      expect(lockRequestSchema.safeParse({ ...VALID_REQUEST, workdir: badWorkdir }).success, `workdir=${JSON.stringify(badWorkdir)}`).toBe(false);
+      expect(
+        lockRequestSchema.safeParse({ ...VALID_REQUEST, workdir: badWorkdir }).success,
+        `workdir=${JSON.stringify(badWorkdir)}`,
+      ).toBe(false);
     }
   });
 
   it("enforces array and string length bounds on files and upgrade", () => {
     expect(lockRequestSchema.safeParse({ ...VALID_REQUEST, files: [] }).success).toBe(false);
-    const tooManyFiles = Array.from({ length: MAX_SANDBOX_FILES + 1 }, (_, i) => ({ path: `p${i}/package.json`, contentBase64: "" }));
+    const tooManyFiles = Array.from({ length: MAX_SANDBOX_FILES + 1 }, (_, i) => ({
+      path: `p${i}/package.json`,
+      contentBase64: "",
+    }));
     expect(lockRequestSchema.safeParse({ ...VALID_REQUEST, files: tooManyFiles }).success).toBe(false);
 
     const tooManyUpgrades = Array.from({ length: 1001 }, (_, i) => ({ name: `pkg-${i}`, version: "1.0.0" }));
     expect(lockRequestSchema.safeParse({ ...VALID_REQUEST, upgrade: tooManyUpgrades }).success).toBe(false);
-    expect(lockRequestSchema.safeParse({ ...VALID_REQUEST, upgrade: [{ name: "", version: "1.0.0" }] }).success).toBe(false);
-    expect(lockRequestSchema.safeParse({ ...VALID_REQUEST, upgrade: [{ name: "a".repeat(215), version: "1.0.0" }] }).success).toBe(false);
-    expect(lockRequestSchema.safeParse({ ...VALID_REQUEST, upgrade: [{ name: "a", version: "" }] }).success).toBe(false);
-    expect(lockRequestSchema.safeParse({ ...VALID_REQUEST, upgrade: [{ name: "a", version: "1".repeat(129) }] }).success).toBe(false);
+    expect(lockRequestSchema.safeParse({ ...VALID_REQUEST, upgrade: [{ name: "", version: "1.0.0" }] }).success).toBe(
+      false,
+    );
+    expect(
+      lockRequestSchema.safeParse({ ...VALID_REQUEST, upgrade: [{ name: "a".repeat(215), version: "1.0.0" }] }).success,
+    ).toBe(false);
+    expect(lockRequestSchema.safeParse({ ...VALID_REQUEST, upgrade: [{ name: "a", version: "" }] }).success).toBe(
+      false,
+    );
+    expect(
+      lockRequestSchema.safeParse({ ...VALID_REQUEST, upgrade: [{ name: "a", version: "1".repeat(129) }] }).success,
+    ).toBe(false);
   });
 
   it("rejects unknown keys via .strict()", () => {
     expect(lockRequestSchema.safeParse({ ...VALID_REQUEST, token: "secret" }).success).toBe(false);
     expect(lockRequestSchema.safeParse({ ...VALID_REQUEST, files: [{ ...VALID_FILE, extra: 1 }] }).success).toBe(false);
-    expect(lockRequestSchema.safeParse({ ...VALID_REQUEST, upgrade: [{ name: "a", version: "1.0.0", extra: true }] }).success).toBe(false);
+    expect(
+      lockRequestSchema.safeParse({ ...VALID_REQUEST, upgrade: [{ name: "a", version: "1.0.0", extra: true }] })
+        .success,
+    ).toBe(false);
   });
 });
 
@@ -75,7 +100,9 @@ describe("lockResponseSchema and sandboxHealthSchema", () => {
     expect(lockResponseSchema.parse({ ok: true, lockfile: VALID_FILE })).toEqual({ ok: true, lockfile: VALID_FILE });
     expect(lockResponseSchema.parse({ ok: false, code: "BUSY" })).toEqual({ ok: false, code: "BUSY", stderrTail: "" });
 
-    expect(lockResponseSchema.safeParse({ ok: true, lockfile: { path: "../etc/passwd", contentBase64: "" } }).success).toBe(false);
+    expect(
+      lockResponseSchema.safeParse({ ok: true, lockfile: { path: "../etc/passwd", contentBase64: "" } }).success,
+    ).toBe(false);
     expect(lockResponseSchema.safeParse({ ok: true, lockfile: VALID_FILE, extra: 1 }).success).toBe(false);
     expect(lockResponseSchema.safeParse({ ok: false, code: "BUSY", extra: 1 }).success).toBe(false);
     expect(lockResponseSchema.safeParse({ ok: false, code: "BUSY", stderrTail: "x".repeat(4097) }).success).toBe(false);

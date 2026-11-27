@@ -1,47 +1,43 @@
-import { Queue, type ConnectionOptions } from "bullmq";
+import type { ConnectionOptions } from "bullmq";
 import {
+  createNotificationQueue,
+  createReleaseBackfillQueue,
+  createRepoPollQueue,
+  createSchedulerQueue,
   DEFAULT_POLL_INTERVAL_CRON,
+  deduplicatedJobOptions,
   JOB_NAMES,
-  NOTIFICATION_JOB_OPTIONS,
   QUEUE_NAMES,
-  RELEASE_BACKFILL_JOB_OPTIONS,
-  REPO_POLL_JOB_OPTIONS,
   SCHEDULER_ID,
-  type NotificationJobData,
-  type ReleaseBackfillJobData,
-  type RepoPollJobData,
-  type SchedulerJobData,
+  type NotificationQueue,
+  type ReleaseBackfillQueue,
+  type RepoPollQueue,
+  type SchedulerQueue,
 } from "@repopulse/queue";
+import { createLogger } from "../logger.js";
 
 export interface Queues {
   /** `repo-scheduler`: one repeatable job that finds due repositories. */
-  schedulerQueue: Queue<SchedulerJobData>;
-  /** `repo-poll`: one job per repository check (jobId `poll-{repositoryId}`). */
-  repoPollQueue: Queue<RepoPollJobData>;
+  schedulerQueue: SchedulerQueue;
+  /** `repo-poll`: one job per repository check (deduplication id `poll-{repositoryId}`). */
+  repoPollQueue: RepoPollQueue;
   /** `notification-dispatch`: one job per (rule, release), delivered by `@repopulse/notifications`. */
-  notificationQueue: Queue<NotificationJobData>;
-  /** `release-backfill`: one history import per repository (jobId `backfill-{repositoryId}`). */
-  releaseBackfillQueue: Queue<ReleaseBackfillJobData>;
+  notificationQueue: NotificationQueue;
+  /** `release-backfill`: one history import per repository (deduplication id `backfill-{repositoryId}`). */
+  releaseBackfillQueue: ReleaseBackfillQueue;
+}
+
+function queueErrorHandler(name: string): (err: Error) => void {
+  const log = createLogger(`queue:${name}`);
+  return (err) => log.error({ queue: name, err }, "queue error");
 }
 
 export function createQueues(connection: ConnectionOptions): Queues {
   return {
-    schedulerQueue: new Queue<SchedulerJobData>(QUEUE_NAMES.scheduler, {
-      connection,
-      defaultJobOptions: { removeOnComplete: true, removeOnFail: { count: 50 } },
-    }),
-    repoPollQueue: new Queue<RepoPollJobData>(QUEUE_NAMES.repoPoll, {
-      connection,
-      defaultJobOptions: REPO_POLL_JOB_OPTIONS,
-    }),
-    notificationQueue: new Queue<NotificationJobData>(QUEUE_NAMES.notification, {
-      connection,
-      defaultJobOptions: NOTIFICATION_JOB_OPTIONS,
-    }),
-    releaseBackfillQueue: new Queue<ReleaseBackfillJobData>(QUEUE_NAMES.releaseBackfill, {
-      connection,
-      defaultJobOptions: RELEASE_BACKFILL_JOB_OPTIONS,
-    }),
+    schedulerQueue: createSchedulerQueue(connection, queueErrorHandler(QUEUE_NAMES.scheduler)),
+    repoPollQueue: createRepoPollQueue(connection, queueErrorHandler(QUEUE_NAMES.repoPoll)),
+    notificationQueue: createNotificationQueue(connection, queueErrorHandler(QUEUE_NAMES.notification)),
+    releaseBackfillQueue: createReleaseBackfillQueue(connection, queueErrorHandler(QUEUE_NAMES.releaseBackfill)),
   };
 }
 
@@ -61,10 +57,10 @@ export function pollIntervalCron(): string {
 /**
  * Registers (or updates) the repeatable scan on `repo-scheduler`. Upserting by a fixed id keeps
  * exactly one schedule across restarts and replicas, and a changed POLL_INTERVAL_CRON replaces
- * the old pattern instead of adding a second one. A one-off scan also runs right away, so a
- * fresh deploy does not wait a full interval for its first poll.
+ * the old pattern instead of adding a second one. A deduplicated one-off scan also runs right
+ * away, so a fresh deploy does not wait a full interval for its first poll.
  */
-export async function registerSchedule(schedulerQueue: Queue<SchedulerJobData>, cron: string): Promise<void> {
+export async function registerSchedule(schedulerQueue: SchedulerQueue, cron: string): Promise<void> {
   await schedulerQueue.upsertJobScheduler(SCHEDULER_ID, { pattern: cron }, { name: JOB_NAMES.scan, data: {} });
-  await schedulerQueue.add(JOB_NAMES.scan, {});
+  await schedulerQueue.add(JOB_NAMES.scan, {}, deduplicatedJobOptions(`${SCHEDULER_ID}-startup`));
 }

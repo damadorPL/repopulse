@@ -1,5 +1,13 @@
 import type { ComponentType, SVGProps } from "react";
-import { BellIcon, BellRingIcon, HashIcon, MailIcon, MessagesSquareIcon, SmartphoneIcon, WebhookIcon } from "lucide-react";
+import {
+  BellIcon,
+  BellRingIcon,
+  HashIcon,
+  MailIcon,
+  MessagesSquareIcon,
+  SmartphoneIcon,
+  WebhookIcon,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /** Lucide has no brand marks, so each channel gets a generic glyph and its own tint. */

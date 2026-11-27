@@ -47,7 +47,10 @@ function fakeGitHub(routes: Record<string, (call: Call) => Response | Promise<Re
     const handler = routes[`${call.method} ${call.path}`];
     return handler ? handler(call) : notFound();
   });
-  return { octokit: createOctokit({ accessToken: "ghs_test", fetch: fetch as unknown as typeof globalThis.fetch }), calls };
+  return {
+    octokit: createOctokit({ accessToken: "ghs_test", fetch: fetch as unknown as typeof globalThis.fetch }),
+    calls,
+  };
 }
 
 const R = "/repos/acme/widget";
@@ -85,7 +88,9 @@ describe("readBlobs", () => {
         await new Promise((resolve) => setTimeout(resolve, 5));
         inFlight--;
         // GitHub wraps base64 at 60 columns.
-        const base64 = Buffer.from(content).toString("base64").replace(/(.{60})/g, "$1\n");
+        const base64 = Buffer.from(content)
+          .toString("base64")
+          .replace(/(.{60})/g, "$1\n");
         return json({ sha, size: Buffer.byteLength(content), encoding: "base64", content: base64 });
       };
     }
@@ -113,16 +118,35 @@ describe("readBlobs", () => {
     expect(maxInFlight).toBe(2);
   });
 
-  it("maps secondary rate limits (retry-after) and rethrows non-rate-limit 403", async () => {
+  it("maps secondary rate limits (numeric and HTTP-date retry-after) and rethrows non-rate-limit 403", async () => {
     const { octokit } = fakeGitHub({
-      [`GET ${R}/git/blobs/a`]: () => json({ message: "You have exceeded a secondary rate limit" }, { status: 403, headers: { "retry-after": "60" } }),
+      [`GET ${R}/git/blobs/a`]: () =>
+        json(
+          { message: "You have exceeded a secondary rate limit" },
+          { status: 403, headers: { "retry-after": "60" } },
+        ),
       [`GET ${R}/git/blobs/b`]: () => json({ message: "Resource not accessible by integration" }, { status: 403 }),
+      [`GET ${R}/git/blobs/c`]: () =>
+        json(
+          { message: "Secondary rate limit" },
+          { status: 403, headers: { "retry-after": "Wed, 21 Oct 2026 07:28:00 GMT" } },
+        ),
     });
-    const error = await readBlobs(octokit, "acme", "widget", [{ path: "a", sha: "a" }], { maxBytes: 10 }).catch((e: unknown) => e);
+    const error = await readBlobs(octokit, "acme", "widget", [{ path: "a", sha: "a" }], { maxBytes: 10 }).catch(
+      (e: unknown) => e,
+    );
     expect(error).toBeInstanceOf(GitHubRateLimitError);
     expect((error as GitHubRateLimitError).resetAt!.getTime()).toBeGreaterThan(Date.now() + 50_000);
 
-    const permErr = await readBlobs(octokit, "acme", "widget", [{ path: "b", sha: "b" }], { maxBytes: 10 }).catch((e: unknown) => e);
+    const httpDateErr = await readBlobs(octokit, "acme", "widget", [{ path: "c", sha: "c" }], { maxBytes: 10 }).catch(
+      (e: unknown) => e,
+    );
+    expect(httpDateErr).toBeInstanceOf(GitHubRateLimitError);
+    expect((httpDateErr as GitHubRateLimitError).resetAt).toEqual(new Date("Wed, 21 Oct 2026 07:28:00 GMT"));
+
+    const permErr = await readBlobs(octokit, "acme", "widget", [{ path: "b", sha: "b" }], { maxBytes: 10 }).catch(
+      (e: unknown) => e,
+    );
     expect(permErr).not.toBeInstanceOf(GitHubRateLimitError);
     expect(permErr).toMatchObject({ status: 403 });
   });
@@ -135,28 +159,97 @@ describe("readBlobs", () => {
     await expect(readBlobs(octokit, "acme", "widget", [], { maxBytes: 10 })).resolves.toEqual([]);
     expect(calls).toHaveLength(0);
 
-    const res = await readBlobs(
-      octokit,
-      "acme",
-      "widget",
-      [
-        { path: "u.txt", sha: "utf8" },
-        { path: "o.txt", sha: "oversize" },
-      ],
-      { maxBytes: 10 },
-    );
-    expect(res).toEqual([
+    await expect(
+      readBlobs(
+        octokit,
+        "acme",
+        "widget",
+        [
+          { path: "u.txt", sha: "utf8" },
+          { path: "o.txt", sha: "oversize" },
+        ],
+        { maxBytes: 10 },
+      ),
+    ).resolves.toEqual([
       { path: "u.txt", sha: "utf8", size: 5, content: "hello", oversize: false },
       { path: "o.txt", sha: "oversize", size: 50, content: null, oversize: true },
     ]);
+  });
+
+  it("batches >25 blobs via GraphQL, handles oversize/binary fallback, and surfaces GraphQL rate limits", async () => {
+    const entries = Array.from({ length: 28 }, (_, i) => ({ path: `f${i}.txt`, sha: `sha${i}` }));
+    entries.push({ path: "dup.txt", sha: "sha0" });
+    const graphqlCalls: Array<{ query: string; variables: Record<string, unknown> }> = [];
+    const restCalls: string[] = [];
+
+    const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+      if (url.pathname === "/graphql") {
+        const body = JSON.parse(typeof init?.body === "string" ? init.body : "") as {
+          query: string;
+          variables: Record<string, unknown>;
+        };
+        graphqlCalls.push(body);
+        const repository: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(body.variables)) {
+          if (!key.startsWith("sha")) continue;
+          const idx = key.slice(3);
+          const sha = String(value);
+          if (sha === "sha1") {
+            repository[`b${idx}`] = { text: null, byteSize: 4, isBinary: true };
+          } else if (sha === "sha2") {
+            repository[`b${idx}`] = { text: "x".repeat(50), byteSize: 50, isBinary: false };
+          } else {
+            repository[`b${idx}`] = { text: `content:${sha}`, byteSize: `content:${sha}`.length, isBinary: false };
+          }
+        }
+        return json({ data: { repository } });
+      }
+      restCalls.push(url.pathname);
+      if (url.pathname === `${R}/git/blobs/sha1`) {
+        return json({ sha: "sha1", encoding: "base64", size: 4, content: Buffer.from("bin\0").toString("base64") });
+      }
+      return notFound();
+    });
+
+    const octokit = createOctokit({ accessToken: "ghs_test", fetch: fetch as unknown as typeof globalThis.fetch });
+    const result = await readBlobs(octokit, "acme", "widget", entries, { maxBytes: 20 });
+
+    // 28 unique SHAs -> 2 GraphQL chunks (25 + 3), 0 REST calls except the 1 binary blob.
+    expect(graphqlCalls).toHaveLength(2);
+    expect(restCalls).toEqual([`${R}/git/blobs/sha1`]);
+    expect(result).toHaveLength(29);
+    expect(result[0]).toEqual({ path: "f0.txt", sha: "sha0", size: 12, content: "content:sha0", oversize: false });
+    expect(result[1]).toEqual({ path: "f1.txt", sha: "sha1", size: 4, content: "bin\0", oversize: false });
+    expect(result[2]).toEqual({ path: "f2.txt", sha: "sha2", size: 50, content: null, oversize: true });
+    expect(result[27]).toEqual({ path: "f27.txt", sha: "sha27", size: 13, content: "content:sha27", oversize: false });
+    expect(result[28]).toEqual({ path: "dup.txt", sha: "sha0", size: 12, content: "content:sha0", oversize: false });
+
+    const rateLimitFetch = vi.fn(async () =>
+      json(
+        { errors: [{ type: "RATE_LIMITED", message: "API rate limit exceeded" }] },
+        { headers: { "x-ratelimit-reset": "1900000000" } },
+      ),
+    );
+    const rateOctokit = createOctokit({
+      accessToken: "ghs_test",
+      fetch: rateLimitFetch as unknown as typeof globalThis.fetch,
+    });
+    await expect(
+      readBlobs(rateOctokit, "acme", "widget", [{ path: "a.txt", sha: "sha0" }], { maxBytes: 20 }),
+    ).rejects.toBeInstanceOf(GitHubRateLimitError);
+    expect(rateLimitFetch).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("branches", () => {
   const routes = {
-    [`GET ${R}/git/ref/heads/repopulse/deps/npm`]: () => json({ ref: "refs/heads/repopulse/deps/npm", object: { sha: "head1", type: "commit" } }),
-    [`GET ${R}/git/ref/heads/repopulse/deps/prefix`]: () => json({ ref: "refs/heads/repopulse/deps/prefix-other", object: { sha: "head2", type: "commit" } }),
-    [`GET ${R}/git/ref/heads/repopulse/deps/empty`]: () => json({ message: "Git Repository is empty." }, { status: 409 }),
+    [`GET ${R}/git/ref/heads/repopulse/deps/npm`]: () =>
+      json({ ref: "refs/heads/repopulse/deps/npm", object: { sha: "head1", type: "commit" } }),
+    [`GET ${R}/git/ref/heads/repopulse/deps/prefix`]: () =>
+      json({ ref: "refs/heads/repopulse/deps/prefix-other", object: { sha: "head2", type: "commit" } }),
+    [`GET ${R}/git/ref/heads/repopulse/deps/empty`]: () =>
+      json({ message: "Git Repository is empty." }, { status: 409 }),
   };
 
   it("reads the branch head, null when missing, prefix-mismatched or 409", async () => {
@@ -169,9 +262,17 @@ describe("branches", () => {
 
   it("tells owned, edited and missing branches apart", async () => {
     const { octokit } = fakeGitHub(routes);
-    await expect(inspectBranch(octokit, "acme", "widget", "repopulse/deps/npm", "head1")).resolves.toEqual({ status: "owned", headSha: "head1" });
-    await expect(inspectBranch(octokit, "acme", "widget", "repopulse/deps/npm", "old")).resolves.toEqual({ status: "edited", headSha: "head1" });
-    await expect(inspectBranch(octokit, "acme", "widget", "repopulse/deps/npm", null)).resolves.toMatchObject({ status: "edited" });
+    await expect(inspectBranch(octokit, "acme", "widget", "repopulse/deps/npm", "head1")).resolves.toEqual({
+      status: "owned",
+      headSha: "head1",
+    });
+    await expect(inspectBranch(octokit, "acme", "widget", "repopulse/deps/npm", "old")).resolves.toEqual({
+      status: "edited",
+      headSha: "head1",
+    });
+    await expect(inspectBranch(octokit, "acme", "widget", "repopulse/deps/npm", null)).resolves.toMatchObject({
+      status: "edited",
+    });
     await expect(inspectBranch(octokit, "acme", "widget", "nope", "head1")).resolves.toEqual({ status: "missing" });
     await expect(branchIsBotOwned(octokit, "acme", "widget", "repopulse/deps/npm", "head1")).resolves.toBe(true);
     await expect(branchIsBotOwned(octokit, "acme", "widget", "repopulse/deps/npm", "other")).resolves.toBe(false);
@@ -180,15 +281,24 @@ describe("branches", () => {
 
   it("checks whether the branch tree already holds the content", async () => {
     const { octokit, calls } = fakeGitHub({
-      [`GET ${R}/git/trees/head1`]: () => json({ tree: [{ path: "requirements.txt", type: "blob", sha: gitBlobSha("django==5.2\n") }] }),
+      [`GET ${R}/git/trees/head1`]: () =>
+        json({ tree: [{ path: "requirements.txt", type: "blob", sha: gitBlobSha("django==5.2\n") }] }),
       [`GET ${R}/git/trees/emptyrepo`]: () => json({ message: "Git Repository is empty." }, { status: 409 }),
     });
     await expect(treeHasContent(octokit, "acme", "widget", "head1", [])).resolves.toBe(true);
     expect(calls).toHaveLength(0);
-    await expect(treeHasContent(octokit, "acme", "widget", "head1", [{ path: "requirements.txt", content: "django==5.2\n" }])).resolves.toBe(true);
-    await expect(treeHasContent(octokit, "acme", "widget", "head1", [{ path: "requirements.txt", content: "django==5.3\n" }])).resolves.toBe(false);
-    await expect(treeHasContent(octokit, "acme", "widget", "gone", [{ path: "requirements.txt", content: "x" }])).resolves.toBe(false);
-    await expect(treeHasContent(octokit, "acme", "widget", "emptyrepo", [{ path: "requirements.txt", content: "x" }])).resolves.toBe(false);
+    await expect(
+      treeHasContent(octokit, "acme", "widget", "head1", [{ path: "requirements.txt", content: "django==5.2\n" }]),
+    ).resolves.toBe(true);
+    await expect(
+      treeHasContent(octokit, "acme", "widget", "head1", [{ path: "requirements.txt", content: "django==5.3\n" }]),
+    ).resolves.toBe(false);
+    await expect(
+      treeHasContent(octokit, "acme", "widget", "gone", [{ path: "requirements.txt", content: "x" }]),
+    ).resolves.toBe(false);
+    await expect(
+      treeHasContent(octokit, "acme", "widget", "emptyrepo", [{ path: "requirements.txt", content: "x" }]),
+    ).resolves.toBe(false);
     expect(calls[0]?.url.searchParams.get("recursive")).toBe("1");
   });
 });
@@ -217,11 +327,18 @@ describe("commitFiles", () => {
   };
 
   it("creates blobs, a tree on the base tree, a bot commit and the branch", async () => {
-    const { octokit, calls } = fakeGitHub(gitRoutes({ [`POST ${R}/git/refs`]: () => json({ ref: "x" }, { status: 201 }) }));
-    await expect(commitFiles(octokit, { ...params, force: false })).resolves.toEqual({ commitSha: "newcommit", treeSha: "newtree" });
+    const { octokit, calls } = fakeGitHub(
+      gitRoutes({ [`POST ${R}/git/refs`]: () => json({ ref: "x" }, { status: 201 }) }),
+    );
+    await expect(commitFiles(octokit, { ...params, force: false })).resolves.toEqual({
+      commitSha: "newcommit",
+      treeSha: "newtree",
+    });
 
     const blobs = calls.filter((c) => c.path === `${R}/git/blobs`);
-    expect(blobs.map((c) => Buffer.from(String(c.body?.content), "base64").toString("utf8"))).toEqual(params.files.map((f) => f.content));
+    expect(blobs.map((c) => Buffer.from(String(c.body?.content), "base64").toString("utf8"))).toEqual(
+      params.files.map((f) => f.content),
+    );
     expect(blobs.every((c) => c.body?.encoding === "base64")).toBe(true);
 
     const tree = calls.find((c) => c.path === `${R}/git/trees`);
@@ -240,7 +357,9 @@ describe("commitFiles", () => {
   });
 
   it("force-updates an existing branch", async () => {
-    const { octokit, calls } = fakeGitHub(gitRoutes({ [`PATCH ${R}/git/refs/heads/repopulse/deps/npm`]: () => json({ ref: "x" }) }));
+    const { octokit, calls } = fakeGitHub(
+      gitRoutes({ [`PATCH ${R}/git/refs/heads/repopulse/deps/npm`]: () => json({ ref: "x" }) }),
+    );
     await commitFiles(octokit, { ...params, force: true });
     const patch = calls.find((c) => c.method === "PATCH");
     expect(patch?.body).toEqual({ sha: "newcommit", force: true });
@@ -248,29 +367,44 @@ describe("commitFiles", () => {
 
   it("awaits durable commit preparation before writing the ref", async () => {
     let persisted = false;
-    const { octokit } = fakeGitHub(gitRoutes({ [`POST ${R}/git/refs`]: () => {
-      expect(persisted).toBe(true);
-      return json({ ref: "x" }, { status: 201 });
-    } }));
-    await commitFiles(octokit, { ...params, force: false, onPrepared: async (sha) => {
-      expect(sha).toBe("newcommit");
-      await Promise.resolve();
-      persisted = true;
-    } });
+    const { octokit } = fakeGitHub(
+      gitRoutes({
+        [`POST ${R}/git/refs`]: () => {
+          expect(persisted).toBe(true);
+          return json({ ref: "x" }, { status: 201 });
+        },
+      }),
+    );
+    await commitFiles(octokit, {
+      ...params,
+      force: false,
+      onPrepared: async (sha) => {
+        expect(sha).toBe("newcommit");
+        await Promise.resolve();
+        persisted = true;
+      },
+    });
   });
 
   it("does not write the ref when durable preparation fails", async () => {
     const { octokit, calls } = fakeGitHub(gitRoutes({}));
-    await expect(commitFiles(octokit, { ...params, force: false, onPrepared: async () => {
-      throw new Error("Database unavailable");
-    } })).rejects.toThrow("Database unavailable");
+    await expect(
+      commitFiles(octokit, {
+        ...params,
+        force: false,
+        onPrepared: async () => {
+          throw new Error("Database unavailable");
+        },
+      }),
+    ).rejects.toThrow("Database unavailable");
     expect(calls.some((call) => call.path.includes("/git/refs"))).toBe(false);
   });
 
   it("creates the branch when a force update finds it deleted", async () => {
     const { octokit, calls } = fakeGitHub(
       gitRoutes({
-        [`PATCH ${R}/git/refs/heads/repopulse/deps/npm`]: () => json({ message: "Reference does not exist" }, { status: 422 }),
+        [`PATCH ${R}/git/refs/heads/repopulse/deps/npm`]: () =>
+          json({ message: "Reference does not exist" }, { status: 422 }),
         [`POST ${R}/git/refs`]: () => json({ ref: "x" }, { status: 201 }),
       }),
     );
@@ -280,22 +414,35 @@ describe("commitFiles", () => {
   });
 
   it("surfaces ref races as RefUpdateConflictError and supports executable file mode", async () => {
-    const created = fakeGitHub(gitRoutes({ [`POST ${R}/git/refs`]: () => json({ message: "Reference already exists" }, { status: 422 }) }));
+    const created = fakeGitHub(
+      gitRoutes({ [`POST ${R}/git/refs`]: () => json({ message: "Reference already exists" }, { status: 422 }) }),
+    );
     const error = await commitFiles(created.octokit, { ...params, force: false }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(RefUpdateConflictError);
     expect((error as RefUpdateConflictError).status).toBe(422);
     expect((error as RefUpdateConflictError).ref).toBe("refs/heads/repopulse/deps/npm");
 
-    const patched = fakeGitHub(gitRoutes({ [`PATCH ${R}/git/refs/heads/repopulse/deps/npm`]: () => json({ message: "conflict" }, { status: 409 }) }));
-    await expect(commitFiles(patched.octokit, { ...params, force: true })).rejects.toMatchObject({ name: "RefUpdateConflictError", status: 409 });
+    const patched = fakeGitHub(
+      gitRoutes({
+        [`PATCH ${R}/git/refs/heads/repopulse/deps/npm`]: () => json({ message: "conflict" }, { status: 409 }),
+      }),
+    );
+    await expect(commitFiles(patched.octokit, { ...params, force: true })).rejects.toMatchObject({
+      name: "RefUpdateConflictError",
+      status: 409,
+    });
 
     const doubleRace = fakeGitHub(
       gitRoutes({
-        [`PATCH ${R}/git/refs/heads/repopulse/deps/npm`]: () => json({ message: "Reference does not exist" }, { status: 422 }),
+        [`PATCH ${R}/git/refs/heads/repopulse/deps/npm`]: () =>
+          json({ message: "Reference does not exist" }, { status: 422 }),
         [`POST ${R}/git/refs`]: () => json({ message: "Reference already exists" }, { status: 422 }),
       }),
     );
-    await expect(commitFiles(doubleRace.octokit, { ...params, force: true })).rejects.toMatchObject({ name: "RefUpdateConflictError", status: 422 });
+    await expect(commitFiles(doubleRace.octokit, { ...params, force: true })).rejects.toMatchObject({
+      name: "RefUpdateConflictError",
+      status: 422,
+    });
 
     const execMode = fakeGitHub(gitRoutes({ [`POST ${R}/git/refs`]: () => json({ ref: "x" }, { status: 201 }) }));
     await commitFiles(execMode.octokit, {
@@ -322,7 +469,14 @@ describe("pull requests", () => {
     merged_at: null,
     head: { sha: "head1", ref },
   });
-  const input = { owner: "acme", repo: "widget", head: "repopulse/deps/npm", base: "main", title: "Update react", body: "Body" };
+  const input = {
+    owner: "acme",
+    repo: "widget",
+    head: "repopulse/deps/npm",
+    base: "main",
+    title: "Update react",
+    body: "Body",
+  };
 
   it("updates the known open PR", async () => {
     const { octokit, calls } = fakeGitHub({
@@ -352,15 +506,24 @@ describe("pull requests", () => {
       [`GET ${R}/pulls`]: () => json([]),
       [`POST ${R}/pulls`]: () => json(pr(15), { status: 201 }),
     });
-    await expect(upsertPullRequest(fresh.octokit, { ...input, existingNumber: 3 })).resolves.toMatchObject({ number: 15, created: true });
-    expect(fresh.calls.at(-1)?.body).toEqual({ head: "repopulse/deps/npm", base: "main", title: "Update react", body: "Body" });
+    await expect(upsertPullRequest(fresh.octokit, { ...input, existingNumber: 3 })).resolves.toMatchObject({
+      number: 15,
+      created: true,
+    });
+    expect(fresh.calls.at(-1)?.body).toEqual({
+      head: "repopulse/deps/npm",
+      base: "main",
+      title: "Update react",
+      body: "Body",
+    });
   });
 
   it("updates the PR another run opened concurrently, or rethrows 422 when none is open", async () => {
     let listed = 0;
     const { octokit } = fakeGitHub({
       [`GET ${R}/pulls`]: () => json(listed++ === 0 ? [] : [pr(9)]),
-      [`POST ${R}/pulls`]: () => json({ message: "A pull request already exists for acme:repopulse/deps/npm." }, { status: 422 }),
+      [`POST ${R}/pulls`]: () =>
+        json({ message: "A pull request already exists for acme:repopulse/deps/npm." }, { status: 422 }),
       [`PATCH ${R}/pulls/9`]: () => json(pr(9)),
     });
     await expect(upsertPullRequest(octokit, input)).resolves.toMatchObject({ number: 9, created: false });
@@ -377,14 +540,20 @@ describe("pull requests", () => {
       [`GET ${R}/pulls`]: () => json([]),
       [`POST ${R}/pulls`]: () => json(pr(20), { status: 201 }),
     });
-    await expect(upsertPullRequest(octokit404, { ...input, existingNumber: 999 })).resolves.toMatchObject({ number: 20, created: true });
+    await expect(upsertPullRequest(octokit404, { ...input, existingNumber: 999 })).resolves.toMatchObject({
+      number: 20,
+      created: true,
+    });
 
     const { octokit: octokitWrongRef } = fakeGitHub({
       [`GET ${R}/pulls/5`]: () => json(pr(5, "open", "other-branch")),
       [`GET ${R}/pulls`]: () => json([]),
       [`POST ${R}/pulls`]: () => json(pr(21), { status: 201 }),
     });
-    await expect(upsertPullRequest(octokitWrongRef, { ...input, existingNumber: 5 })).resolves.toMatchObject({ number: 21, created: true });
+    await expect(upsertPullRequest(octokitWrongRef, { ...input, existingNumber: 5 })).resolves.toMatchObject({
+      number: 21,
+      created: true,
+    });
   });
 
   it("comments when given, then closes", async () => {
@@ -392,7 +561,12 @@ describe("pull requests", () => {
       [`POST ${R}/issues/12/comments`]: () => json({ id: 1 }, { status: 201 }),
       [`PATCH ${R}/pulls/12`]: () => json(pr(12, "closed")),
     });
-    await closePullRequest(octokit, { owner: "acme", repo: "widget", number: 12, comment: "All updates were applied." });
+    await closePullRequest(octokit, {
+      owner: "acme",
+      repo: "widget",
+      number: 12,
+      comment: "All updates were applied.",
+    });
     expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([`POST ${R}/issues/12/comments`, `PATCH ${R}/pulls/12`]);
     expect(calls[0]?.body).toEqual({ body: "All updates were applied." });
     expect(calls[1]?.body).toEqual({ state: "closed" });
@@ -413,7 +587,10 @@ describe("pull requests", () => {
       headSha: "head1",
       headRef: "repopulse/deps/npm",
     });
-    await expect(getPullRequestState(octokit, "acme", "widget", 14)).resolves.toMatchObject({ state: "closed", merged: true });
+    await expect(getPullRequestState(octokit, "acme", "widget", 14)).resolves.toMatchObject({
+      state: "closed",
+      merged: true,
+    });
     await expect(getPullRequestState(octokit, "acme", "widget", 13)).resolves.toBeNull();
   });
 
@@ -422,5 +599,34 @@ describe("pull requests", () => {
       [`GET ${R}/pulls/12`]: () => json({ message: "rate limited" }, { status: 429 }),
     });
     await expect(getPullRequestState(octokit, "acme", "widget", 12)).rejects.toBeInstanceOf(GitHubRateLimitError);
+  });
+
+  it("plumbs AbortSignal through git-write helpers", async () => {
+    const signals: boolean[] = [];
+    const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      signals.push(Boolean(init?.signal));
+      if (init?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+      if (url.pathname.includes("/git/ref/")) return json({ ref: "refs/heads/main", object: { sha: "h1" } });
+      if (url.pathname.includes("/git/trees/"))
+        return json({ tree: [{ path: "a.txt", type: "blob", sha: gitBlobSha("hi") }] });
+      if (url.pathname.includes("/pulls/1")) return json(pr(1));
+      if (url.pathname.includes("/pulls")) return json([pr(1)]);
+      return json({ id: 1 });
+    });
+    const octokit = createOctokit({ accessToken: "ghs_test", fetch: fetch as unknown as typeof globalThis.fetch });
+    const controller = new AbortController();
+    await getBranchHead(octokit, "acme", "widget", "main", { signal: controller.signal });
+    await treeHasContent(octokit, "acme", "widget", "h1", [{ path: "a.txt", content: "hi" }], {
+      signal: controller.signal,
+    });
+    await getPullRequestState(octokit, "acme", "widget", 1, { signal: controller.signal });
+    await closePullRequest(octokit, { owner: "acme", repo: "widget", number: 1, signal: controller.signal });
+    expect(signals).toEqual([true, true, true, true]);
+
+    controller.abort();
+    await expect(getBranchHead(octokit, "acme", "widget", "main", { signal: controller.signal })).rejects.toMatchObject(
+      { name: "AbortError" },
+    );
   });
 });

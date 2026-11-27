@@ -1,9 +1,6 @@
-import { parseRealtimeEvent, serializeRealtimeEvent, userEventsChannel } from "@repopulse/queue/events";
+import { parseRealtimeEvent, serializeRealtimeEvent } from "@repopulse/queue/events";
 import { getCurrentUserOrThrow, UnauthorizedError } from "@/lib/auth";
-import { createSubscriber, isRealtimeConfigured } from "@/server/realtime";
-
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+import { isRealtimeConfigured, subscribeUserEvents } from "@/server/realtime";
 
 /** Comment lines keep proxies (Traefik in Coolify) from closing an idle stream. */
 const HEARTBEAT_MS = 25_000;
@@ -25,14 +22,13 @@ export async function GET(request: Request): Promise<Response> {
   // EventSource retries non-200 responses only on network errors; a 503 stops it for good.
   if (!isRealtimeConfigured()) return new Response("Live updates are not configured", { status: 503 });
 
-  const channel = userEventsChannel(userId);
-  const subscriber = createSubscriber();
   const encoder = new TextEncoder();
   let cleanup = () => {};
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let closed = false;
+      let unsubscribe: (() => Promise<void>) | undefined;
 
       const send = (chunk: string) => {
         if (closed) return;
@@ -50,11 +46,9 @@ export async function GET(request: Request): Promise<Response> {
         closed = true;
         clearInterval(heartbeat);
         request.signal.removeEventListener("abort", cleanup);
-        subscriber.removeAllListeners("message");
-        subscriber
-          .unsubscribe(channel)
-          .then(() => subscriber.quit())
-          .catch(() => subscriber.disconnect());
+        const unsub = unsubscribe;
+        unsubscribe = undefined;
+        if (unsub) void unsub();
         try {
           controller.close();
         } catch {
@@ -62,22 +56,27 @@ export async function GET(request: Request): Promise<Response> {
         }
       };
 
-      subscriber.on("message", (from: string, message: string) => {
-        if (from !== channel) return;
-        const event = parseRealtimeEvent(message);
-        if (event) send(`data: ${serializeRealtimeEvent(event)}\n\n`);
-      });
-      subscriber.on("error", (err: Error) => console.error(`[sse] redis subscriber error: ${err.message}`));
-
       // The client navigated away, closed the tab or lost the connection.
       request.signal.addEventListener("abort", cleanup, { once: true });
 
       send(`retry: ${RETRY_MS}\n: connected\n\n`);
-      subscriber.subscribe(channel).catch((err: unknown) => {
-        console.error("[sse] could not subscribe", err);
-        // Ending the stream makes EventSource reconnect after `retry`.
-        cleanup();
-      });
+      void subscribeUserEvents(userId, (message) => {
+        const event = parseRealtimeEvent(message);
+        if (event) send(`data: ${serializeRealtimeEvent(event)}\n\n`);
+      }).then(
+        (unsub) => {
+          if (closed) {
+            void unsub();
+          } else {
+            unsubscribe = unsub;
+          }
+        },
+        (err: unknown) => {
+          console.error("[sse] could not subscribe", err);
+          // Ending the stream makes EventSource reconnect after `retry`.
+          cleanup();
+        },
+      );
     },
     cancel() {
       cleanup();

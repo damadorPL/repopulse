@@ -47,7 +47,9 @@ export function parseDepsWorkerHeartbeat(raw: string | null): DepsWorkerStatus {
     const sandbox = value?.sandbox;
     const tools =
       sandbox && typeof sandbox === "object" && sandbox.tools && typeof sandbox.tools === "object"
-        ? Object.fromEntries(Object.entries(sandbox.tools).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+        ? Object.fromEntries(
+            Object.entries(sandbox.tools).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+          )
         : null;
     return { state: "running", at, sandbox: tools ? { status: "ok", tools } : null };
   } catch {
@@ -99,5 +101,13 @@ export async function getDepsAdminView(): Promise<DepsAdminView> {
     prisma.dependencyProject.count({ where: { updates: { some: { status: "OUTDATED" } } } }),
     prisma.dependencyPullRequest.count({ where: { state: "OPEN" } }),
   ]);
-  return { enabled: settings?.depsEnabled ?? false, worker, appConfigured, projects, users, outdatedProjects, openPullRequests };
+  return {
+    enabled: settings?.depsEnabled ?? false,
+    worker,
+    appConfigured,
+    projects,
+    users,
+    outdatedProjects,
+    openPullRequests,
+  };
 }

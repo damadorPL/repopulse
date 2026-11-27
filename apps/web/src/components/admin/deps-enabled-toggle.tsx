@@ -26,7 +26,10 @@ export function DepsEnabledToggle({ enabled: savedEnabled }: { enabled: boolean 
   }
 
   return (
-    <section aria-labelledby="deps-enabled-heading" className="flex items-start justify-between gap-4 rounded-lg border bg-card p-4 sm:p-5">
+    <section
+      aria-labelledby="deps-enabled-heading"
+      className="flex items-start justify-between gap-4 rounded-lg border bg-card p-4 sm:p-5"
+    >
       <div className="grid gap-1">
         <Label id="deps-enabled-heading" htmlFor="deps-enabled" className="text-base font-medium">
           Dependency checks

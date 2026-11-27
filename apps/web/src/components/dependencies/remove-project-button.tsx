@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import type { Route } from "next";
 import { useRouter } from "next/navigation";
-import { Trash2Icon } from "lucide-react";
+import { TrashIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,7 +19,15 @@ import {
 import { removeDependencyProjectAction } from "@/server/actions/dependencies";
 
 /** Danger zone: removes the project (and its PR ownership); open pull requests stay on GitHub. */
-export function RemoveProjectButton({ projectId, fullName, redirectTo }: { projectId: string; fullName: string; redirectTo: string }) {
+export function RemoveProjectButton({
+  projectId,
+  fullName,
+  redirectTo,
+}: {
+  projectId: string;
+  fullName: string;
+  redirectTo: Route;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -41,7 +50,7 @@ export function RemoveProjectButton({ projectId, fullName, redirectTo }: { proje
     <Dialog open={open} onOpenChange={(next) => !pending && setOpen(next)}>
       <DialogTrigger asChild>
         <Button variant="destructive" size="sm">
-          <Trash2Icon />
+          <TrashIcon />
           Remove project
         </Button>
       </DialogTrigger>
@@ -49,8 +58,8 @@ export function RemoveProjectButton({ projectId, fullName, redirectTo }: { proje
         <DialogHeader>
           <DialogTitle>Stop checking {fullName}?</DialogTitle>
           <DialogDescription>
-            Its dependency results, settings and pull request history in RepoPulse are removed, and RepoPulse stops managing pull
-            requests for it. Open pull requests stay on GitHub. Tracking its releases is not affected.
+            Its dependency results, settings and pull request history in RepoPulse are removed, and RepoPulse stops
+            managing pull requests for it. Open pull requests stay on GitHub. Tracking its releases is not affected.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

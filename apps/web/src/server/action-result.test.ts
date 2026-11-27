@@ -17,14 +17,8 @@ vi.mock("@repopulse/github", () => ({
   GitHubRateLimitError,
 }));
 
-const {
-  fail,
-  getGitHubToken,
-  invalidInput,
-  isUniqueConstraintError,
-  ok,
-  toActionError,
-} = await import("./action-result");
+const { fail, getGitHubToken, invalidInput, isUniqueConstraintError, ok, toActionError } =
+  await import("./action-result");
 
 beforeEach(() => {
   vi.clearAllMocks();

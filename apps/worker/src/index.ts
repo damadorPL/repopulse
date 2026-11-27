@@ -1,24 +1,27 @@
 import { Worker } from "bullmq";
 import { loadBackfillOverrides, prisma } from "@repopulse/db";
+import { closeSmtpTransports } from "@repopulse/notifications";
 import {
   applyBackfillOverrides,
+  attachWorkerListeners,
   QUEUE_NAMES,
   readBackfillConfig,
   type BackfillConfig,
+  type JOB_NAMES,
   type NotificationJobData,
   type Redis,
   type ReleaseBackfillJobData,
   type RepoPollJobData,
   type SchedulerJobData,
 } from "@repopulse/queue";
-import { startHealthServer, type HealthServer } from "./health";
-import { createLogger, errorMessage } from "./logger";
-import { processNotification } from "./processors/notification.processor";
-import { processReleaseBackfill } from "./processors/release-backfill.processor";
-import { processRepoPoll } from "./processors/repo-poll.processor";
-import { processSchedulerTick } from "./processors/scheduler.processor";
-import { closeQueues, createQueues, pollIntervalCron, registerSchedule, type Queues } from "./queues";
-import { createWorkerRedis } from "./redis";
+import { startHealthServer, type HealthServer } from "./health.js";
+import { createLogger, errorMessage, log } from "./logger.js";
+import { processNotification } from "./processors/notification.processor.js";
+import { processReleaseBackfill } from "./processors/release-backfill.processor.js";
+import { processRepoPoll } from "./processors/repo-poll.processor.js";
+import { processSchedulerTick } from "./processors/scheduler.processor.js";
+import { closeQueues, createQueues, pollIntervalCron, registerSchedule, type Queues } from "./queues/index.js";
+import { createWorkerRedis } from "./redis.js";
 
 /**
  * RepoPulse worker entrypoint: BullMQ scheduler, repository poller and notification dispatcher,
@@ -46,12 +49,15 @@ const RELEASE_BACKFILL_CONCURRENCY = 2;
 // Below docker-compose's `stop_grace_period: 30s`, so we exit before Docker sends SIGKILL.
 const SHUTDOWN_TIMEOUT_MS = 25_000;
 
-const log = createLogger("worker");
+interface ManagedWorker {
+  cancelAllJobs(reason?: string): void;
+  close(): Promise<void>;
+}
 
 let healthServer: HealthServer | undefined;
 let redis: Redis | undefined;
 let queues: Queues | undefined;
-let workers: Worker[] = [];
+let workers: ManagedWorker[] = [];
 let shuttingDown = false;
 
 function positiveInt(name: string, fallback: number): number {
@@ -77,10 +83,12 @@ async function gracefulShutdown(reason: string, exitCode = 0): Promise<void> {
   forceExit.unref();
 
   try {
-    // Workers first: close() stops fetching new jobs and waits for active ones (in-flight GitHub
-    // polls, DB transactions) to finish while Redis and the database are still connected.
+    // Workers first: cancel active job signals so in-flight fetches abort right away, then
+    // close() stops fetching new jobs and waits for them to unwind while Redis and DB stay up.
+    for (const worker of workers) worker.cancelAllJobs("shutdown");
     await Promise.all(workers.map((worker) => worker.close()));
     log.info(`${workers.length} BullMQ workers drained and closed`);
+    closeSmtpTransports();
     if (queues) await closeQueues(queues);
 
     if (healthServer) {
@@ -121,14 +129,15 @@ process.on("uncaughtException", (err) => {
   process.exit(1);
 });
 
-function startWorkers(connection: Redis, q: Queues, backfillConfig: BackfillConfig): Worker[] {
-  const schedulerWorker = new Worker<SchedulerJobData>(
+function startWorkers(connection: Redis, q: Queues, backfillConfig: BackfillConfig): ManagedWorker[] {
+  const schedulerWorker = new Worker<SchedulerJobData, unknown, typeof JOB_NAMES.scan>(
     QUEUE_NAMES.scheduler,
-    () => processSchedulerTick({ prisma, repoPollQueue: q.repoPollQueue, releaseBackfillQueue: q.releaseBackfillQueue }),
-    { connection, concurrency: 1 },
+    () =>
+      processSchedulerTick({ prisma, repoPollQueue: q.repoPollQueue, releaseBackfillQueue: q.releaseBackfillQueue }),
+    { connection, concurrency: 1, name: `repopulse-worker:${QUEUE_NAMES.scheduler}` },
   );
 
-  const repoPollWorker = new Worker<RepoPollJobData>(
+  const repoPollWorker = new Worker<RepoPollJobData, unknown, typeof JOB_NAMES.poll>(
     QUEUE_NAMES.repoPoll,
     (job, _token, signal) =>
       processRepoPoll(
@@ -138,6 +147,7 @@ function startWorkers(connection: Redis, q: Queues, backfillConfig: BackfillConf
       ),
     {
       connection,
+      name: `repopulse-worker:${QUEUE_NAMES.repoPoll}`,
       concurrency: positiveInt("REPO_POLL_CONCURRENCY", 5),
       // Caps outbound GitHub calls at 10/s. A limiter is also what makes
       // `repoPollQueue.rateLimit()` (on HTTP 403/429) pause the queue at all.
@@ -145,28 +155,42 @@ function startWorkers(connection: Redis, q: Queues, backfillConfig: BackfillConf
     },
   );
 
-  const notificationWorker = new Worker<NotificationJobData>(
+  const notificationWorker = new Worker<NotificationJobData, unknown, typeof JOB_NAMES.notify>(
     QUEUE_NAMES.notification,
     (job, _token, signal) => processNotification(job, { prisma, ...(signal ? { signal } : {}) }),
-    { connection, concurrency: positiveInt("NOTIFICATION_CONCURRENCY", 10) },
+    {
+      connection,
+      name: `repopulse-worker:${QUEUE_NAMES.notification}`,
+      concurrency: positiveInt("NOTIFICATION_CONCURRENCY", 10),
+    },
   );
 
-  const releaseBackfillWorker = new Worker<ReleaseBackfillJobData>(
+  const releaseBackfillWorker = new Worker<ReleaseBackfillJobData, unknown, typeof JOB_NAMES.backfill>(
     QUEUE_NAMES.releaseBackfill,
     async (job, token, signal) =>
-      processReleaseBackfill(job, token, { prisma, redis: connection, config: await currentBackfillConfig(backfillConfig) }, signal),
-    { connection, concurrency: RELEASE_BACKFILL_CONCURRENCY },
+      processReleaseBackfill(
+        job,
+        token,
+        { prisma, redis: connection, config: await currentBackfillConfig(backfillConfig) },
+        signal,
+      ),
+    {
+      connection,
+      name: `repopulse-worker:${QUEUE_NAMES.releaseBackfill}`,
+      concurrency: RELEASE_BACKFILL_CONCURRENCY,
+    },
   );
 
-  const all = [schedulerWorker, repoPollWorker, notificationWorker, releaseBackfillWorker];
-  for (const worker of all) {
-    const queueLog = createLogger(worker.name);
-    worker.on("failed", (job, err) => {
-      if (job) queueLog.error(`job ${job.id} failed (attempt ${job.attemptsMade}/${job.opts.attempts ?? 1})`, err.message);
-    });
-    worker.on("error", (err) => queueLog.error("worker error", err));
-  }
-  return all;
+  const register = <D, R, N extends string>(worker: Worker<D, R, N>): ManagedWorker => {
+    attachWorkerListeners(worker, createLogger(worker.name));
+    return worker;
+  };
+  return [
+    register(schedulerWorker),
+    register(repoPollWorker),
+    register(notificationWorker),
+    register(releaseBackfillWorker),
+  ];
 }
 
 async function main(): Promise<void> {
@@ -207,6 +231,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  console.error(`[worker] fatal startup error: ${errorMessage(err)}`);
+  log.error("fatal startup error", err);
   process.exit(1);
 });

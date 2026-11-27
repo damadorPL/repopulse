@@ -1,34 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const tx = {
-  invite: { updateMany: vi.fn(), update: vi.fn() },
-  user: { findUnique: vi.fn(), count: vi.fn(), create: vi.fn() },
+  invite: { updateMany: vi.fn() },
+  user: { count: vi.fn() },
+  instanceSettings: { findUnique: vi.fn() },
   $executeRaw: vi.fn(),
 };
 const prisma = {
   user: tx.user,
-  instanceSettings: { findUnique: vi.fn() },
+  instanceSettings: tx.instanceSettings,
   invite: { findFirst: vi.fn() },
   $transaction: vi.fn(async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx)),
 };
 vi.mock("@repopulse/db", () => ({ prisma, INSTANCE_SETTINGS_ID: 1 }));
 
-const { admitGitHubUser, findUsableInvite, INVITE_INVALID_REDIRECT, INVITE_REQUIRED_REDIRECT } = await import("./registration");
+const { admitNewGitHubUser, findUsableInvite, INVITE_INVALID_REDIRECT, INVITE_REQUIRED_REDIRECT } =
+  await import("./registration");
 const { generateInviteToken, hashInviteToken } = await import("./invite-tokens");
 
-const fields = {
-  githubId: "42",
-  email: "new@example.com",
-  name: "New User",
-  avatarUrl: null,
-  githubAccessTokenEncrypted: "enc",
-};
-
-function setup({ existing = false, users = 3, open = true } = {}) {
-  prisma.user.findUnique.mockResolvedValue(existing ? { id: "u_existing" } : null);
-  prisma.user.count.mockResolvedValue(users);
-  prisma.instanceSettings.findUnique.mockResolvedValue({ publicRegistration: open });
-  tx.user.create.mockResolvedValue({ id: "u_new" });
+function setup({ users = 3, open = true } = {}) {
+  tx.user.count.mockResolvedValue(users);
+  tx.instanceSettings.findUnique.mockResolvedValue({ publicRegistration: open });
 }
 
 beforeEach(() => {
@@ -37,90 +29,120 @@ beforeEach(() => {
   tx.$executeRaw.mockResolvedValue(0);
 });
 
-describe("admitGitHubUser", () => {
-  it("always lets existing users in, even when invite-only", async () => {
-    setup({ existing: true, open: false });
-    await expect(admitGitHubUser(fields, undefined)).resolves.toBe(true);
-    expect(prisma.user.create).not.toHaveBeenCalled();
-  });
-
-  it("creates the first account as the super admin", async () => {
+describe("admitNewGitHubUser", () => {
+  it("admits the first account as super admin after acquiring the advisory lock", async () => {
     setup({ users: 0, open: false });
-    await expect(admitGitHubUser(fields, undefined)).resolves.toBe(true);
-    expect(prisma.user.create).toHaveBeenCalledWith({ data: { ...fields, isSuperAdmin: true } });
+    await expect(admitNewGitHubUser(undefined)).resolves.toEqual({
+      admitted: true,
+      isSuperAdmin: true,
+      claimedInviteTokenHash: null,
+    });
     expect(tx.$executeRaw).toHaveBeenCalledBefore(tx.user.count);
   });
 
   it("admits only one bootstrap admin when initial callbacks overlap", async () => {
-    setup({ users: 0, open: false });
-    const created: Array<typeof fields & { isSuperAdmin?: boolean }> = [];
+    let userCount = 0;
+    tx.instanceSettings.findUnique.mockResolvedValue({ publicRegistration: false });
     let previous = Promise.resolve();
-    // Model the transaction lock: the next transaction observes committed users.
+    // Model the transaction + advisory lock: the next transaction observes committed users.
     prisma.$transaction.mockImplementation((fn) => {
-      const result = previous.then(() => fn(tx));
+      const result = previous.then(async () => {
+        const res = await fn(tx);
+        if (res && typeof res === "object" && "admitted" in res && res.admitted) {
+          userCount += 1;
+        }
+        return res;
+      });
       previous = result.then(() => undefined);
       return result;
     });
-    tx.user.count.mockImplementation(async () => created.length);
-    tx.user.create.mockImplementation(async ({ data }) => {
-      created.push(data);
-      return { id: data.githubId };
-    });
+    tx.user.count.mockImplementation(async () => userCount);
 
-    const results = await Promise.all([
-      admitGitHubUser(fields, undefined),
-      admitGitHubUser({ ...fields, githubId: "43", email: "second@example.com" }, undefined),
+    const results = await Promise.all([admitNewGitHubUser(undefined), admitNewGitHubUser(undefined)]);
+    expect(results).toEqual([
+      { admitted: true, isSuperAdmin: true, claimedInviteTokenHash: null },
+      { admitted: false, errorCode: "InviteRequired", redirectTo: INVITE_REQUIRED_REDIRECT },
     ]);
-    expect(results).toEqual([true, INVITE_REQUIRED_REDIRECT]);
-    expect(created).toEqual([{ ...fields, isSuperAdmin: true }]);
   });
 
-  it("lets new users in while public registration is open (jwt callback creates them)", async () => {
+  it("lets new users in as non-admin while public registration is open", async () => {
     setup({ open: true });
-    await expect(admitGitHubUser(fields, undefined)).resolves.toBe(true);
-    expect(prisma.user.create).not.toHaveBeenCalled();
+    await expect(admitNewGitHubUser(undefined)).resolves.toEqual({
+      admitted: true,
+      isSuperAdmin: false,
+      claimedInviteTokenHash: null,
+    });
   });
 
   it("refuses new users without an invite when invite-only", async () => {
     setup({ open: false });
-    await expect(admitGitHubUser(fields, undefined)).resolves.toBe(INVITE_REQUIRED_REDIRECT);
-    await expect(admitGitHubUser(fields, "not-a-token")).resolves.toBe(INVITE_REQUIRED_REDIRECT);
-    expect(prisma.user.create).not.toHaveBeenCalled();
+    await expect(admitNewGitHubUser(undefined)).resolves.toEqual({
+      admitted: false,
+      errorCode: "InviteRequired",
+      redirectTo: INVITE_REQUIRED_REDIRECT,
+    });
+    await expect(admitNewGitHubUser("not-a-token")).resolves.toEqual({
+      admitted: false,
+      errorCode: "InviteRequired",
+      redirectTo: INVITE_REQUIRED_REDIRECT,
+    });
   });
 
-  it("claims a usable invite and creates the account in one transaction", async () => {
+  it("claims a usable invite atomically and returns its tokenHash", async () => {
     setup({ open: false });
     tx.invite.updateMany.mockResolvedValue({ count: 1 });
     const token = generateInviteToken();
 
-    await expect(admitGitHubUser(fields, token)).resolves.toBe(true);
+    await expect(admitNewGitHubUser(token)).resolves.toEqual({
+      admitted: true,
+      isSuperAdmin: false,
+      claimedInviteTokenHash: hashInviteToken(token),
+    });
 
-    const tokenHash = hashInviteToken(token);
     expect(tx.invite.updateMany).toHaveBeenCalledWith({
-      where: { tokenHash, usedAt: null, expiresAt: { gt: expect.any(Date) } },
+      where: { tokenHash: hashInviteToken(token), usedAt: null, expiresAt: { gt: expect.any(Date) } },
       data: { usedAt: expect.any(Date) },
     });
-    expect(tx.user.create).toHaveBeenCalledWith({ data: fields, select: { id: true } });
-    expect(tx.invite.update).toHaveBeenCalledWith({ where: { tokenHash }, data: { usedById: "u_new" } });
   });
 
   it("refuses a used, expired or revoked invite when invite-only", async () => {
     setup({ open: false });
     tx.invite.updateMany.mockResolvedValue({ count: 0 });
-    await expect(admitGitHubUser(fields, generateInviteToken())).resolves.toBe(INVITE_INVALID_REDIRECT);
-    expect(tx.user.create).not.toHaveBeenCalled();
+    await expect(admitNewGitHubUser(generateInviteToken())).resolves.toEqual({
+      admitted: false,
+      errorCode: "InviteInvalid",
+      redirectTo: INVITE_INVALID_REDIRECT,
+    });
   });
 
   it("falls back to open sign-up when the invite is stale but registration is public", async () => {
     setup({ open: true });
     tx.invite.updateMany.mockResolvedValue({ count: 0 });
-    await expect(admitGitHubUser(fields, generateInviteToken())).resolves.toBe(true);
+    await expect(admitNewGitHubUser(generateInviteToken())).resolves.toEqual({
+      admitted: true,
+      isSuperAdmin: false,
+      claimedInviteTokenHash: null,
+    });
   });
 
   it("treats a missing settings row as open registration", async () => {
     setup();
-    prisma.instanceSettings.findUnique.mockResolvedValue(null);
-    await expect(admitGitHubUser(fields, undefined)).resolves.toBe(true);
+    tx.instanceSettings.findUnique.mockResolvedValue(null);
+    await expect(admitNewGitHubUser(undefined)).resolves.toEqual({
+      admitted: true,
+      isSuperAdmin: false,
+      claimedInviteTokenHash: null,
+    });
+  });
+
+  it("reuses an active transaction client without starting a nested $transaction", async () => {
+    setup({ users: 0, open: false });
+    await expect(admitNewGitHubUser(undefined, tx)).resolves.toEqual({
+      admitted: true,
+      isSuperAdmin: true,
+      claimedInviteTokenHash: null,
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });
 

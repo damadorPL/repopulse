@@ -117,9 +117,7 @@ export function planFanOut(
   const plan: FanOutPlan = { states: [], deliveries: [], notifications: [] };
 
   for (const subscriber of subscribers) {
-    const visible = fresh
-      .filter((release) => subscriber.includePrereleases || !release.isPrerelease)
-      .slice(0, limit);
+    const visible = fresh.filter((release) => subscriber.includePrereleases || !release.isPrerelease).slice(0, limit);
     if (visible.length === 0) continue;
 
     plan.deliveries.push({ userId: subscriber.userId, releases: visible });
@@ -145,7 +143,8 @@ export const EMPTY_FAN_OUT_PLAN: FanOutPlan = { states: [], deliveries: [], noti
 export function mergeFanOutPlans(...plans: FanOutPlan[]): FanOutPlan {
   const deliveries = new Map<string, StoredRelease[]>();
   for (const plan of plans) {
-    for (const { userId, releases } of plan.deliveries) deliveries.set(userId, [...(deliveries.get(userId) ?? []), ...releases]);
+    for (const { userId, releases } of plan.deliveries)
+      deliveries.set(userId, [...(deliveries.get(userId) ?? []), ...releases]);
   }
   return {
     states: plans.flatMap((plan) => plan.states),
@@ -155,18 +154,4 @@ export function mergeFanOutPlans(...plans: FanOutPlan[]): FanOutPlan {
     })),
     notifications: plans.flatMap((plan) => plan.notifications),
   };
-}
-
-const MIN_RATE_LIMIT_DELAY_MS = 5_000;
-const DEFAULT_RATE_LIMIT_DELAY_MS = 60_000;
-const MAX_RATE_LIMIT_DELAY_MS = 60 * 60_000;
-
-/**
- * How long to pause the `repo-poll` queue after a GitHub rate-limit response: until
- * `X-RateLimit-Reset` plus 1 s of clock-skew margin, clamped to [5 s, 1 h]. GitHub's reset
- * window is at most an hour; without a header, back off for a minute.
- */
-export function rateLimitDelayMs(resetAt: Date | null, now: Date): number {
-  const raw = resetAt ? resetAt.getTime() - now.getTime() + 1_000 : DEFAULT_RATE_LIMIT_DELAY_MS;
-  return Math.min(Math.max(raw, MIN_RATE_LIMIT_DELAY_MS), MAX_RATE_LIMIT_DELAY_MS);
 }

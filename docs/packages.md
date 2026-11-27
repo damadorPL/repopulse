@@ -12,8 +12,8 @@
   `@repopulse/deps/limits`, `@repopulse/deps/sandbox-contract`.
 - **MUST NOT** make `@repopulse/notifications` or `@repopulse/deps` depend on `@repopulse/db` (or `deps` on Octokit).
   Keep their inputs structural.
-- ESM packages (`github`, `queue`, `notifications`, `deps`) use `.js` extensions in relative imports. `db` compiles to
-  CJS (Prisma `moduleFormat = "cjs"`).
+- All 5 workspace packages (`db`, `github`, `queue`, `notifications`, `deps`) are ESM (`"type": "module"`) and use `.js`
+  extensions in relative imports (Prisma 7 `moduleFormat = "esm"` in `packages/db`).
 - Each package has its own Vitest suite (`src/**/*.test.ts`).
 
 ## `@repopulse/db` (`packages/db`)

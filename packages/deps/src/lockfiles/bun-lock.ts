@@ -1,7 +1,7 @@
 /** Text `bun.lock` reader (Bun ≥ 1.2; JSONC with trailing commas). `bun.lockb` is binary and never read. */
 import { parseJsonWithTrailingCommas } from "../manifests/json-locate.js";
 import { isRecord } from "../util.js";
-import { guardLockfile, splitNameAtVersion, type LockfileVersions } from "./common.js";
+import { formatLockfileVersion, guardLockfile, splitNameAtVersion, type LockfileVersions } from "./common.js";
 
 const DEPENDENCY_KEYS = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] as const;
 
@@ -14,7 +14,7 @@ export function readBunLock(text: string, importer = "", path = "bun.lock"): Loc
   return guardLockfile(text, path, () => {
     const data = parseJsonWithTrailingCommas(text);
     if (!isRecord(data)) throw new Error("not a JSON object");
-    const formatVersion = data.lockfileVersion === undefined ? null : String(data.lockfileVersion);
+    const formatVersion = formatLockfileVersion(data.lockfileVersion);
     const workspaces = isRecord(data.workspaces) ? data.workspaces : {};
     const packages = isRecord(data.packages) ? data.packages : {};
     const workspace = workspaces[importer];

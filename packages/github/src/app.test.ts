@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   appManifestFormUrl,
   buildAppManifest,
+  clearAppOctokitCache,
   convertAppManifest,
+  createAppOctokit,
   createInstallationToken,
   defaultAppName,
   getAuthenticatedApp,
@@ -94,7 +96,9 @@ describe("getAuthenticatedApp", () => {
   it("accepts a key with escaped line breaks (environment variables)", async () => {
     const { fetch } = fakeFetch(() => json(APP));
     const escaped = privateKey.replace(/\n/g, "\\n");
-    await expect(getAuthenticatedApp({ appId: 4242, privateKey: escaped }, { fetch })).resolves.toMatchObject({ id: 4242 });
+    await expect(getAuthenticatedApp({ appId: 4242, privateKey: escaped }, { fetch })).resolves.toMatchObject({
+      id: 4242,
+    });
   });
 
   it("rejects a bad key without echoing it, before any request", async () => {
@@ -106,8 +110,8 @@ describe("getAuthenticatedApp", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("maps 401 and 404 to GitHubAppAuthError without leaking the key or JWT", async () => {
-    for (const status of [401, 404]) {
+  it("maps 401, 403 and 404 to GitHubAppAuthError without leaking the key or JWT", async () => {
+    for (const status of [401, 403, 404]) {
       const { fetch, calls } = fakeFetch(() => json({ message: "A JSON web token could not be decoded" }, { status }));
       const error = await getAuthenticatedApp(AUTH, { fetch }).catch((e: unknown) => e);
       expect(error).toBeInstanceOf(GitHubAppAuthError);
@@ -117,34 +121,68 @@ describe("getAuthenticatedApp", () => {
     }
   });
 
-  it("rejects an invalid App id and redacts non-HTTP signing errors in rethrowAppError", async () => {
+  it("rejects an invalid App id, redacts signing/crypto errors, and rethrows transient network/timeout errors", async () => {
     for (const badId of [0, -5, 1.5, Number.NaN]) {
       await expect(getAuthenticatedApp({ appId: badId, privateKey })).rejects.toBeInstanceOf(GitHubAppAuthError);
     }
 
-    const signingErr = (() => {
+    for (const rawSigningErr of [
+      new Error("signer leaked Material-XYZ"),
+      Object.assign(new Error("error:0909006C:PEM routines:Material-XYZ"), { code: "ERR_OSSL_PEM_NO_START_LINE" }),
+      new DOMException("Invalid key data Material-XYZ", "DataError"),
+    ]) {
+      const signingErr = (() => {
+        try {
+          rethrowAppError(rawSigningErr);
+        } catch (e) {
+          return e;
+        }
+      })();
+      expect(signingErr).toBeInstanceOf(GitHubAppAuthError);
+      expect((signingErr as Error).message).not.toContain("Material-XYZ");
+      expect((signingErr as Error).cause).toBeUndefined();
+    }
+
+    for (const transientErr of [
+      new TypeError("fetch failed"),
+      Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
+      Object.assign(new Error("connect ETIMEDOUT"), { code: "ETIMEDOUT" }),
+      new DOMException("The operation was aborted", "AbortError"),
+      new DOMException("The operation timed out", "TimeoutError"),
+    ]) {
+      expect(() => rethrowAppError(transientErr)).toThrow(transientErr);
+      let caught: unknown;
       try {
-        rethrowAppError(new Error("signer leaked Material-XYZ"));
+        rethrowAppError(transientErr);
       } catch (e) {
-        return e;
+        caught = e;
       }
-    })();
-    expect(signingErr).toBeInstanceOf(GitHubAppAuthError);
-    expect((signingErr as Error).message).not.toContain("Material-XYZ");
-    expect((signingErr as Error).cause).toBeUndefined();
+      expect(caught).toBe(transientErr);
+      expect(caught).not.toBeInstanceOf(GitHubAppAuthError);
+    }
   });
 });
 
 describe("convertAppManifest", () => {
   it("posts the code unauthenticated and maps the secrets", async () => {
     const { fetch, calls } = fakeFetch(() =>
-      json({ ...APP, client_secret: "shh", pem: "-----BEGIN RSA PRIVATE KEY-----…", webhook_secret: null }, { status: 201 }),
+      json(
+        { ...APP, client_secret: "shh", pem: "-----BEGIN RSA PRIVATE KEY-----…", webhook_secret: null },
+        { status: 201 },
+      ),
     );
     const converted = await convertAppManifest("abc123", { fetch });
     expect(calls[0]?.method).toBe("POST");
     expect(calls[0]?.url.pathname).toBe("/app-manifests/abc123/conversions");
     expect(calls[0]?.headers.authorization).toBeUndefined();
-    expect(converted).toMatchObject({ id: 4242, slug: APP.slug, clientId: "Iv23abc", clientSecret: "shh", webhookSecret: null, owner: "acme" });
+    expect(converted).toMatchObject({
+      id: 4242,
+      slug: APP.slug,
+      clientId: "Iv23abc",
+      clientSecret: "shh",
+      webhookSecret: null,
+      owner: "acme",
+    });
   });
 
   it("explains an expired, reused or malformed code and maps rate limits", async () => {
@@ -155,7 +193,10 @@ describe("convertAppManifest", () => {
     await expect(convertAppManifest("a".repeat(201), { fetch })).rejects.toBeInstanceOf(GitHubAppAuthError);
 
     const { fetch: fetch422 } = fakeFetch(() => json({ message: "Unprocessable" }, { status: 422 }));
-    await expect(convertAppManifest("abc", { fetch: fetch422 })).rejects.toMatchObject({ name: "GitHubAppAuthError", status: 422 });
+    await expect(convertAppManifest("abc", { fetch: fetch422 })).rejects.toMatchObject({
+      name: "GitHubAppAuthError",
+      status: 422,
+    });
 
     const { fetch: fetch429 } = fakeFetch(() => json({ message: "rate limit" }, { status: 429 }));
     await expect(convertAppManifest("abc", { fetch: fetch429 })).rejects.toBeInstanceOf(GitHubRateLimitError);
@@ -165,7 +206,10 @@ describe("convertAppManifest", () => {
 describe("getRepoInstallation", () => {
   it("returns the installation id and account, falling back to slug or owner", async () => {
     const { fetch, calls } = fakeFetch(() => json({ id: 77, account: { login: "acme" } }));
-    await expect(getRepoInstallation(AUTH, "acme", "widget", { fetch })).resolves.toEqual({ installationId: 77, accountLogin: "acme" });
+    await expect(getRepoInstallation(AUTH, "acme", "widget", { fetch })).resolves.toEqual({
+      installationId: 77,
+      accountLogin: "acme",
+    });
     expect(calls[0]?.url.pathname).toBe("/repos/acme/widget/installation");
     expect(calls[0]?.headers.authorization).toMatch(/^bearer /i);
 
@@ -189,7 +233,10 @@ describe("getRepoInstallation", () => {
 
   it("maps rate limits", async () => {
     const { fetch } = fakeFetch(() =>
-      json({ message: "API rate limit exceeded" }, { status: 403, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "2000000000" } }),
+      json(
+        { message: "API rate limit exceeded" },
+        { status: 403, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "2000000000" } },
+      ),
     );
     const error = await getRepoInstallation(AUTH, "acme", "widget", { fetch }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(GitHubRateLimitError);
@@ -199,7 +246,9 @@ describe("getRepoInstallation", () => {
 
 describe("createInstallationToken", () => {
   it("narrows the token to the repository and permissions", async () => {
-    const { fetch, calls } = fakeFetch(() => json({ token: "ghs_secret", expires_at: "2026-11-03T12:00:00Z" }, { status: 201 }));
+    const { fetch, calls } = fakeFetch(() =>
+      json({ token: "ghs_secret", expires_at: "2026-11-03T12:00:00Z" }, { status: 201 }),
+    );
     const result = await createInstallationToken(
       AUTH,
       77,
@@ -209,15 +258,21 @@ describe("createInstallationToken", () => {
     expect(result).toEqual({ token: "ghs_secret", expiresAt: new Date("2026-11-03T12:00:00Z") });
     expect(calls[0]?.method).toBe("POST");
     expect(calls[0]?.url.pathname).toBe("/app/installations/77/access_tokens");
-    expect(calls[0]?.body).toEqual({ repository_ids: [123], permissions: { contents: "write", pull_requests: "write" } });
+    expect(calls[0]?.body).toEqual({
+      repository_ids: [123],
+      permissions: { contents: "write", pull_requests: "write" },
+    });
   });
 
   it("maps a missing installation, ungranted permissions, suspended 403 and rate-limited 403", async () => {
     for (const status of [404, 422, 403]) {
       const { fetch } = fakeFetch(() => json({ message: "nope" }, { status }));
-      const error = await createInstallationToken(AUTH, 77, { repositoryIds: [1], permissions: { contents: "read" } }, { fetch }).catch(
-        (e: unknown) => e,
-      );
+      const error = await createInstallationToken(
+        AUTH,
+        77,
+        { repositoryIds: [1], permissions: { contents: "read" } },
+        { fetch },
+      ).catch((e: unknown) => e);
       expect(error).toBeInstanceOf(GitHubAppInstallationError);
       expect((error as GitHubAppInstallationError).status).toBe(status);
     }
@@ -226,7 +281,12 @@ describe("createInstallationToken", () => {
       json({ message: "rate limit" }, { status: 403, headers: { "x-ratelimit-remaining": "0" } }),
     );
     await expect(
-      createInstallationToken(AUTH, 77, { repositoryIds: [1], permissions: { contents: "read" } }, { fetch: rateFetch }),
+      createInstallationToken(
+        AUTH,
+        77,
+        { repositoryIds: [1], permissions: { contents: "read" } },
+        { fetch: rateFetch },
+      ),
     ).rejects.toBeInstanceOf(GitHubRateLimitError);
   });
 });
@@ -265,7 +325,9 @@ describe("getCollaboratorPermission / permissionAtLeast", () => {
 
 describe("getUserLoginById", () => {
   it("returns the current login, or null when the account is gone or id is invalid", async () => {
-    const { fetch, calls } = fakeFetch((call) => (call.url.pathname === "/user/42" ? json({ login: "renamed" }) : json({}, { status: 404 })));
+    const { fetch, calls } = fakeFetch((call) =>
+      call.url.pathname === "/user/42" ? json({ login: "renamed" }) : json({}, { status: 404 }),
+    );
     const octokit = createOctokit({ fetch });
     await expect(getUserLoginById(octokit, "42")).resolves.toBe("renamed");
     await expect(getUserLoginById(octokit, 43)).resolves.toBeNull();
@@ -326,10 +388,113 @@ describe("buildAppManifest / appManifestFormUrl", () => {
 
   it("targets the personal account or a validated organization", () => {
     expect(appManifestFormUrl("s t")).toBe("https://github.com/settings/apps/new?state=s%20t");
-    expect(appManifestFormUrl("abc", "acme-inc")).toBe("https://github.com/organizations/acme-inc/settings/apps/new?state=abc");
+    expect(appManifestFormUrl("abc", "acme-inc")).toBe(
+      "https://github.com/organizations/acme-inc/settings/apps/new?state=abc",
+    );
     expect(appManifestFormUrl("abc", " ")).toBe("https://github.com/settings/apps/new?state=abc");
     for (const bad of ["-acme", "acme-", "a--b", "evil/../x", "a".repeat(40), "acme?x=1"]) {
       expect(() => appManifestFormUrl("abc", bad)).toThrow();
     }
+  });
+});
+
+describe("createOctokit resilience & createAppOctokit cache", () => {
+  it("retries transient 5xx responses when retries are enabled and skips non-retryable 4xx statuses", async () => {
+    let attempts = 0;
+    const retryFetch = vi.fn(async () => {
+      attempts++;
+      return attempts < 3 ? json({ message: "unavailable" }, { status: 503 }) : json({ login: "octocat" });
+    });
+    const octokit = createOctokit({
+      fetch: retryFetch as unknown as typeof globalThis.fetch,
+      retries: 2,
+      retryAfterBaseValue: 1,
+    });
+    await expect(getUserLoginById(octokit, 42)).resolves.toBe("octocat");
+    expect(attempts).toBe(3);
+
+    for (const status of [400, 401, 403, 404, 422]) {
+      let calls = 0;
+      const noRetryFetch = vi.fn(async () => {
+        calls++;
+        return json({ message: "client error" }, { status });
+      });
+      const client = createOctokit({
+        fetch: noRetryFetch as unknown as typeof globalThis.fetch,
+        retries: 2,
+        retryAfterBaseValue: 1,
+      });
+      await client.request("GET /user/{account_id}", { account_id: 1 }).catch(() => {});
+      expect(calls).toBe(1);
+    }
+  });
+
+  it("composes client signal and per-attempt timeoutMs on createOctokit", async () => {
+    const controller = new AbortController();
+    let seenSignal: AbortSignal | null | undefined;
+    const fetchSpy = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      seenSignal = init?.signal;
+      if (init?.signal?.aborted) throw init.signal.reason ?? new DOMException("Aborted", "AbortError");
+      return json({ login: "ok" });
+    });
+    const octokit = createOctokit({
+      fetch: fetchSpy as unknown as typeof globalThis.fetch,
+      signal: controller.signal,
+      timeoutMs: 5000,
+    });
+    await expect(getUserLoginById(octokit, 1)).resolves.toBe("ok");
+    expect(seenSignal).toBeInstanceOf(AbortSignal);
+    expect(seenSignal?.aborted).toBe(false);
+
+    controller.abort(new DOMException("cancelled", "AbortError"));
+    await expect(getUserLoginById(octokit, 1)).rejects.toMatchObject({ name: "AbortError" });
+    expect(() => createOctokit({ timeoutMs: 0 })).toThrow(RangeError);
+  });
+
+  it("caches createAppOctokit by SHA-256 of appId + PEM, bounds cache to 16 entries, and bypasses cache for custom fetch/signal", () => {
+    clearAppOctokitCache();
+    try {
+      const escaped = privateKey.replace(/\n/g, "\\n");
+      const first = createAppOctokit(AUTH);
+      const second = createAppOctokit({ appId: AUTH.appId, privateKey: escaped });
+      expect(second).toBe(first);
+
+      const { fetch } = fakeFetch(() => json(APP));
+      expect(createAppOctokit(AUTH, { fetch })).not.toBe(first);
+      expect(createAppOctokit(AUTH, { signal: new AbortController().signal })).not.toBe(first);
+
+      // Fill beyond 16 entries to evict the oldest entry (AUTH).
+      for (let i = 1; i <= 16; i++) {
+        createAppOctokit({ appId: AUTH.appId + i, privateKey });
+      }
+      expect(createAppOctokit(AUTH)).not.toBe(first);
+
+      clearAppOctokitCache();
+      expect(createAppOctokit({ appId: AUTH.appId + 1, privateKey })).not.toBe(
+        createAppOctokit({ appId: AUTH.appId + 1, privateKey }) === undefined ? null : undefined,
+      );
+    } finally {
+      clearAppOctokitCache();
+    }
+  });
+
+  it("plumbs AbortSignal through app.ts network helpers", async () => {
+    const seenSignals: Array<boolean> = [];
+    const fetch = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      seenSignals.push(Boolean(init?.signal));
+      if (init?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      return json(APP);
+    });
+    const controller = new AbortController();
+    await getAuthenticatedApp(AUTH, { fetch: fetch as unknown as typeof globalThis.fetch, signal: controller.signal });
+    const client = createOctokit({ fetch: fetch as unknown as typeof globalThis.fetch });
+    await getCollaboratorPermission(client, "acme", "widget", "octo", { signal: controller.signal });
+    await getUserLoginById(client, 42, { signal: controller.signal });
+    expect(seenSignals).toEqual([true, true, true]);
+
+    controller.abort();
+    await expect(getUserLoginById(client, 42, { signal: controller.signal })).rejects.toMatchObject({
+      name: "AbortError",
+    });
   });
 });

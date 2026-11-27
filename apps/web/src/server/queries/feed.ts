@@ -9,7 +9,12 @@ import {
   type TrackMode,
 } from "@repopulse/db";
 import { FEED_PAGE_SIZE, type FeedFilters } from "@/lib/feed-filters";
-import { computeVersionStatus, isNewerThanVersion, versionTagCandidates, type VersionStatus } from "@/lib/version-compare";
+import {
+  computeVersionStatus,
+  isNewerThanVersion,
+  versionTagCandidates,
+  type VersionStatus,
+} from "@/lib/version-compare";
 
 /**
  * Typed, user-scoped read queries for the dashboard. Every query goes through
@@ -104,7 +109,12 @@ export function visibleReleasesWhere(
     isDraft: false,
     repository: { subscriptions: { some: { ...subscriptionFilter, userId } } },
     AND: [
-      { OR: [{ isPrerelease: false }, { repository: { subscriptions: { some: { userId, includePrereleases: true } } } }] },
+      {
+        OR: [
+          { isPrerelease: false },
+          { repository: { subscriptions: { some: { userId, includePrereleases: true } } } },
+        ],
+      },
       {
         OR: [
           { source: "RELEASE", ...subscribed({ trackMode: { in: ["RELEASES", "TAGS_AND_COMMITS"] } }) },
@@ -206,7 +216,9 @@ function toFeedItem(row: FeedRow): FeedItem {
     isRead: row.userStates[0]?.isRead ?? true,
     newerThanMine: false,
     isMyVersion:
-      row.source !== "COMMIT" && Boolean(subscription?.currentVersion) && versionTagCandidates(subscription!.currentVersion!).includes(row.tagName),
+      row.source !== "COMMIT" &&
+      Boolean(subscription?.currentVersion) &&
+      versionTagCandidates(subscription!.currentVersion!).includes(row.tagName),
   };
 }
 
@@ -453,7 +465,13 @@ export interface TrackedRepository {
     releaseCount: number;
     history: RepositoryHistory;
   };
-  latestRelease: { id: string; source: ReleaseSource; tagName: string; semverType: SemverType; publishedAt: Date } | null;
+  latestRelease: {
+    id: string;
+    source: ReleaseSource;
+    tagName: string;
+    semverType: SemverType;
+    publishedAt: Date;
+  } | null;
   /** `publishedAt` of the newest item visible to the user (release, tag or commit); `null` when there is none. */
   latestActivityAt: Date | null;
 }
@@ -529,13 +547,18 @@ export function toTrackedRepository(
     row.trackMode === "NONE"
       ? undefined
       : releases.find(
-          (r) => (row.includePrereleases || !r.isPrerelease) && (r.source === "RELEASE" || row.trackMode === "TAGS_AND_COMMITS"),
+          (r) =>
+            (row.includePrereleases || !r.isPrerelease) &&
+            (r.source === "RELEASE" || row.trackMode === "TAGS_AND_COMMITS"),
         );
   const latestCommit = row.trackPaths ? extras.latestCommit : undefined;
   const latest = latestRelease ?? latestCommit;
   // The newest visible item of any kind ("Latest update" sort): a commit may be newer than the latest release.
-  const activityTimes = [latestRelease?.publishedAt, latestCommit?.publishedAt].filter((d): d is Date => d instanceof Date);
-  const latestActivityAt = activityTimes.length > 0 ? new Date(Math.max(...activityTimes.map((d) => d.getTime()))) : null;
+  const activityTimes = [latestRelease?.publishedAt, latestCommit?.publishedAt].filter(
+    (d): d is Date => d instanceof Date,
+  );
+  const latestActivityAt =
+    activityTimes.length > 0 ? new Date(Math.max(...activityTimes.map((d) => d.getTime()))) : null;
   return {
     subscriptionId: row.id,
     includePrereleases: row.includePrereleases,
@@ -561,7 +584,13 @@ export function toTrackedRepository(
       },
     },
     latestRelease: latest
-      ? { id: latest.id, source: latest.source, tagName: latest.tagName, semverType: latest.semverType, publishedAt: latest.publishedAt }
+      ? {
+          id: latest.id,
+          source: latest.source,
+          tagName: latest.tagName,
+          semverType: latest.semverType,
+          publishedAt: latest.publishedAt,
+        }
       : null,
     latestActivityAt,
   };
@@ -596,7 +625,9 @@ export async function loadTrackedRepositories(
   if (rows.length === 0) return [];
 
   const pathRepositoryIds = rows.filter((row) => row.trackPaths).map((row) => row.repository.id);
-  const versionRepositoryIds = rows.filter((row) => row.currentVersion && row.trackMode !== "NONE").map((row) => row.repository.id);
+  const versionRepositoryIds = rows
+    .filter((row) => row.currentVersion && row.trackMode !== "NONE")
+    .map((row) => row.repository.id);
   const [oldest, latestCommits, versionRows] = await Promise.all([
     prisma.release.groupBy({
       by: ["repositoryId"],

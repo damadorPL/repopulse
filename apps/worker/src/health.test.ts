@@ -1,9 +1,20 @@
+import { PassThrough } from "node:stream";
 import net from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createLogger, errorMessage } from "./logger";
-import { closeQueues, pollIntervalCron, registerSchedule, type Queues } from "./queues";
+import {
+  checkDatabase,
+  checkRedis,
+  getHealthReport,
+  pingRedis,
+  resolveHealthPort,
+  startHealthServer,
+} from "./health.js";
+import { createLogger, errorMessage } from "./logger.js";
+import { closeQueues, pollIntervalCron, registerSchedule, type Queues } from "./queues/index.js";
 
-const queryRaw = vi.fn(async () => [{ "?column?": 1 }]);
+const { queryRaw } = vi.hoisted(() => ({
+  queryRaw: vi.fn(async (..._args: unknown[]) => [{ "?column?": 1 }]),
+}));
 
 vi.mock("@repopulse/db", () => ({
   prisma: {
@@ -11,44 +22,31 @@ vi.mock("@repopulse/db", () => ({
   },
 }));
 
-const { checkDatabase, checkRedis, getHealthReport, pingRedis, resolveHealthPort, startHealthServer } = await import(
-  "./health"
-);
-
 describe("resolveHealthPort", () => {
-  const original = process.env.HEALTH_PORT;
-  afterEach(() => {
-    if (original === undefined) delete process.env.HEALTH_PORT;
-    else process.env.HEALTH_PORT = original;
-  });
-
   it("defaults to 3001 when HEALTH_PORT is unset or empty", () => {
-    delete process.env.HEALTH_PORT;
+    vi.stubEnv("HEALTH_PORT", undefined);
     expect(resolveHealthPort()).toBe(3001);
-    process.env.HEALTH_PORT = "";
+    vi.stubEnv("HEALTH_PORT", "");
     expect(resolveHealthPort()).toBe(3001);
   });
 
   it("accepts valid ports in [0, 65535]", () => {
-    process.env.HEALTH_PORT = "0";
+    vi.stubEnv("HEALTH_PORT", "0");
     expect(resolveHealthPort()).toBe(0);
-    process.env.HEALTH_PORT = "65535";
+    vi.stubEnv("HEALTH_PORT", "65535");
     expect(resolveHealthPort()).toBe(65535);
-    process.env.HEALTH_PORT = "8080";
+    vi.stubEnv("HEALTH_PORT", "8080");
     expect(resolveHealthPort()).toBe(8080);
   });
 
   it.each(["-1", "65536", "abc", "3001.5"])("throws on invalid HEALTH_PORT %s", (val) => {
-    process.env.HEALTH_PORT = val;
+    vi.stubEnv("HEALTH_PORT", val);
     expect(() => resolveHealthPort()).toThrow(/Invalid HEALTH_PORT/);
   });
 });
 
 describe("checkDatabase, checkRedis, pingRedis, and getHealthReport", () => {
-  const originalRedisUrl = process.env.REDIS_URL;
   afterEach(() => {
-    if (originalRedisUrl === undefined) delete process.env.REDIS_URL;
-    else process.env.REDIS_URL = originalRedisUrl;
     queryRaw.mockReset();
     queryRaw.mockResolvedValue([{ "?column?": 1 }]);
   });
@@ -60,10 +58,10 @@ describe("checkDatabase, checkRedis, pingRedis, and getHealthReport", () => {
   });
 
   it("checkRedis returns skipped when REDIS_URL is unset and error on invalid URL", async () => {
-    delete process.env.REDIS_URL;
+    vi.stubEnv("REDIS_URL", undefined);
     expect(await checkRedis()).toBe("skipped");
 
-    process.env.REDIS_URL = "not-a-url";
+    vi.stubEnv("REDIS_URL", "not-a-url");
     expect(await checkRedis()).toBe("error");
   });
 
@@ -112,7 +110,7 @@ describe("checkDatabase, checkRedis, pingRedis, and getHealthReport", () => {
   });
 
   it("getHealthReport combines database and redis checks", async () => {
-    delete process.env.REDIS_URL;
+    vi.stubEnv("REDIS_URL", undefined);
     const healthy = await getHealthReport();
     expect(healthy).toMatchObject({ status: "ok", checks: { database: "ok", redis: "skipped" } });
 
@@ -123,16 +121,13 @@ describe("checkDatabase, checkRedis, pingRedis, and getHealthReport", () => {
 });
 
 describe("startHealthServer", () => {
-  const originalRedisUrl = process.env.REDIS_URL;
   afterEach(() => {
-    if (originalRedisUrl === undefined) delete process.env.REDIS_URL;
-    else process.env.REDIS_URL = originalRedisUrl;
     queryRaw.mockReset();
     queryRaw.mockResolvedValue([{ "?column?": 1 }]);
   });
 
   it("serves 200 on healthy GET /health, 503 when unhealthy, and 404 on other routes or methods", async () => {
-    delete process.env.REDIS_URL;
+    vi.stubEnv("REDIS_URL", undefined);
     const health = await startHealthServer(0);
     const baseUrl = `http://127.0.0.1:${health.port}`;
 
@@ -161,50 +156,60 @@ describe("startHealthServer", () => {
 });
 
 describe("createLogger and errorMessage", () => {
-  it("formats scope-prefixed messages and error stacks or values", () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  it("emits structured JSON logs with service context and formats error stacks or values", () => {
+    const stream = new PassThrough();
+    const lines: string[] = [];
+    stream.on("data", (chunk: Buffer) => {
+      for (const line of chunk.toString("utf8").split("\n")) {
+        if (line.trim()) lines.push(line);
+      }
+    });
 
-    try {
-      const log = createLogger("test-scope");
-      log.info("started");
-      log.warn("careful");
-      log.error("failed without err");
-      log.error("failed with string", "boom");
+    const log = createLogger("test-scope", { level: "info", destination: stream });
+    log.info("started");
+    log.info({ queue: "repo-poll", jobId: "j1", repositoryId: "r1" }, "polling");
+    log.warn("careful");
+    log.error("failed without err");
+    log.error("failed with string", "boom");
+    log.error("failed with error", new Error("kaboom"));
 
-      expect(logSpy).toHaveBeenCalledWith("[test-scope] started");
-      expect(warnSpy).toHaveBeenCalledWith("[test-scope] careful");
-      expect(errSpy).toHaveBeenCalledWith("[test-scope] failed without err");
-      expect(errSpy).toHaveBeenCalledWith("[test-scope] failed with string: boom");
+    const parsed = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(parsed).toHaveLength(6);
+    expect(parsed[0]).toMatchObject({ service: "test-scope", msg: "started", level: 30 });
+    expect(typeof parsed[0]!.time).toBe("string");
+    expect(parsed[1]).toMatchObject({
+      service: "test-scope",
+      queue: "repo-poll",
+      jobId: "j1",
+      repositoryId: "r1",
+      msg: "polling",
+    });
+    expect(parsed[2]).toMatchObject({ service: "test-scope", msg: "careful", level: 40 });
+    expect(parsed[3]).toMatchObject({ service: "test-scope", msg: "failed without err", level: 50 });
+    expect(parsed[4]).toMatchObject({ service: "test-scope", msg: "failed with string", err: "boom", level: 50 });
+    expect(parsed[5]).toMatchObject({
+      service: "test-scope",
+      msg: "failed with error",
+      err: { message: "kaboom" },
+      level: 50,
+    });
 
-      const errNoStack = new Error("plain message");
-      errNoStack.stack = undefined;
-      expect(errorMessage(errNoStack)).toBe("plain message");
-      expect(errorMessage(42)).toBe("42");
-    } finally {
-      logSpy.mockRestore();
-      warnSpy.mockRestore();
-      errSpy.mockRestore();
-    }
+    const errNoStack = new Error("plain message");
+    errNoStack.stack = undefined;
+    expect(errorMessage(errNoStack)).toBe("plain message");
+    expect(errorMessage(42)).toBe("42");
   });
 });
 
 describe("queues helpers", () => {
-  const originalCron = process.env.POLL_INTERVAL_CRON;
-  afterEach(() => {
-    if (originalCron === undefined) delete process.env.POLL_INTERVAL_CRON;
-    else process.env.POLL_INTERVAL_CRON = originalCron;
-  });
-
   it("pollIntervalCron returns trimmed env value or default cron", () => {
-    delete process.env.POLL_INTERVAL_CRON;
+    vi.stubEnv("POLL_INTERVAL_CRON", undefined);
     expect(pollIntervalCron()).toBe("*/30 * * * *");
 
-    process.env.POLL_INTERVAL_CRON = "   ";
+    vi.stubEnv("POLL_INTERVAL_CRON", "   ");
     expect(pollIntervalCron()).toBe("*/30 * * * *");
 
-    process.env.POLL_INTERVAL_CRON = " */15 * * * * ";
+    vi.stubEnv("POLL_INTERVAL_CRON", " */15 * * * * ");
     expect(pollIntervalCron()).toBe("*/15 * * * *");
   });
 
@@ -219,7 +224,11 @@ describe("queues helpers", () => {
       { pattern: "*/10 * * * *" },
       { name: "scan-due-repositories", data: {} },
     );
-    expect(schedulerQueue.add).toHaveBeenCalledWith("scan-due-repositories", {});
+    expect(schedulerQueue.add).toHaveBeenCalledWith(
+      "scan-due-repositories",
+      {},
+      { deduplication: { id: "repo-scheduler-cron-startup", keepLastIfActive: true } },
+    );
   });
 
   it("closeQueues closes all four queues", async () => {

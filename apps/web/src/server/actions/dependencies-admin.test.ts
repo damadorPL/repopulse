@@ -6,7 +6,11 @@ class ForbiddenError extends Error {}
 const currentUser = { id: "u1", isSuperAdmin: true };
 const prisma = { instanceSettings: { upsert: vi.fn() } };
 
-vi.mock("@/lib/auth", () => ({ UnauthorizedError, ForbiddenError, getCurrentUserOrThrow: vi.fn(async () => currentUser) }));
+vi.mock("@/lib/auth", () => ({
+  UnauthorizedError,
+  ForbiddenError,
+  getCurrentUserOrThrow: vi.fn(async () => currentUser),
+}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@repopulse/db", () => ({ prisma, INSTANCE_SETTINGS_ID: 1 }));
 vi.mock("@repopulse/github", () => ({
@@ -40,8 +44,14 @@ describe("setDepsEnabledAction", () => {
   });
 
   it("validates the input", async () => {
-    expect(await setDepsEnabledAction({ enabled: "yes" } as never)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
-    expect(await setDepsEnabledAction({ enabled: true, extra: 1 } as never)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect(await setDepsEnabledAction({ enabled: "yes" } as never)).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_INPUT" },
+    });
+    expect(await setDepsEnabledAction({ enabled: true, extra: 1 } as never)).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_INPUT" },
+    });
     expect(prisma.instanceSettings.upsert).not.toHaveBeenCalled();
   });
 });

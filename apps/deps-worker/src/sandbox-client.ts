@@ -46,13 +46,14 @@ export class SandboxUnavailableError extends Error {
  * is user-safe; `stderrTail` goes to the job log only, never into a PR or an SSE event.
  */
 export class SandboxLockError extends Error {
-  constructor(
-    readonly code: LockErrorCode | "INVALID_LOCKFILE",
-    message: string,
-    readonly stderrTail: string = "",
-  ) {
+  readonly code: LockErrorCode | "INVALID_LOCKFILE";
+  readonly stderrTail: string;
+
+  constructor(code: LockErrorCode | "INVALID_LOCKFILE", message: string, stderrTail = "") {
     super(message);
     this.name = "SandboxLockError";
+    this.code = code;
+    this.stderrTail = stderrTail;
   }
 }
 
@@ -111,22 +112,29 @@ export function createSandboxClient(options: SandboxClientOptions): SandboxClien
       } catch (error) {
         if (signal?.aborted) throw error;
         const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
-        throw new SandboxUnavailableError(timedOut ? "The lockfile sandbox did not answer in time." : "The lockfile sandbox is unreachable.");
+        throw new SandboxUnavailableError(
+          timedOut ? "The lockfile sandbox did not answer in time." : "The lockfile sandbox is unreachable.",
+        );
       }
 
       const text = await response.text();
-      if (text.length > MAX_RESPONSE_BYTES) throw new SandboxLockError("INVALID_LOCKFILE", "The regenerated lockfile is too large.");
+      if (text.length > MAX_RESPONSE_BYTES)
+        throw new SandboxLockError("INVALID_LOCKFILE", "The regenerated lockfile is too large.");
       let json: unknown;
       try {
         json = JSON.parse(text);
       } catch {
         if (response.status === 503) throw new SandboxBusyError();
-        throw new SandboxUnavailableError(`The lockfile sandbox answered HTTP ${response.status} without a valid body.`);
+        throw new SandboxUnavailableError(
+          `The lockfile sandbox answered HTTP ${response.status} without a valid body.`,
+        );
       }
       const result = lockResponseSchema.safeParse(json);
       if (!result.success) {
         if (response.status === 503) throw new SandboxBusyError();
-        throw new SandboxUnavailableError(`The lockfile sandbox answered HTTP ${response.status} outside the contract.`);
+        throw new SandboxUnavailableError(
+          `The lockfile sandbox answered HTTP ${response.status} outside the contract.`,
+        );
       }
       const data = result.data;
       if (!data.ok) {
@@ -135,7 +143,8 @@ export function createSandboxClient(options: SandboxClientOptions): SandboxClien
       }
       if (!response.ok) throw new SandboxUnavailableError(`The lockfile sandbox answered HTTP ${response.status}.`);
       const bytes = Buffer.from(data.lockfile.contentBase64, "base64");
-      if (bytes.byteLength > MAX_LOCKFILE_BYTES) throw new SandboxLockError("INVALID_LOCKFILE", "The regenerated lockfile is too large.");
+      if (bytes.byteLength > MAX_LOCKFILE_BYTES)
+        throw new SandboxLockError("INVALID_LOCKFILE", "The regenerated lockfile is too large.");
       return { path: data.lockfile.path, text: bytes.toString("utf8") };
     },
 
@@ -188,7 +197,9 @@ export function validateLockfile(result: { path: string; text: string }, expecta
     });
     if (read.warnings.length > 0) fail("it could not be parsed");
     if (read.formatVersion !== expectation.inputFormatVersion) {
-      fail(`its format changed from ${expectation.inputFormatVersion ?? "unknown"} to ${read.formatVersion ?? "unknown"}`);
+      fail(
+        `its format changed from ${expectation.inputFormatVersion ?? "unknown"} to ${read.formatVersion ?? "unknown"}`,
+      );
     }
     for (const planned of importer.expected) {
       const resolved = read.versions.get(planned.name);

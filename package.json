@@ -9,9 +9,12 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
-    "lint": "turbo run lint",
+    "lint": "oxlint --type-aware --deny-warnings",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "test:coverage": "vitest run --coverage",
     "db:generate": "turbo run db:generate",
     "db:migrate:deploy": "turbo run db:migrate:deploy",
     "env:setup": "node scripts/setup-env.mjs",
@@ -22,12 +25,12 @@
     "services:down": "docker compose -f docker-compose.dev.yml down"
   },
   "devDependencies": {
-    "@eslint/js": "10.0.1",
-    "eslint": "10.15.0",
-    "eslint-plugin-react-hooks": "7.1.1",
+    "@vitest/coverage-v8": "5.1.2",
+    "oxfmt": "0.80.0",
+    "oxlint": "1.95.0",
+    "oxlint-tsgolint": "7.0.2009",
     "turbo": "2.11.13",
-    "typescript": "npm:@typescript/typescript6@6.0.2",
-    "typescript-eslint": "8.74.0",
-    "@typescript/native": "npm:typescript@7.0.2"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

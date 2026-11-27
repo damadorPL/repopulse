@@ -196,7 +196,16 @@ services:
     cpus: 2
     healthcheck:
       # `env -i`: healthcheck processes get the container's full environment (Coolify injects the app's .env).
-      test: ["CMD", "/usr/bin/env", "-i", "PATH=/usr/local/bin:/usr/bin:/bin", "node", "-e", "fetch('http://127.0.0.1:3003/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      test:
+        [
+          "CMD",
+          "/usr/bin/env",
+          "-i",
+          "PATH=/usr/local/bin:/usr/bin:/bin",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3003/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))",
+        ]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -215,6 +224,12 @@ services:
       deps_sandbox:
         aliases:
           - deps-egress
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/3128"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 networks:
   # No route to the outside: deps-sandbox reaches only deps-worker (its caller) and deps-egress (the proxy).

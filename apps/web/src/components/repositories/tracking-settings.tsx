@@ -76,7 +76,11 @@ export function TrackingSettings({
   function save(next: Tracking, nextPaths?: string[], onDone?: () => void) {
     startTransition(async () => {
       setOptimistic(next);
-      const result = await updateTrackModeAction({ subscriptionId, ...next, ...(nextPaths ? { watchedPaths: nextPaths } : {}) });
+      const result = await updateTrackModeAction({
+        subscriptionId,
+        ...next,
+        ...(nextPaths ? { watchedPaths: nextPaths } : {}),
+      });
       if (!result.ok) {
         handleError(result.error.code, result.error.message, Boolean(nextPaths));
         return;
@@ -130,7 +134,9 @@ export function TrackingSettings({
       setPathsError(validation.message);
       return;
     }
-    save({ trackMode: enabling?.mode ?? optimistic.trackMode, trackPaths: true }, validation.paths, () => setEnabling(null));
+    save({ trackMode: enabling?.mode ?? optimistic.trackMode, trackPaths: true }, validation.paths, () =>
+      setEnabling(null),
+    );
   }
 
   function togglePrereleases(checked: boolean) {
@@ -141,7 +147,9 @@ export function TrackingSettings({
         handleError(result.error.code, result.error.message, false);
         return;
       }
-      toast.success(checked ? `Pre-releases of ${fullName} now show in your feed` : `Pre-releases of ${fullName} are hidden`);
+      toast.success(
+        checked ? `Pre-releases of ${fullName} now show in your feed` : `Pre-releases of ${fullName} are hidden`,
+      );
     });
   }
 
@@ -212,7 +220,8 @@ export function TrackingSettings({
               describedBy={`${pathsId}-help`}
             />
             <p id={`${pathsId}-help`} className="text-xs text-muted-foreground">
-              Commits on the default branch that change these paths show up in the feed. A folder matches every file inside it.
+              Commits on the default branch that change these paths show up in the feed. A folder matches every file
+              inside it.
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <Button type="submit" size="sm" disabled={pending || !dirty || (paths.length === 0 && !draft.trim())}>
@@ -248,8 +257,8 @@ export function TrackingSettings({
             <Label htmlFor={prereleaseId}>Include pre-releases</Label>
           </div>
           <p className="text-xs text-muted-foreground sm:pt-0.5">
-            Alpha, beta and release candidates. Turning this on marks the stored pre-releases among the 10 newest updates as
-            unread; turning it off removes unread pre-releases from your feed.
+            Alpha, beta and release candidates. Turning this on marks the stored pre-releases among the 10 newest
+            updates as unread; turning it off removes unread pre-releases from your feed.
           </p>
         </div>
       ) : null}

@@ -3,18 +3,30 @@
 import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { encryptToken, GitHubAppKeyUnreadableError, INSTANCE_SETTINGS_ID, loadGitHubAppSettings, prisma } from "@repopulse/db";
-import { appManifestFormUrl, buildAppManifest, getAuthenticatedApp, GitHubAppAuthError, updateAppWebhookConfig } from "@repopulse/github";
+import {
+  encryptToken,
+  GitHubAppKeyUnreadableError,
+  INSTANCE_SETTINGS_ID,
+  loadGitHubAppSettings,
+  prisma,
+} from "@repopulse/db";
+import {
+  appManifestFormUrl,
+  buildAppManifest,
+  getAuthenticatedApp,
+  GitHubAppAuthError,
+  updateAppWebhookConfig,
+} from "@repopulse/github";
 import { resolveAppBaseUrl } from "@repopulse/notifications";
+import { githubAppWebhookTarget } from "@/lib/github-app";
 import {
   enableGitHubAppWebhooksInput,
   githubAppManifestInput,
   githubAppManualInput,
-  githubAppWebhookTarget,
   type EnableGitHubAppWebhooksInput,
   type GitHubAppManifestInput,
   type GitHubAppManualInput,
-} from "@/lib/github-app";
+} from "@/lib/github-app-schema";
 import { fail, invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
 import {
   createManifestState,
@@ -80,12 +92,16 @@ export async function saveGitHubAppSettingsAction(input: GitHubAppManualInput): 
       if (error instanceof GitHubAppAuthError) return fail("INVALID_INPUT", error.message);
       throw error;
     }
-    if (app.id !== appId) return fail("INVALID_INPUT", "GitHub returned a different App for this key. Check the App ID.");
+    if (app.id !== appId)
+      return fail("INVALID_INPUT", "GitHub returned a different App for this key. Check the App ID.");
     if (app.slug.toLowerCase() !== slug) {
       return fail("INVALID_INPUT", `This key belongs to the App “${app.slug}”, not “${slug}”. Check the slug.`);
     }
 
-    const current = await prisma.instanceSettings.findUnique({ where: { id: INSTANCE_SETTINGS_ID }, select: { githubAppId: true } });
+    const current = await prisma.instanceSettings.findUnique({
+      where: { id: INSTANCE_SETTINGS_ID },
+      select: { githubAppId: true },
+    });
     // A webhook secret belongs to one App: keep the saved one only when the App is the same.
     const secretUpdate = webhookSecret
       ? { githubAppWebhookSecretEncrypted: encryptToken(webhookSecret) }
@@ -100,7 +116,11 @@ export async function saveGitHubAppSettingsAction(input: GitHubAppManualInput): 
       githubAppPrivateKeyEncrypted: encryptToken(privateKey),
       ...secretUpdate,
     };
-    await prisma.instanceSettings.upsert({ where: { id: INSTANCE_SETTINGS_ID }, create: { id: INSTANCE_SETTINGS_ID, ...data }, update: data });
+    await prisma.instanceSettings.upsert({
+      where: { id: INSTANCE_SETTINGS_ID },
+      create: { id: INSTANCE_SETTINGS_ID, ...data },
+      update: data,
+    });
     revalidateGitHubApp();
     return ok(await getGitHubAppView(admin.githubLogin));
   } catch (error) {
@@ -123,7 +143,11 @@ export async function removeGitHubAppSettingsAction(): Promise<ActionResult<GitH
       githubAppPrivateKeyEncrypted: null,
       githubAppWebhookSecretEncrypted: null,
     };
-    await prisma.instanceSettings.upsert({ where: { id: INSTANCE_SETTINGS_ID }, create: { id: INSTANCE_SETTINGS_ID, ...data }, update: data });
+    await prisma.instanceSettings.upsert({
+      where: { id: INSTANCE_SETTINGS_ID },
+      create: { id: INSTANCE_SETTINGS_ID, ...data },
+      update: data,
+    });
     revalidateGitHubApp();
     return ok(await getGitHubAppView(admin.githubLogin));
   } catch (error) {
@@ -169,7 +193,10 @@ export async function enableGitHubAppWebhooksAction(
     const secretCreated = parsed.data.rotateSecret || !app.webhookSecret;
     const secret = secretCreated || !app.webhookSecret ? randomBytes(32).toString("hex") : app.webhookSecret;
     try {
-      await updateAppWebhookConfig({ appId: app.appId, privateKey: app.privateKey }, { url: target.url, secret, contentType: "json" });
+      await updateAppWebhookConfig(
+        { appId: app.appId, privateKey: app.privateKey },
+        { url: target.url, secret, contentType: "json" },
+      );
     } catch (error) {
       if (error instanceof GitHubAppAuthError) return fail("UNAVAILABLE", error.message);
       throw error;

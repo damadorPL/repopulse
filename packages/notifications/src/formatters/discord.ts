@@ -48,7 +48,12 @@ export function formatDiscordPayload(ctx: MessageContext): DiscordWebhookPayload
     allowed_mentions: { parse: [] },
     embeds: [
       {
-        title: truncateText(release.source === "COMMIT" ? `${repository.fullName}: new commit ${release.tagName}` : `${repository.fullName} ${release.tagName} released`, TITLE_LIMIT),
+        title: truncateText(
+          release.source === "COMMIT"
+            ? `${repository.fullName}: new commit ${release.tagName}`
+            : `${repository.fullName} ${release.tagName} released`,
+          TITLE_LIMIT,
+        ),
         url: release.htmlUrl,
         color: DISCORD_COLORS[release.semverType],
         description,

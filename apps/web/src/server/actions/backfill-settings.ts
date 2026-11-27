@@ -3,7 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { INSTANCE_SETTINGS_ID, prisma } from "@repopulse/db";
-import { applyBackfillOverrides, BACKFILL_LIMITS, readBackfillConfig, RELEASE_BACKFILL_PRIORITY, type BackfillSettingKey } from "@repopulse/queue";
+import {
+  applyBackfillOverrides,
+  BACKFILL_LIMITS,
+  readBackfillConfig,
+  RELEASE_BACKFILL_PRIORITY,
+  type BackfillSettingKey,
+} from "@repopulse/queue";
 import { fail, invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
 import { enqueueReleaseBackfill } from "@/server/backfill-queue";
 import {
@@ -45,7 +51,9 @@ function revalidateBackfillSettings(): void {
  * Saves the release history settings. They apply to the worker's next backfill job and to
  * "Load older releases" right away, without a restart.
  */
-export async function saveBackfillSettingsAction(input: BackfillSettingsInput): Promise<ActionResult<BackfillSettingView[]>> {
+export async function saveBackfillSettingsAction(
+  input: BackfillSettingsInput,
+): Promise<ActionResult<BackfillSettingView[]>> {
   try {
     await getSuperAdminOrThrow();
     const parsed = backfillSettingsInput.safeParse(input);
@@ -56,7 +64,10 @@ export async function saveBackfillSettingsAction(input: BackfillSettingsInput): 
     const effective = applyBackfillOverrides(readBackfillConfig(), values);
     const requestedTarget = values.defaultTarget ?? readBackfillConfig().defaultTarget;
     if (requestedTarget > effective.hardCap) {
-      return fail("INVALID_INPUT", `The automatic import target (${requestedTarget}) can't be above the hard cap (${effective.hardCap}).`);
+      return fail(
+        "INVALID_INPUT",
+        `The automatic import target (${requestedTarget}) can't be above the hard cap (${effective.hardCap}).`,
+      );
     }
 
     const data = {

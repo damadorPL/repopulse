@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { MappedRelease } from "@repopulse/github";
-import { effectiveTarget, maxAgeCutoff, planBackfillPage, targetStop, type BackfillPageInput } from "./backfill-plan";
+import {
+  effectiveTarget,
+  maxAgeCutoff,
+  planBackfillPage,
+  targetStop,
+  type BackfillPageInput,
+} from "./backfill-plan.js";
 
 const NOW = new Date("2026-10-31T12:00:00Z");
 const DAY = 24 * 60 * 60 * 1000;
@@ -53,7 +59,9 @@ describe("planBackfillPage", () => {
 
   it("never imports releases newer than the newest stored one (left for repo-poll)", () => {
     const releases = page(100, 4, 0);
-    const plan = planBackfillPage(input({ releases, storedIds: new Set([98n]), storedCount: 1, newestKnownAt: releases[2]!.publishedAt }));
+    const plan = planBackfillPage(
+      input({ releases, storedIds: new Set([98n]), storedCount: 1, newestKnownAt: releases[2]!.publishedAt }),
+    );
     // 100 and 99 are newer than the newest stored release (98).
     expect(ids(plan.insert)).toEqual([97]);
     expect(plan.nextPage).toBe(2);
@@ -74,13 +82,17 @@ describe("planBackfillPage", () => {
   });
 
   it("stops PARTIAL when the target is the hard cap", () => {
-    const plan = planBackfillPage(input({ page: 10, releases: page(100, 100, 1), storedCount: 950, target: 1000, hardCap: 1000 }));
+    const plan = planBackfillPage(
+      input({ page: 10, releases: page(100, 100, 1), storedCount: 950, target: 1000, hardCap: 1000 }),
+    );
     expect(plan.insert).toHaveLength(50);
     expect(plan.stop).toEqual({ status: "PARTIAL", reason: "TARGET" });
   });
 
   it("prefers COMPLETE when the last page exactly fills the target", () => {
-    const plan = planBackfillPage(input({ releases: page(10, 10, 1), hasNextPage: false, storedCount: 90, target: 100 }));
+    const plan = planBackfillPage(
+      input({ releases: page(10, 10, 1), hasNextPage: false, storedCount: 90, target: 100 }),
+    );
     expect(plan.insert).toHaveLength(10);
     expect(plan.stop).toEqual({ status: "DONE", reason: "COMPLETE" });
   });
@@ -110,7 +122,9 @@ describe("planBackfillPage", () => {
 
   it("is idempotent: a fully stored page inserts nothing", () => {
     const releases = page(100, 3, 1);
-    const plan = planBackfillPage(input({ releases, storedIds: new Set(releases.map((r) => r.githubReleaseId)), storedCount: 3 }));
+    const plan = planBackfillPage(
+      input({ releases, storedIds: new Set(releases.map((r) => r.githubReleaseId)), storedCount: 3 }),
+    );
     expect(plan.insert).toEqual([]);
     expect(plan.nextPage).toBe(2);
   });

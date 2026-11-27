@@ -40,7 +40,9 @@ function retryAfterSeconds(requestedAt: Date, now: number, cooldownMs: number): 
  * The cooldown is an atomic claim: one `updateMany` matching the state that was read plus an
  * expired `backfillRequestedAt`. Of two concurrent clicks, only one updates a row.
  */
-export async function requestDeepBackfillAction(input: { repositoryId: string }): Promise<ActionResult<DeepBackfillResult>> {
+export async function requestDeepBackfillAction(input: {
+  repositoryId: string;
+}): Promise<ActionResult<DeepBackfillResult>> {
   try {
     const user = await getCurrentUserOrThrow();
     const parsed = backfillInput.safeParse(input);
@@ -67,11 +69,13 @@ export async function requestDeepBackfillAction(input: { repositoryId: string })
     const { hardCap, deepStep, deepCooldownMinutes } = await getBackfillConfig();
     const cooldownMs = deepCooldownMinutes * 60_000;
 
-    if (repo.backfillStatus === "QUEUED" || repo.backfillStatus === "RUNNING") return ok({ status: "IN_PROGRESS", fullName });
+    if (repo.backfillStatus === "QUEUED" || repo.backfillStatus === "RUNNING")
+      return ok({ status: "IN_PROGRESS", fullName });
 
     const retry = repo.backfillStatus === "NONE" || repo.backfillStatus === "ERROR";
     if (!retry) {
-      if (repo.backfillStatus === "PARTIAL" || repo.backfillTarget >= hardCap) return ok({ status: "AT_CAP", fullName, hardCap });
+      if (repo.backfillStatus === "PARTIAL" || repo.backfillTarget >= hardCap)
+        return ok({ status: "AT_CAP", fullName, hardCap });
       // DONE with no page left to resume from: the whole history is stored.
       if (repo.backfillNextPage === null) return ok({ status: "COMPLETE", fullName });
     }
@@ -91,7 +95,10 @@ export async function requestDeepBackfillAction(input: { repositoryId: string })
     });
     if (claim.count === 0) {
       // Lost the claim: still cooling down, or a concurrent request or the worker changed the row.
-      const current = await prisma.repository.findUnique({ where: { id: repositoryId }, select: { backfillRequestedAt: true } });
+      const current = await prisma.repository.findUnique({
+        where: { id: repositoryId },
+        select: { backfillRequestedAt: true },
+      });
       const last = current?.backfillRequestedAt;
       if (last && now - last.getTime() < cooldownMs) {
         return ok({
@@ -113,7 +120,11 @@ export async function requestDeepBackfillAction(input: { repositoryId: string })
       // Give the claim back, so the user can try again as soon as Redis is reachable.
       await prisma.repository.updateMany({
         where: { id: repositoryId, backfillStatus: "QUEUED", backfillRequestedAt: requestedAt },
-        data: { backfillStatus: repo.backfillStatus, backfillTarget: repo.backfillTarget, backfillRequestedAt: repo.backfillRequestedAt },
+        data: {
+          backfillStatus: repo.backfillStatus,
+          backfillTarget: repo.backfillTarget,
+          backfillRequestedAt: repo.backfillRequestedAt,
+        },
       });
       throw error;
     }

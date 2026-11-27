@@ -6,18 +6,31 @@ import type { DependencyNotificationInput } from "./formatters/dependencies.js";
 import type { WebhookSender } from "./http.js";
 import type { NotificationChannel } from "./types.js";
 
-function input(channel: NotificationChannel, destinationUrl: string | null, extra: Partial<DependencyNotificationInput> = {}): DependencyNotificationInput {
+function input(
+  channel: NotificationChannel,
+  destinationUrl: string | null,
+  extra: Partial<DependencyNotificationInput> = {},
+): DependencyNotificationInput {
   return {
     project: { fullName: "acme/widget", url: "https://pulse.example.com/dependencies/acme/widget" },
     kind: "digest",
-    updates: [{ name: "react", from: "18.3.1", to: "19.3.0", level: "MAJOR", manifest: "package.json", ecosystem: "NPM" }],
+    updates: [
+      { name: "react", from: "18.3.1", to: "19.3.0", level: "MAJOR", manifest: "package.json", ecosystem: "NPM" },
+    ],
     rule: { id: "rule1", channel, destinationUrl },
     user: { email: "dev@example.com" },
     ...extra,
   };
 }
 
-const SMTP = { host: "smtp.example.com", port: 587, secure: false, user: undefined, pass: undefined, from: "RepoPulse <r@example.com>" };
+const SMTP = {
+  host: "smtp.example.com",
+  port: 587,
+  secure: false,
+  user: undefined,
+  pass: undefined,
+  from: "RepoPulse <r@example.com>",
+};
 
 describe("dispatchDependencyNotification", () => {
   it.each([
@@ -44,11 +57,19 @@ describe("dispatchDependencyNotification", () => {
     await dispatchDependencyNotification(
       input("CUSTOM_WEBHOOK", "https://example.com/hook", {
         kind: "pull_request",
-        pullRequest: { event: "opened", number: 3, url: "https://github.com/acme/widget/pull/3", title: "Update react" },
+        pullRequest: {
+          event: "opened",
+          number: 3,
+          url: "https://github.com/acme/widget/pull/3",
+          title: "Update react",
+        },
       }),
       { env: {}, sendWebhook },
     );
-    await dispatchDependencyNotification(input("CUSTOM_WEBHOOK", "https://example.com/hook", { test: true }), { env: {}, sendWebhook });
+    await dispatchDependencyNotification(input("CUSTOM_WEBHOOK", "https://example.com/hook", { test: true }), {
+      env: {},
+      sendWebhook,
+    });
     const events = sendWebhook.mock.calls.map(([request]) => request.headers["X-RepoPulse-Event"]);
     expect(events).toEqual(["dependencies.outdated", "dependencies.pull_request", "test"]);
     const body = JSON.parse(sendWebhook.mock.calls[1]![0].body) as { event: string; pullRequest: { number: number } };
@@ -81,9 +102,15 @@ describe("dispatchDependencyNotification", () => {
       message: expect.stringContaining("Admin → Email"),
     });
     await expect(
-      dispatchDependencyNotification(input("EMAIL_INSTANT", null, { user: null }), { env: {}, smtp: SMTP, sendMail: async () => {} }),
+      dispatchDependencyNotification(input("EMAIL_INSTANT", null, { user: null }), {
+        env: {},
+        smtp: SMTP,
+        sendMail: async () => {},
+      }),
     ).rejects.toMatchObject({ permanent: true });
-    await expect(dispatchDependencyNotification(input("SLACK_WEBHOOK", null), { env: {} })).rejects.toMatchObject({ permanent: true });
+    await expect(dispatchDependencyNotification(input("SLACK_WEBHOOK", null), { env: {} })).rejects.toMatchObject({
+      permanent: true,
+    });
     for (const channel of ["IN_APP", "EMAIL_DIGEST"] as const) {
       const error = await dispatchDependencyNotification(input(channel, null), { env: {} }).catch((e: unknown) => e);
       expect(error).toBeInstanceOf(NotificationDeliveryError);
@@ -93,7 +120,9 @@ describe("dispatchDependencyNotification", () => {
 
   it("rejects malformed URLs and a Gotify URL without a token as permanent", async () => {
     const sendWebhook = vi.fn<WebhookSender>(async () => ({ status: 200, body: "" }));
-    await expect(dispatchDependencyNotification(input("DISCORD_WEBHOOK", "not a url"), { env: {}, sendWebhook })).rejects.toMatchObject({
+    await expect(
+      dispatchDependencyNotification(input("DISCORD_WEBHOOK", "not a url"), { env: {}, sendWebhook }),
+    ).rejects.toMatchObject({
       permanent: true,
     });
     await expect(
@@ -103,17 +132,25 @@ describe("dispatchDependencyNotification", () => {
   });
 
   it("blocks a private destination before sending anything (real transport)", async () => {
-    const error = await dispatchDependencyNotification(input("CUSTOM_WEBHOOK", "http://127.0.0.1:9/hook"), { env: {} }).catch((e: unknown) => e);
+    const error = await dispatchDependencyNotification(input("CUSTOM_WEBHOOK", "http://127.0.0.1:9/hook"), {
+      env: {},
+    }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(WebhookUrlError);
   });
 
   it("propagates transient sender errors unchanged", async () => {
-    const failure = new NotificationDeliveryError("Discord rejected the notification: HTTP 503.", { permanent: false, status: 503 });
+    const failure = new NotificationDeliveryError("Discord rejected the notification: HTTP 503.", {
+      permanent: false,
+      status: 503,
+    });
     const sendWebhook = vi.fn<WebhookSender>(async () => {
       throw failure;
     });
     await expect(
-      dispatchDependencyNotification(input("DISCORD_WEBHOOK", "https://discord.com/api/webhooks/1/t"), { env: {}, sendWebhook }),
+      dispatchDependencyNotification(input("DISCORD_WEBHOOK", "https://discord.com/api/webhooks/1/t"), {
+        env: {},
+        sendWebhook,
+      }),
     ).rejects.toBe(failure);
   });
 });

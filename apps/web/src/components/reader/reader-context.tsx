@@ -1,15 +1,7 @@
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useOptimistic,
-  useState,
-  useTransition,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useOptimistic, useState, useTransition, type ReactNode } from "react";
+import type { Route } from "next";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { PARAM } from "@/lib/feed-filters";
@@ -54,41 +46,34 @@ export function ReaderProvider({ children }: { children: ReactNode }) {
   const [readOverrides, setReadOverrides] = useState<Record<string, boolean>>({});
   const [readEpoch, setReadEpoch] = useState(0);
 
-  const hrefWithRelease = useCallback(
-    (releaseId: string | null) => {
-      const params = new URLSearchParams(searchParams.toString());
-      if (releaseId) params.set(PARAM.release, releaseId);
-      else params.delete(PARAM.release);
-      const query = params.toString();
-      return query ? `${pathname}?${query}` : pathname;
-    },
-    [pathname, searchParams],
-  );
+  function hrefWithRelease(releaseId: string | null): Route {
+    const params = new URLSearchParams(searchParams.toString());
+    if (releaseId) params.set(PARAM.release, releaseId);
+    else params.delete(PARAM.release);
+    const query = params.toString();
+    return (query ? `${pathname}?${query}` : pathname) as Route;
+  }
 
-  const openRelease = useCallback(
-    (item: FeedItem) => {
-      setPreview(item);
-      startTransition(() => {
-        setSelectedId(item.id);
-        router.push(hrefWithRelease(item.id), { scroll: false });
-      });
-    },
-    [hrefWithRelease, router, setSelectedId],
-  );
+  function openRelease(item: FeedItem) {
+    setPreview(item);
+    startTransition(() => {
+      setSelectedId(item.id);
+      router.push(hrefWithRelease(item.id), { scroll: false });
+    });
+  }
 
-  const closeRelease = useCallback(() => {
+  function closeRelease() {
     startTransition(() => {
       setSelectedId(null);
       router.push(hrefWithRelease(null), { scroll: false });
     });
-  }, [hrefWithRelease, router, setSelectedId]);
+  }
 
-  const isRead = useCallback(
-    (item: { id: string; isRead: boolean }) => readOverrides[item.id] ?? item.isRead,
-    [readOverrides],
-  );
+  function isRead(item: { id: string; isRead: boolean }) {
+    return readOverrides[item.id] ?? item.isRead;
+  }
 
-  const setRead = useCallback(async (releaseId: string, nextIsRead: boolean) => {
+  async function setRead(releaseId: string, nextIsRead: boolean) {
     let previous: boolean | undefined;
     setReadOverrides((current) => {
       previous = current[releaseId];
@@ -106,19 +91,26 @@ export function ReaderProvider({ children }: { children: ReactNode }) {
       return false;
     }
     return true;
-  }, []);
+  }
 
-  const resetReadOverrides = useCallback(() => {
+  function resetReadOverrides() {
     setReadOverrides({});
     setReadEpoch((epoch) => epoch + 1);
-  }, []);
+  }
 
-  const value = useMemo<ReaderContextValue>(
-    () => ({ selectedId, preview, isNavigating, openRelease, closeRelease, isRead, setRead, resetReadOverrides, readEpoch }),
-    [selectedId, preview, isNavigating, openRelease, closeRelease, isRead, setRead, resetReadOverrides, readEpoch],
-  );
+  const value: ReaderContextValue = {
+    selectedId,
+    preview,
+    isNavigating,
+    openRelease,
+    closeRelease,
+    isRead,
+    setRead,
+    resetReadOverrides,
+    readEpoch,
+  };
 
-  return <ReaderContext.Provider value={value}>{children}</ReaderContext.Provider>;
+  return <ReaderContext value={value}>{children}</ReaderContext>;
 }
 
 export function useReader(): ReaderContextValue {

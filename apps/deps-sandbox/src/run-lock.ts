@@ -7,7 +7,8 @@
  * `DEPS_SANDBOX_TOKEN` and any `*_TOKEN` never reach a package manager.
  */
 import { spawn as nodeSpawn } from "node:child_process";
-import { constants as fsConstants, promises as fs } from "node:fs";
+import { constants as fsConstants } from "node:fs";
+import fs from "node:fs/promises";
 import path from "node:path";
 import type { Readable } from "node:stream";
 import { MAX_LOCKFILE_BYTES, MAX_SANDBOX_STDERR_TAIL_BYTES } from "@repopulse/deps/limits";
@@ -26,6 +27,7 @@ import {
   type CommandStep,
   type ToolVersions,
 } from "./commands.js";
+import { log } from "./logger.js";
 
 export const DEFAULT_TIMEOUT_MS = 300_000;
 export const DEFAULT_EGRESS_PROXY = "http://deps-egress:3128";
@@ -273,7 +275,8 @@ export function prepareFiles(files: readonly { path: string; contentBase64: stri
       continue;
     }
     if (basename === "pyproject.toml") {
-      for (const what of findPyprojectRegistries(content.toString("utf8"))) out.registries.push(`${file.path}: ${what}`);
+      for (const what of findPyprojectRegistries(content.toString("utf8")))
+        out.registries.push(`${file.path}: ${what}`);
     } else if (basename === "pnpm-workspace.yaml") {
       for (const what of findPnpmWorkspaceRegistries(content.toString("utf8"))) {
         out.registries.push(`${file.path}: ${what}`);
@@ -373,8 +376,11 @@ export function buildSandboxEnv(jobDir: string, opts: SandboxEnvOptions): Record
 export class TailBuffer {
   private chunks: Buffer[] = [];
   private size = 0;
+  private readonly limit: number;
 
-  constructor(private readonly limit = MAX_CAPTURED_OUTPUT_BYTES) {}
+  constructor(limit = MAX_CAPTURED_OUTPUT_BYTES) {
+    this.limit = limit;
+  }
 
   push(chunk: Buffer | string): void {
     let buf = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
@@ -436,7 +442,10 @@ export function sanitizeOutput(raw: string, jobDir?: string, maxBytes = MAX_SAND
   const buf = Buffer.from(text, "utf8");
   if (buf.length <= maxBytes) return text;
   // Cut on a byte boundary, then drop a partial leading character and the partial first line.
-  let tail = buf.subarray(buf.length - maxBytes).toString("utf8").replace(/^�+/, "");
+  let tail = buf
+    .subarray(buf.length - maxBytes)
+    .toString("utf8")
+    .replace(/^�+/, "");
   const newline = tail.indexOf("\n");
   if (newline !== -1 && newline < 200) tail = tail.slice(newline + 1);
   return tail;
@@ -492,9 +501,13 @@ export function killProcessTree(child: SpawnedProcess): void {
   }
 }
 
-type StepOutcome = { kind: "exit"; code: number | null; signal: NodeJS.Signals | null } | { kind: "timeout" } | {
-  kind: "aborted";
-} | { kind: "spawn-error"; message: string };
+type StepOutcome =
+  | { kind: "exit"; code: number | null; signal: NodeJS.Signals | null }
+  | { kind: "timeout" }
+  | {
+      kind: "aborted";
+    }
+  | { kind: "spawn-error"; message: string };
 
 interface StepRun {
   step: CommandStep;
@@ -533,10 +546,12 @@ function runStep(run: StepRun): Promise<StepOutcome> {
 
     let reason: "timeout" | "aborted" | null = null;
     let settled = false;
+    let reapTimer: ReturnType<typeof setTimeout> | undefined;
     const finish = (outcome: StepOutcome) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearTimeout(reapTimer);
       run.signal?.removeEventListener("abort", onAbort);
       // Reap anything the tool left behind in its process group.
       run.killTree(child);
@@ -547,7 +562,8 @@ function runStep(run: StepRun): Promise<StepOutcome> {
       reason = why;
       run.killTree(child);
       // If the child never reports `close` (stuck pipes held by a grandchild), give up after a grace period.
-      setTimeout(() => finish({ kind: why }), 5_000).unref();
+      reapTimer = setTimeout(() => finish({ kind: why }), 5_000);
+      reapTimer.unref();
     };
     const onAbort = () => stop("aborted");
     const timer = setTimeout(() => stop("timeout"), remaining);
@@ -737,8 +753,14 @@ export async function runLock(request: ParsedLockRequest, options: RunLockOption
     const cwd = request.workdir === "" ? treeRoot : resolveInside(treeRoot, request.workdir);
 
     const pnpmPmOnFail =
-      pm === "PNPM" && inputLockfile && hasPnpmPackageManagerDependencies(inputLockfile.toString("utf8")) ? "warn" : "ignore";
-    const env = buildSandboxEnv(jobDir, { proxy: options.proxy, path: options.pathEnv ?? process.env.PATH, pnpmPmOnFail });
+      pm === "PNPM" && inputLockfile && hasPnpmPackageManagerDependencies(inputLockfile.toString("utf8"))
+        ? "warn"
+        : "ignore";
+    const env = buildSandboxEnv(jobDir, {
+      proxy: options.proxy,
+      path: options.pathEnv ?? process.env.PATH,
+      pnpmPmOnFail,
+    });
     await options.onPrepared?.({ jobDir, treeRoot, cwd });
 
     // ---- run
@@ -781,12 +803,12 @@ export async function runLock(request: ParsedLockRequest, options: RunLockOption
     return { ok: true, lockfile: { path: request.expectLockfile, contentBase64: lockfile.toString("base64") } };
   } catch (err) {
     if (err instanceof LockJobError) return failure(err.code, sanitizeOutput(err.message));
-    console.error(`[deps-sandbox] job failed: ${err instanceof Error ? err.message : String(err)}`);
+    log.error({ packageManager: request.packageManager, err }, "job failed");
     return failure("INTERNAL");
   } finally {
     if (jobDir) {
       await fs.rm(jobDir, { recursive: true, force: true, maxRetries: 3 }).catch((err: unknown) => {
-        console.error(`[deps-sandbox] could not remove ${jobDir}: ${err instanceof Error ? err.message : err}`);
+        log.error({ jobDir, err }, `could not remove ${jobDir}`);
       });
     }
   }

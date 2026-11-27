@@ -25,14 +25,21 @@ describe("normalizeDestination", () => {
   });
 
   it("rejects private, loopback and metadata addresses with a readable message", async () => {
-    for (const url of ["http://127.0.0.1:8080", "http://169.254.169.254/latest/meta-data/", "https://internal.example/hook"]) {
+    for (const url of [
+      "http://127.0.0.1:8080",
+      "http://169.254.169.254/latest/meta-data/",
+      "https://internal.example/hook",
+    ]) {
       const result = await normalizeDestination("CUSTOM_WEBHOOK", url, opts);
       expect(result).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
     }
   });
 
   it("requires a URL for webhook channels and a token for Gotify", async () => {
-    expect(await normalizeDestination("SLACK_WEBHOOK", "  ", opts)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect(await normalizeDestination("SLACK_WEBHOOK", "  ", opts)).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_INPUT" },
+    });
     expect(await normalizeDestination("GOTIFY_WEBHOOK", "https://gotify.example.com", opts)).toMatchObject({
       ok: false,
       error: { message: expect.stringContaining("application token") },
@@ -44,14 +51,23 @@ describe("normalizeDestination", () => {
   });
 
   it("email: needs SMTP (Admin → Email), takes an optional valid address", async () => {
-    expect(await normalizeDestination("EMAIL_INSTANT", "", opts)).toMatchObject({ ok: false, error: { code: "UNAVAILABLE" } });
+    expect(await normalizeDestination("EMAIL_INSTANT", "", opts)).toMatchObject({
+      ok: false,
+      error: { code: "UNAVAILABLE" },
+    });
     expect(await normalizeDestination("EMAIL_INSTANT", "", { ...opts, smtpConfigured: false })).toMatchObject({
       ok: false,
       error: { message: expect.stringContaining("Admin → Email") },
     });
     const smtp = { ...opts, smtpConfigured: true };
     expect(await normalizeDestination("EMAIL_INSTANT", "", smtp)).toEqual({ ok: true, data: null });
-    expect(await normalizeDestination("EMAIL_INSTANT", "team@example.com", smtp)).toEqual({ ok: true, data: "team@example.com" });
-    expect(await normalizeDestination("EMAIL_INSTANT", "not-an-email", smtp)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect(await normalizeDestination("EMAIL_INSTANT", "team@example.com", smtp)).toEqual({
+      ok: true,
+      data: "team@example.com",
+    });
+    expect(await normalizeDestination("EMAIL_INSTANT", "not-an-email", smtp)).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_INPUT" },
+    });
   });
 });

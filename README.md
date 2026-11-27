@@ -2,18 +2,18 @@
 
 Self-hostable GitHub release & changelog tracker — Turborepo + pnpm monorepo deployed on Coolify.
 
-| Workspace | Description |
-| --- | --- |
-| `apps/web` | Next.js (App Router) UI + API, GitHub sign-in (Auth.js v5), `GET /api/health` |
-| `apps/worker` | BullMQ worker: cron scheduler, ETag-aware repository poller (releases + optional Git tags), release-history backfill, notification delivery, `GET :3001/health` |
-| `apps/deps-worker` | BullMQ worker for the Dependencies module: cron scheduler, npm/Bun/PyPI dependency scanner, notification delivery, update PRs via GitHub App, `GET :3002/health` |
-| `apps/deps-sandbox` | Isolated HTTP lockfile-regeneration sandbox for `npm`, `pnpm`, `Bun`, `uv` and `Poetry` (`GET :3003/health`, routed through `deploy/deps-egress` in Coolify) |
-| `packages/db` | Prisma schema, migrations, singleton client, AES-256-GCM token crypto |
-| `packages/deps` | Pure-TypeScript manifest/lockfile parsers, npm/PyPI registry clients, update planner, PR helpers and sandbox contract |
-| `packages/github` | Octokit wrapper, repo-input parser, SemVer classifier, ETag-aware release polling, GraphQL tag reader, commit compare, GitHub App + Git Data API helpers |
-| `packages/queue` | Shared BullMQ queue names, job payloads, Redis connection factory and the SSE event contract |
-| `packages/notifications` | Discord, Slack, ntfy, Gotify, SMTP email and custom-webhook formatters, `dispatchNotification()`, SSRF guard for webhook URLs |
-| `packages/tsconfig` | Shared TypeScript configs |
+| Workspace                | Description                                                                                                                                                      |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web`               | Next.js (App Router) UI + API, GitHub sign-in (Better Auth), `GET /api/health`                                                                                   |
+| `apps/worker`            | BullMQ worker: cron scheduler, ETag-aware repository poller (releases + optional Git tags), release-history backfill, notification delivery, `GET :3001/health`  |
+| `apps/deps-worker`       | BullMQ worker for the Dependencies module: cron scheduler, npm/Bun/PyPI dependency scanner, notification delivery, update PRs via GitHub App, `GET :3002/health` |
+| `apps/deps-sandbox`      | Isolated HTTP lockfile-regeneration sandbox for `npm`, `pnpm`, `Bun`, `uv` and `Poetry` (`GET :3003/health`, routed through `deploy/deps-egress` in Coolify)     |
+| `packages/db`            | Prisma schema, migrations, singleton client, AES-256-GCM token crypto                                                                                            |
+| `packages/deps`          | Pure-TypeScript manifest/lockfile parsers, npm/PyPI registry clients, update planner, PR helpers and sandbox contract                                            |
+| `packages/github`        | Octokit wrapper, repo-input parser, SemVer classifier, ETag-aware release polling, GraphQL tag reader, commit compare, GitHub App + Git Data API helpers         |
+| `packages/queue`         | Shared BullMQ queue names, job payloads, Redis connection factory and the SSE event contract                                                                     |
+| `packages/notifications` | Discord, Slack, ntfy, Gotify, SMTP email and custom-webhook formatters, `dispatchNotification()`, SSRF guard for webhook URLs                                    |
+| `packages/tsconfig`      | Shared TypeScript configs                                                                                                                                        |
 
 Documentation: [`docs/`](./docs/README.md) covers architecture, data model, web app, worker, dependencies, packages,
 notifications, auth, configuration, development, deployment and recipes, written for coding agents and contributors.

@@ -44,6 +44,11 @@ export function guardLockfile(text: string, path: string, read: () => LockfileVe
   }
 }
 
+/** Formats a scalar lockfile version field, returning `null` for missing or non-scalar values. */
+export function formatLockfileVersion(value: unknown): string | null {
+  return typeof value === "string" || typeof value === "number" ? String(value) : null;
+}
+
 /** Splits `"name@version"` (scoped names keep their leading `@`). */
 export function splitNameAtVersion(ident: string): { name: string; version: string } | null {
   const at = ident.lastIndexOf("@");

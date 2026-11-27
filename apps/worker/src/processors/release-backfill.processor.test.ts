@@ -7,10 +7,9 @@ import {
   type MappedRelease,
 } from "@repopulse/github";
 import { BACKFILL_DEFAULTS, type BackfillConfig, type ReleaseBackfillJobData } from "@repopulse/queue";
+import { processReleaseBackfill } from "./release-backfill.processor.js";
 
 vi.mock("@repopulse/db", () => ({ decryptToken: (value: string) => `plain:${value}` }));
-
-const { processReleaseBackfill } = await import("./release-backfill.processor");
 
 const NOW = new Date("2026-10-31T12:00:00Z");
 const HOUR = 60 * 60 * 1000;
@@ -73,12 +72,22 @@ function fakeDb(options: {
         const newest = [...releases.values()].sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime())[0];
         return newest ? { publishedAt: newest.publishedAt } : null;
       }),
-      findMany: vi.fn(async ({ where }: { where: { githubReleaseId?: { in: bigint[] }; source?: string; tagName?: { in: string[] } } }) => {
-        if (where.githubReleaseId) {
-          return where.githubReleaseId.in.filter((id) => releases.has(id)).map((githubReleaseId) => ({ githubReleaseId }));
-        }
-        return where.tagName!.in.filter((name) => tagRows.has(name)).map((tagName) => ({ id: `tag-${tagName}`, tagName }));
-      }),
+      findMany: vi.fn(
+        async ({
+          where,
+        }: {
+          where: { githubReleaseId?: { in: bigint[] }; source?: string; tagName?: { in: string[] } };
+        }) => {
+          if (where.githubReleaseId) {
+            return where.githubReleaseId.in
+              .filter((id) => releases.has(id))
+              .map((githubReleaseId) => ({ githubReleaseId }));
+          }
+          return where
+            .tagName!.in.filter((name) => tagRows.has(name))
+            .map((tagName) => ({ id: `tag-${tagName}`, tagName }));
+        },
+      ),
       update: vi.fn(async ({ where, data }: { where: { id: string }; data: MappedRelease & { source: string } }) => {
         const name = where.id.replace(/^tag-/, "");
         tagRows.delete(name);
@@ -97,7 +106,9 @@ function fakeDb(options: {
       }),
     },
     userSubscription: {
-      findMany: vi.fn(async () => subscribers.map((userId) => ({ userId, user: { githubAccessTokenEncrypted: `t-${userId}` } }))),
+      findMany: vi.fn(async () =>
+        subscribers.map((userId) => ({ userId, user: { githubAccessTokenEncrypted: `t-${userId}` } })),
+      ),
     },
   };
   return { prisma, repo, releases, statuses, promoted };
@@ -194,7 +205,12 @@ describe("processReleaseBackfill", () => {
 
     expect(outcome).toEqual({ status: "FINISHED", backfillStatus: "DONE", reason: "TARGET", added: 90, pages: 1 });
     expect(db.releases.size).toBe(100);
-    expect(db.repo).toMatchObject({ backfillStatus: "DONE", backfillNextPage: 2, backfillTarget: 100, backfilledAt: NOW });
+    expect(db.repo).toMatchObject({
+      backfillStatus: "DONE",
+      backfillNextPage: 2,
+      backfillTarget: 100,
+      backfilledAt: NOW,
+    });
     expect(db.statuses[0]).toBe("RUNNING");
     // No UserReleaseState rows: the fake has no such model, so any write would have thrown.
     expect(d.redis.publish).toHaveBeenCalledTimes(2);
@@ -236,7 +252,10 @@ describe("processReleaseBackfill", () => {
   it("finishes without calling GitHub when nothing is stored", async () => {
     const db = fakeDb({ stored: [] });
     const github = fakeGitHub(0);
-    expect(await processReleaseBackfill(job(), "token", deps(db, github))).toMatchObject({ backfillStatus: "DONE", reason: "COMPLETE" });
+    expect(await processReleaseBackfill(job(), "token", deps(db, github))).toMatchObject({
+      backfillStatus: "DONE",
+      reason: "COMPLETE",
+    });
     expect(github).not.toHaveBeenCalled();
   });
 
@@ -275,7 +294,9 @@ describe("processReleaseBackfill", () => {
     const error = new Error("socket hang up");
 
     const early = fakeDb({ stored: range(50, 41) });
-    await expect(processReleaseBackfill(job(0), "token", deps(early, fakeGitHub(50, { error })))).rejects.toThrow(error);
+    await expect(processReleaseBackfill(job(0), "token", deps(early, fakeGitHub(50, { error })))).rejects.toThrow(
+      error,
+    );
     expect(early.repo.backfillStatus).toBe("QUEUED");
 
     const last = fakeDb({ stored: range(50, 41) });
@@ -289,7 +310,9 @@ describe("processReleaseBackfill", () => {
       if (updateCalls > 1) throw new Error("db down");
       return brokenStatus.repo;
     });
-    await expect(processReleaseBackfill(job(2), "token", deps(brokenStatus, fakeGitHub(50, { error })))).rejects.toThrow(error);
+    await expect(
+      processReleaseBackfill(job(2), "token", deps(brokenStatus, fakeGitHub(50, { error }))),
+    ).rejects.toThrow(error);
 
     const publishFailDb = fakeDb({ stored: range(50, 41) });
     const publishFailDeps = deps(publishFailDb, fakeGitHub(50));

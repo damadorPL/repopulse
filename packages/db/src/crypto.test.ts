@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { decryptToken, encryptToken } from "./crypto";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { decryptToken, encryptToken } from "./crypto.js";
 
 const TEST_KEY = randomBytes(32).toString("hex");
 
@@ -94,6 +94,38 @@ describe("encryptToken / decryptToken", () => {
       process.env.TOKEN_ENCRYPTION_KEY = badKey;
       expect(() => encryptToken("x")).toThrow(/64-character/);
       expect(() => decryptToken(validCipher)).toThrow(/64-character/);
+    }
+  });
+
+  it("zeroes out key buffers after encryptToken and decryptToken (including failures)", () => {
+    const originalFill = Buffer.prototype.fill;
+    const zeroedBuffers: Buffer[] = [];
+    const fillSpy = vi.spyOn(Buffer.prototype, "fill").mockImplementation(function (
+      this: Buffer,
+      ...args: Parameters<typeof originalFill>
+    ) {
+      const result = originalFill.apply(this, args);
+      if (args[0] === 0 && this.length === 32) {
+        zeroedBuffers.push(this);
+      }
+      return result;
+    });
+
+    try {
+      const cipherText = encryptToken("zeroize-me");
+      expect(zeroedBuffers).toHaveLength(1);
+      expect(zeroedBuffers[0]!.every((byte) => byte === 0)).toBe(true);
+
+      expect(decryptToken(cipherText)).toBe("zeroize-me");
+      expect(zeroedBuffers).toHaveLength(2);
+      expect(zeroedBuffers[1]!.every((byte) => byte === 0)).toBe(true);
+
+      const [iv, tag, enc] = cipherText.split(":") as [string, string, string];
+      expect(() => decryptToken(`${iv}:${tag}:${flipHexChar(enc, 0)}`)).toThrow();
+      expect(zeroedBuffers).toHaveLength(3);
+      expect(zeroedBuffers[2]!.every((byte) => byte === 0)).toBe(true);
+    } finally {
+      fillSpy.mockRestore();
     }
   });
 });

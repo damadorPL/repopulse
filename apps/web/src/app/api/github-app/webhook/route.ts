@@ -4,9 +4,6 @@ import { enqueueWebhookScan } from "@/server/deps-webhook-queue";
 import { handleGitHubAppWebhook, type WebhookDeps } from "@/server/github-app-webhook";
 import { RealtimeUnavailableError } from "@/server/realtime";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
 /**
  * POST /api/github-app/webhook: deliveries of the RepoPulse GitHub App (Slice 08 Part E). Public: no
  * session, authenticated by `X-Hub-Signature-256` (HMAC-SHA256 with the App's webhook secret). Body
@@ -20,7 +17,10 @@ const deps: WebhookDeps = {
     return { depsEnabled, app: app ? { webhookSecret: app.webhookSecret } : null };
   },
   findProjectsOnBranch: (githubRepoId, branch) =>
-    prisma.dependencyProject.findMany({ where: { githubRepoId, defaultBranch: branch }, select: { id: true, manifestPaths: true } }),
+    prisma.dependencyProject.findMany({
+      where: { githubRepoId, defaultBranch: branch },
+      select: { id: true, manifestPaths: true },
+    }),
   async findPrOwnerProjectId(githubRepoId) {
     const owner = await prisma.dependencyPrOwner.findUnique({ where: { githubRepoId }, select: { projectId: true } });
     return owner?.projectId ?? null;
@@ -38,7 +38,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     return respond(result.status, result.body);
   } catch (error) {
     if (error instanceof GitHubAppKeyUnreadableError) {
-      console.warn("[github-app-webhook] the stored webhook secret can't be decrypted (was TOKEN_ENCRYPTION_KEY changed?)");
+      console.warn(
+        "[github-app-webhook] the stored webhook secret can't be decrypted (was TOKEN_ENCRYPTION_KEY changed?)",
+      );
       return respond(503, { error: "webhook secret unreadable" });
     }
     if (error instanceof RealtimeUnavailableError) {

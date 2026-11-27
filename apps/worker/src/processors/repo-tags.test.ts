@@ -1,9 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { GitHubRateLimitError, type GitTag } from "@repopulse/github";
-import { mergeFanOutPlans, type StoredRelease } from "./fan-out";
-import { loadSubscribers, pollRepoTags, tracksReleases, tracksTags, type SubscriberWithMode } from "./repo-tags";
+import { mergeFanOutPlans, type StoredRelease } from "./fan-out.js";
+import { loadSubscribers, pollRepoTags, tracksReleases, tracksTags, type SubscriberWithMode } from "./repo-tags.js";
 
-const REPO = { id: "repo1", owner: "acme", name: "widget", fullName: "acme/widget", htmlUrl: "https://github.com/acme/widget" };
+const REPO = {
+  id: "repo1",
+  owner: "acme",
+  name: "widget",
+  fullName: "acme/widget",
+  htmlUrl: "https://github.com/acme/widget",
+};
 const DAY = 24 * 60 * 60 * 1000;
 const BASE = new Date("2026-10-01T00:00:00Z").getTime();
 
@@ -50,7 +56,17 @@ function fakePrisma(options: { storedTagNames?: string[]; subscribers: Sub[] }) 
           includePrereleases: s.includePrereleases ?? false,
           trackMode: s.trackMode,
           tags: [],
-          user: { notificationRules: [{ id: `rule-${s.userId}`, tagId: null, channel: "DISCORD_WEBHOOK", onlyMajorReleases: false, events: ["RELEASES"] }] },
+          user: {
+            notificationRules: [
+              {
+                id: `rule-${s.userId}`,
+                tagId: null,
+                channel: "DISCORD_WEBHOOK",
+                onlyMajorReleases: false,
+                events: ["RELEASES"],
+              },
+            ],
+          },
         })),
       ),
     },
@@ -106,11 +122,18 @@ describe("pollRepoTags", () => {
       new Date(BASE + 2.5 * DAY),
     );
 
-    expect(fetchTags).toHaveBeenCalledWith(expect.objectContaining({ owner: "acme", name: "widget", accessToken: "t1" }));
+    expect(fetchTags).toHaveBeenCalledWith(
+      expect.objectContaining({ owner: "acme", name: "widget", accessToken: "t1" }),
+    );
     // The stored v1.2.0 is skipped; each other tag is compared with the next older one in the list.
     expect(compare.mock.calls.map(([p]) => `${p.base}...${p.head}`)).toEqual(["v1.3.0...v1.4.0", "v1.2.0...v1.3.0"]);
     expect(db.inserted.map((r) => r.tagName)).toEqual(["v1.4.0", "v1.3.0", "v1.1.0"]);
-    expect(db.inserted[0]).toMatchObject({ source: "TAG", githubReleaseId: null, repositoryId: "repo1", semverType: "MINOR" });
+    expect(db.inserted[0]).toMatchObject({
+      source: "TAG",
+      githubReleaseId: null,
+      repositoryId: "repo1",
+      semverType: "MINOR",
+    });
     expect(String(db.inserted[0]!.bodyMarkdown)).toContain("### Commits since `v1.3.0`");
     // The oldest tag in the list has no previous tag: its body shows the tagged commit.
     expect(String(db.inserted[2]!.bodyMarkdown)).toContain("### Tagged commit");
@@ -142,14 +165,21 @@ describe("pollRepoTags", () => {
     const compare = vi.fn(async () => {
       throw new Error("502 Bad Gateway");
     });
-    await pollRepoTags({ prisma: db.prisma as never, fetchTags: vi.fn(async () => [tag(2), tag(1)]), compare }, REPO, TOKENS, null);
+    await pollRepoTags(
+      { prisma: db.prisma as never, fetchTags: vi.fn(async () => [tag(2), tag(1)]), compare },
+      REPO,
+      TOKENS,
+      null,
+    );
     expect(String(db.inserted[0]!.bodyMarkdown)).toContain("### Tagged commit");
   });
 
   it("skips without a token (GraphQL needs one)", async () => {
     const db = fakePrisma({ subscribers: [] });
     const fetchTags = vi.fn();
-    expect(await pollRepoTags({ prisma: db.prisma as never, fetchTags }, REPO, [{ userId: null, token: undefined }], null)).toBeNull();
+    expect(
+      await pollRepoTags({ prisma: db.prisma as never, fetchTags }, REPO, [{ userId: null, token: undefined }], null),
+    ).toBeNull();
     expect(fetchTags).not.toHaveBeenCalled();
   });
 
@@ -169,27 +199,34 @@ describe("pollRepoTags", () => {
       return [];
     });
     const res = await pollRepoTags(
-      { prisma: db.prisma as never, fetchTags: fetchTags as never },
+      { prisma: db.prisma as never, fetchTags },
       REPO,
-      [{ userId: "u1", token: "t1" }, { userId: "u2", token: "t2" }],
+      [
+        { userId: "u1", token: "t1" },
+        { userId: "u2", token: "t2" },
+      ],
       null,
     );
     expect(fetchTags.mock.calls.map(([p]) => p.accessToken)).toEqual(["t1", "t2"]);
     expect(res).toEqual({ received: 0, stored: 0, fresh: 0, plan: { states: [], deliveries: [], notifications: [] } });
     expect(db.prisma.release.findMany).not.toHaveBeenCalled();
 
-    const all401 = vi.fn(async () => {
+    const all401 = vi.fn(async (_params: { accessToken?: string }) => {
       throw Object.assign(new Error("Bad credentials"), { status: 401 });
     });
     expect(
       await pollRepoTags(
-        { prisma: db.prisma as never, fetchTags: all401 as never },
+        { prisma: db.prisma as never, fetchTags: all401 },
         REPO,
-        [{ userId: "u1", token: "t1" }, { userId: "u2", token: "t2" }, { userId: null, token: undefined }],
+        [
+          { userId: "u1", token: "t1" },
+          { userId: "u2", token: "t2" },
+          { userId: null, token: undefined },
+        ],
         null,
       ),
     ).toBeNull();
-    expect(all401.mock.calls.map(([p]) => (p as { accessToken?: string }).accessToken)).toEqual(["t1", "t2"]);
+    expect(all401.mock.calls.map(([p]) => p.accessToken)).toEqual(["t1", "t2"]);
   });
 
   it("stores tags older than newestKnownAt as read history without fanning out", async () => {
@@ -201,7 +238,12 @@ describe("pollRepoTags", () => {
       TOKENS,
       new Date(BASE + 10 * DAY),
     );
-    expect(result).toEqual({ received: 2, stored: 2, fresh: 0, plan: { states: [], deliveries: [], notifications: [] } });
+    expect(result).toEqual({
+      received: 2,
+      stored: 2,
+      fresh: 0,
+      plan: { states: [], deliveries: [], notifications: [] },
+    });
     expect(db.states).toEqual([]);
     expect(db.prisma.userSubscription.findMany).not.toHaveBeenCalled();
   });
@@ -242,7 +284,9 @@ describe("tracksTags, tracksReleases, and loadSubscribers", () => {
             snoozedUntil: undefined,
             tags: [{ tagId: "t1" }],
             user: {
-              notificationRules: [{ id: "r1", tagId: "t1", channel: "DISCORD_WEBHOOK", onlyMajorReleases: true, events: ["RELEASES"] }],
+              notificationRules: [
+                { id: "r1", tagId: "t1", channel: "DISCORD_WEBHOOK", onlyMajorReleases: true, events: ["RELEASES"] },
+              ],
             },
           },
         ]),
@@ -276,7 +320,11 @@ describe("mergeFanOutPlans", () => {
 
   it("merges deliveries per user, newest first", () => {
     const merged = mergeFanOutPlans(
-      { states: [{ userId: "u1", releaseId: "a" }], deliveries: [{ userId: "u1", releases: [release("a", 1)] }], notifications: [] },
+      {
+        states: [{ userId: "u1", releaseId: "a" }],
+        deliveries: [{ userId: "u1", releases: [release("a", 1)] }],
+        notifications: [],
+      },
       {
         states: [{ userId: "u1", releaseId: "b" }],
         deliveries: [

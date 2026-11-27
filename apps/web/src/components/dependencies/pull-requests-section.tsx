@@ -9,7 +9,6 @@ import { SemverBadge } from "@/components/feed/semver-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PR_STATE_LABELS } from "@/lib/dependency-settings";
-import type { SemverTypeValue } from "@/lib/feed-filters";
 import { cn } from "@/lib/utils";
 import { createDependencyPullRequestAction } from "@/server/actions/dependencies";
 import type { DependencyPullRequestView, PlannedPullRequest } from "@/server/queries/dependencies";
@@ -30,13 +29,19 @@ function CreatePrButton({ projectId, plan }: { projectId: string; plan: PlannedP
         return;
       }
       toast.info(update ? "Updating the pull request…" : "Opening a pull request…", {
-        description: plan.lockfiles.length > 0 ? "Regenerating the lockfile can take a few minutes." : "This takes a moment.",
+        description:
+          plan.lockfiles.length > 0 ? "Regenerating the lockfile can take a few minutes." : "This takes a moment.",
       });
     });
   }
 
   return (
-    <Button size="sm" variant={update ? "outline" : "default"} onClick={create} disabled={pending || plan.disabledReason !== null}>
+    <Button
+      size="sm"
+      variant={update ? "outline" : "default"}
+      onClick={create}
+      disabled={pending || plan.disabledReason !== null}
+    >
       {pending ? <LoaderCircleIcon className="animate-spin" /> : <GitPullRequestIcon />}
       {update ? "Update PR" : "Create PR"}
     </Button>
@@ -74,7 +79,12 @@ export function PullRequestsSection({
                     <code className="font-mono text-xs">repopulse/deps/{plan.groupKey}</code>
                     {plan.isMajor ? <SemverBadge type="MAJOR" /> : null}
                     {plan.pullRequest ? (
-                      <a href={plan.pullRequest.htmlUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs hover:underline">
+                      <a
+                        href={plan.pullRequest.htmlUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs hover:underline"
+                      >
                         #{plan.pullRequest.number} · {PR_STATE_LABELS[plan.pullRequest.state]}
                         <ExternalLinkIcon className="size-3" aria-hidden />
                       </a>
@@ -94,7 +104,7 @@ export function PullRequestsSection({
                     <span className="text-muted-foreground">
                       {u.from ?? "?"} → <span className="text-foreground">{u.to}</span>
                     </span>
-                    {u.level ? <SemverBadge type={u.level as SemverTypeValue} /> : null}
+                    {u.level ? <SemverBadge type={u.level} /> : null}
                     <span className="text-muted-foreground">{u.manifestPath}</span>
                   </li>
                 ))}
@@ -114,7 +124,12 @@ export function PullRequestsSection({
           <ul className="mt-2 divide-y rounded-md border text-sm">
             {history.map((pr) => (
               <li key={pr.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
-                <a href={pr.htmlUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium hover:underline">
+                <a
+                  href={pr.htmlUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 font-medium hover:underline"
+                >
                   #{pr.number}
                   <ExternalLinkIcon className="size-3" aria-hidden />
                 </a>
@@ -123,7 +138,8 @@ export function PullRequestsSection({
                   {PR_STATE_LABELS[pr.state]}
                 </Badge>
                 <span className="text-xs text-muted-foreground">
-                  {pr.targets.length} target{pr.targets.length === 1 ? "" : "s"} · opened <RelativeTime date={pr.openedAt} />
+                  {pr.targets.length} target{pr.targets.length === 1 ? "" : "s"} · opened{" "}
+                  <RelativeTime date={pr.openedAt} />
                   {pr.closedAt ? (
                     <>
                       {" "}

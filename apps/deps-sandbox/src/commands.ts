@@ -51,12 +51,12 @@ export const POETRY_LOCK_MAJOR = 2;
 
 /** A failed precondition: the job ends with `code` and `message` as the stderr tail. */
 export class LockJobError extends Error {
-  constructor(
-    readonly code: LockErrorCode,
-    message: string,
-  ) {
+  readonly code: LockErrorCode;
+
+  constructor(code: LockErrorCode, message: string) {
     super(message);
     this.name = "LockJobError";
+    this.code = code;
   }
 }
 

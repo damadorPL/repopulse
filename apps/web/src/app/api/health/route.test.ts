@@ -5,6 +5,7 @@ const prisma = {
 };
 
 vi.mock("@repopulse/db", () => ({ prisma }));
+vi.mock("next/server", () => ({ connection: vi.fn().mockResolvedValue(undefined) }));
 
 const { GET } = await import("./route");
 

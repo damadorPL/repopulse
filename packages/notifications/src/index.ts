@@ -20,10 +20,12 @@ export { NotificationDeliveryError, WebhookUrlError, isNotificationDeliveryError
 export { formatCustomWebhookPayload, type CustomWebhookPayload } from "./formatters/custom.js";
 export { DISCORD_COLORS, formatDiscordPayload, type DiscordWebhookPayload } from "./formatters/discord.js";
 export {
+  closeSmtpTransports,
   createSmtpSender,
   defaultSmtpFrom,
   renderReleaseEmail,
   toSmtpConfig,
+  verifySmtpConfig,
   type EmailMessage,
   type MailSender,
   type RenderedEmail,
@@ -39,7 +41,13 @@ export {
   type PreparedRequest,
 } from "./formatters/ntfy-gotify.js";
 export { formatSlackPayload, type SlackWebhookPayload } from "./formatters/slack.js";
-export { postWebhook, type HttpOptions, type WebhookRequest, type WebhookResponse, type WebhookSender } from "./http.js";
+export {
+  postWebhook,
+  type HttpOptions,
+  type WebhookRequest,
+  type WebhookResponse,
+  type WebhookSender,
+} from "./http.js";
 export {
   classifyAddress,
   createGuardedLookup,

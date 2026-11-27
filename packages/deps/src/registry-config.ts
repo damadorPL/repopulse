@@ -15,21 +15,21 @@ function ancestors(path: string): string[] {
 
 /** Existing files among these candidates must be read, including ancestor configs for nested manifests. */
 export function registryConfigPaths(path: string, ecosystem: DependencyEcosystem): string[] {
-  return ancestors(path).flatMap((dir) => (ecosystem === "NPM" ? NPM_CONFIGS : PYTHON_CONFIGS).map((file) => joinPath(dir, file)));
+  return ancestors(path).flatMap((dir) =>
+    (ecosystem === "NPM" ? NPM_CONFIGS : PYTHON_CONFIGS).map((file) => joinPath(dir, file)),
+  );
 }
 
 function publicRegistry(value: unknown, ecosystem: DependencyEcosystem): boolean {
   if (typeof value !== "string") return false;
-  try {
-    const url = new URL(value.trim().replace(/^["']|["']$/g, ""));
-    if (url.protocol !== "https:" || url.port || url.username || url.password || url.search || url.hash) return false;
-    const path = url.pathname.replace(/\/+$/, "");
-    return ecosystem === "NPM"
-      ? ["registry.npmjs.org", "registry.yarnpkg.com"].includes(url.hostname) && path === ""
-      : ["pypi.org", "pypi.python.org"].includes(url.hostname) && path === "/simple";
-  } catch {
+  const url = URL.parse(value.trim().replace(/^["']|["']$/g, ""));
+  if (!url || url.protocol !== "https:" || url.port || url.username || url.password || url.search || url.hash) {
     return false;
   }
+  const path = url.pathname.replace(/\/+$/, "");
+  return ecosystem === "NPM"
+    ? ["registry.npmjs.org", "registry.yarnpkg.com"].includes(url.hostname) && path === ""
+    : ["pypi.org", "pypi.python.org"].includes(url.hostname) && path === "/simple";
 }
 
 interface RegistryPolicy {
@@ -52,9 +52,12 @@ function registrySettings(data: Record<string, unknown>, policy: RegistryPolicy)
   for (const key of ["registries", "npmScopes", "scopes"]) {
     const scopes = data[key];
     if (scopes === undefined) continue;
-    if (!isRecord(scopes)) { policy.unreadable = true; continue; }
+    if (!isRecord(scopes)) {
+      policy.unreadable = true;
+      continue;
+    }
     for (const [scope, setting] of Object.entries(scopes)) {
-      const value = isRecord(setting) ? setting.npmRegistryServer ?? setting.registry ?? setting.url : setting;
+      const value = isRecord(setting) ? (setting.npmRegistryServer ?? setting.registry ?? setting.url) : setting;
       // An auth-only scope inherits the default registry.
       if (isRecord(setting) && value === undefined) continue;
       policy.scopes.set(scope.replace(/^@/, ""), !publicRegistry(value, "NPM"));
@@ -68,9 +71,10 @@ function npmConfig(path: string, text: string, policy: RegistryPolicy): void {
   if (file === ".npmrc" || file === ".yarnrc") {
     for (const raw of text.split(/\r?\n/)) {
       if (/^\s*[#;]/.test(raw)) continue;
-      const match = file === ".npmrc"
-        ? /^\s*(?:(@[^:=\s]+):)?registry\s*=\s*(.*?)\s*$/.exec(raw)
-        : /^\s*"?registry"?\s+(.*?)\s*$/.exec(raw);
+      const match =
+        file === ".npmrc"
+          ? /^\s*(?:(@[^:=\s]+):)?registry\s*=\s*(.*?)\s*$/.exec(raw)
+          : /^\s*"?registry"?\s+(.*?)\s*$/.exec(raw);
       if (!match) continue;
       const value = match[file === ".npmrc" ? 2 : 1];
       const scope = file === ".npmrc" ? match[1] : undefined;
@@ -80,7 +84,10 @@ function npmConfig(path: string, text: string, policy: RegistryPolicy): void {
     return;
   }
   const data: unknown = file.endsWith(".toml") ? parseToml(text) : parseYaml(text, { maxAliasCount: 50 });
-  if (!isRecord(data)) { policy.unreadable = true; return; }
+  if (!isRecord(data)) {
+    policy.unreadable = true;
+    return;
+  }
   registrySettings(data, policy);
   if (isRecord(data.install)) registrySettings(data.install, policy);
   // pnpm also permits quoted scoped registry keys.
@@ -114,7 +121,10 @@ function pythonSettings(data: Record<string, unknown>, policy: RegistryPolicy): 
   const indexes = Array.isArray(data.index) ? data.index : isRecord(data.index) ? [data.index] : [];
   const named = new Map<string, boolean>();
   for (const index of indexes) {
-    if (!isRecord(index)) { policy.unreadable = true; continue; }
+    if (!isRecord(index)) {
+      policy.unreadable = true;
+      continue;
+    }
     const custom = !publicRegistry(index.url, "PYPI");
     if (typeof index.name === "string") named.set(index.name, custom);
     if (custom && index.explicit !== true) policy.additional = true;
@@ -122,7 +132,11 @@ function pythonSettings(data: Record<string, unknown>, policy: RegistryPolicy): 
   if (isRecord(data.sources)) {
     for (const [name, entries] of Object.entries(data.sources)) {
       const sources = Array.isArray(entries) ? entries : [entries];
-      if (sources.some((source) => !isRecord(source) || typeof source.index !== "string" || named.get(source.index) !== false)) {
+      if (
+        sources.some(
+          (source) => !isRecord(source) || typeof source.index !== "string" || named.get(source.index) !== false,
+        )
+      ) {
         policy.packages.add(normalizePypiName(name));
       }
     }
@@ -136,9 +150,13 @@ function pythonConfig(path: string, text: string, policy: RegistryPolicy): void 
     for (const line of text.split(/\r?\n/)) {
       if (/^\s*[#;]/.test(line)) continue;
       const header = /^\s*\[([^\]]+)\]/.exec(line);
-      if (header) { section = header[1]!.toLowerCase(); continue; }
+      if (header) {
+        section = header[1]!.toLowerCase();
+        continue;
+      }
       const match = /^\s*(index-url|extra-index-url|find-links)\s*=\s*(.*?)\s*$/.exec(line);
-      if (match && ["global", "install", "download"].includes(section)) pythonSettings({ [match[1]!]: match[2] }, policy);
+      if (match && ["global", "install", "download"].includes(section))
+        pythonSettings({ [match[1]!]: match[2] }, policy);
     }
     return;
   }
@@ -168,7 +186,8 @@ function pythonConfig(path: string, text: string, policy: RegistryPolicy): void 
   const poetry = tool && isRecord(tool.poetry) ? tool.poetry : null;
   if (poetry && Array.isArray(poetry.source)) {
     for (const source of poetry.source) {
-      if (!isRecord(source) || (!publicRegistry(source.url, "PYPI") && source.priority !== "explicit")) policy.additional = true;
+      if (!isRecord(source) || (!publicRegistry(source.url, "PYPI") && source.priority !== "explicit"))
+        policy.additional = true;
     }
   }
 }
@@ -196,9 +215,15 @@ export function applyRegistryPolicy<T extends ParsedDependency>(params: {
     const file = basename(path);
     const family = policyFamily(params.ecosystem, file);
     let policy = policies.get(family);
-    if (!policy) { policy = emptyPolicy(); policies.set(family, policy); }
+    if (!policy) {
+      policy = emptyPolicy();
+      policies.set(family, policy);
+    }
     const text = params.files.get(path);
-    if (text == null) { policy.unreadable = true; continue; }
+    if (text == null) {
+      policy.unreadable = true;
+      continue;
+    }
     try {
       if (params.ecosystem === "NPM") npmConfig(path, text, policy);
       else pythonConfig(path, text, policy);
@@ -209,10 +234,13 @@ export function applyRegistryPolicy<T extends ParsedDependency>(params: {
   return params.dependencies.map((dependency) => {
     const scope = /^@([^/]+)\//.exec(dependency.name)?.[1];
     const unsupported = [...policies.values()].some((policy) => {
-      const custom = params.ecosystem === "NPM" && scope && policy.scopes.has(scope)
-        ? policy.scopes.get(scope)!
-        : policy.customDefault;
-      return custom || policy.additional || policy.unreadable || policy.packages.has(normalizePypiName(dependency.name));
+      const custom =
+        params.ecosystem === "NPM" && scope && policy.scopes.has(scope)
+          ? policy.scopes.get(scope)!
+          : policy.customDefault;
+      return (
+        custom || policy.additional || policy.unreadable || policy.packages.has(normalizePypiName(dependency.name))
+      );
     });
     return dependency.supported && unsupported
       ? { ...dependency, supported: false, unsupportedReason: PRIVATE_SOURCE_REASON }

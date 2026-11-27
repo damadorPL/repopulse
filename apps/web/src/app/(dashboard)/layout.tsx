@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { TopNavbar } from "@/components/layout/top-navbar";
 import { SseListener } from "@/components/realtime/sse-listener";
@@ -6,7 +5,7 @@ import { getDepsSidebarInfo } from "@/server/deps-status";
 import { getDashboardData } from "@/server/queries/feed";
 import { requireUser } from "@/server/session";
 
-export default async function DashboardLayout({ children }: { children: ReactNode }) {
+export default async function DashboardLayout({ children }: LayoutProps<"/">) {
   const user = await requireUser();
   const [data, dependencies] = await Promise.all([getDashboardData(user.id), getDepsSidebarInfo(user.id)]);
 
@@ -23,7 +22,9 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   return (
     <div className="flex min-h-dvh">
       <SseListener />
-      <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 border-r border-sidebar-border bg-sidebar md:block">{sidebar}</aside>
+      <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 border-r border-sidebar-border bg-sidebar md:block">
+        {sidebar}
+      </aside>
       <div className="flex min-w-0 flex-1 flex-col">
         <TopNavbar
           user={{ name: user.name, email: user.email, avatarUrl: user.avatarUrl, isSuperAdmin: user.isSuperAdmin }}

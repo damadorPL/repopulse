@@ -46,7 +46,11 @@ export const IGNORE_PATTERN_MAX_LENGTH = 214;
 
 /** `true` for a valid ignore-rule name pattern (`*` alone ignores everything). */
 export function isValidIgnorePattern(pattern: string): boolean {
-  return pattern.length > 0 && pattern.length <= IGNORE_PATTERN_MAX_LENGTH && (pattern === "*" || IGNORE_PATTERN.test(pattern));
+  return (
+    pattern.length > 0 &&
+    pattern.length <= IGNORE_PATTERN_MAX_LENGTH &&
+    (pattern === "*" || IGNORE_PATTERN.test(pattern))
+  );
 }
 
 /** `true` when `versions` is a valid range in npm, PEP 440 or Poetry syntax. */
@@ -69,23 +73,21 @@ export function ignorePatternMatches(pattern: string, name: string, ecosystem: D
 }
 
 /** zod schema for one ignore rule (shared with the web settings form). */
-export const ignoreRuleSchema = z
-  .object({
-    name: z
-      .string()
-      .trim()
-      .min(1)
-      .max(IGNORE_PATTERN_MAX_LENGTH)
-      .refine(isValidIgnorePattern, { message: "Use a package name; * is allowed only at the start and/or end" }),
-    versions: z
-      .string()
-      .trim()
-      .max(256)
-      .refine((value) => value === "" || isValidIgnoreVersions(value), { message: "Not a valid version range" })
-      .optional()
-      .transform((value) => (value === "" ? undefined : value)),
-  })
-  .strict();
+export const ignoreRuleSchema = z.strictObject({
+  name: z
+    .string()
+    .trim()
+    .min(1)
+    .max(IGNORE_PATTERN_MAX_LENGTH)
+    .refine(isValidIgnorePattern, { error: "Use a package name; * is allowed only at the start and/or end" }),
+  versions: z
+    .string()
+    .trim()
+    .max(256)
+    .refine((value) => value === "" || isValidIgnoreVersions(value), { error: "Not a valid version range" })
+    .optional()
+    .transform((value) => (value === "" ? undefined : value)),
+});
 
 export const ignoreRulesSchema = z.array(ignoreRuleSchema).max(MAX_IGNORE_RULES);
 
@@ -190,7 +192,9 @@ export function requiresPythonOverlaps(
   projectSyntax: "pep440" | "poetry" = "pep440",
 ): boolean {
   if (!isValidPep440Constraint(fileSpec) || !isValidPep440Constraint(projectSpec, projectSyntax)) return true;
-  return PYTHON_PROBES.some((python) => pep440Satisfies(python, fileSpec) && pep440Satisfies(python, projectSpec, projectSyntax));
+  return PYTHON_PROBES.some(
+    (python) => pep440Satisfies(python, fileSpec) && pep440Satisfies(python, projectSpec, projectSyntax),
+  );
 }
 
 function sameMajorMinor(ecosystem: DependencyEcosystem, a: string, b: string): boolean {
@@ -237,7 +241,10 @@ export function selectTarget(
 ): TargetSelection {
   const { ecosystem, declared, rangeSyntax } = dependency;
   if (!dependency.supported) {
-    return baseSelection({ status: "UNSUPPORTED_SOURCE", reason: dependency.unsupportedReason ?? "Unsupported source" });
+    return baseSelection({
+      status: "UNSUPPORTED_SOURCE",
+      reason: dependency.unsupportedReason ?? "Unsupported source",
+    });
   }
   const fromLockfile = dependency.currentVersion !== null;
   const current = dependency.currentVersion ?? rangeLowerBound(rangeSyntax, declared);
@@ -253,7 +260,11 @@ export function selectTarget(
       if (!sameMajorMinor(ecosystem, candidate.version, current)) return false;
     }
     if (projectPython && candidate.requiresPython) {
-      if (!candidate.requiresPython.some((spec) => requiresPythonOverlaps(spec, projectPython, policy.requiresPythonSyntax))) {
+      if (
+        !candidate.requiresPython.some((spec) =>
+          requiresPythonOverlaps(spec, projectPython, policy.requiresPythonSyntax),
+        )
+      ) {
         return false;
       }
     }
@@ -261,7 +272,11 @@ export function selectTarget(
   });
   usable.sort((a, b) => compare(a.version, b.version));
   const latestVersion = usable.at(-1)?.version ?? null;
-  const wantedVersion = maxSatisfying(rangeSyntax, usable.map((c) => c.version), declared);
+  const wantedVersion = maxSatisfying(
+    rangeSyntax,
+    usable.map((c) => c.version),
+    declared,
+  );
   const common = { currentVersion: current, currentFromLockfile: fromLockfile, wantedVersion, latestVersion };
 
   // Step 2.
@@ -277,7 +292,11 @@ export function selectTarget(
 
   // Step 3.
   if (current === null) {
-    return baseSelection({ ...common, status: "UP_TO_DATE", reason: "No current version (no lockfile entry or lower bound)" });
+    return baseSelection({
+      ...common,
+      status: "UP_TO_DATE",
+      reason: "No current version (no lockfile entry or lower bound)",
+    });
   }
   const above = remaining.filter((candidate) => compare(candidate.version, current) > 0);
   const newest = above.at(-1);
@@ -362,7 +381,13 @@ export function selectTarget(
       reason: `The pull request for ${target.version} was closed`,
     });
   }
-  return baseSelection({ ...common, ...describe(target), targetVersion: target.version, newDeclared, status: "OUTDATED" });
+  return baseSelection({
+    ...common,
+    ...describe(target),
+    targetVersion: target.version,
+    newDeclared,
+    status: "OUTDATED",
+  });
 }
 
 export interface PolicyInput {
@@ -433,19 +458,15 @@ export function groupUpdates<T extends GroupableUpdate>(
   groupMode: DepsGroupMode,
   maxOpenPrs: number = Number.POSITIVE_INFINITY,
 ): UpdateGroup<T>[] {
-  const groups = new Map<string, T[]>();
-  for (const update of outdated) {
-    let key: string;
-    if (groupMode === "SINGLE") key = "all";
-    else if (groupMode === "SEPARATE_MAJORS") key = update.level === "MAJOR" ? `major-${slugifyGroupName(update.name)}` : "all";
-    else key = `${update.ecosystem.toLowerCase()}-${slugifyGroupName(update.name)}`;
-    const list = groups.get(key) ?? [];
-    list.push(update);
-    groups.set(key, list);
-  }
+  const groups = Map.groupBy(outdated, (update) => {
+    if (groupMode === "SINGLE") return "all";
+    if (groupMode === "SEPARATE_MAJORS")
+      return update.level === "MAJOR" ? `major-${slugifyGroupName(update.name)}` : "all";
+    return `${update.ecosystem.toLowerCase()}-${slugifyGroupName(update.name)}`;
+  });
   const result = [...groups.entries()].map(([groupKey, updates]) => ({
     groupKey,
-    updates: [...updates].sort(compareUpdates),
+    updates: updates.toSorted(compareUpdates),
     isMajor: updates.some((update) => update.level === "MAJOR"),
     hasPrSlot: false,
   }));

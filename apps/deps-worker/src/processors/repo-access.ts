@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@repopulse/db";
 import { permissionAtLeast } from "@repopulse/github";
-import type { GitHubApi, Octokit } from "../github-api";
-import { notifyPullRequestEvent, type NotifyQueue } from "./notify-jobs";
+import type { GitHubApi, Octokit } from "../github-api.js";
+import { notifyPullRequestEvent, type NotifyQueue } from "./notify-jobs.js";
 
 /**
  * The owner's access to a repository (Slice 08 §3.8.4), shared by the scan (read, private repositories) and the
@@ -50,7 +50,13 @@ export async function ownerHasPermission(
  */
 export async function revokePullRequestMode(
   deps: { prisma: PrismaClient; notifyQueue: NotifyQueue },
-  project: { id: string; userId: string; fullName: string; notificationLevel: Parameters<typeof notifyPullRequestEvent>[1]["notificationLevel"]; updateMode: string },
+  project: {
+    id: string;
+    userId: string;
+    fullName: string;
+    notificationLevel: Parameters<typeof notifyPullRequestEvent>[1]["notificationLevel"];
+    updateMode: string;
+  },
   prId: string | null,
   at: Date,
 ): Promise<boolean> {
@@ -59,6 +65,12 @@ export async function revokePullRequestMode(
     await tx.dependencyProject.update({ where: { id: project.id }, data: { updateMode: "NOTIFY" } });
     await tx.dependencyPrOwner.deleteMany({ where: { projectId: project.id } });
   });
-  await notifyPullRequestEvent(deps, project, prId ?? `project-${project.id}`, "access_lost", `access_lost-${at.getTime()}`);
+  await notifyPullRequestEvent(
+    deps,
+    project,
+    prId ?? `project-${project.id}`,
+    "access_lost",
+    `access_lost-${at.getTime()}`,
+  );
   return true;
 }

@@ -20,7 +20,11 @@ const isDeliverableChannel = vi.fn(() => true);
 const isNotificationDeliveryError = vi.fn(() => false);
 const getSmtpConfig = vi.fn();
 
-vi.mock("@/lib/auth", () => ({ UnauthorizedError, ForbiddenError, getCurrentUserOrThrow: vi.fn(async () => ({ id: "u1", email: "u1@example.com", name: "User 1" })) }));
+vi.mock("@/lib/auth", () => ({
+  UnauthorizedError,
+  ForbiddenError,
+  getCurrentUserOrThrow: vi.fn(async () => ({ id: "u1", email: "u1@example.com", name: "User 1" })),
+}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@repopulse/db", () => ({ prisma, SmtpPasswordUnreadableError }));
 vi.mock("@repopulse/github", () => ({
@@ -67,35 +71,66 @@ function ruleRow(extra: Record<string, unknown> = {}) {
   };
 }
 
-const base = { tagId: null, channel: "DISCORD_WEBHOOK", destinationUrl: "https://discord.com/api/webhooks/1/secret", onlyMajorReleases: false };
+const base = {
+  tagId: null,
+  channel: "DISCORD_WEBHOOK",
+  destinationUrl: "https://discord.com/api/webhooks/1/secret",
+  onlyMajorReleases: false,
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
   prisma.notificationRule.count.mockResolvedValue(0);
   prisma.tag.findFirst.mockResolvedValue({ id: "t1" });
-  prisma.notificationRule.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ruleRow({ events: data.events }));
+  prisma.notificationRule.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) =>
+    ruleRow({ events: data.events }),
+  );
 });
 
 describe("createNotificationRuleAction events", () => {
   it("stores the chosen events in a fixed order", async () => {
-    const result = await createNotificationRuleAction({ ...base, events: ["DEPENDENCY_PULL_REQUESTS", "DEPENDENCY_UPDATES"] });
-    expect(result).toMatchObject({ ok: true, data: { events: ["DEPENDENCY_UPDATES", "DEPENDENCY_PULL_REQUESTS"], destination: "masked" } });
-    expect(prisma.notificationRule.create.mock.calls[0]![0].data).toMatchObject({ userId: "u1", events: ["DEPENDENCY_UPDATES", "DEPENDENCY_PULL_REQUESTS"] });
+    const result = await createNotificationRuleAction({
+      ...base,
+      events: ["DEPENDENCY_PULL_REQUESTS", "DEPENDENCY_UPDATES"],
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      data: { events: ["DEPENDENCY_UPDATES", "DEPENDENCY_PULL_REQUESTS"], destination: "masked" },
+    });
+    expect(prisma.notificationRule.create.mock.calls[0]![0].data).toMatchObject({
+      userId: "u1",
+      events: ["DEPENDENCY_UPDATES", "DEPENDENCY_PULL_REQUESTS"],
+    });
   });
 
   it("needs at least one event", async () => {
-    expect(await createNotificationRuleAction({ ...base, events: [] })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
-    expect(await createNotificationRuleAction({ ...base, events: ["SOMETHING"] } as never)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
-    expect(await createNotificationRuleAction(base as never)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect(await createNotificationRuleAction({ ...base, events: [] })).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_INPUT" },
+    });
+    expect(await createNotificationRuleAction({ ...base, events: ["SOMETHING"] } as never)).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_INPUT" },
+    });
+    expect(await createNotificationRuleAction(base as never)).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_INPUT" },
+    });
     expect(prisma.notificationRule.create).not.toHaveBeenCalled();
   });
 
   it("allows only releases on tag-scoped rules", async () => {
-    const result = await createNotificationRuleAction({ ...base, tagId: "t1", events: ["RELEASES", "DEPENDENCY_UPDATES"] });
+    const result = await createNotificationRuleAction({
+      ...base,
+      tagId: "t1",
+      events: ["RELEASES", "DEPENDENCY_UPDATES"],
+    });
     expect(result).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
     expect(prisma.notificationRule.create).not.toHaveBeenCalled();
 
-    expect(await createNotificationRuleAction({ ...base, tagId: "t1", events: ["RELEASES"] })).toMatchObject({ ok: true });
+    expect(await createNotificationRuleAction({ ...base, tagId: "t1", events: ["RELEASES"] })).toMatchObject({
+      ok: true,
+    });
   });
 
   it("enforces MAX_NOTIFICATION_RULES (25) with CONFLICT and rejects a foreign tagId with NOT_FOUND", async () => {
@@ -208,7 +243,10 @@ describe("updateNotificationRuleEventsAction", () => {
       .mockResolvedValueOnce({ tagId: null })
       .mockResolvedValueOnce(ruleRow({ events: ["RELEASES", "DEPENDENCY_UPDATES"] }));
     prisma.notificationRule.updateMany.mockResolvedValue({ count: 1 });
-    const result = await updateNotificationRuleEventsAction({ ruleId: "r1", events: ["DEPENDENCY_UPDATES", "RELEASES"] });
+    const result = await updateNotificationRuleEventsAction({
+      ruleId: "r1",
+      events: ["DEPENDENCY_UPDATES", "RELEASES"],
+    });
     expect(result).toMatchObject({ ok: true, data: { events: ["RELEASES", "DEPENDENCY_UPDATES"] } });
     expect(prisma.notificationRule.findFirst.mock.calls[0]![0].where).toEqual({ id: "r1", userId: "u1" });
     expect(prisma.notificationRule.updateMany).toHaveBeenCalledWith({
@@ -228,11 +266,16 @@ describe("updateNotificationRuleEventsAction", () => {
 
   it("refuses dependency events on a tag-scoped rule and empty lists", async () => {
     prisma.notificationRule.findFirst.mockResolvedValueOnce({ tagId: "t1" });
-    expect(await updateNotificationRuleEventsAction({ ruleId: "r1", events: ["DEPENDENCY_PULL_REQUESTS"] })).toMatchObject({
+    expect(
+      await updateNotificationRuleEventsAction({ ruleId: "r1", events: ["DEPENDENCY_PULL_REQUESTS"] }),
+    ).toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
-    expect(await updateNotificationRuleEventsAction({ ruleId: "r1", events: [] })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect(await updateNotificationRuleEventsAction({ ruleId: "r1", events: [] })).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_INPUT" },
+    });
     expect(prisma.notificationRule.updateMany).not.toHaveBeenCalled();
   });
 });

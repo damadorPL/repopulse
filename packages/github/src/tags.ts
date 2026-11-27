@@ -1,7 +1,7 @@
 import type { Octokit } from "@octokit/rest";
 import { createOctokit, getRateLimitInfo, isGitHubHttpError, type ResponseHeaders } from "./client.js";
 import { classifySemver, type SemverType } from "./parser.js";
-import { GitHubRateLimitError, GitHubRepositoryNotFoundError } from "./poller.js";
+import { GitHubRateLimitError, GitHubRepositoryNotFoundError, parseRetryAfter, toRateLimitError } from "./poller.js";
 import { trimTrailingChar } from "./text.js";
 
 /** Tags read per poll (the tag counterpart of `RELEASES_PAGE_SIZE`). */
@@ -65,11 +65,26 @@ const RECENT_TAGS_QUERY = /* GraphQL */ `
           name
           target {
             __typename
-            ... on Commit { oid url message committedDate }
+            ... on Commit {
+              oid
+              url
+              message
+              committedDate
+            }
             ... on Tag {
               message
-              tagger { date }
-              target { __typename ... on Commit { oid url message committedDate } }
+              tagger {
+                date
+              }
+              target {
+                __typename
+                ... on Commit {
+                  oid
+                  url
+                  message
+                  committedDate
+                }
+              }
             }
           }
         }
@@ -90,7 +105,12 @@ interface GraphqlTagNode {
   name: string;
   target:
     | GraphqlCommit
-    | { __typename: "Tag"; message: string | null; tagger: { date: string | null } | null; target: GraphqlCommit | { __typename: string } }
+    | {
+        __typename: "Tag";
+        message: string | null;
+        tagger: { date: string | null } | null;
+        target: GraphqlCommit | { __typename: string };
+      }
     | { __typename: string };
 }
 
@@ -146,16 +166,14 @@ function isGraphqlResponseError(error: unknown): error is GraphqlErrorLike {
 function rethrowTagError(error: unknown, owner: string, name: string): never {
   if (isGraphqlResponseError(error)) {
     const types = (error.errors ?? []).map((e) => e.type);
-    if (types.includes("RATE_LIMITED")) throw new GitHubRateLimitError(getRateLimitInfo(error.headers).resetAt);
+    if (types.includes("RATE_LIMITED")) {
+      throw new GitHubRateLimitError(getRateLimitInfo(error.headers).resetAt ?? parseRetryAfter(error.headers));
+    }
     if (types.includes("NOT_FOUND")) throw new GitHubRepositoryNotFoundError(owner, name);
   }
-  if (isGitHubHttpError(error)) {
-    const rateLimit = getRateLimitInfo(error.response?.headers);
-    if (error.status === 429 || (error.status === 403 && rateLimit.remaining === 0)) {
-      throw new GitHubRateLimitError(rateLimit.resetAt);
-    }
-    if (error.status === 404) throw new GitHubRepositoryNotFoundError(owner, name);
-  }
+  const rateLimited = toRateLimitError(error);
+  if (rateLimited) throw rateLimited;
+  if (isGitHubHttpError(error) && error.status === 404) throw new GitHubRepositoryNotFoundError(owner, name);
   throw error;
 }
 
@@ -275,7 +293,10 @@ export function buildTagChangelog(tag: GitTag, compare: CompareResult | null): s
       `[Compare \`${compare.base}...${tag.name}\` on GitHub](${compare.htmlUrl}) · ${plural(compare.totalCommits, "commit")}`,
     );
   } else {
-    parts.push("### Tagged commit", commitLine({ sha: tag.sha, subject: subjectOf(tag.commitMessage), htmlUrl: tag.commitUrl }));
+    parts.push(
+      "### Tagged commit",
+      commitLine({ sha: tag.sha, subject: subjectOf(tag.commitMessage), htmlUrl: tag.commitUrl }),
+    );
   }
   return parts.join("\n\n");
 }

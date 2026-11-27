@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { CircleDotIcon, ExternalLinkIcon, MailOpenIcon } from "lucide-react";
 import { RelativeTime } from "@/components/feed/relative-time";
@@ -33,14 +33,17 @@ export function ChangelogDrawer({ detail, children }: { detail: FeedItem | null;
   // Auto-mark as read once per open (not again after "Mark as unread" while the drawer stays
   // open). Closing the drawer resets this, so reopening the release marks it read again.
   const autoMarked = useRef(new Set<string>());
+  const markReadOnOpen = useEffectEvent((item: FeedItem) => {
+    if (autoMarked.current.has(item.id)) return;
+    autoMarked.current.add(item.id);
+    if (!isRead(item)) void setRead(item.id, true);
+  });
   useEffect(() => {
     if (selectedId === null) autoMarked.current.clear();
   }, [selectedId]);
   useEffect(() => {
-    if (!current || autoMarked.current.has(current.id)) return;
-    autoMarked.current.add(current.id);
-    if (!isRead(current)) void setRead(current.id, true);
-  }, [current, isRead, setRead]);
+    if (current) markReadOnOpen(current);
+  }, [current]);
 
   const [toggling, setToggling] = useState(false);
   async function toggleRead() {
@@ -66,18 +69,23 @@ export function ChangelogDrawer({ detail, children }: { detail: FeedItem | null;
                     {current.repository.fullName}
                   </Link>
                   <span className="text-xs text-muted-foreground">
-                    {current.source === "TAG" ? "Tagged" : current.source === "COMMIT" ? "Committed" : "Published"} <RelativeTime date={current.publishedAt} />
+                    {current.source === "TAG" ? "Tagged" : current.source === "COMMIT" ? "Committed" : "Published"}{" "}
+                    <RelativeTime date={current.publishedAt} />
                   </span>
                 </div>
               </div>
 
-              <SheetTitle className="mt-4 text-xl leading-tight break-words">{current.title}</SheetTitle>
+              <SheetTitle className="mt-4 text-xl leading-tight wrap-break-word">{current.title}</SheetTitle>
               <SheetDescription asChild>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">{current.tagName}</code>
+                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                    {current.tagName}
+                  </code>
                   {current.source === "TAG" ? <TagSourceBadge /> : null}
                   {current.source === "COMMIT" ? <CommitSourceBadge /> : <SemverBadge type={current.semverType} />}
-                  {current.isPrerelease && current.semverType !== "PRERELEASE" ? <SemverBadge type="PRERELEASE" /> : null}
+                  {current.isPrerelease && current.semverType !== "PRERELEASE" ? (
+                    <SemverBadge type="PRERELEASE" />
+                  ) : null}
                   {current.tags.map((tag) => (
                     <TagPill key={tag.id} name={tag.name} colorHex={tag.colorHex} />
                   ))}
@@ -91,7 +99,7 @@ export function ChangelogDrawer({ detail, children }: { detail: FeedItem | null;
                     View on GitHub
                   </a>
                 </Button>
-                <Button variant="outline" size="sm" onClick={toggleRead} disabled={toggling}>
+                <Button variant="outline" size="sm" onClick={() => void toggleRead()} disabled={toggling}>
                   {read ? <CircleDotIcon className="text-unread" /> : <MailOpenIcon />}
                   {read ? "Mark as unread" : "Mark as read"}
                 </Button>
@@ -109,9 +117,7 @@ export function ChangelogDrawer({ detail, children }: { detail: FeedItem | null;
               </div>
             </header>
 
-            <div className="flex-1 overflow-y-auto px-5 py-5">
-              {loaded ? children : <BodySkeleton />}
-            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-5">{loaded ? children : <BodySkeleton />}</div>
           </>
         ) : notFound ? (
           <div className="p-6">

@@ -1,4 +1,5 @@
-import type { JobsOptions } from "bullmq";
+import type { ConnectionOptions, JobsOptions, Queue } from "bullmq";
+import { createQueue } from "./queues.js";
 
 /** BullMQ queue names, shared by every producer (worker, web) and consumer (worker). */
 export const QUEUE_NAMES = {
@@ -42,18 +43,22 @@ export interface NotificationJobData {
   userId: string;
 }
 
+export type SchedulerQueue = Queue<SchedulerJobData, unknown, typeof JOB_NAMES.scan | typeof SCHEDULER_ID>;
+export type RepoPollQueue = Queue<RepoPollJobData, unknown, typeof JOB_NAMES.poll>;
+export type NotificationQueue = Queue<NotificationJobData, unknown, typeof JOB_NAMES.notify>;
+export type ReleaseBackfillQueue = Queue<ReleaseBackfillJobData, unknown, typeof JOB_NAMES.backfill>;
+
 /**
- * One job per repository at a time. BullMQ ignores an add whose jobId already exists, so the
- * scheduler and "Sync now" never stack polls for the same repo. BullMQ rejects custom ids
- * containing `:` (its key separator), hence `-`.
+ * Deduplication id for `repo-poll` (`keepLastIfActive: true`), so the scheduler and "Sync now"
+ * never stack concurrent polls for the same repo. BullMQ rejects custom ids containing `:`, hence `-`.
  */
 export function repoPollJobId(repositoryId: string): string {
   return `poll-${repositoryId}`;
 }
 
 /**
- * One backfill per repository at a time; re-adding while one is queued, delayed (rate limit) or
- * running is a no-op. `-` rather than the spec's `backfill:{id}`, since BullMQ rejects `:` in ids.
+ * Deduplication id for `release-backfill` (`keepLastIfActive: true`); re-adding while queued,
+ * delayed (rate limit), or active never runs parallel backfills for the same repo.
  */
 export function releaseBackfillJobId(repositoryId: string): string {
   return `backfill-${repositoryId}`;
@@ -73,10 +78,9 @@ export const REPO_POLL_PRIORITY = { manual: 1, scheduled: 10 } as const;
 export const REPO_POLL_JOB_OPTIONS = {
   attempts: 3,
   backoff: { type: "exponential", delay: 30_000 },
-  // Finished jobs must disappear: a retained job keeps its jobId taken and would block the
-  // next poll of that repository. Outcomes are logged and stored on the Repository row.
-  removeOnComplete: true,
-  removeOnFail: true,
+  removeOnComplete: { count: 200 },
+  removeOnFail: { age: 7 * 24 * 3600, count: 200 },
+  keepLogs: 50,
 } satisfies JobsOptions;
 
 /** Backfill runs behind polling: user requests ("Load older releases") go before automatic imports. */
@@ -85,9 +89,9 @@ export const RELEASE_BACKFILL_PRIORITY = { requested: 1, automatic: 10 } as cons
 export const RELEASE_BACKFILL_JOB_OPTIONS = {
   attempts: 3,
   backoff: { type: "exponential", delay: 60_000 },
-  // Same reason as repo-poll: a retained job would keep `backfill-{id}` taken.
-  removeOnComplete: true,
-  removeOnFail: true,
+  removeOnComplete: { count: 200 },
+  removeOnFail: { age: 7 * 24 * 3600, count: 200 },
+  keepLogs: 50,
 } satisfies JobsOptions;
 
 /**
@@ -99,5 +103,48 @@ export const NOTIFICATION_JOB_OPTIONS = {
   backoff: { type: "exponential", delay: 5_000 },
   // Retained for a week so the deterministic jobId deduplicates repeat fan-outs.
   removeOnComplete: { age: 7 * 24 * 3600, count: 5000 },
-  removeOnFail: { age: 7 * 24 * 3600 },
+  removeOnFail: { age: 7 * 24 * 3600, count: 5000 },
 } satisfies JobsOptions;
+
+export const SCHEDULER_JOB_OPTIONS = {
+  removeOnComplete: true,
+  removeOnFail: { count: 50 },
+} satisfies JobsOptions;
+
+export function createSchedulerQueue(connection: ConnectionOptions, onError?: (err: Error) => void): SchedulerQueue {
+  return createQueue<SchedulerJobData, typeof JOB_NAMES.scan | typeof SCHEDULER_ID>(QUEUE_NAMES.scheduler, {
+    connection,
+    defaultJobOptions: SCHEDULER_JOB_OPTIONS,
+    ...(onError ? { onError } : {}),
+  });
+}
+
+export function createRepoPollQueue(connection: ConnectionOptions, onError?: (err: Error) => void): RepoPollQueue {
+  return createQueue<RepoPollJobData, typeof JOB_NAMES.poll>(QUEUE_NAMES.repoPoll, {
+    connection,
+    defaultJobOptions: REPO_POLL_JOB_OPTIONS,
+    ...(onError ? { onError } : {}),
+  });
+}
+
+export function createNotificationQueue(
+  connection: ConnectionOptions,
+  onError?: (err: Error) => void,
+): NotificationQueue {
+  return createQueue<NotificationJobData, typeof JOB_NAMES.notify>(QUEUE_NAMES.notification, {
+    connection,
+    defaultJobOptions: NOTIFICATION_JOB_OPTIONS,
+    ...(onError ? { onError } : {}),
+  });
+}
+
+export function createReleaseBackfillQueue(
+  connection: ConnectionOptions,
+  onError?: (err: Error) => void,
+): ReleaseBackfillQueue {
+  return createQueue<ReleaseBackfillJobData, typeof JOB_NAMES.backfill>(QUEUE_NAMES.releaseBackfill, {
+    connection,
+    defaultJobOptions: RELEASE_BACKFILL_JOB_OPTIONS,
+    ...(onError ? { onError } : {}),
+  });
+}

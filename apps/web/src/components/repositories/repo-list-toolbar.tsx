@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LoaderCircleIcon, SearchIcon, XIcon } from "lucide-react";
@@ -17,7 +17,7 @@ import {
   type RepoListStatus,
 } from "@/lib/repo-list-filters";
 import { cn } from "@/lib/utils";
-import { createUrlSearchSyncState, reconcileUrlSearchQuery, recordUrlSearchPush } from "@/lib/url-search";
+import { useUrlSearchSync } from "@/lib/use-url-search-sync";
 import type { TagPill } from "@/server/queries/feed";
 
 const ALL_TAGS = "__all__";
@@ -47,36 +47,27 @@ export function RepoListToolbar({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const urlQuery = filters.q ?? "";
-  const [query, setQuery] = useState(urlQuery);
+  const { value: query, setValue: setQuery, recordPush, schedulePush, cancelPush } = useUrlSearchSync(urlQuery);
   const inputRef = useRef<HTMLInputElement>(null);
-  const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const syncState = useRef(createUrlSearchSyncState(urlQuery));
   const active = hasActiveRepoListFilters(filters);
 
-  const navigate = useCallback((next: Partial<RepoListFilters>) => {
+  function navigate(next: Partial<RepoListFilters>) {
     // Flush the draft search when changing a filter, and cancel its old URL write
     // immediately, even if the new server-rendered filters have not arrived yet.
-    clearTimeout(searchTimer.current);
+    cancelPush();
     const nextQuery = next.q !== undefined ? next.q : query;
-    recordUrlSearchPush(syncState.current, nextQuery);
+    recordPush(nextQuery);
     startTransition(() => router.replace(repoListHref({ ...filters, q: query, ...next }), { scroll: false }));
-  }, [filters, query, router]);
+  }
 
-  // Debounced search → URL. Skipped while the text already matches the URL (e.g. after "Clear filters").
-  useEffect(() => {
-    if (query.trim() === urlQuery) return;
-    const timer = setTimeout(() => navigate({ q: query }), SEARCH_DEBOUNCE_MS);
-    searchTimer.current = timer;
-    return () => clearTimeout(timer);
-  }, [query, urlQuery, navigate]);
-
-  // Follow URL changes made elsewhere (back button, "Clear filters" link) without clobbering typing.
-  useEffect(() => {
-    if (reconcileUrlSearchQuery(syncState.current, urlQuery)) {
-      clearTimeout(searchTimer.current);
-      setQuery(urlQuery);
+  function handleQueryChange(next: string) {
+    setQuery(next);
+    if (next.trim() === urlQuery) {
+      cancelPush();
+      return;
     }
-  }, [urlQuery]);
+    schedulePush(SEARCH_DEBOUNCE_MS, () => navigate({ q: next }));
+  }
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -89,7 +80,9 @@ export function RepoListToolbar({
   }, []);
 
   function toggleStatus(status: RepoListStatus) {
-    const statuses = filters.statuses.includes(status) ? filters.statuses.filter((s) => s !== status) : [...filters.statuses, status];
+    const statuses = filters.statuses.includes(status)
+      ? filters.statuses.filter((s) => s !== status)
+      : [...filters.statuses, status];
     navigate({ statuses });
   }
 
@@ -97,16 +90,19 @@ export function RepoListToolbar({
     <div className="space-y-2.5">
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-48 flex-1">
-          <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+          <SearchIcon
+            className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
           <Input
             ref={inputRef}
             type="search"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => handleQueryChange(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Escape" && query) {
                 event.preventDefault();
-                setQuery("");
+                handleQueryChange("");
               }
             }}
             placeholder="Search repositories, notes, tags or paths"
@@ -121,6 +117,8 @@ export function RepoListToolbar({
                 type="button"
                 onClick={() => {
                   setQuery("");
+                  cancelPush();
+                  if (urlQuery !== "") navigate({ q: "" });
                   inputRef.current?.focus();
                 }}
                 className="rounded p-0.5 text-muted-foreground hover:text-foreground"
@@ -129,7 +127,10 @@ export function RepoListToolbar({
                 <XIcon className="size-3.5" />
               </button>
             ) : (
-              <kbd className="hidden rounded border px-1.5 font-mono text-[10px] text-muted-foreground sm:inline" aria-hidden>
+              <kbd
+                className="hidden rounded border px-1.5 font-mono text-[10px] text-muted-foreground sm:inline"
+                aria-hidden
+              >
                 /
               </kbd>
             )}
@@ -194,7 +195,11 @@ export function RepoListToolbar({
               <span aria-live="polite">
                 {shown} of {total} repositor{total === 1 ? "y" : "ies"}
               </span>
-              <Link href={repoListHref({ sort: filters.sort })} className="font-medium text-foreground hover:underline" scroll={false}>
+              <Link
+                href={repoListHref({ sort: filters.sort })}
+                className="font-medium text-foreground hover:underline"
+                scroll={false}
+              >
                 Clear filters
               </Link>
             </>

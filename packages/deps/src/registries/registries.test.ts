@@ -16,15 +16,18 @@ type Handler = (url: string, init: RequestInit) => Response | Promise<Response>;
 function fakeFetch(handler: Handler) {
   const calls: Array<{ url: string; headers: Record<string, string> }> = [];
   const fn = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-    const url = String(input);
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     calls.push({ url, headers: (init?.headers ?? {}) as Record<string, string> });
     return handler(url, init ?? {});
   });
   return { fetch: fn as unknown as typeof fetch, calls };
 }
 
-const json = (body: unknown, init: ResponseInit = {}): Response =>
-  new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json", ...(init.headers ?? {}) }, ...init });
+const json = (body: unknown, init: ResponseInit = {}): Response => {
+  const headers = new Headers(init.headers);
+  if (!headers.has("content-type")) headers.set("content-type", "application/json");
+  return new Response(JSON.stringify(body), { status: 200, ...init, headers });
+};
 
 const ABBREVIATED = {
   name: "@scope/pkg",
@@ -101,25 +104,38 @@ describe("npm registry", () => {
       (init.headers as Record<string, string>).Accept === "application/json" ? json(FULL) : json(ABBREVIATED),
     );
     await fetchNpmPackage("@scope/pkg", { fetch: first.fetch, cache, ttlMs: 0 });
-    const newer = { ...ABBREVIATED, modified: "2026-11-01T00:00:00.000Z", versions: { ...ABBREVIATED.versions, "1.3.0": {} } };
-    const newerFull = { ...FULL, time: { ...FULL.time, modified: "2026-11-01T00:00:00.000Z", "1.3.0": "2026-11-01T00:00:00.000Z" } };
+    const newer = {
+      ...ABBREVIATED,
+      modified: "2026-11-01T00:00:00.000Z",
+      versions: { ...ABBREVIATED.versions, "1.3.0": {} },
+    };
+    const newerFull = {
+      ...FULL,
+      time: { ...FULL.time, modified: "2026-11-01T00:00:00.000Z", "1.3.0": "2026-11-01T00:00:00.000Z" },
+    };
     const second = fakeFetch((_url, init) =>
       (init.headers as Record<string, string>).Accept === "application/json" ? json(newerFull) : json(newer),
     );
     const result = await fetchNpmPackage("@scope/pkg", { fetch: second.fetch, cache, ttlMs: 0 });
     expect(second.calls).toHaveLength(2);
-    expect(result.found && result.package.versions.find((v) => v.version === "1.3.0")?.publishedAt?.toISOString()).toBe("2026-11-01T00:00:00.000Z");
+    expect(result.found && result.package.versions.find((v) => v.version === "1.3.0")?.publishedAt?.toISOString()).toBe(
+      "2026-11-01T00:00:00.000Z",
+    );
   });
 
   it("maps 404 to not found and 429 / 5xx / network errors to RegistryUnavailableError", async () => {
-    const notFound = await fetchNpmPackage("missing", { fetch: fakeFetch(() => new Response("", { status: 404 })).fetch });
+    const notFound = await fetchNpmPackage("missing", {
+      fetch: fakeFetch(() => new Response("", { status: 404 })).fetch,
+    });
     expect(notFound).toEqual({ found: false, reason: "Not on the public npm registry" });
     await expect(
-      fetchNpmPackage("busy", { fetch: fakeFetch(() => new Response("", { status: 429, headers: { "retry-after": "30" } })).fetch }),
+      fetchNpmPackage("busy", {
+        fetch: fakeFetch(() => new Response("", { status: 429, headers: { "retry-after": "30" } })).fetch,
+      }),
     ).rejects.toMatchObject({ name: "RegistryUnavailableError", status: 429, retryAfterMs: 30_000 });
-    await expect(fetchNpmPackage("down", { fetch: fakeFetch(() => new Response("", { status: 503 })).fetch })).rejects.toBeInstanceOf(
-      RegistryUnavailableError,
-    );
+    await expect(
+      fetchNpmPackage("down", { fetch: fakeFetch(() => new Response("", { status: 503 })).fetch }),
+    ).rejects.toBeInstanceOf(RegistryUnavailableError);
     await expect(
       fetchNpmPackage("net", {
         fetch: fakeFetch(() => {
@@ -127,7 +143,43 @@ describe("npm registry", () => {
         }).fetch,
       }),
     ).rejects.toBeInstanceOf(RegistryUnavailableError);
-    expect(await fetchNpmPackage("../etc/passwd", { fetch: fakeFetch(() => json({})).fetch })).toMatchObject({ found: false });
+    expect(await fetchNpmPackage("../etc/passwd", { fetch: fakeFetch(() => json({})).fetch })).toMatchObject({
+      found: false,
+    });
+  });
+
+  it("treats invalid or NaN modified timestamps as stale so invalid dates never compare as fresh", async () => {
+    const cache = createMemoryRegistryCache();
+    await cache.set(
+      registryCacheKey("npm-time", "pkg"),
+      {
+        body: JSON.stringify({
+          time: { modified: "not-a-date", "1.0.0": "2026-01-01T00:00:00.000Z" },
+          repository: null,
+        }),
+        storedAt: 1_000,
+      },
+      60_000,
+    );
+    await cache.set(
+      registryCacheKey("npm", "pkg"),
+      {
+        body: JSON.stringify({ modified: "2026-10-01T00:00:00.000Z", latest: "1.0.0", versions: { "1.0.0": false } }),
+        storedAt: 1_000,
+      },
+      60_000,
+    );
+
+    const { fetch, calls } = fakeFetch(() =>
+      json({
+        name: "pkg",
+        repository: null,
+        time: { modified: "2026-10-01T00:00:00.000Z", "1.0.0": "2026-05-01T00:00:00.000Z" },
+      }),
+    );
+    const result = await fetchNpmPackage("pkg", { fetch, cache, now: () => 1_000 });
+    expect(calls).toHaveLength(1);
+    expect(result.found && result.package.versions[0]?.publishedAt?.toISOString()).toBe("2026-05-01T00:00:00.000Z");
   });
 });
 
@@ -136,11 +188,41 @@ const SIMPLE = {
   name: "django",
   versions: ["4.2.7", "5.0.0", "5.0.1rc1", "5.1.0"],
   files: [
-    { filename: "Django-4.2.7-py3-none-any.whl", hashes: { sha256: "A".repeat(64) }, "requires-python": ">=3.8", yanked: false, "upload-time": "2023-11-01T10:00:00.000000Z" },
-    { filename: "Django-4.2.7.tar.gz", hashes: { sha256: "b".repeat(64) }, "requires-python": ">=3.8", yanked: false, "upload-time": "2023-11-01T09:00:00.000000Z" },
-    { filename: "Django-5.0.0-py3-none-any.whl", hashes: { sha256: "c".repeat(64) }, "requires-python": ">=3.10", yanked: "broken", "upload-time": "2023-12-04T00:00:00Z" },
-    { filename: "django-5.0.1rc1-py3-none-any.whl", hashes: { sha256: "d".repeat(64) }, "requires-python": ">=3.10", yanked: false, "upload-time": "2024-01-01T00:00:00Z" },
-    { filename: "django-5.1.0-py3-none-any.whl", hashes: { sha256: "e".repeat(64) }, "requires-python": null, yanked: false, "upload-time": "2024-08-07T00:00:00Z" },
+    {
+      filename: "Django-4.2.7-py3-none-any.whl",
+      hashes: { sha256: "A".repeat(64) },
+      "requires-python": ">=3.8",
+      yanked: false,
+      "upload-time": "2023-11-01T10:00:00.000000Z",
+    },
+    {
+      filename: "Django-4.2.7.tar.gz",
+      hashes: { sha256: "b".repeat(64) },
+      "requires-python": ">=3.8",
+      yanked: false,
+      "upload-time": "2023-11-01T09:00:00.000000Z",
+    },
+    {
+      filename: "Django-5.0.0-py3-none-any.whl",
+      hashes: { sha256: "c".repeat(64) },
+      "requires-python": ">=3.10",
+      yanked: "broken",
+      "upload-time": "2023-12-04T00:00:00Z",
+    },
+    {
+      filename: "django-5.0.1rc1-py3-none-any.whl",
+      hashes: { sha256: "d".repeat(64) },
+      "requires-python": ">=3.10",
+      yanked: false,
+      "upload-time": "2024-01-01T00:00:00Z",
+    },
+    {
+      filename: "django-5.1.0-py3-none-any.whl",
+      hashes: { sha256: "e".repeat(64) },
+      "requires-python": null,
+      yanked: false,
+      "upload-time": "2024-08-07T00:00:00Z",
+    },
   ],
 };
 
@@ -183,7 +265,8 @@ describe("PyPI registry", () => {
       ],
     };
     const res = await fetchPypiPackage("pkg", {
-      fetch: fakeFetch((url) => (url.endsWith("/json") ? new Response("", { status: 404 }) : json(partialSimple))).fetch,
+      fetch: fakeFetch((url) => (url.endsWith("/json") ? new Response("", { status: 404 }) : json(partialSimple)))
+        .fetch,
     });
     expect(res.found).toBe(true);
     if (!res.found) return;
@@ -198,7 +281,14 @@ describe("PyPI registry", () => {
   it("reads PEP 691 JSON with PEP 700 times, yanked, requires-python and hashes", async () => {
     const { fetch, calls } = fakeFetch((url) =>
       url.endsWith("/json")
-        ? json({ info: { project_urls: { Documentation: "https://docs.djangoproject.com", Source: "https://github.com/django/django" } } })
+        ? json({
+            info: {
+              project_urls: {
+                Documentation: "https://docs.djangoproject.com",
+                Source: "https://github.com/django/django",
+              },
+            },
+          })
         : json(SIMPLE),
     );
     const result = await fetchPypiPackage("Django", { fetch });
@@ -221,10 +311,12 @@ describe("PyPI registry", () => {
       fetch: fakeFetch((url) => (url.endsWith("/json") ? new Response("", { status: 502 }) : json(SIMPLE))).fetch,
     });
     expect(result.found && result.package.sourceRepoUrl).toBeNull();
-    expect(await fetchPypiPackage("nope", { fetch: fakeFetch(() => new Response("", { status: 404 })).fetch })).toEqual({
-      found: false,
-      reason: "Not on the public PyPI",
-    });
+    expect(await fetchPypiPackage("nope", { fetch: fakeFetch(() => new Response("", { status: 404 })).fetch })).toEqual(
+      {
+        found: false,
+        reason: "Not on the public PyPI",
+      },
+    );
   });
 });
 
@@ -322,5 +414,137 @@ describe("helpers", () => {
     expect(peak).toBe(3);
     expect(results[19]).toBe(38);
     expect(() => createLimiter(0)).toThrow(RangeError);
+  });
+
+  it("enforces timeoutMs, cancels bodies on 304/404/429/5xx, caps response bytes, deduplicates in-flight fetches, and evicts LRU entries", async () => {
+    // 1. Timeout aborts slow fetch and maps to RegistryUnavailableError.
+    const slowFetch = vi.fn(
+      (_input: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(init.signal?.reason ?? new DOMException("Timed out", "TimeoutError")),
+          );
+        }),
+    );
+    await expect(
+      cachedGet({
+        registry: "npm",
+        key: "t1",
+        url: "https://registry.npmjs.org/slow",
+        accept: "application/json",
+        options: { fetch: slowFetch, timeoutMs: 15 },
+      }),
+    ).rejects.toBeInstanceOf(RegistryUnavailableError);
+
+    // 2. Cancels response bodies on 304, 404, 429, 503.
+    const cache = createMemoryRegistryCache(() => 1_000);
+    await cache.set("reval", { body: "old", etag: '"e1"', storedAt: 0 }, 60_000);
+    for (const status of [304, 404, 429, 503]) {
+      const cancel = vi.fn(async () => {});
+      const resp = {
+        status,
+        ok: status >= 200 && status < 300,
+        headers: new Headers(),
+        body: { cancel },
+      } as unknown as Response;
+      const call = cachedGet({
+        registry: "npm",
+        key: status === 304 ? "reval" : `s-${status}`,
+        url: "https://registry.npmjs.org/pkg",
+        accept: "application/json",
+        options: { cache, now: () => 1_000, ttlMs: 100, fetch: vi.fn(async () => resp) },
+      });
+      if (status === 429 || status === 503) {
+        await expect(call).rejects.toBeInstanceOf(RegistryUnavailableError);
+      } else {
+        await expect(call).resolves.toBeDefined();
+      }
+      expect(cancel).toHaveBeenCalledTimes(1);
+    }
+
+    // 3. Enforces maxBytes via content-length and streaming chunks.
+    const declaredBigCancel = vi.fn(async () => {});
+    const declaredBigResp = {
+      status: 200,
+      ok: true,
+      headers: new Headers({ "content-length": "99999" }),
+      body: { cancel: declaredBigCancel },
+    } as unknown as Response;
+    await expect(
+      cachedGet({
+        registry: "npm",
+        key: "big-hdr",
+        url: "https://registry.npmjs.org/big",
+        accept: "application/json",
+        options: { maxBytes: 100, fetch: vi.fn(async () => declaredBigResp) },
+      }),
+    ).rejects.toBeInstanceOf(RegistryUnavailableError);
+    expect(declaredBigCancel).toHaveBeenCalledTimes(1);
+
+    let streamCancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(60));
+      },
+      cancel() {
+        streamCancelled = true;
+      },
+    });
+    await expect(
+      cachedGet({
+        registry: "npm",
+        key: "big-stream",
+        url: "https://registry.npmjs.org/big-stream",
+        accept: "application/json",
+        options: { maxBytes: 100, fetch: vi.fn(async () => new Response(stream, { status: 200 })) },
+      }),
+    ).rejects.toBeInstanceOf(RegistryUnavailableError);
+    expect(streamCancelled).toBe(true);
+
+    // 4. Single-flight deduplication across concurrent calls.
+    let fetchCount = 0;
+    const sharedCache = createMemoryRegistryCache();
+    const sharedFetch = vi.fn(async () => {
+      fetchCount++;
+      await new Promise((r) => setTimeout(r, 10));
+      return json({ ok: true });
+    }) as unknown as typeof fetch;
+    const [r1, r2, r3] = await Promise.all([
+      cachedGet({
+        registry: "npm",
+        key: "sf",
+        url: "https://registry.npmjs.org/sf",
+        accept: "application/json",
+        options: { cache: sharedCache, fetch: sharedFetch },
+      }),
+      cachedGet({
+        registry: "npm",
+        key: "sf",
+        url: "https://registry.npmjs.org/sf",
+        accept: "application/json",
+        options: { cache: sharedCache, fetch: sharedFetch },
+      }),
+      cachedGet({
+        registry: "npm",
+        key: "sf",
+        url: "https://registry.npmjs.org/sf",
+        accept: "application/json",
+        options: { cache: sharedCache, fetch: sharedFetch },
+      }),
+    ]);
+    expect(fetchCount).toBe(1);
+    expect([r1, r2, r3].every((r) => r.found && r.body === '{"ok":true}')).toBe(true);
+
+    // 5. Bounded LRU eviction in createMemoryRegistryCache.
+    const lru = createMemoryRegistryCache(() => 1_000, 2);
+    await lru.set("a", { body: "1", storedAt: 1_000 }, 10_000);
+    await lru.set("b", { body: "2", storedAt: 1_000 }, 10_000);
+    // Touch "a" so "b" becomes least recently used.
+    expect((await lru.get("a"))?.body).toBe("1");
+    await lru.set("c", { body: "3", storedAt: 1_000 }, 10_000);
+    expect(lru.size()).toBe(2);
+    expect(await lru.get("b")).toBeNull();
+    expect((await lru.get("a"))?.body).toBe("1");
+    expect((await lru.get("c"))?.body).toBe("3");
   });
 });

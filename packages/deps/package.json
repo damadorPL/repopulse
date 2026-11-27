@@ -28,19 +28,19 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "eslint . --max-warnings 0"
+    "lint": "oxlint --type-aware --deny-warnings -c ../../.oxlintrc.json ."
   },
   "dependencies": {
-    "semver": "7.8.6",
+    "semver": "catalog:",
     "smol-toml": "1.9.1",
     "yaml": "2.9.1",
-    "zod": "4.6.7"
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@repopulse/tsconfig": "workspace:*",
-    "@types/node": "26.6.11",
-    "@types/semver": "7.8.0",
-    "typescript": "7.0.2",
-    "vitest": "5.1.2"
+    "@types/node": "catalog:",
+    "@types/semver": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

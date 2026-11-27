@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useId, useOptimistic, useState, useTransition, type FormEvent, type ReactNode } from "react";
+import { useId, useOptimistic, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { BellOffIcon } from "lucide-react";
 import { toast } from "sonner";
 import { LocalDateTime } from "@/components/feed/relative-time";
+import { useClientNow } from "@/components/repositories/activity-grid";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,7 +27,17 @@ import { updateSubscriptionSettingsAction } from "@/server/actions/repositories"
 
 type Patch = Omit<SubscriptionSettingsInput, "subscriptionId">;
 
-function Row({ label, htmlFor, hint, children }: { label: string; htmlFor?: string; hint?: string; children: ReactNode }) {
+function Row({
+  label,
+  htmlFor,
+  hint,
+  children,
+}: {
+  label: string;
+  htmlFor?: string;
+  hint?: string;
+  children: ReactNode;
+}) {
   return (
     <div className="grid gap-1.5 sm:grid-cols-[14rem_1fr] sm:items-start sm:gap-4">
       <div>
@@ -85,10 +96,10 @@ export function SubscriptionSettingsForm({
     setVersionDraft(currentVersion ?? "");
   }
 
-  const snoozed = snoozedUntil !== null && new Date(snoozedUntil).getTime() > Date.now();
-  // Today in the viewer's time zone; set after mount so the server render does not guess it.
-  const [minDate, setMinDate] = useState<string | undefined>(undefined);
-  useEffect(() => setMinDate(dateInputValue(new Date())), []);
+  const clientNow = useClientNow();
+  const snoozed = snoozedUntil !== null && clientNow !== null && new Date(snoozedUntil).getTime() > clientNow.getTime();
+  // Today in the viewer's time zone; derived on the client so SSR and hydration match.
+  const minDate = clientNow ? dateInputValue(clientNow) : undefined;
 
   function save(field: string, patch: Patch, success: string, optimistic?: () => void) {
     setError(null);
@@ -121,7 +132,11 @@ export function SubscriptionSettingsForm({
   function submitVersion(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const value = versionDraft.trim();
-    save("version", { currentVersion: value || null }, value ? `Your version of ${fullName} is ${value}` : "Version cleared");
+    save(
+      "version",
+      { currentVersion: value || null },
+      value ? `Your version of ${fullName} is ${value}` : "Version cleared",
+    );
   }
 
   function snoozeUntilDate() {
@@ -129,7 +144,11 @@ export function SubscriptionSettingsForm({
     const [y, m, d] = snoozeDate.split("-").map(Number);
     // Through the end of the chosen day, in the viewer's time zone.
     const until = new Date(y!, m! - 1, d! + 1);
-    save("snooze", { snoozedUntil: until.toISOString() }, `Notifications of ${fullName} snoozed until ${format(until, "PPp")}`);
+    save(
+      "snooze",
+      { snoozedUntil: until.toISOString() },
+      `Notifications of ${fullName} snoozed until ${format(until, "PPp")}`,
+    );
   }
 
   const levelOption = NOTIFICATION_LEVEL_OPTIONS.find((option) => option.value === level);
@@ -138,7 +157,11 @@ export function SubscriptionSettingsForm({
 
   return (
     <div className="grid gap-6">
-      <Row label="Notifications" htmlFor={ids.level} hint="Applied before your notification rules. The feed and unread count always update.">
+      <Row
+        label="Notifications"
+        htmlFor={ids.level}
+        hint="Applied before your notification rules. The feed and unread count always update."
+      >
         <Select
           value={level}
           onValueChange={(value) => {
@@ -168,14 +191,23 @@ export function SubscriptionSettingsForm({
         {errorFor("level")}
       </Row>
 
-      <Row label="Snooze" htmlFor={ids.snooze} hint="Pause external notifications for a while. Nothing is sent for what happened meanwhile.">
-        {snoozed ? (
+      <Row
+        label="Snooze"
+        htmlFor={ids.snooze}
+        hint="Pause external notifications for a while. Nothing is sent for what happened meanwhile."
+      >
+        {snoozed && snoozedUntil ? (
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-500/10 px-2 py-1 text-sm text-amber-800 dark:text-amber-300">
               <BellOffIcon className="size-3.5" aria-hidden />
-              Snoozed until <LocalDateTime date={snoozedUntil!} />
+              Snoozed until <LocalDateTime date={snoozedUntil} />
             </span>
-            <Button variant="outline" size="sm" disabled={pending} onClick={() => save("snooze", { snoozedUntil: null }, "Snooze ended")}>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={pending}
+              onClick={() => save("snooze", { snoozedUntil: null }, "Snooze ended")}
+            >
               End snooze
             </Button>
           </div>
@@ -189,7 +221,11 @@ export function SubscriptionSettingsForm({
                 disabled={pending}
                 onClick={() => {
                   const until = snoozeUntil(preset.days);
-                  save("snooze", { snoozedUntil: until.toISOString() }, `Notifications of ${fullName} snoozed for ${preset.label}`);
+                  save(
+                    "snooze",
+                    { snoozedUntil: until.toISOString() },
+                    `Notifications of ${fullName} snoozed for ${preset.label}`,
+                  );
                 }}
               >
                 {preset.label}
@@ -214,7 +250,11 @@ export function SubscriptionSettingsForm({
         {errorFor("snooze")}
       </Row>
 
-      <Row label="Note" htmlFor={ids.note} hint="Only you see it. Shown on the repository card and included in the list search.">
+      <Row
+        label="Note"
+        htmlFor={ids.note}
+        hint="Only you see it. Shown on the repository card and included in the list search."
+      >
         <form onSubmit={submitNote} className="grid gap-2">
           <textarea
             id={ids.note}
@@ -223,7 +263,7 @@ export function SubscriptionSettingsForm({
             maxLength={NOTE_MAX_LENGTH}
             rows={3}
             placeholder="Why you track it, what blocks an upgrade…"
-            className="min-h-20 w-full rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm"
+            className="min-h-20 w-full rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs outline-hidden placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm"
           />
           <div className="flex items-center gap-2">
             <Button type="submit" size="sm" disabled={pending || !noteDirty}>
@@ -238,7 +278,11 @@ export function SubscriptionSettingsForm({
       </Row>
 
       {tracksReleases ? (
-        <Row label="My version" htmlFor={ids.version} hint="The version you run. Releases newer than it are marked in the feed.">
+        <Row
+          label="My version"
+          htmlFor={ids.version}
+          hint="The version you run. Releases newer than it are marked in the feed."
+        >
           <form onSubmit={submitVersion} className="flex flex-wrap items-center gap-2">
             <Input
               id={ids.version}

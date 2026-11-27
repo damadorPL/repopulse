@@ -10,7 +10,7 @@ import {
   type RealtimeEvent,
   type Redis,
 } from "@repopulse/queue";
-import { createLogger } from "../logger";
+import { createLogger } from "../logger.js";
 
 const log = createLogger("deps-notify");
 
@@ -21,7 +21,10 @@ type SemverLevel = "MAJOR" | "MINOR" | "PATCH" | "PRERELEASE" | "OTHER";
  * update's `level`: `MINOR_AND_UP` skips patch / pre-release / other, `MAJOR_ONLY` keeps majors, `NONE` nothing.
  * Copied rather than imported: the deps module must not depend on the release worker.
  */
-export function passesDependencyNotificationLevel(level: NotificationLevel | undefined, updateLevel: SemverLevel | null): boolean {
+export function passesDependencyNotificationLevel(
+  level: NotificationLevel | undefined,
+  updateLevel: SemverLevel | null,
+): boolean {
   const semverType = updateLevel ?? "OTHER";
   const isPrerelease = semverType === "PRERELEASE";
   switch (level ?? "ALL") {
@@ -63,7 +66,9 @@ export async function rulesFor(
 export async function addNotifyJobs(queue: NotifyQueue, jobs: DepsNotifyJobData[], label: string): Promise<void> {
   if (jobs.length === 0) return;
   try {
-    await queue.addBulk(jobs.map((data) => ({ name: DEPS_JOB_NAMES.notify, data, opts: { jobId: depsNotifyJobId(data) } })));
+    await queue.addBulk(
+      jobs.map((data) => ({ name: DEPS_JOB_NAMES.notify, data, opts: { jobId: depsNotifyJobId(data) } })),
+    );
   } catch (error) {
     // Not rethrown: the state is committed; a retry could not re-plan these jobs.
     log.error(`${label}: could not enqueue ${jobs.length} notification job(s)`, error);
@@ -82,7 +87,14 @@ export async function notifyPullRequestEvent(
   const rules = await rulesFor(deps.prisma, project.userId, "DEPENDENCY_PULL_REQUESTS");
   await addNotifyJobs(
     deps.notifyQueue,
-    rules.map((rule) => ({ ruleId: rule.id, projectId: project.id, kind: "pull_request" as const, prId, event, dedupKey })),
+    rules.map((rule) => ({
+      ruleId: rule.id,
+      projectId: project.id,
+      kind: "pull_request" as const,
+      prId,
+      event,
+      dedupKey,
+    })),
     `${project.fullName} ${event}`,
   );
   return rules.length;
@@ -93,7 +105,10 @@ export async function notifyPullRequestEvent(
  * cannot double-send. The target is part of the key because a row keeps its id when a newer target appears: keyed
  * by ids alone, the digest of the new target would collide with the old one (kept 7 days for dedup) and be dropped.
  */
-export function digestScanId(projectId: string, updates: ReadonlyArray<{ id: string; targetVersion: string | null }>): string {
+export function digestScanId(
+  projectId: string,
+  updates: ReadonlyArray<{ id: string; targetVersion: string | null }>,
+): string {
   const keys = updates.map((update) => `${update.id}@${update.targetVersion ?? ""}`).sort();
   return createHash("sha1").update(projectId).update("\0").update(keys.join(",")).digest("hex").slice(0, 20);
 }

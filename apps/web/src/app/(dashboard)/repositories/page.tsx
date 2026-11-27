@@ -10,7 +10,7 @@ import {
   Settings2Icon,
   StarIcon,
   StickyNoteIcon,
-  TriangleAlertIcon,
+  TriangleExclamationPointIcon,
 } from "lucide-react";
 import { LocalDateTime, RelativeTime } from "@/components/feed/relative-time";
 import { RepoAvatar } from "@/components/feed/repo-avatar";
@@ -25,7 +25,12 @@ import { RepoListToolbar } from "@/components/repositories/repo-list-toolbar";
 import { SyncRepoButton } from "@/components/repositories/sync-repo-button";
 import { Button } from "@/components/ui/button";
 import { feedHref } from "@/lib/feed-filters";
-import { applyRepoListFilters, parseRepoListFilters, repoListHref, repositorySettingsHref } from "@/lib/repo-list-filters";
+import {
+  applyRepoListFilters,
+  parseRepoListFilters,
+  repoListHref,
+  repositorySettingsHref,
+} from "@/lib/repo-list-filters";
 import { trackingSummary } from "@/lib/track-modes";
 import { formatVersionStatus } from "@/lib/version-compare";
 import { getBackfillConfig } from "@/server/backfill-settings";
@@ -36,9 +41,7 @@ export const metadata: Metadata = { title: "Tracked repositories · RepoPulse" }
 
 const compactNumber = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 
-type SearchParams = Promise<Record<string, string | string[] | undefined>>;
-
-export default async function RepositoriesPage({ searchParams }: { searchParams: SearchParams }) {
+export default async function RepositoriesPage({ searchParams }: PageProps<"/repositories">) {
   const filters = parseRepoListFilters(await searchParams);
   const user = await requireUser();
   const [repositories, dashboard, { hardCap }] = await Promise.all([
@@ -68,12 +71,16 @@ export default async function RepositoriesPage({ searchParams }: { searchParams:
         </AddRepoModal>
       </div>
 
-      {repositories.length > 0 ? <RepoListToolbar filters={filters} tags={allTags} shown={shown.length} total={repositories.length} /> : null}
+      {repositories.length > 0 ? (
+        <RepoListToolbar filters={filters} tags={allTags} shown={shown.length} total={repositories.length} />
+      ) : null}
 
       {repositories.length === 0 ? (
         <div className="rounded-lg border border-dashed px-6 py-14 text-center">
           <h2 className="font-medium">No repositories yet</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Add one with the button above to start building your release feed.</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Add one with the button above to start building your release feed.
+          </p>
         </div>
       ) : shown.length === 0 ? (
         <div className="flex flex-col items-center rounded-lg border border-dashed px-6 py-14 text-center">
@@ -83,7 +90,8 @@ export default async function RepositoriesPage({ searchParams }: { searchParams:
           <h2 className="mt-4 font-medium">
             {filters.q ? (
               <>
-                No repositories match <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm">{filters.q}</code>
+                No repositories match{" "}
+                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm">{filters.q}</code>
               </>
             ) : (
               "No repositories match these filters"
@@ -139,7 +147,11 @@ export default async function RepositoriesPage({ searchParams }: { searchParams:
                     </p>
                   </div>
                   <div className="flex items-center gap-1">
-                    <PinButton subscriptionId={entry.subscriptionId} fullName={repo.fullName} isPinned={entry.isPinned} />
+                    <PinButton
+                      subscriptionId={entry.subscriptionId}
+                      fullName={repo.fullName}
+                      isPinned={entry.isPinned}
+                    />
                     <SyncRepoButton repositoryId={repo.id} iconOnly label={`Sync ${repo.fullName} now`} />
                     <RemoveSubscriptionButton subscriptionId={entry.subscriptionId} fullName={repo.fullName} />
                   </div>
@@ -179,7 +191,11 @@ export default async function RepositoriesPage({ searchParams }: { searchParams:
                     <div className="flex shrink-0 items-center gap-1">
                       <dt>Unread</dt>
                       <dd className={unread > 0 ? "font-medium text-unread tabular-nums" : "tabular-nums"}>
-                        {unread > 0 ? <Link href={feedHref({ repositoryId: repo.id, onlyUnread: true })}>{unread}</Link> : 0}
+                        {unread > 0 ? (
+                          <Link href={feedHref({ repositoryId: repo.id, onlyUnread: true })}>{unread}</Link>
+                        ) : (
+                          0
+                        )}
                       </dd>
                     </div>
                   </dl>
@@ -190,7 +206,7 @@ export default async function RepositoriesPage({ searchParams }: { searchParams:
                     </div>
                     {repo.pollStatus === "ERROR" ? (
                       <div className="flex items-center gap-1 text-amber-700 dark:text-amber-400">
-                        <TriangleAlertIcon className="size-3.5" aria-hidden />
+                        <TriangleExclamationPointIcon className="size-3.5" aria-hidden />
                         <dt className="sr-only">Status</dt>
                         <dd>Last sync failed</dd>
                       </div>
@@ -221,7 +237,9 @@ export default async function RepositoriesPage({ searchParams }: { searchParams:
                         repositoryId={repo.id}
                         history={repo.history}
                         releaseCount={repo.releaseCount}
-                        canLoadOlder={repo.history.status === "DONE" && repo.history.hasMore && repo.history.target < hardCap}
+                        canLoadOlder={
+                          repo.history.status === "DONE" && repo.history.hasMore && repo.history.target < hardCap
+                        }
                       />
                     </dl>
                   )}
@@ -234,7 +252,9 @@ export default async function RepositoriesPage({ searchParams }: { searchParams:
                         title={`Change what is tracked for ${repo.fullName}`}
                       >
                         <Settings2Icon className="size-3.5 shrink-0" aria-hidden />
-                        <span className="truncate">{trackingSummary(entry.trackMode, entry.trackPaths, entry.includePrereleases)}</span>
+                        <span className="truncate">
+                          {trackingSummary(entry.trackMode, entry.trackPaths, entry.includePrereleases)}
+                        </span>
                       </Link>
                     </dd>
                   </dl>

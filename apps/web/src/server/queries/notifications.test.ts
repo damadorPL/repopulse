@@ -29,9 +29,7 @@ describe("getNotificationRules", () => {
     ]);
 
     const rules = await getNotificationRules("u1");
-    expect(prisma.notificationRule.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { userId: "u1" } }),
-    );
+    expect(prisma.notificationRule.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: "u1" } }));
     expect(rules).toHaveLength(1);
     expect(rules[0]!.events).toEqual(["RELEASES", "DEPENDENCY_PULL_REQUESTS"]);
     expect(rules[0]!.destination).not.toContain("super-secret-token");

@@ -13,14 +13,10 @@ export function createRedisConnection(options: RedisOptions & { url?: string } =
   if (!url) {
     throw new Error("REDIS_URL is not set");
   }
-  return new Redis(url, { maxRetriesPerRequest: null, ...rest });
+  return new Redis(url, { maxRetriesPerRequest: null, enableReadyCheck: false, ...rest });
 }
 
 /** Publishes an event to `user:{userId}:events`. Resolves to the number of live subscribers. */
-export function publishUserEvent(
-  redis: Pick<Redis, "publish">,
-  userId: string,
-  event: RealtimeEvent,
-): Promise<number> {
+export function publishUserEvent(redis: Pick<Redis, "publish">, userId: string, event: RealtimeEvent): Promise<number> {
   return redis.publish(userEventsChannel(userId), serializeRealtimeEvent(event));
 }

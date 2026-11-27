@@ -1,4 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import type { Route } from "next";
 import { encryptToken, INSTANCE_SETTINGS_ID, prisma } from "@repopulse/db";
 import { GitHubRateLimitError, type ConvertedAppManifest } from "@repopulse/github";
 import type { GitHubAppCallbackError } from "@/lib/github-app";
@@ -43,7 +44,9 @@ export function statesMatch(expected: string | undefined | null, received: strin
 }
 
 /** Stores a freshly created App: id, slug, client id, owner, and the encrypted key and webhook secret. */
-export async function saveConvertedApp(app: Pick<ConvertedAppManifest, "id" | "slug" | "clientId" | "owner" | "pem" | "webhookSecret">): Promise<void> {
+export async function saveConvertedApp(
+  app: Pick<ConvertedAppManifest, "id" | "slug" | "clientId" | "owner" | "pem" | "webhookSecret">,
+): Promise<void> {
   const data = {
     githubAppId: app.id,
     githubAppSlug: app.slug,
@@ -52,7 +55,11 @@ export async function saveConvertedApp(app: Pick<ConvertedAppManifest, "id" | "s
     githubAppPrivateKeyEncrypted: encryptToken(app.pem),
     githubAppWebhookSecretEncrypted: app.webhookSecret ? encryptToken(app.webhookSecret) : null,
   };
-  await prisma.instanceSettings.upsert({ where: { id: INSTANCE_SETTINGS_ID }, create: { id: INSTANCE_SETTINGS_ID, ...data }, update: data });
+  await prisma.instanceSettings.upsert({
+    where: { id: INSTANCE_SETTINGS_ID },
+    create: { id: INSTANCE_SETTINGS_ID, ...data },
+    update: data,
+  });
 }
 
 export interface ManifestCallbackInput {
@@ -66,8 +73,8 @@ export interface ManifestCallbackDeps {
   save: (app: ConvertedAppManifest) => Promise<void>;
 }
 
-function errorPath(code: GitHubAppCallbackError): string {
-  return `${GITHUB_APP_ADMIN_PATH}?error=${code}`;
+function errorPath(code: GitHubAppCallbackError): Route {
+  return `${GITHUB_APP_ADMIN_PATH}?error=${code}` as Route;
 }
 
 /**
@@ -75,7 +82,10 @@ function errorPath(code: GitHubAppCallbackError): string {
  * the App. Returns where to redirect. Never throws, and never puts anything from GitHub's answer
  * (or the error) in the URL: only a fixed error code.
  */
-export async function completeManifestCallback(input: ManifestCallbackInput, deps: ManifestCallbackDeps): Promise<string> {
+export async function completeManifestCallback(
+  input: ManifestCallbackInput,
+  deps: ManifestCallbackDeps,
+): Promise<Route> {
   if (!statesMatch(input.cookieState, input.state)) return errorPath("state");
   const code = input.code?.trim();
   if (!code) return errorPath("code");
@@ -93,5 +103,5 @@ export async function completeManifestCallback(input: ManifestCallbackInput, dep
     console.error("[github-app] could not store the GitHub App", error instanceof Error ? error.message : error);
     return errorPath("unknown");
   }
-  return `${GITHUB_APP_ADMIN_PATH}?created=1`;
+  return `${GITHUB_APP_ADMIN_PATH}?created=1` as Route;
 }

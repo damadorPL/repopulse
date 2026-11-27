@@ -1,32 +1,36 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getSuperAdminOrThrow, requireSuperAdmin, requireUser } from "./session";
 
-class UnauthorizedError extends Error {}
-class ForbiddenError extends Error {
-  constructor() {
-    super("Administrator access is required.");
+const { ForbiddenError, UnauthorizedError, getCurrentUserOrThrow, notFound, redirect } = vi.hoisted(() => {
+  class UnauthorizedError extends Error {}
+  class ForbiddenError extends Error {
+    constructor() {
+      super("Administrator access is required.");
+    }
   }
-}
-
-class RedirectError extends Error {
-  url: string;
-  constructor(url: string) {
-    super(`NEXT_REDIRECT:${url}`);
-    this.url = url;
+  class RedirectError extends Error {
+    url: string;
+    constructor(url: string) {
+      super(`NEXT_REDIRECT:${url}`);
+      this.url = url;
+    }
   }
-}
-
-class NotFoundError extends Error {
-  constructor() {
-    super("NEXT_NOT_FOUND");
+  class NotFoundError extends Error {
+    constructor() {
+      super("NEXT_NOT_FOUND");
+    }
   }
-}
-
-const getCurrentUserOrThrow = vi.fn();
-const redirect = vi.fn((url: string) => {
-  throw new RedirectError(url);
-});
-const notFound = vi.fn(() => {
-  throw new NotFoundError();
+  return {
+    UnauthorizedError,
+    ForbiddenError,
+    getCurrentUserOrThrow: vi.fn(),
+    redirect: vi.fn((url: string) => {
+      throw new RedirectError(url);
+    }),
+    notFound: vi.fn(() => {
+      throw new NotFoundError();
+    }),
+  };
 });
 
 vi.mock("@/lib/auth", () => ({
@@ -35,8 +39,6 @@ vi.mock("@/lib/auth", () => ({
   getCurrentUserOrThrow,
 }));
 vi.mock("next/navigation", () => ({ redirect, notFound }));
-
-const { getSuperAdminOrThrow, requireSuperAdmin, requireUser } = await import("./session");
 
 beforeEach(() => {
   vi.clearAllMocks();

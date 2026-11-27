@@ -1,7 +1,7 @@
 import { loadDepsEnabled, type PrismaClient } from "@repopulse/db";
 import { DEPS_JOB_NAMES, depsNotifyJobId, type DepsNotifyJobData } from "@repopulse/queue";
-import { createLogger } from "./logger";
-import type { NotifyQueue } from "./processors/notify-jobs";
+import { createLogger } from "./logger.js";
+import type { NotifyQueue } from "./processors/notify-jobs.js";
 
 const log = createLogger("deps-notification-outbox");
 type OutboxClient = Pick<PrismaClient, "dependencyNotificationOutbox">;
@@ -20,9 +20,18 @@ export async function storeNotificationIntents(prisma: OutboxClient, jobs: DepsN
 
 /** A crash after enqueue is safe: retries use the same retained BullMQ job id. */
 export async function flushNotificationOutbox(prisma: OutboxClient, queue: NotifyQueue): Promise<number> {
-  const rows = await prisma.dependencyNotificationOutbox.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 100 });
+  const rows = await prisma.dependencyNotificationOutbox.findMany({
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    take: 100,
+  });
   if (rows.length === 0) return 0;
-  await queue.addBulk(rows.map((row) => ({ name: DEPS_JOB_NAMES.notify, data: row.payload as unknown as DepsNotifyJobData, opts: { jobId: row.id } })));
+  await queue.addBulk(
+    rows.map((row) => ({
+      name: DEPS_JOB_NAMES.notify,
+      data: row.payload as unknown as DepsNotifyJobData,
+      opts: { jobId: row.id },
+    })),
+  );
   await prisma.dependencyNotificationOutbox.deleteMany({ where: { id: { in: rows.map((row) => row.id) } } });
   return rows.length;
 }
@@ -35,9 +44,13 @@ export function startNotificationOutbox(prisma: PrismaClient, queue: NotifyQueue
     if (stopped || running) return;
     running = (async () => {
       if (await loadDepsEnabled(prisma)) await flushNotificationOutbox(prisma, queue);
-    })().catch((error: unknown) => {
-      log.error("could not flush notification intents; retrying on the next tick", error);
-    }).finally(() => { running = undefined; });
+    })()
+      .catch((error: unknown) => {
+        log.error("could not flush notification intents; retrying on the next tick", error);
+      })
+      .finally(() => {
+        running = undefined;
+      });
   };
   const timer = setInterval(tick, 5_000);
   timer.unref();

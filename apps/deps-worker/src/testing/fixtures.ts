@@ -1,14 +1,22 @@
 import { vi } from "vitest";
 import type { Job } from "bullmq";
 import type { DependencyEcosystem, RegistryLookup, RegistryVersion } from "@repopulse/deps";
-import { GitHubAccess } from "../github-access";
-import type { FakeGitHub } from "./fake-github";
+import { GitHubAccess } from "../github-access.js";
+import type { FakeGitHub } from "./fake-github.js";
 
 export const NOW = new Date("2026-11-03T12:00:00Z");
 const DAY = 24 * 3600_000;
 
 export function version(v: string, ageDays = 30, extra: Partial<RegistryVersion> = {}): RegistryVersion {
-  return { version: v, publishedAt: new Date(NOW.getTime() - ageDays * DAY), deprecated: false, yanked: false, requiresPython: null, sha256: [], ...extra };
+  return {
+    version: v,
+    publishedAt: new Date(NOW.getTime() - ageDays * DAY),
+    deprecated: false,
+    yanked: false,
+    requiresPython: null,
+    sha256: [],
+    ...extra,
+  };
 }
 
 /** `{ "NPM:react": [versions] }` → a registry lookup function; unknown names are "not found". */
@@ -17,7 +25,10 @@ export function fakeRegistry(packages: Record<string, RegistryVersion[] | Error>
     const entry = packages[`${ecosystem}:${name}`];
     if (entry instanceof Error) throw entry;
     if (!entry) return { found: false, reason: "Not on the public registry" };
-    return { found: true, package: { ecosystem, name, versions: entry, latestTag: null, sourceRepoUrl: "https://github.com/psf/requests" } };
+    return {
+      found: true,
+      package: { ecosystem, name, versions: entry, latestTag: null, sourceRepoUrl: "https://github.com/psf/requests" },
+    };
   });
 }
 
@@ -33,11 +44,16 @@ export function pypiRegistry() {
 }
 
 /** A `GitHubAccess` wired to the fake repository: `installed` = the App is installed on it. */
-export function fakeAccess(github: FakeGitHub, options: { app?: boolean; installed?: boolean; installationError?: Error } = {}) {
+export function fakeAccess(
+  github: FakeGitHub,
+  options: { app?: boolean; installed?: boolean; installationError?: Error } = {},
+) {
   const app = options.app ?? true;
   return new GitHubAccess({
     loadApp: async () =>
-      app ? { appId: 1, slug: "repopulse-test", clientId: null, owner: null, privateKey: "PEM", webhookSecret: null } : null,
+      app
+        ? { appId: 1, slug: "repopulse-test", clientId: null, owner: null, privateKey: "PEM", webhookSecret: null }
+        : null,
     github: {
       createAppOctokit: () => ({}) as never,
       getRepoInstallation: async () => {
@@ -53,8 +69,12 @@ export function fakeAccess(github: FakeGitHub, options: { app?: boolean; install
 export function fakeQueues() {
   return {
     scanQueue: { rateLimit: vi.fn(async () => undefined), addBulk: vi.fn(async () => []) },
-    updateQueue: { rateLimit: vi.fn(async () => undefined), addBulk: vi.fn(async () => []), getJob: vi.fn(async () => undefined) },
-    notifyQueue: { addBulk: vi.fn(async (_jobs: Array<{ data: unknown; opts: { jobId: string } }>) => []) },
+    updateQueue: {
+      rateLimit: vi.fn(async () => undefined),
+      addBulk: vi.fn(async () => []),
+      getDeduplicationJobId: vi.fn(async () => null),
+    },
+    notifyQueue: { addBulk: vi.fn(async (_jobs: Array<{ data: unknown; opts?: { jobId?: string } }>) => []) },
     redis: { publish: vi.fn(async () => 1) },
   };
 }

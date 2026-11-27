@@ -1,15 +1,16 @@
-import type { Queue } from "bullmq";
 import type { Prisma, PrismaClient } from "@repopulse/db";
 import {
+  deduplicatedJobOptions,
   JOB_NAMES,
+  QUEUE_NAMES,
   RELEASE_BACKFILL_PRIORITY,
   REPO_POLL_PRIORITY,
   releaseBackfillJobId,
   repoPollJobId,
-  type ReleaseBackfillJobData,
-  type RepoPollJobData,
+  type ReleaseBackfillQueue,
+  type RepoPollQueue,
 } from "@repopulse/queue";
-import { createLogger } from "../logger";
+import { createLogger } from "../logger.js";
 
 const log = createLogger("repo-scheduler");
 
@@ -56,8 +57,8 @@ export function backfillSweepWhere(): Prisma.RepositoryWhereInput {
 
 export interface SchedulerDeps {
   prisma: PrismaClient;
-  repoPollQueue: Pick<Queue<RepoPollJobData>, "addBulk">;
-  releaseBackfillQueue: Pick<Queue<ReleaseBackfillJobData>, "addBulk">;
+  repoPollQueue: Pick<RepoPollQueue, "addBulk">;
+  releaseBackfillQueue: Pick<ReleaseBackfillQueue, "addBulk">;
   now?: () => Date;
 }
 
@@ -76,7 +77,7 @@ async function sweepBackfills(deps: SchedulerDeps): Promise<number> {
     pending.map((repo) => ({
       name: JOB_NAMES.backfill,
       data: { repositoryId: repo.id, trigger: "sweep" as const },
-      opts: { jobId: releaseBackfillJobId(repo.id), priority: RELEASE_BACKFILL_PRIORITY.automatic },
+      opts: deduplicatedJobOptions(releaseBackfillJobId(repo.id), RELEASE_BACKFILL_PRIORITY.automatic),
     })),
   );
   const fresh = pending.filter((repo) => repo.backfillStatus === "NONE").map((repo) => repo.id);
@@ -91,9 +92,9 @@ async function sweepBackfills(deps: SchedulerDeps): Promise<number> {
 }
 
 /**
- * `repo-scheduler` tick: enqueue one `repo-poll` job per due repository. The jobId
- * `poll-{repositoryId}` makes BullMQ ignore repositories that already have a waiting, delayed or
- * active job (e.g. a manual sync), so overlapping ticks never stack polls.
+ * `repo-scheduler` tick: enqueue one `repo-poll` job per due repository. BullMQ's deduplication
+ * (`poll-{repositoryId}`, `keepLastIfActive: true`) avoids stacking polls when a tick overlaps
+ * with an existing or active job (e.g. a manual sync).
  */
 export async function processSchedulerTick(deps: SchedulerDeps): Promise<{ due: number; backfills: number }> {
   const now = deps.now?.() ?? new Date();
@@ -108,20 +109,28 @@ export async function processSchedulerTick(deps: SchedulerDeps): Promise<{ due: 
       due.slice(i, i + ENQUEUE_BATCH_SIZE).map((repo) => ({
         name: JOB_NAMES.poll,
         data: { repositoryId: repo.id, trigger: "schedule" as const },
-        opts: { jobId: repoPollJobId(repo.id), priority: REPO_POLL_PRIORITY.scheduled },
+        opts: deduplicatedJobOptions(repoPollJobId(repo.id), REPO_POLL_PRIORITY.scheduled),
       })),
     );
   }
 
-  log.info(`${due.length} due ${due.length === 1 ? "repository" : "repositories"} enqueued`);
+  log.info(
+    { queue: QUEUE_NAMES.scheduler, due: due.length },
+    `${due.length} due ${due.length === 1 ? "repository" : "repositories"} enqueued`,
+  );
 
   // History is secondary: a failure here must not fail the poll tick.
   let backfills = 0;
   try {
     backfills = await sweepBackfills(deps);
-    if (backfills > 0) log.info(`${backfills} ${backfills === 1 ? "repository" : "repositories"} queued for history backfill`);
+    if (backfills > 0) {
+      log.info(
+        { queue: QUEUE_NAMES.scheduler, backfills },
+        `${backfills} ${backfills === 1 ? "repository" : "repositories"} queued for history backfill`,
+      );
+    }
   } catch (error) {
-    log.error("could not queue history backfills", error);
+    log.error({ queue: QUEUE_NAMES.scheduler, err: error }, "could not queue history backfills");
   }
   return { due: due.length, backfills };
 }

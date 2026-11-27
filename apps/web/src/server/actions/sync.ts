@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { prisma } from "@repopulse/db";
-import { JOB_NAMES, REPO_POLL_PRIORITY, repoPollJobId } from "@repopulse/queue";
+import { enqueueDeduplicated, JOB_NAMES, REPO_POLL_PRIORITY, repoPollJobId } from "@repopulse/queue";
 import { getCurrentUserOrThrow } from "@/lib/auth";
 import { fail, invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
 import { getRepoPollQueue, publishToUser, RealtimeUnavailableError, withRedisTimeout } from "@/server/realtime";
@@ -51,26 +51,17 @@ export async function triggerManualRepoSyncAction(input: {
     }
 
     const queue = getRepoPollQueue();
-    const jobId = repoPollJobId(repositoryId);
     const data = { repositoryId, trigger: "manual" as const, requestedByUserId: user.id };
 
     await withRedisTimeout(
-      (async () => {
-        // The jobId deduplicates against a poll that is already queued (e.g. by the scheduler).
-        // BullMQ would silently drop our add, so take that job over instead: bump its priority and
-        // address its SYNC_* events to this user. An active job is left alone; its new releases
-        // still arrive as NEW_RELEASE events.
-        const existing = await queue.getJob(jobId);
-        if (!existing) {
-          await queue.add(JOB_NAMES.poll, data, { jobId, priority: REPO_POLL_PRIORITY.manual });
-          return;
-        }
-        const state = await existing.getState();
-        if (state === "waiting" || state === "prioritized" || state === "delayed") {
-          await existing.updateData(data);
-          if (state !== "delayed") await existing.changePriority({ priority: REPO_POLL_PRIORITY.manual });
-        }
-      })(),
+      enqueueDeduplicated({
+        queue,
+        name: JOB_NAMES.poll,
+        data,
+        deduplicationId: repoPollJobId(repositoryId),
+        priority: REPO_POLL_PRIORITY.manual,
+        updateExistingData: true,
+      }),
     );
 
     await publishToUser(user.id, { type: "SYNC_STARTED", repositoryId, repositoryName: fullName });

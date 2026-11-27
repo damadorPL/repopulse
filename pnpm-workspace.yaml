@@ -1,71 +1,77 @@
 packages:
   - "apps/*"
   - "packages/*"
+catalog:
+  "@types/node": 26.6.11
+  "@types/semver": 7.8.0
+  bullmq: 6.7.10
+  ioredis: 6.1.0
+  pino: 10.4.0
+  pino-pretty: 13.2.0
+  semver: 7.8.6
+  tsx: 4.23.15
+  typescript: 7.0.2
+  vitest: 5.1.2
+  zod: 4.6.7
+trustPolicy: no-downgrade
+trustPolicyExclude:
+  # Published without provenance compared to earlier releases.
+  - "prisma@7.10.1"
+# `minimumReleaseAge` stays off until Phase 3C/4 installs finish.
 allowBuilds:
-  '@prisma/client': true
-  '@prisma/engines': true
+  "@prisma/client": true
+  "@prisma/engines": true
   esbuild: true
   # Optional native msgpack accelerator pulled in by bullmq; its pure-JS fallback is used.
   msgpackr-extract: false
   prisma: true
 minimumReleaseAgeExclude:
-  - '@next/env@16.4.6'
-  - '@next/swc-darwin-arm64@16.4.6'
-  - '@next/swc-darwin-x64@16.4.6'
-  - '@next/swc-linux-arm64-gnu@16.4.6'
-  - '@next/swc-linux-arm64-musl@16.4.6'
-  - '@next/swc-linux-x64-gnu@16.4.6'
-  - '@next/swc-linux-x64-musl@16.4.6'
-  - '@next/swc-win32-arm64-msvc@16.4.6'
-  - '@next/swc-win32-x64-msvc@16.4.6'
-  - '@vitest/mocker@5.1.1'
-  - '@vitest/spy@5.1.1'
+  - "@next/env@16.4.6"
+  - "@next/swc-darwin-arm64@16.4.6"
+  - "@next/swc-darwin-x64@16.4.6"
+  - "@next/swc-linux-arm64-gnu@16.4.6"
+  - "@next/swc-linux-arm64-musl@16.4.6"
+  - "@next/swc-linux-x64-gnu@16.4.6"
+  - "@next/swc-linux-x64-musl@16.4.6"
+  - "@next/swc-win32-arm64-msvc@16.4.6"
+  - "@next/swc-win32-x64-msvc@16.4.6"
   - next@16.4.6
   - semver@7.8.6
-  - vitest@5.1.1
-  - '@tailwindcss/node@4.3.5'
-  - '@tailwindcss/oxide-android-arm64@4.3.5'
-  - '@tailwindcss/oxide-darwin-arm64@4.3.5'
-  - '@tailwindcss/oxide-darwin-x64@4.3.5'
-  - '@tailwindcss/oxide-freebsd-x64@4.3.5'
-  - '@tailwindcss/oxide-linux-arm-gnueabihf@4.3.5'
-  - '@tailwindcss/oxide-linux-arm64-gnu@4.3.5'
-  - '@tailwindcss/oxide-linux-arm64-musl@4.3.5'
-  - '@tailwindcss/oxide-linux-x64-gnu@4.3.5'
-  - '@tailwindcss/oxide-linux-x64-musl@4.3.5'
-  - '@tailwindcss/oxide-wasm32-wasi@4.3.5'
-  - '@tailwindcss/oxide-win32-arm64-msvc@4.3.5'
-  - '@tailwindcss/oxide-win32-x64-msvc@4.3.5'
-  - '@tailwindcss/oxide@4.3.5'
-  - '@tailwindcss/postcss@4.3.5'
-  - lucide-react@1.75.0 || 1.76.0 || 1.77.0 || 1.79.0 || 1.80.0 || 1.81.0
+  - "@tailwindcss/node@4.3.5"
+  - "@tailwindcss/oxide-android-arm64@4.3.5"
+  - "@tailwindcss/oxide-darwin-arm64@4.3.5"
+  - "@tailwindcss/oxide-darwin-x64@4.3.5"
+  - "@tailwindcss/oxide-freebsd-x64@4.3.5"
+  - "@tailwindcss/oxide-linux-arm-gnueabihf@4.3.5"
+  - "@tailwindcss/oxide-linux-arm64-gnu@4.3.5"
+  - "@tailwindcss/oxide-linux-arm64-musl@4.3.5"
+  - "@tailwindcss/oxide-linux-x64-gnu@4.3.5"
+  - "@tailwindcss/oxide-linux-x64-musl@4.3.5"
+  - "@tailwindcss/oxide-wasm32-wasi@4.3.5"
+  - "@tailwindcss/oxide-win32-arm64-msvc@4.3.5"
+  - "@tailwindcss/oxide-win32-x64-msvc@4.3.5"
+  - "@tailwindcss/oxide@4.3.5"
+  - "@tailwindcss/postcss@4.3.5"
+  - lucide-react@1.81.0
   - postcss@8.5.33
-  - eslint@10.15.0
   - tailwindcss@4.3.5
-  - bullmq@6.7.7 || 6.7.8 || 6.7.10
-  - '@typescript-eslint/eslint-plugin@8.72.2 || 8.73.0'
-  - '@typescript-eslint/parser@8.72.2 || 8.73.0'
-  - '@typescript-eslint/project-service@8.72.2 || 8.73.0'
-  - '@typescript-eslint/scope-manager@8.72.2 || 8.73.0'
-  - '@typescript-eslint/tsconfig-utils@8.72.2 || 8.73.0'
-  - '@typescript-eslint/type-utils@8.72.2 || 8.73.0'
-  - '@typescript-eslint/types@8.72.2 || 8.73.0'
-  - '@typescript-eslint/typescript-estree@8.72.2 || 8.73.0'
-  - '@typescript-eslint/utils@8.72.2 || 8.73.0'
-  - '@typescript-eslint/visitor-keys@8.72.2 || 8.73.0'
-  - typescript-eslint@8.72.2 || 8.73.0
-  - nodemailer@10.6.0
-  - '@turbo/darwin-64@2.11.12 || 2.11.13'
-  - '@turbo/darwin-arm64@2.11.12 || 2.11.13'
-  - '@turbo/linux-64@2.11.12 || 2.11.13'
-  - '@turbo/linux-arm64@2.11.12 || 2.11.13'
-  - '@turbo/windows-64@2.11.12 || 2.11.13'
-  - '@turbo/windows-arm64@2.11.12 || 2.11.13'
-  - turbo@2.11.12 || 2.11.13
-  - '@eslint/config-array@0.23.6'
+  - bullmq@6.7.10
+  - "@turbo/darwin-64@2.11.13"
+  - "@turbo/darwin-arm64@2.11.13"
+  - "@turbo/linux-64@2.11.13"
+  - "@turbo/linux-arm64@2.11.13"
+  - "@turbo/windows-64@2.11.13"
+  - "@turbo/windows-arm64@2.11.13"
+  - turbo@2.11.13
   - tailwind-merge@3.7.1
-  - '@types/node@26.6.10 || 26.6.11'
-  - '@types/react@19.3.1'
+  - "@types/node@26.6.10 || 26.6.11"
+  - "@oxlint-tsgolint/darwin-arm64@7.0.2009"
+  - "@oxlint-tsgolint/darwin-x64@7.0.2009"
+  - "@oxlint-tsgolint/linux-arm64@7.0.2009"
+  - "@oxlint-tsgolint/linux-x64@7.0.2009"
+  - "@oxlint-tsgolint/win32-arm64@7.0.2009"
+  - "@oxlint-tsgolint/win32-x64@7.0.2009"
+  - oxlint-tsgolint@7.0.2009
 overrides:
   # @tailwindcss/typography 0.5.20 pins 6.0.10, which is affected by GHSA-rj75-hqrm-r3gf (fixed in 6.1.5+).
   postcss-selector-parser: 6.1.6

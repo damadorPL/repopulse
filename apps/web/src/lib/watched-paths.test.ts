@@ -19,7 +19,10 @@ describe("validateWatchedPaths", () => {
 
   it("requires at least one and at most 10 paths", () => {
     expect(validateWatchedPaths(" , \n ")).toEqual({ ok: false, message: "Enter at least one file or folder path." });
-    expect(validateWatchedPaths(Array.from({ length: 11 }, (_, i) => `p${i}`))).toEqual({ ok: false, message: "Watch at most 10 paths." });
+    expect(validateWatchedPaths(Array.from({ length: 11 }, (_, i) => `p${i}`))).toEqual({
+      ok: false,
+      message: "Watch at most 10 paths.",
+    });
   });
 });
 

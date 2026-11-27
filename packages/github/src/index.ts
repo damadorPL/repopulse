@@ -77,6 +77,7 @@ export {
 export {
   appManifestFormUrl,
   buildAppManifest,
+  clearAppOctokitCache,
   convertAppManifest,
   createAppOctokit,
   createInstallationToken,

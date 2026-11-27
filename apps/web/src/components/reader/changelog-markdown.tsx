@@ -28,6 +28,7 @@ const components: Components = {
   },
   img({ node: _node, alt, ...props }) {
     // Release notes use arbitrary third-party hosts, outside the Next image optimizer.
+    // oxlint-disable-next-line nextjs/no-img-element
     return <img alt={alt ?? ""} loading="lazy" decoding="async" referrerPolicy="no-referrer" {...props} />;
   },
   table({ node: _node, ...props }) {

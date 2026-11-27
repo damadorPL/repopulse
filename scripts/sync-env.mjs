@@ -7,9 +7,9 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const root = path.resolve(import.meta.dirname, "..");
 
 /**
  * Each entry is inserted after the line defining `after` (or appended at the end of the file
@@ -47,9 +47,21 @@ const ADDITIONS = [
       "# RELEASE_BACKFILL_DEFAULT_TARGET=100",
     ],
   },
-  { key: "RELEASE_BACKFILL_MAX_AGE_DAYS", after: "RELEASE_BACKFILL_DEFAULT_TARGET", lines: ["# RELEASE_BACKFILL_MAX_AGE_DAYS=365"] },
-  { key: "RELEASE_BACKFILL_HARD_CAP", after: "RELEASE_BACKFILL_MAX_AGE_DAYS", lines: ["# RELEASE_BACKFILL_HARD_CAP=1000"] },
-  { key: "RELEASE_BACKFILL_MIN_QUOTA", after: "RELEASE_BACKFILL_HARD_CAP", lines: ["# RELEASE_BACKFILL_MIN_QUOTA=500"] },
+  {
+    key: "RELEASE_BACKFILL_MAX_AGE_DAYS",
+    after: "RELEASE_BACKFILL_DEFAULT_TARGET",
+    lines: ["# RELEASE_BACKFILL_MAX_AGE_DAYS=365"],
+  },
+  {
+    key: "RELEASE_BACKFILL_HARD_CAP",
+    after: "RELEASE_BACKFILL_MAX_AGE_DAYS",
+    lines: ["# RELEASE_BACKFILL_HARD_CAP=1000"],
+  },
+  {
+    key: "RELEASE_BACKFILL_MIN_QUOTA",
+    after: "RELEASE_BACKFILL_HARD_CAP",
+    lines: ["# RELEASE_BACKFILL_MIN_QUOTA=500"],
+  },
   // Slice 05: notifications.
   {
     key: "ALLOW_INTERNAL_WEBHOOK_HOSTS",
@@ -66,7 +78,10 @@ const ADDITIONS = [
   {
     key: "APP_BASE_URL",
     after: "ALLOW_INTERNAL_WEBHOOK_HOSTS",
-    lines: ["# Public URL for links in notifications (default: AUTH_URL / NEXTAUTH_URL).", "# APP_BASE_URL=https://repopulse.example.com"],
+    lines: [
+      "# Public URL for links in notifications (default: AUTH_URL / NEXTAUTH_URL).",
+      "# APP_BASE_URL=https://repopulse.example.com",
+    ],
   },
   // Slice 08: Dependencies (deps-worker + deps-sandbox).
   {
@@ -113,9 +128,22 @@ const OBSOLETE = [
   { keys: ["SERVICE_FQDN_WEB"], note: "replaced by SERVICE_URL_WEB, which includes the scheme" },
 ];
 
-const args = process.argv.slice(2);
-const checkOnly = args.includes("--check");
-const explicitFiles = args.filter((arg) => !arg.startsWith("--"));
+let values;
+let positionals;
+try {
+  ({ values, positionals } = parseArgs({
+    options: {
+      check: { type: "boolean", default: false },
+    },
+    allowPositionals: true,
+    strict: true,
+  }));
+} catch (err) {
+  console.error(err instanceof Error ? err.message : String(err));
+  process.exit(1);
+}
+const checkOnly = values.check;
+const explicitFiles = positionals;
 const files = explicitFiles.length
   ? explicitFiles.map((file) => path.resolve(file))
   : [path.join(root, ".env.example"), path.join(root, ".env")];

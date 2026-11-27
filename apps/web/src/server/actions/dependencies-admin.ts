@@ -6,7 +6,7 @@ import { INSTANCE_SETTINGS_ID, prisma } from "@repopulse/db";
 import { invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
 import { getSuperAdminOrThrow } from "@/server/session";
 
-const enabledInput = z.object({ enabled: z.boolean("Choose on or off") }).strict();
+const enabledInput = z.strictObject({ enabled: z.boolean("Choose on or off") });
 
 /**
  * Admin → Dependencies: turns the Dependencies module on or off for the whole instance. While off, the

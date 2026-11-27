@@ -37,6 +37,8 @@ export interface GitTreeSnapshot {
   entries: GitTreeEntry[];
   /** GitHub truncated the tree, or it exceeded the cap. */
   truncated: boolean;
+  /** `true` when `knownCommitSha` matched the default-branch head and the tree fetch was skipped. */
+  unchanged?: boolean;
 }
 
 interface RawTreeData {
@@ -81,7 +83,8 @@ export function mapGitTreeEntries(
 function rethrow(error: unknown, label: { owner: string; name: string }): never {
   const rateLimited = toRateLimitError(error);
   if (rateLimited) throw rateLimited;
-  if (isGitHubHttpError(error) && error.status === 404) throw new GitHubRepositoryNotFoundError(label.owner, label.name);
+  if (isGitHubHttpError(error) && error.status === 404)
+    throw new GitHubRepositoryNotFoundError(label.owner, label.name);
   throw error;
 }
 
@@ -105,6 +108,7 @@ export async function fetchGitTree(params: {
   owner: string;
   name: string;
   repositoryId?: number;
+  knownCommitSha?: string | null;
   accessToken?: string | null;
   octokit?: Octokit;
   signal?: AbortSignal;
@@ -144,12 +148,16 @@ export async function fetchGitTree(params: {
       ...request,
     });
     const data = response.data as { ref?: string; object?: { sha?: string } };
-    commitSha = data.ref === undefined || data.ref === `refs/heads/${defaultBranch}` ? (data.object?.sha ?? null) : null;
+    commitSha =
+      data.ref === undefined || data.ref === `refs/heads/${defaultBranch}` ? (data.object?.sha ?? null) : null;
   } catch (error) {
     // 409 "Git Repository is empty", 404 for a default branch without commits.
     if (!(isGitHubHttpError(error) && (error.status === 409 || error.status === 404))) rethrow(error, label);
   }
   if (commitSha === null) return { repository, commitSha: null, entries: [], truncated: false };
+  if (params.knownCommitSha && commitSha === params.knownCommitSha) {
+    return { repository, commitSha, entries: [], truncated: false, unchanged: true };
+  }
 
   try {
     const response = await octokit.request("GET /repos/{owner}/{repo}/git/trees/{tree_sha}", {
@@ -159,9 +167,10 @@ export async function fetchGitTree(params: {
       recursive: "1",
       ...request,
     });
-    return { repository, commitSha, ...mapGitTreeEntries(response.data as RawTreeData, params.maxEntries) };
+    return { repository, commitSha, ...mapGitTreeEntries(response.data, params.maxEntries) };
   } catch (error) {
-    if (isGitHubHttpError(error) && error.status === 409) return { repository, commitSha, entries: [], truncated: false };
+    if (isGitHubHttpError(error) && error.status === 409)
+      return { repository, commitSha, entries: [], truncated: false };
     rethrow(error, label);
   }
 }

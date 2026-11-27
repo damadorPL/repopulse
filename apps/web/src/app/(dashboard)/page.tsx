@@ -23,9 +23,7 @@ import { requireUser } from "@/server/session";
 
 export const metadata: Metadata = { title: "Releases · RepoPulse" };
 
-type SearchParams = Promise<Record<string, string | string[] | undefined>>;
-
-export default async function ReleaseFeedPage({ searchParams }: { searchParams: SearchParams }) {
+export default async function ReleaseFeedPage({ searchParams }: PageProps<"/">) {
   const params = await searchParams;
   const filters = parseFeedFilters(params);
   const releaseId = parseReleaseParam(params);
@@ -101,7 +99,11 @@ export default async function ReleaseFeedPage({ searchParams }: { searchParams: 
                 }
               />
             ) : filters.onlyUnread && !filtered && !tag && !repository ? (
-              <EmptyState icon={<InboxIcon />} title="Inbox zero" description="No unread releases. New ones appear here as they are published." />
+              <EmptyState
+                icon={<InboxIcon />}
+                title="Inbox zero"
+                description="No unread releases. New ones appear here as they are published."
+              />
             ) : (
               <EmptyState
                 icon={<SearchXIcon />}

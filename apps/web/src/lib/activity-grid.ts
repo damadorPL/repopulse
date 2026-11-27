@@ -46,7 +46,12 @@ export function localDayKey(date: Date): string {
 /** `YYYY-MM-DD` of an instant in `timeZone` (IANA name), or in the runtime's local zone. */
 export function dayKey(date: Date, timeZone?: string): string {
   if (!timeZone) return localDayKey(date);
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
@@ -61,7 +66,13 @@ export function bucketByLocalDay(items: readonly ActivityItem[], timeZone?: stri
     const key = dayKey(at, timeZone);
     let bucket = buckets.get(key);
     if (!bucket) {
-      bucket = { count: 0, bySource: { RELEASE: 0, TAG: 0, COMMIT: 0 }, hasMajor: false, newestId: item.id, newestAt: time };
+      bucket = {
+        count: 0,
+        bySource: { RELEASE: 0, TAG: 0, COMMIT: 0 },
+        hasMajor: false,
+        newestId: item.id,
+        newestAt: time,
+      };
       buckets.set(key, bucket);
     }
     bucket.count += 1;
@@ -120,7 +131,10 @@ export function activityThresholds(counts: Iterable<number>): { q1: number; q2: 
 }
 
 /** Color level 0–4 of a day: 0 = nothing, 4 = the busiest days. */
-export function levelFor(count: number, thresholds: { q1: number; q2: number; q3: number; max: number }): 0 | 1 | 2 | 3 | 4 {
+export function levelFor(
+  count: number,
+  thresholds: { q1: number; q2: number; q3: number; max: number },
+): 0 | 1 | 2 | 3 | 4 {
   if (count <= 0) return 0;
   if (count >= thresholds.max) return 4;
   if (count <= thresholds.q1) return 1;
@@ -160,10 +174,15 @@ export interface ActivityStats {
 
 /** Summary numbers shown next to the grid. Local time zone, like the grid. */
 export function computeActivityStats(items: readonly ActivityItem[], now: Date, weekStartsOn = 0): ActivityStats {
-  const times = items.map((item) => ({ ...item, time: new Date(item.at).getTime() })).filter((item) => !Number.isNaN(item.time));
+  const times = items
+    .map((item) => ({ ...item, time: new Date(item.at).getTime() }))
+    .filter((item) => !Number.isNaN(item.time));
   const yearAgo = now.getTime() - 365 * DAY_MS;
   const lastYear = times.filter((item) => item.time >= yearAgo && item.time <= now.getTime()).length;
-  const lastUpdate = times.reduce<number | null>((max, item) => (max === null || item.time > max ? item.time : max), null);
+  const lastUpdate = times.reduce<number | null>(
+    (max, item) => (max === null || item.time > max ? item.time : max),
+    null,
+  );
 
   const releases = times
     .filter((item) => item.source !== "COMMIT")
@@ -171,7 +190,10 @@ export function computeActivityStats(items: readonly ActivityItem[], now: Date, 
     .sort((a, b) => a - b);
   let medianDaysBetweenReleases: number | null = null;
   if (releases.length >= 3) {
-    const gaps = releases.slice(1).map((time, i) => (time - releases[i]!) / DAY_MS).sort((a, b) => a - b);
+    const gaps = releases
+      .slice(1)
+      .map((time, i) => (time - releases[i]!) / DAY_MS)
+      .sort((a, b) => a - b);
     const mid = Math.floor(gaps.length / 2);
     medianDaysBetweenReleases = gaps.length % 2 === 1 ? gaps[mid]! : (gaps[mid - 1]! + gaps[mid]!) / 2;
   }
@@ -187,7 +209,11 @@ export function computeActivityStats(items: readonly ActivityItem[], now: Date, 
   let busiestMonth: ActivityStats["busiestMonth"] = null;
   for (const [key, entry] of byMonth) {
     // Ties go to the more recent month.
-    if (!busiestMonth || entry.count > busiestMonth.count || (entry.count === busiestMonth.count && key > busiestMonth.key)) {
+    if (
+      !busiestMonth ||
+      entry.count > busiestMonth.count ||
+      (entry.count === busiestMonth.count && key > busiestMonth.key)
+    ) {
       busiestMonth = { key, ...entry };
     }
   }
@@ -198,7 +224,10 @@ export function computeActivityStats(items: readonly ActivityItem[], now: Date, 
     return localDayKey(addDays(date, -offset));
   };
   const activeWeeks = new Set(times.map((item) => weekKey(item.time)));
-  let cursor = addDays(new Date(now.getFullYear(), now.getMonth(), now.getDate()), -((now.getDay() - weekStartsOn + 7) % 7));
+  let cursor = addDays(
+    new Date(now.getFullYear(), now.getMonth(), now.getDate()),
+    -((now.getDay() - weekStartsOn + 7) % 7),
+  );
   if (!activeWeeks.has(localDayKey(cursor))) cursor = addDays(cursor, -7);
   let currentStreakWeeks = 0;
   while (activeWeeks.has(localDayKey(cursor))) {

@@ -4,13 +4,22 @@
  */
 import { parseRequirements, type RequirementDependency } from "../manifests/requirements.js";
 import { normalizePypiName } from "../util.js";
-import { applyReplacements, assertSafeSpec, ManifestRewriteError, type ManifestEdit, type SpanReplacement } from "./common.js";
+import {
+  applyReplacements,
+  assertSafeSpec,
+  ManifestRewriteError,
+  type ManifestEdit,
+  type SpanReplacement,
+} from "./common.js";
 
 /** `"ABC…"` / `"sha256:abc…"` → `"sha256:abc…"`, unique and sorted (what `pip-compile --generate-hashes` emits). */
 export function normalizeSha256Hashes(hashes: readonly string[]): string[] {
   const out = new Set<string>();
   for (const hash of hashes) {
-    const digest = hash.trim().toLowerCase().replace(/^sha256:/, "");
+    const digest = hash
+      .trim()
+      .toLowerCase()
+      .replace(/^sha256:/, "");
     if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error(`invalid sha256 digest ${JSON.stringify(hash)}`);
     out.add(`sha256:${digest}`);
   }
@@ -32,7 +41,10 @@ function hashBlock(text: string, dependency: RequirementDependency, hashes: stri
   }
   const optionText = text.slice(first.span.start, first.span.end);
   const prefix = /^--hash(?:=|\s+)/.exec(optionText)?.[0] ?? "--hash=";
-  return { span: { start: first.span.start, end: last.span.end }, text: hashes.map((hash) => `${prefix}${hash}`).join(separator) };
+  return {
+    span: { start: first.span.start, end: last.span.end },
+    text: hashes.map((hash) => `${prefix}${hash}`).join(separator),
+  };
 }
 
 /**
@@ -52,17 +64,29 @@ export function rewriteRequirements(text: string, edits: readonly ManifestEdit[]
     if (byName.length === 0) throw new ManifestRewriteError("NOT_FOUND", path, `${edit.name} not found`);
     const matching = byName.filter((dependency) => dependency.declared === edit.from);
     if (matching.length === 0) {
-      throw new ManifestRewriteError("STALE", path, `${edit.name} is "${byName[0]?.declared}", expected "${edit.from}"`);
+      throw new ManifestRewriteError(
+        "STALE",
+        path,
+        `${edit.name} is "${byName[0]?.declared}", expected "${edit.from}"`,
+      );
     }
     for (const dependency of matching) {
       if (!dependency.span || dependency.span.end === dependency.span.start) {
-        throw new ManifestRewriteError("NOT_REWRITABLE", path, `${edit.name} (line ${dependency.line}) cannot be rewritten`);
+        throw new ManifestRewriteError(
+          "NOT_REWRITABLE",
+          path,
+          `${edit.name} (line ${dependency.line}) cannot be rewritten`,
+        );
       }
       replacements.push({ span: dependency.span, text: edit.to });
       let hashes: string[] | null = null;
       if (dependency.hashes.length > 0) {
         if (!edit.hashes || edit.hashes.length === 0) {
-          throw new ManifestRewriteError("HASHES_REQUIRED", path, `${edit.name} (line ${dependency.line}) needs the target's hashes`);
+          throw new ManifestRewriteError(
+            "HASHES_REQUIRED",
+            path,
+            `${edit.name} (line ${dependency.line}) needs the target's hashes`,
+          );
         }
         try {
           hashes = normalizeSha256Hashes(edit.hashes);
@@ -82,7 +106,8 @@ export function rewriteRequirements(text: string, edits: readonly ManifestEdit[]
   };
   if (reparsed.dependencies.length !== parsed.dependencies.length) fail("requirement count");
   if (JSON.stringify(reparsed.includes) !== JSON.stringify(parsed.includes)) fail("includes");
-  if (reparsed.indexUrl !== parsed.indexUrl || reparsed.extraIndexUrls.join() !== parsed.extraIndexUrls.join()) fail("index");
+  if (reparsed.indexUrl !== parsed.indexUrl || reparsed.extraIndexUrls.join() !== parsed.extraIndexUrls.join())
+    fail("index");
   parsed.dependencies.forEach((before, index) => {
     const after = reparsed.dependencies[index] as RequirementDependency;
     if (after.name !== before.name || after.marker !== before.marker || after.extras.join() !== before.extras.join()) {

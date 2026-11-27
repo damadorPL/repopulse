@@ -1,6 +1,6 @@
 /** `package-lock.json` / `npm-shrinkwrap.json` (v1, v2, v3) reader. */
 import { isRecord } from "../util.js";
-import { guardLockfile, type LockfileVersions } from "./common.js";
+import { formatLockfileVersion, guardLockfile, type LockfileVersions } from "./common.js";
 
 const DEPENDENCY_KEYS = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] as const;
 
@@ -13,7 +13,7 @@ export function readPackageLock(text: string, importer = "", path = "package-loc
   return guardLockfile(text, path, () => {
     const data: unknown = JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
     if (!isRecord(data)) throw new Error("not a JSON object");
-    const formatVersion = data.lockfileVersion === undefined ? null : String(data.lockfileVersion);
+    const formatVersion = formatLockfileVersion(data.lockfileVersion);
     const versions = new Map<string, string>();
     const packages = isRecord(data.packages) ? data.packages : null;
 
@@ -27,7 +27,8 @@ export function readPackageLock(text: string, importer = "", path = "package-loc
         }
       }
       for (const name of names) {
-        const candidates = importer === "" ? [`node_modules/${name}`] : [`${importer}/node_modules/${name}`, `node_modules/${name}`];
+        const candidates =
+          importer === "" ? [`node_modules/${name}`] : [`${importer}/node_modules/${name}`, `node_modules/${name}`];
         for (const key of candidates) {
           const entry = packages[key];
           if (!isRecord(entry)) continue;

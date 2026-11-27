@@ -1,8 +1,8 @@
-import type { Metadata } from "next";
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
+import type { Metadata, Route } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeftIcon, ExternalLinkIcon, GitBranchIcon, LockIcon, TriangleAlertIcon } from "lucide-react";
+import { ArrowLeftIcon, ExternalLinkIcon, GitBranchIcon, LockIcon, TriangleExclamationPointIcon } from "lucide-react";
 import { RelativeTime } from "@/components/feed/relative-time";
 import { RepoAvatar } from "@/components/feed/repo-avatar";
 import { AppStatusBanner } from "@/components/dependencies/app-status-banner";
@@ -13,25 +13,45 @@ import { OutdatedTable } from "@/components/dependencies/outdated-table";
 import { PullRequestsSection } from "@/components/dependencies/pull-requests-section";
 import { RemoveProjectButton } from "@/components/dependencies/remove-project-button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { dependencyListHrefFrom } from "@/lib/dependency-list-filters";
 import { PACKAGE_MANAGER_LABELS, updateModeLabel, type LevelCounts } from "@/lib/dependency-settings";
 import { repositorySettingsHref } from "@/lib/repo-list-filters";
 import { getGitHubToken } from "@/server/action-result";
-import { isDepsEnabled, lockfileRegenerationAvailable, readDepsWorkerStatus } from "@/server/deps-status";
-import { getAppRepoStatus, getDependencyProject, planPullRequests, type AppRepoStatus, type PrOwnerView } from "@/server/queries/dependencies";
+import {
+  isDepsEnabled,
+  lockfileRegenerationAvailable,
+  readDepsWorkerStatus,
+  type DepsWorkerStatus,
+} from "@/server/deps-status";
+import {
+  getAppRepoStatus,
+  getDependencyProject,
+  planPullRequests,
+  type AppRepoStatus,
+  type DependencyProjectDetail,
+  type PrOwnerView,
+} from "@/server/queries/dependencies";
 import { parseRepoSegment } from "@/server/queries/repository-settings";
 import { requireUser } from "@/server/session";
 
-type Params = Promise<{ owner: string; name: string }>;
-type SearchParams = Promise<Record<string, string | string[] | undefined>>;
-
-export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
+export async function generateMetadata({ params }: PageProps<"/dependencies/[owner]/[name]">): Promise<Metadata> {
   const { owner, name } = await params;
   const slug = `${parseRepoSegment(owner) ?? owner}/${parseRepoSegment(name) ?? name}`;
   return { title: `${slug} · Dependencies · RepoPulse` };
 }
 
-function Section({ id, title, description, children }: { id: string; title: string; description?: ReactNode; children: ReactNode }) {
+function Section({
+  id,
+  title,
+  description,
+  children,
+}: {
+  id: string;
+  title: string;
+  description?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <section id={id} className="scroll-mt-6 rounded-lg border bg-card p-4 sm:p-5" aria-labelledby={`${id}-title`}>
       <h2 id={`${id}-title`} className="font-medium">
@@ -51,12 +71,67 @@ function prModeReason(app: AppRepoStatus, prOwner: PrOwnerView): string | null {
   return null;
 }
 
+async function DepsWorkerBanner({ workerPromise }: { workerPromise: Promise<DepsWorkerStatus> }) {
+  const worker = await workerPromise;
+  return worker.state === "missing" ? <DepsWorkerMissingNotice /> : null;
+}
+
+async function ProjectAppStatusBanner({
+  appPromise,
+  prOwner,
+  fullName,
+}: {
+  appPromise: Promise<AppRepoStatus>;
+  prOwner: PrOwnerView;
+  fullName: string;
+}) {
+  const app = await appPromise;
+  return <AppStatusBanner status={app} prOwner={prOwner} fullName={fullName} />;
+}
+
+async function ProjectPullRequestsContent({
+  project,
+  appPromise,
+  workerPromise,
+}: {
+  project: DependencyProjectDetail;
+  appPromise: Promise<AppRepoStatus>;
+  workerPromise: Promise<DepsWorkerStatus>;
+}) {
+  const [app, worker] = await Promise.all([appPromise, workerPromise]);
+  const plans = planPullRequests(project, app, { lockfileRegeneration: lockfileRegenerationAvailable(worker) });
+  return <PullRequestsSection projectId={project.id} plans={plans} history={project.pullRequests} />;
+}
+
+async function ProjectSettingsFormContent({
+  project,
+  appPromise,
+}: {
+  project: DependencyProjectDetail;
+  appPromise: Promise<AppRepoStatus>;
+}) {
+  const app = await appPromise;
+  const { ignoreRules: _ignored, ...settingsValues } = project.settings;
+  return (
+    <DependencySettingsForm
+      projectId={project.id}
+      fullName={project.fullName}
+      values={settingsValues}
+      prModeReason={prModeReason(app, project.prOwner)}
+      detectedManifests={project.manifests.map((m) => m.path)}
+    />
+  );
+}
+
 /**
  * A dependency project (Slice 08 §3.7.3): header with the App status, outdated table, planned and
  * past pull requests, settings, detected manifests and the danger zone. Only the signed-in user's
  * own project; anything else is `notFound()`.
  */
-export default async function DependencyProjectPage({ params, searchParams }: { params: Params; searchParams: SearchParams }) {
+export default async function DependencyProjectPage({
+  params,
+  searchParams,
+}: PageProps<"/dependencies/[owner]/[name]">) {
   const [{ owner, name }, query] = await Promise.all([params, searchParams]);
   const user = await requireUser();
   const backHref = dependencyListHrefFrom(query.from);
@@ -64,7 +139,10 @@ export default async function DependencyProjectPage({ params, searchParams }: { 
   if (!(await isDepsEnabled())) {
     return (
       <div className="mx-auto max-w-5xl space-y-5">
-        <Link href="/dependencies" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+        <Link
+          href="/dependencies"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        >
           <ArrowLeftIcon className="size-4" aria-hidden />
           Dependencies
         </Link>
@@ -81,14 +159,17 @@ export default async function DependencyProjectPage({ params, searchParams }: { 
     const from = Array.isArray(query.from) ? query.from[0] : query.from;
     const [canonicalOwner = "", canonicalName = ""] = project.fullName.split("/");
     const path = `/dependencies/${encodeURIComponent(canonicalOwner)}/${encodeURIComponent(canonicalName)}`;
-    redirect(from ? `${path}?from=${encodeURIComponent(from)}` : path);
+    redirect((from ? `${path}?from=${encodeURIComponent(from)}` : path) as Route);
   }
 
-  const [app, worker] = await Promise.all([
-    getAppRepoStatus(project.owner, project.name, project.githubRepoId, getGitHubToken(user, "DependencyProjectPage")),
-    readDepsWorkerStatus(),
-  ]);
-  const plans = planPullRequests(project, app, { lockfileRegeneration: lockfileRegenerationAvailable(worker) });
+  // Start slow external / Redis status queries eagerly so primary page chrome streams immediately.
+  const appPromise = getAppRepoStatus(
+    project.owner,
+    project.name,
+    project.githubRepoId,
+    getGitHubToken(user, "DependencyProjectPage"),
+  );
+  const workerPromise = readDepsWorkerStatus();
   const outdated: LevelCounts = { major: 0, minor: 0, patch: 0, other: 0 };
   for (const row of project.updates) {
     if (row.status !== "OUTDATED") continue;
@@ -99,11 +180,14 @@ export default async function DependencyProjectPage({ params, searchParams }: { 
   }
   const busy = project.scanStatus === "QUEUED" || project.scanStatus === "SCANNING";
   const packageManagers = [...new Set(project.manifests.map((m) => m.packageManager))].sort();
-  const { ignoreRules, ...settingsValues } = project.settings;
+  const { ignoreRules } = project.settings;
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
-      <Link href={backHref} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <Link
+        href={backHref}
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+      >
         <ArrowLeftIcon className="size-4" aria-hidden />
         Dependencies
       </Link>
@@ -113,7 +197,9 @@ export default async function DependencyProjectPage({ params, searchParams }: { 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="truncate text-xl font-semibold tracking-tight">{project.fullName}</h1>
-            {project.isPrivate ? <LockIcon className="size-4 text-muted-foreground" aria-label="Private repository" /> : null}
+            {project.isPrivate ? (
+              <LockIcon className="size-4 text-muted-foreground" aria-label="Private repository" />
+            ) : null}
             <a
               href={`https://github.com/${project.fullName}`}
               target="_blank"
@@ -172,21 +258,35 @@ export default async function DependencyProjectPage({ params, searchParams }: { 
         </div>
       </header>
 
-      {worker.state === "missing" ? <DepsWorkerMissingNotice /> : null}
+      <Suspense fallback={null}>
+        <DepsWorkerBanner workerPromise={workerPromise} />
+      </Suspense>
       {project.scanStatus === "ERROR" ? (
-        <p role="alert" className="flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
-          <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
+        <p
+          role="alert"
+          className="flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200"
+        >
+          <TriangleExclamationPointIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
           <span>
-            <span className="font-medium">The last check failed.</span> {project.scanError ?? "Try “Check now” again later."}
+            <span className="font-medium">The last check failed.</span>{" "}
+            {project.scanError ?? "Try “Check now” again later."}
           </span>
         </p>
       ) : null}
-      <AppStatusBanner status={app} prOwner={project.prOwner} fullName={project.fullName} />
+      <Suspense fallback={<Skeleton className="h-14 w-full rounded-lg" />}>
+        <ProjectAppStatusBanner appPromise={appPromise} prOwner={project.prOwner} fullName={project.fullName} />
+      </Suspense>
 
       <Section
         id="outdated"
         title="Dependencies"
-        description={project.lastScannedAt ? <OutdatedCounts counts={outdated} emptyLabel="Everything is up to date under your policy" /> : "Not checked yet: results appear after the first check."}
+        description={
+          project.lastScannedAt ? (
+            <OutdatedCounts counts={outdated} emptyLabel="Everything is up to date under your policy" />
+          ) : (
+            "Not checked yet: results appear after the first check."
+          )
+        }
       >
         <OutdatedTable
           projectId={project.id}
@@ -197,22 +297,25 @@ export default async function DependencyProjectPage({ params, searchParams }: { 
         />
       </Section>
 
-      <Section id="pull-requests" title="Pull requests" description="One branch per group, repopulse/deps/<group>. Your repository's CI runs on them.">
-        <PullRequestsSection projectId={project.id} plans={plans} history={project.pullRequests} />
+      <Section
+        id="pull-requests"
+        title="Pull requests"
+        description="One branch per group, repopulse/deps/<group>. Your repository's CI runs on them."
+      >
+        <Suspense fallback={<Skeleton className="h-28 w-full" />}>
+          <ProjectPullRequestsContent project={project} appPromise={appPromise} workerPromise={workerPromise} />
+        </Suspense>
       </Section>
 
       <Section id="settings" title="Settings" description="Only for this project. Policy changes re-check the project.">
-        <DependencySettingsForm
-          projectId={project.id}
-          fullName={project.fullName}
-          values={settingsValues}
-          prModeReason={prModeReason(app, project.prOwner)}
-          detectedManifests={project.manifests.map((m) => m.path)}
-        />
+        <Suspense fallback={<Skeleton className="h-56 w-full" />}>
+          <ProjectSettingsFormContent project={project} appPromise={appPromise} />
+        </Suspense>
         <div className="mt-6 border-t pt-5">
           <h3 className="text-sm font-medium">Ignore rules</h3>
           <p className="mt-0.5 mb-3 text-xs text-muted-foreground">
-            Names may start and/or end with <code>*</code> (<code>@types/*</code>). A version range ignores only those versions.
+            Names may start and/or end with <code>*</code> (<code>@types/*</code>). A version range ignores only those
+            versions.
           </p>
           <IgnoreRulesEditor projectId={project.id} rules={ignoreRules} />
         </div>
@@ -220,7 +323,9 @@ export default async function DependencyProjectPage({ params, searchParams }: { 
 
       <Section id="manifests" title="Manifests" description="Files found on the default branch at the last check.">
         {project.manifests.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{project.lastScannedAt ? "No supported manifest was found." : "Not checked yet."}</p>
+          <p className="text-sm text-muted-foreground">
+            {project.lastScannedAt ? "No supported manifest was found." : "Not checked yet."}
+          </p>
         ) : (
           <div className="overflow-x-auto rounded-md border">
             <table className="w-full min-w-[36rem] text-sm">
@@ -238,15 +343,22 @@ export default async function DependencyProjectPage({ params, searchParams }: { 
                     <td className="px-3 py-2">
                       <code className="font-mono text-xs">{manifest.path}</code>
                       {manifest.warnings.map((warning) => (
-                        <span key={warning} className="mt-1 flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400">
-                          <TriangleAlertIcon className="mt-0.5 size-3 shrink-0" aria-hidden />
+                        <span
+                          key={warning}
+                          className="mt-1 flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400"
+                        >
+                          <TriangleExclamationPointIcon className="mt-0.5 size-3 shrink-0" aria-hidden />
                           {warning}
                         </span>
                       ))}
                     </td>
                     <td className="px-2 py-2 text-xs">{PACKAGE_MANAGER_LABELS[manifest.packageManager]}</td>
                     <td className="px-2 py-2">
-                      {manifest.lockfilePath ? <code className="font-mono text-xs">{manifest.lockfilePath}</code> : <span className="text-xs text-muted-foreground">—</span>}
+                      {manifest.lockfilePath ? (
+                        <code className="font-mono text-xs">{manifest.lockfilePath}</code>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
                     </td>
                     <td className="px-2 py-2 text-right tabular-nums">{manifest.dependencyCount}</td>
                   </tr>

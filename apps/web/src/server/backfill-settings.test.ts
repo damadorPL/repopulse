@@ -12,7 +12,8 @@ const { prisma } = vi.hoisted(() => ({
 
 vi.mock("@repopulse/db", async (importOriginal) => ({ ...(await importOriginal<object>()), prisma }));
 
-const { buildBackfillSettingsView, countReapplyCandidates, getReapplyCandidates, reapplyCandidatesWhere } = await import("./backfill-settings");
+const { buildBackfillSettingsView, countReapplyCandidates, getReapplyCandidates, reapplyCandidatesWhere } =
+  await import("./backfill-settings");
 
 const byKey = (view: ReturnType<typeof buildBackfillSettingsView>) => Object.fromEntries(view.map((s) => [s.key, s]));
 
@@ -24,8 +25,20 @@ describe("buildBackfillSettingsView", () => {
         { ...NO_BACKFILL_OVERRIDES, defaultTarget: 250, deepCooldownMinutes: 0 },
       ),
     );
-    expect(view.defaultTarget).toMatchObject({ value: 250, override: 250, fallback: 100, fallbackSource: "default", source: "admin" });
-    expect(view.maxAgeDays).toMatchObject({ value: 30, override: null, fallback: 30, fallbackSource: "env", source: "env" });
+    expect(view.defaultTarget).toMatchObject({
+      value: 250,
+      override: 250,
+      fallback: 100,
+      fallbackSource: "default",
+      source: "admin",
+    });
+    expect(view.maxAgeDays).toMatchObject({
+      value: 30,
+      override: null,
+      fallback: 30,
+      fallbackSource: "env",
+      source: "env",
+    });
     expect(view.hardCap).toMatchObject({ value: 1000, source: "default", envVar: "RELEASE_BACKFILL_HARD_CAP", min: 1 });
     expect(view.deepCooldownMinutes).toMatchObject({ value: 0, source: "admin", envVar: null });
   });

@@ -1,7 +1,7 @@
 /** `pnpm-lock.yaml` reader (v6 – v9 importer layout, plus the older `specifiers` layout and pnpm 11+ multi-document streams). */
 import { parseAllDocuments } from "yaml";
 import { isRecord } from "../util.js";
-import { guardLockfile, type LockfileVersions } from "./common.js";
+import { formatLockfileVersion, guardLockfile, type LockfileVersions } from "./common.js";
 
 const DEPENDENCY_KEYS = ["dependencies", "devDependencies", "optionalDependencies"] as const;
 const MAX_PNPM_LOCK_DOCUMENTS = 10;
@@ -34,7 +34,7 @@ export function readPnpmLock(text: string, importer = ".", path = "pnpm-lock.yam
       parsedDocs.push(parsed);
     }
     const data = parsedDocs[parsedDocs.length - 1]!;
-    const formatVersion = data.lockfileVersion === undefined ? null : String(data.lockfileVersion);
+    const formatVersion = formatLockfileVersion(data.lockfileVersion);
     const importerKey = importer === "" ? "." : importer;
     let entry: unknown;
     if (isRecord(data.importers)) entry = data.importers[importerKey];
@@ -45,7 +45,12 @@ export function readPnpmLock(text: string, importer = ".", path = "pnpm-lock.yam
         const section = entry[key];
         if (!isRecord(section)) continue;
         for (const [name, value] of Object.entries(section)) {
-          const raw = typeof value === "string" ? value : isRecord(value) && typeof value.version === "string" ? value.version : null;
+          const raw =
+            typeof value === "string"
+              ? value
+              : isRecord(value) && typeof value.version === "string"
+                ? value.version
+                : null;
           const version = raw === null ? null : stripPnpmVersionSuffix(raw);
           if (version) versions.set(name, version);
         }

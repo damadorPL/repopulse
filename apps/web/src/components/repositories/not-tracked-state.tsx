@@ -25,7 +25,10 @@ export function NotTrackedState({ tags }: { tags: TagPill[] }) {
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
-      <Link href="/repositories" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <Link
+        href="/repositories"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+      >
         <ArrowLeftIcon className="size-4" aria-hidden />
         Tracked repositories
       </Link>
@@ -34,7 +37,8 @@ export function NotTrackedState({ tags }: { tags: TagPill[] }) {
           <BoxesIcon className="size-5" />
         </span>
         <h1 className="mt-4 font-medium">
-          You don&apos;t track {slug ? <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm">{slug}</code> : "this repository"}
+          You don&apos;t track{" "}
+          {slug ? <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm">{slug}</code> : "this repository"}
         </h1>
         <p className="mt-1 max-w-sm text-sm text-muted-foreground">
           Add it to see its releases in your feed and change its settings here.

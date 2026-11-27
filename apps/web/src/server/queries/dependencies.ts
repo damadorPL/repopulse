@@ -88,7 +88,10 @@ export interface DependencyProjectListItem {
   prOwner: PrOwnerView;
   manifests: Array<Pick<DependencyManifestView, "id" | "path" | "ecosystem" | "packageManager" | "lockfilePath">>;
   outdatedUpdates: Array<
-    Pick<DependencyUpdateView, "manifestId" | "manifestPath" | "ecosystem" | "name" | "currentVersion" | "targetVersion" | "level" | "status">
+    Pick<
+      DependencyUpdateView,
+      "manifestId" | "manifestPath" | "ecosystem" | "name" | "currentVersion" | "targetVersion" | "level" | "status"
+    >
   >;
   pullRequests: Array<Pick<DependencyPullRequestView, "groupKey" | "number" | "htmlUrl" | "state">>;
   lastScannedAt: Date | null;
@@ -123,7 +126,14 @@ export async function getDependencyProjects(userId: string): Promise<DependencyP
         updates: {
           where: { status: "OUTDATED" },
           orderBy: [{ name: "asc" }, { kind: "asc" }],
-          select: { manifestId: true, name: true, currentVersion: true, targetVersion: true, level: true, status: true },
+          select: {
+            manifestId: true,
+            name: true,
+            currentVersion: true,
+            targetVersion: true,
+            level: true,
+            status: true,
+          },
         },
         pullRequests: {
           orderBy: { openedAt: "asc" },
@@ -142,7 +152,10 @@ export async function getDependencyProjects(userId: string): Promise<DependencyP
   const unownedRepoIds = [
     ...new Set(
       projects
-        .filter((project) => project.updateMode !== "NOTIFY" && !project.prOwnership && typeof project.githubRepoId === "number")
+        .filter(
+          (project) =>
+            project.updateMode !== "NOTIFY" && !project.prOwnership && typeof project.githubRepoId === "number",
+        )
         .map((project) => project.githubRepoId),
     ),
   ];
@@ -150,7 +163,11 @@ export async function getDependencyProjects(userId: string): Promise<DependencyP
     unownedRepoIds.length > 0
       ? await prisma.dependencyPrOwner.findMany({
           where: { githubRepoId: { in: unownedRepoIds } },
-          select: { githubRepoId: true, projectId: true, project: { select: { user: { select: { githubLogin: true, name: true } } } } },
+          select: {
+            githubRepoId: true,
+            projectId: true,
+            project: { select: { user: { select: { githubLogin: true, name: true } } } },
+          },
         })
       : [];
   const ownerByRepoId = new Map(owners.map((owner) => [owner.githubRepoId, owner]));
@@ -234,7 +251,10 @@ export async function getAddableSubscriptions(userId: string): Promise<AddableSu
   const [subscriptions, projects] = await Promise.all([
     prisma.userSubscription.findMany({
       where: { userId },
-      select: { id: true, repository: { select: { githubRepoId: true, fullName: true, description: true, avatarUrl: true } } },
+      select: {
+        id: true,
+        repository: { select: { githubRepoId: true, fullName: true, description: true, avatarUrl: true } },
+      },
     }),
     prisma.dependencyProject.findMany({ where: { userId }, select: { githubRepoId: true } }),
   ]);
@@ -347,7 +367,11 @@ export interface DependencyProjectDetail {
  * The signed-in user's project `owner/name` (case-insensitive), or `null` when the user has no such
  * project. Rows of another user can never match: `userId` is part of the lookup.
  */
-export async function getDependencyProject(userId: string, owner: string, name: string): Promise<DependencyProjectDetail | null> {
+export async function getDependencyProject(
+  userId: string,
+  owner: string,
+  name: string,
+): Promise<DependencyProjectDetail | null> {
   const ownerName = parseRepoSegment(owner);
   const repoName = parseRepoSegment(name);
   if (!ownerName || !repoName) return null;
@@ -368,7 +392,10 @@ export async function getDependencyProject(userId: string, owner: string, name: 
       where: { githubRepoId: project.githubRepoId },
       select: { projectId: true, project: { select: { user: { select: { githubLogin: true, name: true } } } } },
     }),
-    prisma.userSubscription.findMany({ where: { userId }, select: { repositoryId: true, repository: { select: { fullName: true } } } }),
+    prisma.userSubscription.findMany({
+      where: { userId },
+      select: { repositoryId: true, repository: { select: { fullName: true } } },
+    }),
   ]);
   const manifestById = new Map(project.manifests.map((m) => [m.id, m]));
   const prOwner: PrOwnerView = !owner_
@@ -464,8 +491,14 @@ export interface RepositoryDependencySummary {
 }
 
 /** The user's project for a tracked repository (repository settings card), or `null`. */
-export async function getDependencyProjectForRepository(userId: string, repositoryId: string): Promise<RepositoryDependencySummary | null> {
-  const repository = await prisma.repository.findUnique({ where: { id: repositoryId }, select: { githubRepoId: true } });
+export async function getDependencyProjectForRepository(
+  userId: string,
+  repositoryId: string,
+): Promise<RepositoryDependencySummary | null> {
+  const repository = await prisma.repository.findUnique({
+    where: { id: repositoryId },
+    select: { githubRepoId: true },
+  });
   if (!repository) return null;
   const project = await prisma.dependencyProject.findFirst({
     where: { userId, OR: [{ githubRepoId: repository.githubRepoId }, { repositoryId }] },
@@ -479,7 +512,13 @@ export async function getDependencyProjectForRepository(userId: string, reposito
   });
   const outdated = emptyCounts();
   for (const row of counts) addLevel(outdated, row.level, row._count._all);
-  return { projectId: project.id, fullName: project.fullName, outdated, lastScannedAt: project.lastScannedAt, scanStatus: project.scanStatus };
+  return {
+    projectId: project.id,
+    fullName: project.fullName,
+    outdated,
+    lastScannedAt: project.lastScannedAt,
+    scanStatus: project.scanStatus,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -501,7 +540,10 @@ export async function loadAppCredentials(): Promise<AppCredentialsResult> {
   try {
     const settings = await loadGitHubAppSettings(prisma);
     if (!settings) return { state: "not_configured" };
-    return { state: "ok", app: { auth: { appId: settings.appId, privateKey: settings.privateKey }, slug: settings.slug } };
+    return {
+      state: "ok",
+      app: { auth: { appId: settings.appId, privateKey: settings.privateKey }, slug: settings.slug },
+    };
   } catch (error) {
     if (error instanceof GitHubAppKeyUnreadableError) return { state: "unreadable" };
     throw error;
@@ -533,7 +575,10 @@ export const getAppRepoStatus = cache(
       if (installation) return { state: "installed", ...installation };
     } catch (error) {
       if (error instanceof GitHubAppAuthError) return { state: "unknown", message: error.message };
-      console.warn(`[dependencies] could not read the App installation of ${owner}/${name}`, error instanceof Error ? error.message : error);
+      console.warn(
+        `[dependencies] could not read the App installation of ${owner}/${name}`,
+        error instanceof Error ? error.message : error,
+      );
       return { state: "unknown", message: "GitHub did not answer. Reload the page to check again." };
     }
     let targetId: number | undefined;
@@ -564,16 +609,25 @@ export async function checkRepoAccess(
   const fullName = `${repo.owner}/${repo.name}`;
   const credentials = await loadAppCredentials();
   if (credentials.state === "not_configured") {
-    return { ok: false, code: "UNAVAILABLE", message: "The RepoPulse GitHub App is not set up. Ask the administrator to set it up first." };
+    return {
+      ok: false,
+      code: "UNAVAILABLE",
+      message: "The RepoPulse GitHub App is not set up. Ask the administrator to set it up first.",
+    };
   }
   if (credentials.state === "unreadable") {
-    return { ok: false, code: "UNAVAILABLE", message: "The GitHub App key can't be read. Ask the administrator to re-enter it." };
+    return {
+      ok: false,
+      code: "UNAVAILABLE",
+      message: "The GitHub App key can't be read. Ask the administrator to re-enter it.",
+    };
   }
   const { auth } = credentials.app;
   const fetch = timedFetch();
   try {
     const installation = await getRepoInstallation(auth, repo.owner, repo.name, { fetch });
-    if (!installation) return { ok: false, code: "CONFLICT", message: `Install the RepoPulse GitHub App on ${fullName} first.` };
+    if (!installation)
+      return { ok: false, code: "CONFLICT", message: `Install the RepoPulse GitHub App on ${fullName} first.` };
     const { token } = await createInstallationToken(
       auth,
       installation.installationId,
@@ -581,7 +635,9 @@ export async function checkRepoAccess(
       { fetch },
     );
     const octokit = createOctokit({ accessToken: token, fetch });
-    let permission = user.githubLogin ? await getCollaboratorPermission(octokit, repo.owner, repo.name, user.githubLogin) : null;
+    let permission = user.githubLogin
+      ? await getCollaboratorPermission(octokit, repo.owner, repo.name, user.githubLogin)
+      : null;
     if (!permissionAtLeast(permission, min)) {
       // Logins can change: re-resolve it from the immutable id and try once more.
       const login = await getUserLoginById(octokit, user.githubId);
@@ -630,7 +686,10 @@ export interface PlanPullRequestsInput {
   prOwner: PrOwnerView;
   manifests: Array<Pick<DependencyManifestView, "id" | "path" | "ecosystem" | "packageManager" | "lockfilePath">>;
   updates: Array<
-    Pick<DependencyUpdateView, "manifestId" | "manifestPath" | "ecosystem" | "name" | "currentVersion" | "targetVersion" | "level" | "status">
+    Pick<
+      DependencyUpdateView,
+      "manifestId" | "manifestPath" | "ecosystem" | "name" | "currentVersion" | "targetVersion" | "level" | "status"
+    >
   >;
   pullRequests: Array<Pick<DependencyPullRequestView, "groupKey" | "number" | "htmlUrl" | "state">>;
 }
@@ -655,24 +714,39 @@ export function planPullRequests(
   return groups.map((group) => {
     const groupManifests = [...new Set(group.updates.map((u) => u.manifestId))].flatMap((id) => {
       const manifest = manifests.get(id);
-      return manifest ? [{ path: manifest.path, packageManager: manifest.packageManager, lockfilePath: manifest.lockfilePath }] : [];
+      return manifest
+        ? [{ path: manifest.path, packageManager: manifest.packageManager, lockfilePath: manifest.lockfilePath }]
+        : [];
     });
     const capability = groupCapability(groupManifests, { lockfileRegeneration: options.lockfileRegeneration });
     const record = project.pullRequests.find((pr) => pr.groupKey === group.groupKey) ?? null;
     const open = record?.state === "OPEN";
     let disabledReason: string | null = null;
-    if (project.settings.updateMode === "NOTIFY") disabledReason = "This project only notifies. Choose a pull request mode in Settings.";
-    else if (app.state === "not_configured") disabledReason = "The administrator has not set up the RepoPulse GitHub App.";
-    else if (app.state === "not_installed") disabledReason = "Install the RepoPulse GitHub App on this repository first.";
-    else if (project.prOwner.kind === "other") disabledReason = `PRs are managed by another RepoPulse user (${project.prOwner.ownerName}).`;
-    else if (project.prOwner.kind === "none") disabledReason = "Save a pull request mode in Settings to manage this repository's PRs.";
+    if (project.settings.updateMode === "NOTIFY")
+      disabledReason = "This project only notifies. Choose a pull request mode in Settings.";
+    else if (app.state === "not_configured")
+      disabledReason = "The administrator has not set up the RepoPulse GitHub App.";
+    else if (app.state === "not_installed")
+      disabledReason = "Install the RepoPulse GitHub App on this repository first.";
+    else if (project.prOwner.kind === "other")
+      disabledReason = `PRs are managed by another RepoPulse user (${project.prOwner.ownerName}).`;
+    else if (project.prOwner.kind === "none")
+      disabledReason = "Save a pull request mode in Settings to manage this repository's PRs.";
     else if (!capability.canCreatePr) disabledReason = capability.reason;
-    else if (record?.state === "EDITED") disabledReason = "Someone else pushed to this pull request, so RepoPulse no longer updates it.";
-    else if (!open && !group.hasPrSlot) disabledReason = `Waiting for a free slot (at most ${project.settings.maxOpenPrs} open pull requests).`;
+    else if (record?.state === "EDITED")
+      disabledReason = "Someone else pushed to this pull request, so RepoPulse no longer updates it.";
+    else if (!open && !group.hasPrSlot)
+      disabledReason = `Waiting for a free slot (at most ${project.settings.maxOpenPrs} open pull requests).`;
     return {
       groupKey: group.groupKey,
       isMajor: group.isMajor,
-      updates: group.updates.map((u) => ({ name: u.name, manifestPath: u.manifestPath, from: u.currentVersion, to: u.targetVersion!, level: u.level })),
+      updates: group.updates.map((u) => ({
+        name: u.name,
+        manifestPath: u.manifestPath,
+        from: u.currentVersion,
+        to: u.targetVersion!,
+        level: u.level,
+      })),
       lockfiles: capability.lockfiles,
       pullRequest: record ? { number: record.number, htmlUrl: record.htmlUrl, state: record.state } : null,
       disabledReason,
@@ -689,9 +763,7 @@ export function planListPullRequests(
   options: { appConfigured: boolean; lockfileRegeneration: boolean },
 ): PlannedPullRequest[] {
   if (project.updateMode === "NOTIFY") return [];
-  const app: AppRepoStatus = options.appConfigured
-    ? { state: "unknown", message: "" }
-    : { state: "not_configured" };
+  const app: AppRepoStatus = options.appConfigured ? { state: "unknown", message: "" } : { state: "not_configured" };
   return planPullRequests(
     {
       settings: {

@@ -31,13 +31,20 @@ describe("createRedisConnection", () => {
     }
   });
 
-  it("constructs Redis with maxRetriesPerRequest: null by default and allows override", () => {
+  it("constructs Redis with maxRetriesPerRequest: null and enableReadyCheck: false by default and allows override", () => {
     const conn = createRedisConnection({ url: "redis://127.0.0.1:6379", lazyConnect: true });
     expect(conn.options.maxRetriesPerRequest).toBeNull();
+    expect(conn.options.enableReadyCheck).toBe(false);
     conn.disconnect();
 
-    const custom = createRedisConnection({ url: "redis://127.0.0.1:6379", lazyConnect: true, maxRetriesPerRequest: 2 });
+    const custom = createRedisConnection({
+      url: "redis://127.0.0.1:6379",
+      lazyConnect: true,
+      maxRetriesPerRequest: 2,
+      enableReadyCheck: true,
+    });
     expect(custom.options.maxRetriesPerRequest).toBe(2);
+    expect(custom.options.enableReadyCheck).toBe(true);
     custom.disconnect();
   });
 });
@@ -54,7 +61,14 @@ describe("job ids", () => {
       "deps-notify-r1-s1",
     );
     expect(
-      depsNotifyJobId({ ruleId: "r1", projectId: "p1", kind: "pull_request", prId: "pr1", event: "edited", dedupKey: "a:b/c d@e" }),
+      depsNotifyJobId({
+        ruleId: "r1",
+        projectId: "p1",
+        kind: "pull_request",
+        prId: "pr1",
+        event: "edited",
+        dedupKey: "a:b/c d@e",
+      }),
     ).toBe("deps-notify-r1-pr1-a-b-c-d-e");
   });
 });
@@ -123,15 +137,42 @@ describe("parseRealtimeEvent", () => {
     expect(parseRealtimeEvent(serializeRealtimeEvent(event))).toEqual(event);
   });
 
+  it.each(events)("strips unknown extra fields from $type ($state$result$reason)", (event) => {
+    const raw = JSON.stringify({ ...event, extra: "should-not-leak", admin: true, nested: { a: 1 } });
+    const parsed = parseRealtimeEvent(raw);
+    expect(parsed).toEqual(event);
+    expect(parsed).not.toHaveProperty("extra");
+    expect(parsed).not.toHaveProperty("admin");
+    expect(parsed).not.toHaveProperty("nested");
+  });
+
   it.each([
     "not json",
     "null",
     "[]",
     JSON.stringify({ type: "UNKNOWN", repositoryId: "r", repositoryName: "a/b" }),
     JSON.stringify({ type: "NEW_RELEASE", repositoryId: "r", repositoryName: "a/b", tagName: "v1" }),
-    JSON.stringify({ type: "SYNC_COMPLETED", repositoryId: "r", repositoryName: "a/b", result: "MAYBE", newReleases: 1 }),
-    JSON.stringify({ type: "SYNC_COMPLETED", repositoryId: "r", repositoryName: "a/b", result: "UPDATED", newReleases: "1" }),
-    JSON.stringify({ type: "SYNC_COMPLETED", repositoryId: "r", repositoryName: "a/b", result: "UPDATED", newReleases: null }),
+    JSON.stringify({
+      type: "SYNC_COMPLETED",
+      repositoryId: "r",
+      repositoryName: "a/b",
+      result: "MAYBE",
+      newReleases: 1,
+    }),
+    JSON.stringify({
+      type: "SYNC_COMPLETED",
+      repositoryId: "r",
+      repositoryName: "a/b",
+      result: "UPDATED",
+      newReleases: "1",
+    }),
+    JSON.stringify({
+      type: "SYNC_COMPLETED",
+      repositoryId: "r",
+      repositoryName: "a/b",
+      result: "UPDATED",
+      newReleases: null,
+    }),
     JSON.stringify({ type: "SYNC_FAILED", repositoryId: "r", repositoryName: "a/b", reason: "NOPE", message: "x" }),
     JSON.stringify({ type: "SYNC_FAILED", repositoryId: "r", repositoryName: "a/b", reason: "ERROR" }),
     JSON.stringify({ type: "SYNC_FAILED", repositoryId: "r", repositoryName: "a/b", reason: "ERROR", message: 123 }),
@@ -143,15 +184,87 @@ describe("parseRealtimeEvent", () => {
     JSON.stringify({ type: "DEPS_SCAN_COMPLETED", projectId: "p", fullName: "a/b", outdated: 0, majors: "1" }),
     JSON.stringify({ type: "DEPS_SCAN_COMPLETED", repositoryId: "r", repositoryName: "a/b", outdated: 1, majors: 0 }),
     JSON.stringify({ type: "DEPS_SCAN_FAILED", projectId: "p", fullName: "a/b" }),
-    JSON.stringify({ type: "DEPS_PULL_REQUEST_UPDATED", projectId: "p", fullName: "a/b", groupKey: "all", state: "NOPE", number: 1, htmlUrl: null }),
-    JSON.stringify({ type: "DEPS_PULL_REQUEST_UPDATED", projectId: "p", fullName: "a/b", state: "OPEN", number: 1, htmlUrl: null }),
-    JSON.stringify({ type: "DEPS_PULL_REQUEST_UPDATED", projectId: "p", fullName: "a/b", groupKey: "all", state: "OPEN", number: -1, htmlUrl: null }),
-    JSON.stringify({ type: "DEPS_PULL_REQUEST_UPDATED", projectId: "p", fullName: "a/b", groupKey: "all", state: "OPEN", number: 1.5, htmlUrl: null }),
-    JSON.stringify({ type: "DEPS_PULL_REQUEST_UPDATED", projectId: "p", fullName: "a/b", groupKey: "all", state: "OPEN", number: "12", htmlUrl: null }),
-    JSON.stringify({ type: "DEPS_PULL_REQUEST_UPDATED", projectId: "p", fullName: "a/b", groupKey: "all", state: "OPEN", htmlUrl: null }),
-    JSON.stringify({ type: "DEPS_PULL_REQUEST_UPDATED", projectId: "p", fullName: "a/b", groupKey: "all", state: "OPEN", number: 1, htmlUrl: 123 }),
-    JSON.stringify({ type: "DEPS_PULL_REQUEST_UPDATED", projectId: "p", fullName: "a/b", groupKey: "all", state: "FAILED", number: null, htmlUrl: null, message: 123 }),
-    JSON.stringify({ type: "DEPS_PULL_REQUEST_UPDATED", projectId: "p", fullName: "a/b", groupKey: "all", state: "FAILED", number: null, htmlUrl: null, message: null }),
+    JSON.stringify({
+      type: "DEPS_PULL_REQUEST_UPDATED",
+      projectId: "p",
+      fullName: "a/b",
+      groupKey: "all",
+      state: "NOPE",
+      number: 1,
+      htmlUrl: null,
+    }),
+    JSON.stringify({
+      type: "DEPS_PULL_REQUEST_UPDATED",
+      projectId: "p",
+      fullName: "a/b",
+      state: "OPEN",
+      number: 1,
+      htmlUrl: null,
+    }),
+    JSON.stringify({
+      type: "DEPS_PULL_REQUEST_UPDATED",
+      projectId: "p",
+      fullName: "a/b",
+      groupKey: "all",
+      state: "OPEN",
+      number: -1,
+      htmlUrl: null,
+    }),
+    JSON.stringify({
+      type: "DEPS_PULL_REQUEST_UPDATED",
+      projectId: "p",
+      fullName: "a/b",
+      groupKey: "all",
+      state: "OPEN",
+      number: 1.5,
+      htmlUrl: null,
+    }),
+    JSON.stringify({
+      type: "DEPS_PULL_REQUEST_UPDATED",
+      projectId: "p",
+      fullName: "a/b",
+      groupKey: "all",
+      state: "OPEN",
+      number: "12",
+      htmlUrl: null,
+    }),
+    JSON.stringify({
+      type: "DEPS_PULL_REQUEST_UPDATED",
+      projectId: "p",
+      fullName: "a/b",
+      groupKey: "all",
+      state: "OPEN",
+      htmlUrl: null,
+    }),
+    JSON.stringify({
+      type: "DEPS_PULL_REQUEST_UPDATED",
+      projectId: "p",
+      fullName: "a/b",
+      groupKey: "all",
+      state: "OPEN",
+      number: 1,
+      htmlUrl: 123,
+    }),
+    JSON.stringify({
+      type: "DEPS_PULL_REQUEST_UPDATED",
+      projectId: "p",
+      fullName: "a/b",
+      groupKey: "all",
+      state: "FAILED",
+      number: null,
+      htmlUrl: null,
+      message: 123,
+    }),
+    JSON.stringify({
+      type: "DEPS_PULL_REQUEST_UPDATED",
+      projectId: "p",
+      fullName: "a/b",
+      groupKey: "all",
+      state: "FAILED",
+      number: null,
+      htmlUrl: null,
+      message: null,
+    }),
     JSON.stringify({ type: "DEPS_UNKNOWN", projectId: "p", fullName: "a/b" }),
   ])("rejects %s", (raw) => {
     expect(parseRealtimeEvent(raw)).toBeNull();
@@ -195,14 +308,23 @@ describe("readBackfillConfig", () => {
 describe("applyBackfillOverrides", () => {
   it("keeps the base values without overrides or with NaN/Infinity", () => {
     expect(applyBackfillOverrides(BACKFILL_DEFAULTS, null)).toEqual(BACKFILL_DEFAULTS);
-    expect(applyBackfillOverrides(BACKFILL_DEFAULTS, { hardCap: null, deepStep: undefined })).toEqual(BACKFILL_DEFAULTS);
-    expect(applyBackfillOverrides(BACKFILL_DEFAULTS, { hardCap: Number.NaN, maxAgeDays: Number.POSITIVE_INFINITY })).toEqual(
+    expect(applyBackfillOverrides(BACKFILL_DEFAULTS, { hardCap: null, deepStep: undefined })).toEqual(
       BACKFILL_DEFAULTS,
     );
+    expect(
+      applyBackfillOverrides(BACKFILL_DEFAULTS, { hardCap: Number.NaN, maxAgeDays: Number.POSITIVE_INFINITY }),
+    ).toEqual(BACKFILL_DEFAULTS);
   });
 
   it("applies each override and keeps the default target within the hard cap", () => {
-    expect(applyBackfillOverrides(BACKFILL_DEFAULTS, { defaultTarget: 500, hardCap: 300, maxAgeDays: 0, deepCooldownMinutes: 0 })).toEqual({
+    expect(
+      applyBackfillOverrides(BACKFILL_DEFAULTS, {
+        defaultTarget: 500,
+        hardCap: 300,
+        maxAgeDays: 0,
+        deepCooldownMinutes: 0,
+      }),
+    ).toEqual({
       ...BACKFILL_DEFAULTS,
       defaultTarget: 300,
       hardCap: 300,

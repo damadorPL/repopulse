@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type * as SmtpSettingsModule from "@/server/smtp-settings";
 
 class UnauthorizedError extends Error {}
 class ForbiddenError extends Error {}
@@ -39,7 +40,7 @@ vi.mock("@repopulse/notifications", () => ({
   resolveAppBaseUrl: () => "https://pulse.example.com",
 }));
 vi.mock("@/server/smtp-settings", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/server/smtp-settings")>()),
+  ...(await importOriginal<typeof SmtpSettingsModule>()),
   getSmtpConfig,
   getSmtpSettingsView,
 }));

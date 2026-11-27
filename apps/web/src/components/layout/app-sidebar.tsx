@@ -1,9 +1,19 @@
 "use client";
 
 import type { ReactNode } from "react";
+import type { Route } from "next";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ActivityIcon, BellRingIcon, BoxesIcon, InboxIcon, PackageIcon, PlusIcon, Settings2Icon, ShieldIcon } from "lucide-react";
+import {
+  ActivityIcon,
+  BellRingIcon,
+  BoxesIcon,
+  InboxIcon,
+  PackageIcon,
+  PlusIcon,
+  Settings2Icon,
+  ShieldIcon,
+} from "lucide-react";
 import { TagDot } from "@/components/feed/tag-pill";
 import { AppVersionLink } from "@/components/layout/app-version-link";
 import { ManageTagsModal } from "@/components/modals/manage-tags-modal";
@@ -34,7 +44,7 @@ function NavLink({
   children,
   badge,
 }: {
-  href: string;
+  href: Route;
   active: boolean;
   icon: ReactNode;
   children: ReactNode;
@@ -95,7 +105,11 @@ export function AppSidebar({
         >
           All Releases
         </NavLink>
-        <NavLink href={feedHref({ onlyUnread: true })} active={onFeed && unfiltered && filters.onlyUnread} icon={<InboxIcon />}>
+        <NavLink
+          href={feedHref({ onlyUnread: true })}
+          active={onFeed && unfiltered && filters.onlyUnread}
+          icon={<InboxIcon />}
+        >
           Unread Only
         </NavLink>
         <NavLink

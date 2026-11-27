@@ -79,8 +79,11 @@ export const postWebhook: WebhookSender = async (request, options) => {
   headers["Content-Length"] = String(body.byteLength);
 
   const response = await new Promise<WebhookResponse>((resolve, reject) => {
+    let settled = false;
+    let truncated = false;
     const req = transport.request(
       {
+        agent: false,
         protocol: url.protocol,
         hostname: url.hostname.replace(/^\[|\]$/g, ""),
         port: url.port || undefined,
@@ -93,22 +96,56 @@ export const postWebhook: WebhookSender = async (request, options) => {
       (res) => {
         const chunks: Buffer[] = [];
         let size = 0;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") });
+        };
         res.on("data", (chunk: Buffer) => {
-          if (size >= MAX_RESPONSE_BYTES) return;
+          if (truncated) return;
+          const remaining = MAX_RESPONSE_BYTES - size;
+          if (chunk.byteLength >= remaining) {
+            if (remaining > 0) {
+              chunks.push(chunk.subarray(0, remaining));
+              size += remaining;
+            }
+            truncated = true;
+            finish();
+            res.destroy();
+            return;
+          }
           chunks.push(chunk);
           size += chunk.byteLength;
         });
-        res.on("end", () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8").slice(0, MAX_RESPONSE_BYTES) }));
-        res.on("error", reject);
+        res.on("end", finish);
+        res.on("close", finish);
+        res.on("error", (err) => {
+          if (truncated) {
+            finish();
+            return;
+          }
+          if (!settled) {
+            settled = true;
+            reject(err);
+          }
+        });
       },
     );
-    req.on("error", reject);
+    req.on("error", (err) => {
+      if (truncated || settled) return;
+      settled = true;
+      reject(err);
+    });
     req.end(body);
   }).catch((error: unknown) => {
     if (error instanceof NotificationDeliveryError) throw error;
     const timedOut = signals[0]?.aborted === true;
     const code = (error as NodeJS.ErrnoException | undefined)?.code;
-    const detail = timedOut ? `timed out after ${Math.round(timeoutMs / 1000)} s` : code ? `failed (${code})` : "failed";
+    const detail = timedOut
+      ? `timed out after ${Math.round(timeoutMs / 1000)} s`
+      : code
+        ? `failed (${code})`
+        : "failed";
     throw new NotificationDeliveryError(`${request.service} request to ${request.destination} ${detail}.`, {
       permanent: false,
       cause: error,

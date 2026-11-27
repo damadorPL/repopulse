@@ -1,6 +1,16 @@
+import { createHash } from "node:crypto";
 import nodemailer from "nodemailer";
 import { NotificationDeliveryError } from "../errors.js";
-import { escapeHtml, githubLinkLabel, markdownToEmailHtml, releaseKindLabel, releaseSummary, truncateText } from "../markdown.js";
+import {
+  escapeHtml,
+  githubLinkLabel,
+  markdownToEmailHtml,
+  releaseKindLabel,
+  releaseSummary,
+  safeHexColor,
+  safeHttpUrl,
+  truncateText,
+} from "../markdown.js";
 import type { MessageContext, SemverType } from "../types.js";
 
 /** Release notes beyond this are cut; the email links to the full notes. */
@@ -72,26 +82,67 @@ export type MailSender = (message: EmailMessage) => Promise<void>;
 
 const transports = new Map<string, ReturnType<typeof nodemailer.createTransport>>();
 
+function smtpConfigKey(config: SmtpConfig): string {
+  return createHash("sha256")
+    .update(JSON.stringify([config.host, config.port, config.secure, config.user ?? null, config.pass ?? null]))
+    .digest("hex");
+}
+
+function smtpTransportOptions(config: SmtpConfig) {
+  return {
+    host: config.host,
+    port: config.port,
+    secure: config.secure,
+    ...(config.user ? { auth: { user: config.user, pass: config.pass ?? "" } } : {}),
+    connectionTimeout: 15_000,
+    greetingTimeout: 15_000,
+    socketTimeout: 30_000,
+    dnsTimeout: 10_000,
+    tls: { minVersion: "TLSv1.2" as const },
+  };
+}
+
+/** Closes all cached pooled SMTP transports and clears the transport cache. */
+export function closeSmtpTransports(): void {
+  for (const [key, transport] of transports) {
+    try {
+      transport.close();
+    } finally {
+      transports.delete(key);
+    }
+  }
+}
+
 /**
- * Nodemailer SMTP transport (15 s timeouts), reused while the configuration stays the same.
- * Saving new settings in the UI changes the key, and the old transport is closed.
+ * Verifies an SMTP configuration using an ephemeral (non-pooled) transport and closes it when done.
+ * Maps SMTP authentication and connection failures to {@link NotificationDeliveryError}.
+ */
+export async function verifySmtpConfig(config: SmtpConfig): Promise<void> {
+  const transport = nodemailer.createTransport(smtpTransportOptions(config));
+  try {
+    await transport.verify();
+  } catch (error) {
+    throw smtpError(error, "SMTP verification failed");
+  } finally {
+    transport.close();
+  }
+}
+
+/**
+ * Pooled Nodemailer SMTP transport (15 s connection/greeting timeouts, 10 s DNS timeout, TLS 1.2+),
+ * reused while the configuration stays the same. Saving new settings in the UI changes the SHA-256
+ * cache key, and the old transport is closed.
  */
 export function createSmtpSender(config: SmtpConfig): MailSender {
-  const key = JSON.stringify([config.host, config.port, config.secure, config.user, config.pass]);
+  const key = smtpConfigKey(config);
   let transport = transports.get(key);
   if (!transport) {
-    for (const [staleKey, stale] of transports) {
-      stale.close();
-      transports.delete(staleKey);
-    }
+    closeSmtpTransports();
     transport = nodemailer.createTransport({
-      host: config.host,
-      port: config.port,
-      secure: config.secure,
-      ...(config.user ? { auth: { user: config.user, pass: config.pass ?? "" } } : {}),
-      connectionTimeout: 15_000,
-      greetingTimeout: 15_000,
-      socketTimeout: 30_000,
+      ...smtpTransportOptions(config),
+      pool: true,
+      maxConnections: 5,
+      maxMessages: 100,
     });
     transports.set(key, transport);
   }
@@ -106,13 +157,14 @@ export function createSmtpSender(config: SmtpConfig): MailSender {
 }
 
 /** SMTP 5xx replies and authentication failures are permanent; 4xx and connection errors are retried. */
-function smtpError(error: unknown): NotificationDeliveryError {
+function smtpError(error: unknown, fallbackLabel = "Sending the email failed"): NotificationDeliveryError {
   const err = error as { code?: string; responseCode?: number; response?: string; message?: string };
   const responseCode = typeof err.responseCode === "number" ? err.responseCode : undefined;
-  const permanent = err.code === "EAUTH" || err.code === "EENVELOPE" || (responseCode !== undefined && responseCode >= 500);
+  const permanent =
+    err.code === "EAUTH" || err.code === "EENVELOPE" || (responseCode !== undefined && responseCode >= 500);
   const detail = (err.response ?? err.message ?? "unknown error").split(/\r?\n/, 1)[0]?.slice(0, 200);
   const label = err.code === "EAUTH" ? "SMTP authentication failed" : "The SMTP server rejected the email";
-  return new NotificationDeliveryError(`${permanent ? label : "Sending the email failed"}: ${detail}`, {
+  return new NotificationDeliveryError(`${permanent ? label : fallbackLabel}: ${detail}`, {
     permanent,
     cause: error,
   });
@@ -127,10 +179,12 @@ export interface RenderedEmail {
 }
 
 function button(href: string, label: string, primary: boolean): string {
+  const safeHref = safeHttpUrl(href);
+  if (!safeHref) return "";
   const style = primary
     ? "background:#0f172a;color:#ffffff;border:1px solid #0f172a"
     : "background:#ffffff;color:#0f172a;border:1px solid #cbd5e1";
-  return `<a href="${escapeHtml(href)}" style="display:inline-block;${style};border-radius:6px;padding:10px 16px;font-size:14px;font-weight:600;text-decoration:none;margin:0 8px 8px 0">${escapeHtml(label)}</a>`;
+  return `<a href="${escapeHtml(safeHref)}" style="display:inline-block;${style};border-radius:6px;padding:10px 16px;font-size:14px;font-weight:600;text-decoration:none;margin:0 8px 8px 0">${escapeHtml(label)}</a>`;
 }
 
 /** Responsive single-column HTML email (inline styles only, for email clients) plus a plain-text part. */
@@ -182,7 +236,7 @@ export function renderReleaseEmail(ctx: MessageContext): RenderedEmail {
 <p style="margin:0 0 10px;font-size:22px;line-height:1.3;font-weight:700;word-break:break-word">${escapeHtml(release.tagName)}
 <span style="display:inline-block;vertical-align:middle;margin-left:6px;padding:3px 8px;border-radius:999px;background:${badge.bg};color:${badge.fg};font-size:12px;font-weight:600">${escapeHtml(kind)}</span></p>
 ${showTitle ? `<p style="margin:0 0 6px;font-size:15px;font-weight:600">${escapeHtml(release.title)}</p>` : ""}
-<p style="margin:0;font-size:13px;color:#64748b">Published ${escapeHtml(published)}${rule.tag ? ` · Tag <strong style="color:${escapeHtml(rule.tag.colorHex)}">${escapeHtml(rule.tag.name)}</strong>` : ""}</p>
+<p style="margin:0;font-size:13px;color:#64748b">Published ${escapeHtml(published)}${rule.tag ? ` · Tag <strong style="color:${safeHexColor(rule.tag.colorHex)}">${escapeHtml(rule.tag.name)}</strong>` : ""}</p>
 </td></tr>
 <tr><td style="padding:16px 24px 8px;font-size:14px;line-height:1.6;word-break:break-word">
 ${markdownToEmailHtml(summary)}

@@ -25,11 +25,10 @@ import {
   type ParsedDependency,
   type RegistryLookup,
   type RegistryVersion,
-  type RequirementDependency,
   type TargetSelection,
 } from "@repopulse/deps";
 import type { GitTreeEntry, ReadBlobResult } from "@repopulse/github";
-import { lockfileCacheKey, type BlobCache, type LockfileCache } from "./registry-cache";
+import { lockfileCacheKey, type BlobCache, type LockfileCache } from "./registry-cache.js";
 
 /**
  * Pure-ish analysis shared by the scan and update processors: read files of a default-branch snapshot (through
@@ -39,7 +38,10 @@ import { lockfileCacheKey, type BlobCache, type LockfileCache } from "./registry
 
 // ─── Reading files ─────────────────────────────────────────────────────────
 
-export type BlobReader = (refs: Array<{ path: string; sha: string; size: number | null }>, maxBytes: number) => Promise<ReadBlobResult[]>;
+export type BlobReader = (
+  refs: Array<{ path: string; sha: string; size: number | null }>,
+  maxBytes: number,
+) => Promise<ReadBlobResult[]>;
 
 export interface SnapshotReader {
   /** Text of a blob of the snapshot, or `null` (missing, not a blob, larger than `maxBytes`). */
@@ -52,7 +54,11 @@ export interface SnapshotReader {
   readonly downloaded: number;
 }
 
-export function createSnapshotReader(entries: readonly GitTreeEntry[], readBlobs: BlobReader, blobCache?: BlobCache | null): SnapshotReader {
+export function createSnapshotReader(
+  entries: readonly GitTreeEntry[],
+  readBlobs: BlobReader,
+  blobCache?: BlobCache | null,
+): SnapshotReader {
   const blobs = new Map(entries.filter((entry) => entry.type === "blob").map((entry) => [entry.path, entry]));
   const memo = new Map<string, string | null>();
   let downloaded = 0;
@@ -74,7 +80,8 @@ export function createSnapshotReader(entries: readonly GitTreeEntry[], readBlobs
     downloaded += refs.length;
     for (const result of await readBlobs(refs, maxBytes)) {
       memo.set(result.path, result.content);
-      if (result.content !== null && blobCache && result.content.length <= MAX_MANIFEST_BYTES) await blobCache.set(result.sha, result.content);
+      if (result.content !== null && blobCache && result.content.length <= MAX_MANIFEST_BYTES)
+        await blobCache.set(result.sha, result.content);
     }
   };
 
@@ -126,12 +133,17 @@ export interface ProjectAnalysis {
 }
 
 /** `name␀kind␀group`: the unique key of a dependency within one manifest. */
-export function dependencyKey(name: string, kind: DependencyKind | string, group: string): string {
+export function dependencyKey(name: string, kind: DependencyKind | (string & {}), group: string): string {
   return `${name}\u0000${kind}\u0000${group}`;
 }
 
 /** `manifestPath␀name␀kind␀group`. */
-export function rowKey(manifestPath: string, name: string, kind: DependencyKind | string, group: string): string {
+export function rowKey(
+  manifestPath: string,
+  name: string,
+  kind: DependencyKind | (string & {}),
+  group: string,
+): string {
   return `${manifestPath}\u0000${dependencyKey(name, kind, group)}`;
 }
 
@@ -143,7 +155,12 @@ async function readCurrentVersions(
 ): Promise<LockfileVersions | null> {
   const lockfilePath = manifest.lockfilePath;
   if (!lockfilePath || manifest.packageManager === "PIP" || manifest.packageManager === "NONE") return null;
-  const input = { packageManager: manifest.packageManager, lockfilePath, importer: manifest.lockfileImporter, dependencies };
+  const input = {
+    packageManager: manifest.packageManager,
+    lockfilePath,
+    importer: manifest.lockfileImporter,
+    dependencies,
+  };
   // Binary: nothing to read (the reader returns the "switch to bun.lock" warning).
   if (lockfilePath.endsWith(".lockb")) return readLockfile({ ...input, text: "" });
   const sha = reader.sha(lockfilePath);
@@ -154,7 +171,13 @@ async function readCurrentVersions(
   }
   const text = await reader.read(lockfilePath, MAX_LOCKFILE_BYTES);
   if (text === null) {
-    return { versions: new Map(), formatVersion: null, warnings: [`${lockfilePath} could not be read (larger than 20 MiB?): current versions are taken from the declared ranges`] };
+    return {
+      versions: new Map(),
+      formatVersion: null,
+      warnings: [
+        `${lockfilePath} could not be read (larger than 20 MiB?): current versions are taken from the declared ranges`,
+      ],
+    };
   }
   const result = readLockfile({ ...input, text });
   if (key && lockCache && result.warnings.length === 0) await lockCache.set(key, result);
@@ -189,7 +212,9 @@ export async function analyzeProject(params: {
   // Include ancestor registry config even for manifest-only projects: both scans and PR jobs must reject
   // private-source packages before looking their names up on public registries.
   const existingPaths = new Set(params.entries.filter((entry) => entry.type === "blob").map((entry) => entry.path));
-  const configPaths = [...new Set(resolved.manifests.flatMap((manifest) => registryConfigPaths(manifest.path, manifest.ecosystem)))].filter((path) => existingPaths.has(path));
+  const configPaths = [
+    ...new Set(resolved.manifests.flatMap((manifest) => registryConfigPaths(manifest.path, manifest.ecosystem))),
+  ].filter((path) => existingPaths.has(path));
   const configTexts = await reader.readMany(configPaths, MAX_MANIFEST_BYTES);
   const registryFiles = new Map(configPaths.map((path) => [path, configTexts.get(path) ?? null]));
 
@@ -222,21 +247,30 @@ export async function analyzeProject(params: {
             const source = path === detected.path ? text : await reader.read(path);
             if (source === null) continue;
             const requirement = parseRequirements(source, path);
-            const custom = (requirement.indexUrl !== null && !isDefaultPypiIndex(requirement.indexUrl))
-              || requirement.extraIndexUrls.some((url) => !isDefaultPypiIndex(url))
-              || /^\s*(?:-f\s*|--find-links(?:=|\s+))/m.test(source);
+            const custom =
+              (requirement.indexUrl !== null && !isDefaultPypiIndex(requirement.indexUrl)) ||
+              requirement.extraIndexUrls.some((url) => !isDefaultPypiIndex(url)) ||
+              /^\s*(?:-f\s*|--find-links(?:=|\s+))/m.test(source);
             if (custom) {
-              parsed = parsed.map((dependency) => dependency.supported
-                ? { ...dependency, supported: false, unsupportedReason: "Resolved from a custom requirements index or source" }
-                : dependency);
+              parsed = parsed.map((dependency) =>
+                dependency.supported
+                  ? {
+                      ...dependency,
+                      supported: false,
+                      unsupportedReason: "Resolved from a custom requirements index or source",
+                    }
+                  : dependency,
+              );
               break;
             }
           }
           manifestWarnings.push(...tree.warnings);
-          for (const dependency of tree.dependencies as RequirementDependency[]) {
-            if (dependency.pinnedVersion && !fallbackVersions.has(dependency.name)) fallbackVersions.set(dependency.name, dependency.pinnedVersion);
+          for (const dependency of tree.dependencies) {
+            if (dependency.pinnedVersion && !fallbackVersions.has(dependency.name))
+              fallbackVersions.set(dependency.name, dependency.pinnedVersion);
           }
-          for (const [name, version] of tree.constraints) if (!fallbackVersions.has(name)) fallbackVersions.set(name, version);
+          for (const [name, version] of tree.constraints)
+            if (!fallbackVersions.has(name)) fallbackVersions.set(name, version);
         }
       } catch (error) {
         if (!isManifestParseError(error)) throw error;
@@ -251,7 +285,12 @@ export async function analyzeProject(params: {
       const key = dependencyKey(dependency.name, dependency.kind, dependency.group);
       if (!unique.has(key)) unique.set(key, dependency);
     }
-    const list = applyRegistryPolicy({ path: detected.path, ecosystem: detected.ecosystem, dependencies: [...unique.values()], files: registryFiles });
+    const list = applyRegistryPolicy({
+      path: detected.path,
+      ecosystem: detected.ecosystem,
+      dependencies: [...unique.values()],
+      files: registryFiles,
+    });
     const lock = await readCurrentVersions(
       detected,
       list.map((d) => ({ name: d.name, declared: d.declared })),
@@ -294,7 +333,11 @@ export function capDependencies(analysis: ProjectAnalysis, max: number): Project
 
 // ─── Registries and policy ─────────────────────────────────────────────────
 
-export type RegistryLookupFn = (ecosystem: DependencyEcosystem, name: string, signal?: AbortSignal) => Promise<RegistryLookup>;
+export type RegistryLookupFn = (
+  ecosystem: DependencyEcosystem,
+  name: string,
+  signal?: AbortSignal,
+) => Promise<RegistryLookup>;
 
 export function registryKey(ecosystem: DependencyEcosystem, name: string): string {
   return `${ecosystem}:${name}`;
@@ -312,10 +355,14 @@ export async function lookupRegistries(
   const unique = new Map<string, { ecosystem: DependencyEcosystem; name: string }>();
   for (const item of items) unique.set(registryKey(item.ecosystem, item.name), item);
   const keys = [...unique.keys()];
-  const results = await mapWithConcurrency(keys, (key) => {
-    const item = unique.get(key)!;
-    return lookup(item.ecosystem, item.name, signal);
-  }, REGISTRY_CONCURRENCY);
+  const results = await mapWithConcurrency(
+    keys,
+    (key) => {
+      const item = unique.get(key)!;
+      return lookup(item.ecosystem, item.name, signal);
+    },
+    REGISTRY_CONCURRENCY,
+  );
   return new Map(keys.map((key, index) => [key, results[index]!]));
 }
 
@@ -380,14 +427,19 @@ export function planAnalysis(
             currentVersion: item.currentVersion,
             supported: dependency.supported,
             ...(dependency.unsupportedReason ? { unsupportedReason: dependency.unsupportedReason } : {}),
-            dismissedVersion: dismissed.get(rowKey(manifest.detected.path, dependency.name, dependency.kind, dependency.group)) ?? null,
+            dismissedVersion:
+              dismissed.get(rowKey(manifest.detected.path, dependency.name, dependency.kind, dependency.group)) ?? null,
           },
           candidates: !dependency.supported ? [] : lookup?.found ? lookup.package.versions : null,
           ...(lookup && !lookup.found ? { notFoundReason: lookup.reason } : {}),
         },
       };
     });
-    const selections = applyPolicy(inputs.map((entry) => entry.input), policy, now);
+    const selections = applyPolicy(
+      inputs.map((entry) => entry.input),
+      policy,
+      now,
+    );
     inputs.forEach(({ item, lookup }, index) => {
       const selection = selections[index]!;
       const pkg = lookup?.found ? lookup.package : null;
@@ -396,7 +448,10 @@ export function planAnalysis(
         manifest,
         selection,
         lookup,
-        targetRelease: selection.targetVersion && pkg ? (pkg.versions.find((v) => v.version === selection.targetVersion) ?? null) : null,
+        targetRelease:
+          selection.targetVersion && pkg
+            ? (pkg.versions.find((v) => v.version === selection.targetVersion) ?? null)
+            : null,
         sourceRepoUrl: pkg?.sourceRepoUrl ?? null,
       });
     });

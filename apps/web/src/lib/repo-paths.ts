@@ -76,7 +76,10 @@ export interface PathSuggestion extends RepoPathEntry {
  * shorter and alphabetical paths. An empty query lists the repository root.
  */
 export function searchRepoPaths(index: RepoPathIndex, query: string, limit = 8): PathSuggestion[] {
-  const q = query.trim().replace(/^(\.\/|\/)+/, "").toLowerCase();
+  const q = query
+    .trim()
+    .replace(/^(\.\/|\/)+/, "")
+    .toLowerCase();
   if (q === "") {
     return (index.children.get("") ?? []).slice(0, limit).map((entry) => ({ ...entry, matchStart: -1 }));
   }

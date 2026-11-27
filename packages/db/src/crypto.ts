@@ -27,11 +27,15 @@ function getKey(): Buffer {
  */
 export function encryptToken(plainText: string): string {
   const key = getKey();
-  const iv = randomBytes(IV_LENGTH);
-  const cipher = createCipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
-  const encrypted = Buffer.concat([cipher.update(plainText, "utf8"), cipher.final()]);
-  const authTag = cipher.getAuthTag();
-  return `${iv.toString("hex")}:${authTag.toString("hex")}:${encrypted.toString("hex")}`;
+  try {
+    const iv = randomBytes(IV_LENGTH);
+    const cipher = createCipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
+    const encrypted = Buffer.concat([cipher.update(plainText, "utf8"), cipher.final()]);
+    const authTag = cipher.getAuthTag();
+    return `${iv.toString("hex")}:${authTag.toString("hex")}:${encrypted.toString("hex")}`;
+  } finally {
+    key.fill(0);
+  }
 }
 
 /**
@@ -56,13 +60,14 @@ export function decryptToken(cipherText: string): string {
   }
 
   const key = getKey();
-  const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(ivHex, "hex"), {
-    authTagLength: AUTH_TAG_LENGTH,
-  });
-  decipher.setAuthTag(Buffer.from(authTagHex, "hex"));
-  // decipher.final() throws "Unsupported state or unable to authenticate data" on tampering.
-  return Buffer.concat([
-    decipher.update(Buffer.from(encryptedHex, "hex")),
-    decipher.final(),
-  ]).toString("utf8");
+  try {
+    const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(ivHex, "hex"), {
+      authTagLength: AUTH_TAG_LENGTH,
+    });
+    decipher.setAuthTag(Buffer.from(authTagHex, "hex"));
+    // decipher.final() throws "Unsupported state or unable to authenticate data" on tampering.
+    return Buffer.concat([decipher.update(Buffer.from(encryptedHex, "hex")), decipher.final()]).toString("utf8");
+  } finally {
+    key.fill(0);
+  }
 }

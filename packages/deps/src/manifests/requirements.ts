@@ -122,7 +122,8 @@ function toSpan(line: LogicalLine, start: number, end: number): TextSpan | null 
   return { start: first, end: last + 1 };
 }
 
-const OPTION_ARGUMENT = /^(-r|--requirement|-c|--constraint|-e|--editable|-i|--index-url|--extra-index-url|-f|--find-links|--trusted-host)(?:=|\s+|(?<=^-[rceif]))(.*)$/;
+const OPTION_ARGUMENT =
+  /^(-r|--requirement|-c|--constraint|-e|--editable|-i|--index-url|--extra-index-url|-f|--find-links|--trusted-host)(?:=|\s+|(?<=^-[rceif]))(.*)$/;
 
 function unsupported(
   dependency: Omit<RequirementDependency, "supported" | "unsupportedReason">,
@@ -202,7 +203,11 @@ export function parseRequirements(text: string, path = "requirements.txt"): Requ
     }
 
     // URL, archive or path requirement without a PEP 508 name.
-    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(body) || /^(?:\.{1,2}\/|\/|[A-Za-z]:\\)/.test(body) || /\.(?:whl|zip|tar\.gz|tgz|tar\.bz2)\b/i.test(body.split(/\s/)[0] ?? "")) {
+    if (
+      /^[a-z][a-z0-9+.-]*:\/\//i.test(body) ||
+      /^(?:\.{1,2}\/|\/|[A-Za-z]:\\)/.test(body) ||
+      /\.(?:whl|zip|tar\.gz|tgz|tar\.bz2)\b/i.test(body.split(/\s/)[0] ?? "")
+    ) {
       const name = eggName(body);
       if (name) {
         result.dependencies.push(
@@ -338,7 +343,8 @@ export function readRequirementsPins(text: string, path = "requirements.txt"): M
   const pins = new Map<string, string>();
   for (const dependency of parseRequirements(text, path).dependencies) {
     if (dependency.pinnedVersion && !dependency.marker) pins.set(dependency.name, dependency.pinnedVersion);
-    else if (dependency.pinnedVersion && !pins.has(dependency.name)) pins.set(dependency.name, dependency.pinnedVersion);
+    else if (dependency.pinnedVersion && !pins.has(dependency.name))
+      pins.set(dependency.name, dependency.pinnedVersion);
   }
   return pins;
 }
@@ -382,7 +388,9 @@ export async function parseRequirementsTree(
     for (const include of file.includes) {
       const constraint = asConstraint || include.type === "constraint";
       if (include.resolved === null) {
-        warnings.push(`${file.path}:${include.line}: include "${include.target}" is outside the repository and skipped`);
+        warnings.push(
+          `${file.path}:${include.line}: include "${include.target}" is outside the repository and skipped`,
+        );
         continue;
       }
       if (visited.has(include.resolved)) continue;

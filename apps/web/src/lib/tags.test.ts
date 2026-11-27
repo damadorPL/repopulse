@@ -32,9 +32,12 @@ describe("isHexColor", () => {
     expect(isHexColor(value)).toBe(true);
   });
 
-  it.each(["EF4444", "#EF444", "#EF44444", "#GGGGGG", "red", "#EF4444;", " #EF4444", "url(x)"])("rejects %s", (value) => {
-    expect(isHexColor(value)).toBe(false);
-  });
+  it.each(["EF4444", "#EF444", "#EF44444", "#GGGGGG", "red", "#EF4444;", " #EF4444", "url(x)"])(
+    "rejects %s",
+    (value) => {
+      expect(isHexColor(value)).toBe(false);
+    },
+  );
 });
 
 describe("readableTextColor", () => {

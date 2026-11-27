@@ -127,7 +127,11 @@ export function computeVersionStatus(rows: readonly VersionRow[], currentVersion
   const anchor = findVersionRow(rows, currentVersion);
   if (!anchor && !parseVersion(currentVersion)) return null;
   const newer = rows.filter((row) => isNewerThanVersion(row, currentVersion, anchor?.publishedAt ?? null));
-  return { behind: newer.length, major: newer.filter((row) => row.semverType === "MAJOR").length, matched: anchor !== null };
+  return {
+    behind: newer.length,
+    major: newer.filter((row) => row.semverType === "MAJOR").length,
+    matched: anchor !== null,
+  };
 }
 
 /** "Up to date", "1 release behind", "3 releases behind · 1 major". */

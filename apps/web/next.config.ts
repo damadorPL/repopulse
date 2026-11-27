@@ -13,12 +13,15 @@ if (process.env.NODE_ENV !== "production" && existsSync(rootEnvFile)) {
 }
 
 // The app version shown in the sidebar: `version` in apps/web/package.json, bumped with each release.
-const appVersion = (JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string }).version;
+const appVersion = (JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string })
+  .version;
 
 const nextConfig: NextConfig = {
   // Inlined into server and client bundles at build time.
   env: { APP_VERSION: appVersion },
   output: "standalone",
+  reactCompiler: true,
+  typedRoutes: true,
   // Trace from the monorepo root so pnpm-symlinked workspace packages
   // (e.g. @repopulse/db) and their deps are copied into .next/standalone.
   outputFileTracingRoot: monorepoRoot,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_DEPS_SCAN_CRON } from "@repopulse/queue";
-import { DEFAULT_SANDBOX_URL, readConfig } from "./config";
+import { DEFAULT_SANDBOX_URL, readConfig } from "./config.js";
 
 describe("readConfig", () => {
   it("returns defaults when env variables are absent or blank", () => {

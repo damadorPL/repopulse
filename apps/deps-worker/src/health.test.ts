@@ -1,30 +1,23 @@
 import net from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@repopulse/db";
-import { pingRedis, resolveHealthPort, startHealthServer, type HealthServer } from "./health";
+import { pingRedis, resolveHealthPort, startHealthServer, type HealthServer } from "./health.js";
 
 let activeServer: HealthServer | null = null;
-const originalRedisUrl = process.env.REDIS_URL;
-const originalHealthPort = process.env.DEPS_HEALTH_PORT;
 
 afterEach(async () => {
   await activeServer?.close();
   activeServer = null;
-  if (originalRedisUrl === undefined) delete process.env.REDIS_URL;
-  else process.env.REDIS_URL = originalRedisUrl;
-  if (originalHealthPort === undefined) delete process.env.DEPS_HEALTH_PORT;
-  else process.env.DEPS_HEALTH_PORT = originalHealthPort;
-  vi.restoreAllMocks();
 });
 
 describe("resolveHealthPort", () => {
   it("defaults to 3002 and validates DEPS_HEALTH_PORT", () => {
-    delete process.env.DEPS_HEALTH_PORT;
+    vi.stubEnv("DEPS_HEALTH_PORT", undefined);
     expect(resolveHealthPort()).toBe(3002);
-    process.env.DEPS_HEALTH_PORT = "4050";
+    vi.stubEnv("DEPS_HEALTH_PORT", "4050");
     expect(resolveHealthPort()).toBe(4050);
     for (const bad of ["-1", "65536", "abc"]) {
-      process.env.DEPS_HEALTH_PORT = bad;
+      vi.stubEnv("DEPS_HEALTH_PORT", bad);
       expect(() => resolveHealthPort()).toThrow(/Invalid DEPS_HEALTH_PORT/);
     }
   });
@@ -81,7 +74,7 @@ describe("pingRedis", () => {
 describe("startHealthServer", () => {
   it("serves 200 on GET /health when healthy, 503 when database fails, and 404 on other routes", async () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    delete process.env.REDIS_URL;
+    vi.stubEnv("REDIS_URL", undefined);
     const querySpy = vi.spyOn(prisma, "$queryRaw").mockResolvedValue([1] as never);
 
     activeServer = await startHealthServer(0);

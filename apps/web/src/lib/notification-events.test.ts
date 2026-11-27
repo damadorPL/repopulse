@@ -1,15 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isEventAllowedForScope, notificationEventsSchema, normalizeEvents, validateEventsForScope } from "./notification-events";
-
-describe("notificationEventsSchema", () => {
-  it("needs at least one known event and returns them de-duplicated in a fixed order", () => {
-    expect(notificationEventsSchema.safeParse([]).success).toBe(false);
-    expect(notificationEventsSchema.safeParse(["NOPE"]).success).toBe(false);
-    expect(notificationEventsSchema.safeParse("RELEASES").success).toBe(false);
-    expect(notificationEventsSchema.parse(["DEPENDENCY_PULL_REQUESTS", "RELEASES"])).toEqual(["RELEASES", "DEPENDENCY_PULL_REQUESTS"]);
-    expect(notificationEventsSchema.parse(["RELEASES", "RELEASES"])).toEqual(["RELEASES"]);
-  });
-});
+import { isEventAllowedForScope, normalizeEvents, validateEventsForScope } from "./notification-events";
 
 describe("tag scope", () => {
   it("allows only releases for tag-scoped rules", () => {

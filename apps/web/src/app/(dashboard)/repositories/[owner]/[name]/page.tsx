@@ -1,8 +1,15 @@
-import type { Metadata } from "next";
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
+import type { Metadata, Route } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeftIcon, BellOffIcon, ExternalLinkIcon, RssIcon, StarIcon, TriangleAlertIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  BellOffIcon,
+  ExternalLinkIcon,
+  RssIcon,
+  StarIcon,
+  TriangleExclamationPointIcon,
+} from "lucide-react";
 import { LocalDateTime, RelativeTime } from "@/components/feed/relative-time";
 import { RepoAvatar } from "@/components/feed/repo-avatar";
 import { RepositoryDependenciesCard } from "@/components/dependencies/repository-dependencies-card";
@@ -16,6 +23,7 @@ import { SyncRepoButton } from "@/components/repositories/sync-repo-button";
 import { TagSettings } from "@/components/repositories/tag-settings";
 import { TrackingSettings } from "@/components/repositories/tracking-settings";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { ActivitySource } from "@/lib/activity-grid";
 import { feedHref } from "@/lib/feed-filters";
 import { repoListHrefFrom } from "@/lib/repo-list-filters";
@@ -26,20 +34,31 @@ import { getDashboardData } from "@/server/queries/feed";
 import { getRepositoryActivity, getRepositorySettings, parseRepoSegment } from "@/server/queries/repository-settings";
 import { requireUser } from "@/server/session";
 
-type Params = Promise<{ owner: string; name: string }>;
-type SearchParams = Promise<Record<string, string | string[] | undefined>>;
-
 const compactNumber = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 
-export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
+export async function generateMetadata({ params }: PageProps<"/repositories/[owner]/[name]">): Promise<Metadata> {
   const { owner, name } = await params;
   const slug = `${parseRepoSegment(owner) ?? owner}/${parseRepoSegment(name) ?? name}`;
   return { title: `${slug} · RepoPulse` };
 }
 
-function Section({ id, title, description, children }: { id?: string; title: string; description?: string; children: ReactNode }) {
+function Section({
+  id,
+  title,
+  description,
+  children,
+}: {
+  id?: string;
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
   return (
-    <section id={id} className="scroll-mt-6 rounded-lg border bg-card p-4 sm:p-5" aria-labelledby={id ? `${id}-title` : undefined}>
+    <section
+      id={id}
+      className="scroll-mt-6 rounded-lg border bg-card p-4 sm:p-5"
+      aria-labelledby={id ? `${id}-title` : undefined}
+    >
       <h2 id={id ? `${id}-title` : undefined} className="font-medium">
         {title}
       </h2>
@@ -49,12 +68,58 @@ function Section({ id, title, description, children }: { id?: string; title: str
   );
 }
 
+async function RepositoryActivityContent({
+  userId,
+  repositoryId,
+  sources,
+  tracksReleases,
+}: {
+  userId: string;
+  repositoryId: string;
+  sources: ActivitySource[];
+  tracksReleases: boolean;
+}) {
+  const activity = await getRepositoryActivity(userId, repositoryId);
+  return (
+    <div className="space-y-5">
+      <ActivityStats items={activity.items} />
+      <ActivityGrid
+        repositoryId={repositoryId}
+        items={activity.items}
+        sources={sources}
+        total={activity.total}
+        firstStoredAt={activity.firstStoredAt?.toISOString() ?? null}
+        truncated={activity.truncated}
+        showHistoryLink={tracksReleases}
+      />
+    </div>
+  );
+}
+
+async function RepositoryDependenciesContent({
+  userId,
+  repositoryId,
+  subscriptionId,
+  fullName,
+}: {
+  userId: string;
+  repositoryId: string;
+  subscriptionId: string;
+  fullName: string;
+}) {
+  const dependencyProject = await getDependencyProjectForRepository(userId, repositoryId);
+  return <RepositoryDependenciesCard subscriptionId={subscriptionId} fullName={fullName} project={dependencyProject} />;
+}
+
 /**
  * Settings of one tracked repository (Slice 07): header, activity grid, tracking, tags,
  * notifications & feed, history and the danger zone. Addresses the signed-in user's own
  * subscription; anything else is the "Not tracked" page.
  */
-export default async function RepositorySettingsPage({ params, searchParams }: { params: Params; searchParams: SearchParams }) {
+export default async function RepositorySettingsPage({
+  params,
+  searchParams,
+}: PageProps<"/repositories/[owner]/[name]">) {
   const [{ owner, name }, query] = await Promise.all([params, searchParams]);
   const user = await requireUser();
   const settings = await getRepositorySettings(user.id, owner, name);
@@ -67,12 +132,10 @@ export default async function RepositorySettingsPage({ params, searchParams }: {
     const from = Array.isArray(query.from) ? query.from[0] : query.from;
     const [canonicalOwner = "", canonicalName = ""] = repo.fullName.split("/");
     const path = `/repositories/${encodeURIComponent(canonicalOwner)}/${encodeURIComponent(canonicalName)}`;
-    redirect(from ? `${path}?from=${encodeURIComponent(from)}` : path);
+    redirect((from ? `${path}?from=${encodeURIComponent(from)}` : path) as Route);
   }
 
-  const [activity, dashboard, depsEnabled] = await Promise.all([getRepositoryActivity(user.id, repo.id), getDashboardData(user.id), isDepsEnabled()]);
-  // Slice 08: the "Dependencies" card, only while the module is on.
-  const dependencyProject = depsEnabled ? await getDependencyProjectForRepository(user.id, repo.id) : null;
+  const [dashboard, depsEnabled] = await Promise.all([getDashboardData(user.id), isDepsEnabled()]);
   const unread = dashboard.unreadByRepository.find((r) => r.repositoryId === repo.id)?.unreadCount ?? 0;
   const tracksReleases = settings.trackMode !== "NONE";
   const sources: ActivitySource[] = [
@@ -84,7 +147,10 @@ export default async function RepositorySettingsPage({ params, searchParams }: {
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
-      <Link href={backHref} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <Link
+        href={backHref}
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+      >
         <ArrowLeftIcon className="size-4" aria-hidden />
         Tracked repositories
       </Link>
@@ -105,7 +171,11 @@ export default async function RepositorySettingsPage({ params, searchParams }: {
               <ExternalLinkIcon className="size-4" />
             </a>
           </div>
-          <p className={repo.description ? "mt-1 text-sm text-muted-foreground" : "mt-1 text-sm text-muted-foreground/60 italic"}>
+          <p
+            className={
+              repo.description ? "mt-1 text-sm text-muted-foreground" : "mt-1 text-sm text-muted-foreground/60 italic"
+            }
+          >
             {repo.description || "No description"}
           </p>
           <dl className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -116,7 +186,7 @@ export default async function RepositorySettingsPage({ params, searchParams }: {
             </div>
             {repo.pollStatus === "ERROR" ? (
               <div className="flex items-center gap-1 text-amber-700 dark:text-amber-400">
-                <TriangleAlertIcon className="size-3.5" aria-hidden />
+                <TriangleExclamationPointIcon className="size-3.5" aria-hidden />
                 <dt className="sr-only">Status</dt>
                 <dd>Last sync failed</dd>
               </div>
@@ -153,7 +223,12 @@ export default async function RepositorySettingsPage({ params, searchParams }: {
           </dl>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <PinButton subscriptionId={settings.subscriptionId} fullName={repo.fullName} isPinned={settings.isPinned} withLabel />
+          <PinButton
+            subscriptionId={settings.subscriptionId}
+            fullName={repo.fullName}
+            isPinned={settings.isPinned}
+            withLabel
+          />
           <SyncRepoButton repositoryId={repo.id} />
           <Button variant="outline" size="sm" asChild>
             <Link href={feedHref({ repositoryId: repo.id })}>
@@ -165,22 +240,36 @@ export default async function RepositorySettingsPage({ params, searchParams }: {
       </header>
 
       {settings.note ? (
-        <p className="rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-sm whitespace-pre-wrap break-words">{settings.note}</p>
+        <p className="rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-sm whitespace-pre-wrap wrap-break-word">
+          {settings.note}
+        </p>
       ) : null}
 
-      <Section id="activity" title="Activity" description="Updates in your feed over the last year, by day in your time zone.">
-        <div className="space-y-5">
-          <ActivityStats items={activity.items} />
-          <ActivityGrid
+      <Section
+        id="activity"
+        title="Activity"
+        description="Updates in your feed over the last year, by day in your time zone."
+      >
+        <Suspense
+          fallback={
+            <div className="space-y-4" aria-busy="true" aria-label="Loading repository activity">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <Skeleton className="h-14 w-full" />
+                <Skeleton className="h-14 w-full" />
+                <Skeleton className="h-14 w-full" />
+                <Skeleton className="h-14 w-full" />
+              </div>
+              <Skeleton className="h-[106px] w-full max-w-[700px]" />
+            </div>
+          }
+        >
+          <RepositoryActivityContent
+            userId={user.id}
             repositoryId={repo.id}
-            items={activity.items}
             sources={sources}
-            total={activity.total}
-            firstStoredAt={activity.firstStoredAt?.toISOString() ?? null}
-            truncated={activity.truncated}
-            showHistoryLink={tracksReleases}
+            tracksReleases={tracksReleases}
           />
-        </div>
+        </Suspense>
       </Section>
 
       <Section id="tracking" title="Tracking" description="What shows up in your feed for this repository.">
@@ -204,7 +293,11 @@ export default async function RepositorySettingsPage({ params, searchParams }: {
         />
       </Section>
 
-      <Section id="notifications" title="Notifications & feed" description="Only for you: other people tracking this repository are not affected.">
+      <Section
+        id="notifications"
+        title="Notifications & feed"
+        description="Only for you: other people tracking this repository are not affected."
+      >
         <SubscriptionSettingsForm
           subscriptionId={settings.subscriptionId}
           fullName={repo.fullName}
@@ -218,21 +311,38 @@ export default async function RepositorySettingsPage({ params, searchParams }: {
       </Section>
 
       {tracksReleases ? (
-        <Section id="history" title="History" description="Older releases are imported in the background, as read and without notifications.">
+        <Section
+          id="history"
+          title="History"
+          description="Older releases are imported in the background, as read and without notifications."
+        >
           <dl className="text-sm text-muted-foreground">
             <HistoryStatus
               repositoryId={repo.id}
               history={repo.history}
               releaseCount={repo.releaseCount}
-              canLoadOlder={repo.history.status === "DONE" && repo.history.hasMore && repo.history.target < settings.hardCap}
+              canLoadOlder={
+                repo.history.status === "DONE" && repo.history.hasMore && repo.history.target < settings.hardCap
+              }
             />
           </dl>
         </Section>
       ) : null}
 
       {depsEnabled ? (
-        <Section id="dependencies" title="Dependencies" description="Outdated dependencies of this repository, if it is yours.">
-          <RepositoryDependenciesCard subscriptionId={settings.subscriptionId} fullName={repo.fullName} project={dependencyProject} />
+        <Section
+          id="dependencies"
+          title="Dependencies"
+          description="Outdated dependencies of this repository, if it is yours."
+        >
+          <Suspense fallback={<Skeleton className="h-20 w-full" />}>
+            <RepositoryDependenciesContent
+              userId={user.id}
+              repositoryId={repo.id}
+              subscriptionId={settings.subscriptionId}
+              fullName={repo.fullName}
+            />
+          </Suspense>
         </Section>
       ) : null}
 
@@ -244,7 +354,12 @@ export default async function RepositorySettingsPage({ params, searchParams }: {
           <p className="text-sm text-muted-foreground">
             Stop tracking {repo.fullName}: its updates leave your feed and its tags and settings are removed.
           </p>
-          <RemoveSubscriptionButton subscriptionId={settings.subscriptionId} fullName={repo.fullName} redirectTo={backHref} withLabel />
+          <RemoveSubscriptionButton
+            subscriptionId={settings.subscriptionId}
+            fullName={repo.fullName}
+            redirectTo={backHref}
+            withLabel
+          />
         </div>
       </section>
     </div>

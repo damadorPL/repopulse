@@ -9,9 +9,14 @@ export function toGitHubRepoUrl(raw: unknown): string | null {
   if (value === "") return null;
   const shorthand = /^(?:github:)?([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?$/.exec(value);
   if (shorthand) return `https://github.com/${shorthand[1]}/${shorthand[2]}`;
-  value = value.replace(/^git\+/, "").replace(/^git@github\.com:/i, "https://github.com/").replace(/^git:\/\//, "https://");
+  value = value
+    .replace(/^git\+/, "")
+    .replace(/^git@github\.com:/i, "https://github.com/")
+    .replace(/^git:\/\//, "https://");
   value = value.replace(/^ssh:\/\/git@github\.com\//i, "https://github.com/");
-  const match = /^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?(?:[/#?].*)?$/i.exec(value);
+  const match = /^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?(?:[/#?].*)?$/i.exec(
+    value,
+  );
   if (!match) return null;
   const owner = match[1] as string;
   const repo = match[2] as string;

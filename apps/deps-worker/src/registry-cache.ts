@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
-import { MAX_MANIFEST_BYTES, type LockfileVersions, type RegistryCache, type RegistryCacheEntry } from "@repopulse/deps";
+import {
+  MAX_MANIFEST_BYTES,
+  type LockfileVersions,
+  type RegistryCache,
+  type RegistryCacheEntry,
+} from "@repopulse/deps";
 import type { Redis } from "@repopulse/queue";
-import { createLogger } from "./logger";
+import { createLogger } from "./logger.js";
 
 const log = createLogger("deps-cache");
 
@@ -20,7 +25,11 @@ export function createRedisRegistryCache(redis: CacheRedis): RegistryCache {
         if (!raw) return null;
         const entry = JSON.parse(raw) as Partial<RegistryCacheEntry>;
         if (typeof entry.body !== "string" || typeof entry.storedAt !== "number") return null;
-        return { body: entry.body, storedAt: entry.storedAt, ...(typeof entry.etag === "string" ? { etag: entry.etag } : {}) };
+        return {
+          body: entry.body,
+          storedAt: entry.storedAt,
+          ...(typeof entry.etag === "string" ? { etag: entry.etag } : {}),
+        };
       } catch (error) {
         log.warn(`registry cache read failed for ${key}: ${error instanceof Error ? error.message : String(error)}`);
         return null;
@@ -95,7 +104,11 @@ export function createRedisLockfileCache(redis: CacheRedis): LockfileCache {
       try {
         const raw = await redis.get(`deps:lockread:${key}`);
         if (!raw) return null;
-        const data = JSON.parse(raw) as { versions: Array<[string, string]>; formatVersion: string | null; warnings: string[] };
+        const data = JSON.parse(raw) as {
+          versions: Array<[string, string]>;
+          formatVersion: string | null;
+          warnings: string[];
+        };
         return { versions: new Map(data.versions), formatVersion: data.formatVersion, warnings: data.warnings };
       } catch {
         return null;

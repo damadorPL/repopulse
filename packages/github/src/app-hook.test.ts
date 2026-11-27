@@ -34,7 +34,12 @@ function fakeFetch(handler: (call: Call) => Response) {
     new Headers(init?.headers).forEach((value, key) => {
       headers[key] = value;
     });
-    const call: Call = { method: init?.method ?? "GET", url, headers, body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined };
+    const call: Call = {
+      method: init?.method ?? "GET",
+      url,
+      headers,
+      body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+    };
     calls.push(call);
     return handler(call);
   });
@@ -44,7 +49,12 @@ function fakeFetch(handler: (call: Call) => Response) {
 describe("updateAppWebhookConfig", () => {
   it("PATCHes /app/hook/config with the App JWT, url, json content type and secret", async () => {
     const { fetch, calls } = fakeFetch(() =>
-      json({ url: "https://pulse.example.com/api/github-app/webhook", content_type: "json", secret: "********", insecure_ssl: "0" }),
+      json({
+        url: "https://pulse.example.com/api/github-app/webhook",
+        content_type: "json",
+        secret: "********",
+        insecure_ssl: "0",
+      }),
     );
     const config = await updateAppWebhookConfig(
       AUTH,
@@ -61,30 +71,47 @@ describe("updateAppWebhookConfig", () => {
       insecure_ssl: "0",
       secret: SECRET,
     });
-    expect(config).toEqual({ url: "https://pulse.example.com/api/github-app/webhook", contentType: "json", hasSecret: true, insecureSsl: false });
+    expect(config).toEqual({
+      url: "https://pulse.example.com/api/github-app/webhook",
+      contentType: "json",
+      hasSecret: true,
+      insecureSsl: false,
+    });
   });
 
   it("keeps the stored secret when none is given", async () => {
-    const { fetch, calls } = fakeFetch(() => json({ url: "https://x.example/api/github-app/webhook", content_type: "json" }));
-    await updateAppWebhookConfig(AUTH, { url: "https://x.example/api/github-app/webhook", contentType: "json" }, { fetch });
+    const { fetch, calls } = fakeFetch(() =>
+      json({ url: "https://x.example/api/github-app/webhook", content_type: "json" }),
+    );
+    await updateAppWebhookConfig(
+      AUTH,
+      { url: "https://x.example/api/github-app/webhook", contentType: "json" },
+      { fetch },
+    );
     expect(calls[0]?.body).not.toHaveProperty("secret");
   });
 
   it("rejects malformed or non-https URLs and short secrets before any request", async () => {
     const { fetch } = fakeFetch(() => json({}));
-    await expect(updateAppWebhookConfig(AUTH, { url: "not a url", contentType: "json" }, { fetch })).rejects.toThrow(/valid URL/);
-    await expect(updateAppWebhookConfig(AUTH, { url: "http://x.example/hook", contentType: "json" }, { fetch })).rejects.toThrow(/https/);
-    await expect(updateAppWebhookConfig(AUTH, { url: "https://x.example/hook", secret: "short", contentType: "json" }, { fetch })).rejects.toThrow(
-      /16/,
+    await expect(updateAppWebhookConfig(AUTH, { url: "not a url", contentType: "json" }, { fetch })).rejects.toThrow(
+      /valid URL/,
     );
+    await expect(
+      updateAppWebhookConfig(AUTH, { url: "http://x.example/hook", contentType: "json" }, { fetch }),
+    ).rejects.toThrow(/https/);
+    await expect(
+      updateAppWebhookConfig(AUTH, { url: "https://x.example/hook", secret: "short", contentType: "json" }, { fetch }),
+    ).rejects.toThrow(/16/);
     expect(fetch).not.toHaveBeenCalled();
   });
 
   it("maps 401 to GitHubAppAuthError without echoing the secret", async () => {
     const { fetch } = fakeFetch(() => json({ message: "Bad credentials" }, 401));
-    const error = await updateAppWebhookConfig(AUTH, { url: "https://x.example/hook", secret: SECRET, contentType: "json" }, { fetch }).catch(
-      (e: unknown) => e,
-    );
+    const error = await updateAppWebhookConfig(
+      AUTH,
+      { url: "https://x.example/hook", secret: SECRET, contentType: "json" },
+      { fetch },
+    ).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(GitHubAppAuthError);
     expect(String((error as Error).message)).not.toContain(SECRET);
   });
@@ -93,11 +120,18 @@ describe("updateAppWebhookConfig", () => {
 describe("getAppWebhookConfig", () => {
   it("maps an unconfigured hook, unknown content_type, insecure_ssl '1', and 401/rate-limit errors", async () => {
     const { fetch, calls } = fakeFetch(() => json({ url: "", content_type: "form", insecure_ssl: 0 }));
-    await expect(getAppWebhookConfig(AUTH, { fetch })).resolves.toEqual({ url: null, contentType: "form", hasSecret: false, insecureSsl: false });
+    await expect(getAppWebhookConfig(AUTH, { fetch })).resolves.toEqual({
+      url: null,
+      contentType: "form",
+      hasSecret: false,
+      insecureSsl: false,
+    });
     expect(calls[0]?.method).toBe("GET");
     expect(calls[0]?.url.pathname).toBe("/app/hook/config");
 
-    const { fetch: oddFetch } = fakeFetch(() => json({ url: "https://x.io/h", content_type: "xml", insecure_ssl: "1", secret: "***" }));
+    const { fetch: oddFetch } = fakeFetch(() =>
+      json({ url: "https://x.io/h", content_type: "xml", insecure_ssl: "1", secret: "***" }),
+    );
     await expect(getAppWebhookConfig(AUTH, { fetch: oddFetch })).resolves.toEqual({
       url: "https://x.io/h",
       contentType: null,

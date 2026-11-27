@@ -39,8 +39,13 @@ export class SmtpPasswordUnreadableError extends Error {
  * Reads the SMTP settings, or `null` when the settings row doesn't exist yet.
  * Throws {@link SmtpPasswordUnreadableError} when a stored password can't be decrypted.
  */
-export async function loadSmtpSettings(client: Pick<PrismaClient, "instanceSettings">): Promise<DecryptedSmtpSettings | null> {
-  const row = await client.instanceSettings.findUnique({ where: { id: INSTANCE_SETTINGS_ID }, select: SMTP_SETTINGS_SELECT });
+export async function loadSmtpSettings(
+  client: Pick<PrismaClient, "instanceSettings">,
+): Promise<DecryptedSmtpSettings | null> {
+  const row = await client.instanceSettings.findUnique({
+    where: { id: INSTANCE_SETTINGS_ID },
+    select: SMTP_SETTINGS_SELECT,
+  });
   if (!row) return null;
   const { smtpPasswordEncrypted, ...rest } = row;
   let smtpPassword: string | null = null;
@@ -87,8 +92,13 @@ export const NO_BACKFILL_OVERRIDES: BackfillSettingsOverrides = {
 };
 
 /** Reads the admin overrides; all `null` when the settings row doesn't exist yet. */
-export async function loadBackfillOverrides(client: Pick<PrismaClient, "instanceSettings">): Promise<BackfillSettingsOverrides> {
-  const row = await client.instanceSettings.findUnique({ where: { id: INSTANCE_SETTINGS_ID }, select: BACKFILL_SETTINGS_SELECT });
+export async function loadBackfillOverrides(
+  client: Pick<PrismaClient, "instanceSettings">,
+): Promise<BackfillSettingsOverrides> {
+  const row = await client.instanceSettings.findUnique({
+    where: { id: INSTANCE_SETTINGS_ID },
+    select: BACKFILL_SETTINGS_SELECT,
+  });
   if (!row) return { ...NO_BACKFILL_OVERRIDES };
   return {
     defaultTarget: row.backfillDefaultTarget,
@@ -139,7 +149,10 @@ export class GitHubAppKeyUnreadableError extends Error {
 export async function loadGitHubAppSettings(
   client: Pick<PrismaClient, "instanceSettings">,
 ): Promise<DecryptedGitHubAppSettings | null> {
-  const row = await client.instanceSettings.findUnique({ where: { id: INSTANCE_SETTINGS_ID }, select: GITHUB_APP_SETTINGS_SELECT });
+  const row = await client.instanceSettings.findUnique({
+    where: { id: INSTANCE_SETTINGS_ID },
+    select: GITHUB_APP_SETTINGS_SELECT,
+  });
   if (!row || row.githubAppId === null || !row.githubAppSlug || !row.githubAppPrivateKeyEncrypted) return null;
   try {
     return {
@@ -157,6 +170,9 @@ export async function loadGitHubAppSettings(
 
 /** Whether the Dependencies module is enabled (Admin → Dependencies). `false` when the settings row doesn't exist. */
 export async function loadDepsEnabled(client: Pick<PrismaClient, "instanceSettings">): Promise<boolean> {
-  const row = await client.instanceSettings.findUnique({ where: { id: INSTANCE_SETTINGS_ID }, select: { depsEnabled: true } });
+  const row = await client.instanceSettings.findUnique({
+    where: { id: INSTANCE_SETTINGS_ID },
+    select: { depsEnabled: true },
+  });
   return row?.depsEnabled ?? false;
 }

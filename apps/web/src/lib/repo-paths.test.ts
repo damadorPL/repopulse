@@ -43,7 +43,14 @@ describe("searchRepoPaths", () => {
   it("ranks path prefixes, then name prefixes (shallower first), then substrings", () => {
     expect(paths("changelog")).toEqual(["CHANGELOG.md", "docs/changelog-guide.md", "packages/cli/CHANGELOG.md"]);
     expect(paths("guide")).toEqual(["docs/changelog-guide.md"]);
-    expect(paths("packages/c")).toEqual(["packages/cli", "packages/core", "packages/cli/src", "packages/cli/CHANGELOG.md", "packages/core/package.json", "packages/cli/src/index.ts"]);
+    expect(paths("packages/c")).toEqual([
+      "packages/cli",
+      "packages/core",
+      "packages/cli/src",
+      "packages/cli/CHANGELOG.md",
+      "packages/core/package.json",
+      "packages/cli/src/index.ts",
+    ]);
   });
 
   it("puts the exact path first and accepts a trailing slash or ./ prefix", () => {

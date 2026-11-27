@@ -11,8 +11,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { repositorySettingsHref } from "@/lib/repo-list-filters";
 import { cn } from "@/lib/utils";
-import { reapplyBackfillSettingsAction, saveBackfillSettingsAction, type BackfillSettingsInput } from "@/server/actions/backfill-settings";
+import {
+  reapplyBackfillSettingsAction,
+  saveBackfillSettingsAction,
+  type BackfillSettingsInput,
+} from "@/server/actions/backfill-settings";
 import type { BackfillSettingView, ReapplyCandidate } from "@/server/backfill-settings";
 
 type Key = BackfillSettingView["key"];
@@ -87,9 +92,10 @@ export function BackfillSettingsForm({
 
   const candidateCount = candidates.length > 0 ? candidates.length : (reapplyCandidates ?? 0);
   const rawTarget = draft.defaultTarget.trim();
-  const effectiveTarget = rawTarget !== "" && Number.isInteger(Number(rawTarget)) && Number(rawTarget) >= 0
-    ? Number(rawTarget)
-    : (byKey.get("defaultTarget")?.value ?? 100);
+  const effectiveTarget =
+    rawTarget !== "" && Number.isInteger(Number(rawTarget)) && Number(rawTarget) >= 0
+      ? Number(rawTarget)
+      : (byKey.get("defaultTarget")?.value ?? 100);
   const totalMissing = candidates.reduce((sum, c) => sum + Math.max(0, effectiveTarget - c.releaseCount), 0);
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -105,7 +111,9 @@ export function BackfillSettingsForm({
       const value = Number(raw);
       const { min, max } = byKey.get(key)!;
       if (!Number.isInteger(value) || value < min || value > max) {
-        setError(`${COPY[key].label}: enter a whole number from ${numberFormat.format(min)} to ${numberFormat.format(max)}, or leave it empty.`);
+        setError(
+          `${COPY[key].label}: enter a whole number from ${numberFormat.format(min)} to ${numberFormat.format(max)}, or leave it empty.`,
+        );
         return;
       }
       input[key] = value;
@@ -118,7 +126,9 @@ export function BackfillSettingsForm({
       }
       setSaved(result.data);
       setDraft(toDraft(result.data));
-      toast.success("Release history settings saved", { description: "They apply to the next import, without a restart." });
+      toast.success("Release history settings saved", {
+        description: "They apply to the next import, without a restart.",
+      });
       router.refresh();
     });
   }
@@ -133,8 +143,12 @@ export function BackfillSettingsForm({
       }
       const { queued } = result.data;
       toast.success(
-        queued === 0 ? "Every repository is up to date" : `Importing more history for ${queued} ${queued === 1 ? "repository" : "repositories"}`,
-        queued === 0 ? undefined : { description: "Imports run in the background and pause when the GitHub quota runs low." },
+        queued === 0
+          ? "Every repository is up to date"
+          : `Importing more history for ${queued} ${queued === 1 ? "repository" : "repositories"}`,
+        queued === 0
+          ? undefined
+          : { description: "Imports run in the background and pause when the GitHub quota runs low." },
       );
       router.refresh();
     });
@@ -151,7 +165,9 @@ export function BackfillSettingsForm({
               const copy = COPY[key];
               const id = `backfill-${key}`;
               const fallbackLabel =
-                setting.fallbackSource === "env" ? `${setting.envVar} = ${numberFormat.format(setting.fallback)}` : `default ${numberFormat.format(setting.fallback)}`;
+                setting.fallbackSource === "env"
+                  ? `${setting.envVar} = ${numberFormat.format(setting.fallback)}`
+                  : `default ${numberFormat.format(setting.fallback)}`;
               return (
                 <div key={key} className="grid gap-1.5 sm:grid-cols-[minmax(0,1fr)_14rem] sm:items-start sm:gap-4">
                   <div className="grid gap-0.5">
@@ -238,8 +254,8 @@ export function BackfillSettingsForm({
               Apply to existing repositories
             </h3>
             <p className="text-sm text-muted-foreground">
-              New settings apply to repositories added from now on. To give repositories already imported the new automatic
-              target and age limit, re-run their automatic import.{" "}
+              New settings apply to repositories added from now on. To give repositories already imported the new
+              automatic target and age limit, re-run their automatic import.{" "}
               <span className="tabular-nums">
                 {candidateCount === 0
                   ? "No repository has older releases left to import right now."
@@ -247,10 +263,11 @@ export function BackfillSettingsForm({
               </span>{" "}
               {candidates.length > 0 && totalMissing > 0 ? (
                 <span className="tabular-nums">
-                  Across these repositories, approximately {numberFormat.format(totalMissing)} releases are missing to reach the target of {numberFormat.format(effectiveTarget)}.
+                  Across these repositories, approximately {numberFormat.format(totalMissing)} releases are missing to
+                  reach the target of {numberFormat.format(effectiveTarget)}.
                 </span>
-              ) : null}
-              {" "}Imported history stays read and sends no notifications.
+              ) : null}{" "}
+              Imported history stays read and sends no notifications.
             </p>
           </div>
           {candidates.length > 0 ? (
@@ -275,15 +292,23 @@ export function BackfillSettingsForm({
                 return (
                   <li key={repo.id} className="flex items-center justify-between gap-3 px-3.5 py-2.5 hover:bg-muted/30">
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <RepoAvatar src={repo.avatarUrl} name={repo.fullName.split("/")[1] ?? repo.fullName} className="size-6 text-[10px]" />
+                      <RepoAvatar
+                        src={repo.avatarUrl}
+                        name={repo.fullName.split("/")[1] ?? repo.fullName}
+                        className="size-6 text-[10px]"
+                      />
                       <div className="min-w-0">
-                        <Link href={`/repositories/${repo.fullName}`} className="truncate font-medium text-sm hover:underline block">
+                        <Link
+                          href={repositorySettingsHref(repo.fullName)}
+                          className="truncate font-medium text-sm hover:underline block"
+                        >
                           {repo.fullName}
                         </Link>
                         {repo.oldestRelease ? (
                           <p className="text-[11px] text-muted-foreground truncate">
                             oldest: <span className="font-mono text-foreground/80">{repo.oldestRelease.tagName}</span>
-                            {" · "}<RelativeTime date={repo.oldestRelease.publishedAt} />
+                            {" · "}
+                            <RelativeTime date={repo.oldestRelease.publishedAt} />
                           </p>
                         ) : (
                           <p className="text-[11px] text-muted-foreground italic">no releases stored yet</p>
@@ -295,11 +320,18 @@ export function BackfillSettingsForm({
                         {numberFormat.format(repo.releaseCount)} stored
                       </span>
                       {missing > 0 ? (
-                        <Badge variant="outline" className="font-mono text-xs text-amber-700 dark:text-amber-400 bg-amber-500/10 border-amber-500/20 tabular-nums">
+                        <Badge
+                          variant="outline"
+                          className="font-mono text-xs text-amber-700 dark:text-amber-400 bg-amber-500/10 border-amber-500/20 tabular-nums"
+                        >
                           +{numberFormat.format(missing)} missing
                         </Badge>
                       ) : (
-                        <Badge variant="secondary" className="font-mono text-xs tabular-nums" title={`Has reached target of ${effectiveTarget} releases; more older releases exist on GitHub`}>
+                        <Badge
+                          variant="secondary"
+                          className="font-mono text-xs tabular-nums"
+                          title={`Has reached target of ${effectiveTarget} releases; more older releases exist on GitHub`}
+                        >
                           At target ({numberFormat.format(effectiveTarget)})
                         </Badge>
                       )}
@@ -320,9 +352,16 @@ export function BackfillSettingsForm({
             <span className="mr-auto">
               Re-run the automatic import for {numberFormat.format(candidateCount)}{" "}
               {candidateCount === 1 ? "repository" : "repositories"}
-              {totalMissing > 0 ? ` (~${numberFormat.format(totalMissing)} releases missing)` : ""}? This uses GitHub API quota.
+              {totalMissing > 0 ? ` (~${numberFormat.format(totalMissing)} releases missing)` : ""}? This uses GitHub
+              API quota.
             </span>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmingReapply(false)} disabled={reapplying}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setConfirmingReapply(false)}
+              disabled={reapplying}
+            >
               Cancel
             </Button>
             <Button type="button" size="sm" onClick={reapply} disabled={reapplying}>

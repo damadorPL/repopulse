@@ -1,29 +1,83 @@
+import { retry } from "@octokit/plugin-retry";
 import { Octokit } from "@octokit/rest";
 
 export const GITHUB_USER_AGENT = "RepoPulse-Coolify/2.0";
+export const DEFAULT_GITHUB_RETRIES = 2;
+export const DO_NOT_RETRY_STATUSES = [400, 401, 403, 404, 422];
+
+const ResilientOctokit = Octokit.plugin(retry);
+
+/** Instantiates the retry-enabled Octokit client while keeping the return type as standard {@link Octokit}. */
+export function instantiateOctokit(options: ConstructorParameters<typeof Octokit>[0]): Octokit {
+  return new ResilientOctokit(options);
+}
 
 export interface CreateOctokitOptions {
   /** GitHub OAuth / personal access token. Unauthenticated requests get 60 req/h. */
   accessToken?: string | null;
   /** Custom fetch implementation (used by tests). */
   fetch?: typeof globalThis.fetch;
+  /** Per-attempt request timeout in milliseconds (composed with `signal` when provided). */
+  timeoutMs?: number;
+  /** Abort signal applied to requests made by this client. */
+  signal?: AbortSignal;
+  /** Retry attempts for transient failures (defaults to 2 in production, 0 when custom `fetch` is passed). */
+  retries?: number;
+  /** Base backoff in ms used by `@octokit/plugin-retry` (defaults to 1000). */
+  retryAfterBaseValue?: number;
 }
 
 const noop = () => {};
 
+/** Wraps `baseFetch` with a client-level `signal` and/or per-attempt `timeoutMs` via `AbortSignal.any`. */
+export function wrapFetchWithSignal(
+  baseFetch: typeof globalThis.fetch,
+  options: { timeoutMs?: number; signal?: AbortSignal },
+): typeof globalThis.fetch {
+  if (options.timeoutMs !== undefined && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) {
+    throw new RangeError("timeoutMs must be a positive finite number.");
+  }
+  if (options.timeoutMs === undefined && options.signal === undefined) {
+    return baseFetch;
+  }
+  return (input, init) => {
+    const signals: AbortSignal[] = [];
+    if (options.signal) signals.push(options.signal);
+    if (init?.signal) signals.push(init.signal);
+    if (options.timeoutMs !== undefined) signals.push(AbortSignal.timeout(options.timeoutMs));
+    const signal = signals.length === 1 ? signals[0] : AbortSignal.any(signals);
+    return baseFetch(input, { ...init, signal });
+  };
+}
+
 /**
- * Creates an Octokit REST client with the RepoPulse user agent.
+ * Creates an Octokit REST client with the RepoPulse user agent and `@octokit/plugin-retry`.
  *
  * Octokit's request-log plugin reports every non-2xx response via `log.error`, which
  * would print a line for every `304 Not Modified` poll. Errors are always re-thrown
  * to the caller, so error/info/debug logging is silenced here and callers log what matters.
  */
 export function createOctokit(options: CreateOctokitOptions = {}): Octokit {
-  return new Octokit({
+  const retries = options.retries ?? (options.fetch ? 0 : DEFAULT_GITHUB_RETRIES);
+  const needsWrappedFetch =
+    options.fetch !== undefined || options.timeoutMs !== undefined || options.signal !== undefined;
+  const fetchFn = needsWrappedFetch
+    ? wrapFetchWithSignal(options.fetch ?? globalThis.fetch, {
+        ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+        ...(options.signal !== undefined ? { signal: options.signal } : {}),
+      })
+    : undefined;
+  return instantiateOctokit({
     auth: options.accessToken || undefined,
     userAgent: GITHUB_USER_AGENT,
     log: { debug: noop, info: noop, warn: console.warn.bind(console), error: noop },
-    ...(options.fetch ? { request: { fetch: options.fetch } } : {}),
+    retry: {
+      enabled: retries > 0,
+      retries,
+      doNotRetry: DO_NOT_RETRY_STATUSES,
+      ...(options.retryAfterBaseValue !== undefined ? { retryAfterBaseValue: options.retryAfterBaseValue } : {}),
+    },
+    ...(fetchFn ? { request: { fetch: fetchFn } } : {}),
   });
 }
 
@@ -63,10 +117,5 @@ export interface GitHubHttpError {
 }
 
 export function isGitHubHttpError(error: unknown): error is GitHubHttpError {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "status" in error &&
-    typeof (error as { status: unknown }).status === "number"
-  );
+  return typeof error === "object" && error !== null && "status" in error && typeof error.status === "number";
 }

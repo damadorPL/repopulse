@@ -6,6 +6,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.8.0] — 2026-11-27 — Better Auth, Oxlint/Oxfmt, ESM, Vitest 5 & resilience
+
+### Added
+
+- **CI verification workflow**: Added `.github/workflows/ci.yml` running `packages/*` build, `typecheck`, `lint`, `format:check`, `test`, and `@repopulse/web` build on pushes to `main` and pull requests (Node 26).
+- **Web resilience & streaming UI**: Added `global-error.tsx`, root `not-found.tsx`, `(dashboard)/error.tsx`, route `loading.tsx` skeletons, and `<Suspense>` boundaries around secondary repository/dependency detail queries.
+- **Security headers & proxy**: Added `apps/web/src/proxy.ts` generating per-request nonces and strict `Content-Security-Policy` headers.
+- **Structured logging**: Added `pino` (`10.4.0`, with `pino-pretty` in dev TTY) via `createLogger` in `@repopulse/queue` and `apps/deps-sandbox`, emitting JSON logs with `service`, `queue`, `jobId`, `repositoryId`, and `projectId` context.
+- **Database migrations & indexes**:
+  - `20261127090000_audit_indexes`: Added missing Postgres indexes on `NotificationRule`, `UserSubscription(repositoryId)`, `Release(publishedAt DESC, id DESC)` and `(repositoryId, source, publishedAt DESC)`, `DependencyUpdate(projectId, status, level)`, and foreign-key relations (`UserReleaseState`, `SubscriptionTag`, `DependencyProject`, `DependencyNotificationOutbox`, `Invite`).
+  - `20261127100000_better_auth`: Added `User.emailVerified`, `Session`, `Account` (with backfill for existing GitHub users), and `Verification` tables for Better Auth.
+- **Test coverage & Vitest projects**: Consolidated Vitest 5 into root `vitest.config.ts` (`test.projects`) with `@vitest/coverage-v8` (`pnpm test:coverage`) and `unstubEnvs`/`restoreMocks` defaults.
+
+### Changed
+
+- **Auth migration (`next-auth` → `better-auth@1.7.28`)**: Replaced Auth.js v5 beta with Better Auth using Prisma database sessions, catch-all route `apps/web/src/app/api/auth/[...all]/route.ts`, `AsyncLocalStorage` transaction-scoped atomic first-user super-admin bootstrap and single-use invite admission (`admitNewGitHubUser`), and encrypted `User.githubAccessTokenEncrypted` without storing plaintext OAuth tokens in `Account`.
+- **Client bundle optimization**: Split Zod schemas into server-only `*-schema.ts` modules out of 5 client-imported `lib/*` modules, removing ~106 KB of Zod 4 runtime from dashboard client chunks.
+- **Next.js 16 & React 19**: Enabled `reactCompiler: true` (`babel-plugin-react-compiler@1.0.0`) and `typedRoutes: true`, replaced mount `setState`-in-`useEffect` and render `Date.now()` with `useSyncExternalStore`, added `useFormStatus` pending states and `useEffectEvent`, and unified canonical `lucide-react` icon names.
+- **BullMQ 6 & SSE scaling**: Migrated `repo-poll`, `release-backfill`, `deps-scan`, and `deps-update` queues from custom `jobId` to native `deduplication: { keepLastIfActive: true }` with bounded log/job retention; wired `worker.cancelAllJobs("shutdown")` and `deps-sandbox` client-disconnect abort; multiplexed SSE Redis Pub/Sub over one shared subscriber per web process; raised `lockDuration` on heavy deps workers; and extracted shared health/rate-limit helpers into `@repopulse/queue`.
+- **GitHub, Email & Registry clients**: Enabled `@octokit/plugin-retry`, bounded `createAppOctokit` LRU caching, GraphQL batched `readBlobs`, `knownCommitSha` skip in `fetchGitTree`, `etag`/`since` support in `fetchCommitsForPath`, Nodemailer `pool: true` + `TLSv1.2` + `verifySmtpConfig()`/`closeSmtpTransports()`, and registry fetch timeouts, byte caps, body cancellation, and single-flight deduplication.
+- **Monorepo ESM, TypeScript 7 & Tooling**: Upgraded `tsconfig` targets to `ES2024` + `ES2025.Collection`, `jsx: "react-jsx"`, `verbatimModuleSyntax`, `noUncheckedSideEffectImports`, `erasableSyntaxOnly`; unified `@repopulse/db` (`moduleFormat = "esm"`) and all Node apps on native ESM; added `pnpm-workspace.yaml` `catalog:` + `trustPolicy: no-downgrade`; fixed `turbo.json` `db:generate` caching, `test` `^build`, and `apps/worker`/`deps-worker`/`deps-sandbox` test typechecking; modernized `scripts/*.mjs` with `import.meta.dirname`, `util.parseArgs`, `Object.groupBy`, and fetch timeouts; and migrated linting/formatting from ESLint + TS 6 shim to **Oxlint `--type-aware` (`oxlint-tsgolint`) + `oxfmt`**.
+- **Docker & Coolify**: Added BuildKit cache mounts, tightened `.dockerignore`, slimmed the `migrator` stage, stripped source/test files from runtime worker/sandbox images, and added healthchecks for `web`, `worker`, `deps-worker`, and `deps-egress`.
+
+### Fixed
+
+- **Dark mode on auth pages**: Replaced hardcoded light-mode inline hex styles on `/login` and `/invite/[token]` with Tailwind v4 semantic tokens, and updated `outline-none` → `outline-hidden` and Tailwind v4 utility syntax across `apps/web`.
+- **Security & correctness**: Disabled HTTP keep-alive socket reuse (`agent: false`) and destroyed oversized webhook responses in `postWebhook`; expanded SSRF IPv4/IPv6 blocklists (NAT64, 6to4, Teredo, TEST-NETs); fixed inline-code/Slack/email/ntfy escaping bugs; unified GitHub `403` secondary rate-limit (`retry-after`) handling across `poller.ts`/`tags.ts`; prevented `rethrowAppError` from misclassifying network/timeout errors as invalid keys; enabled Prisma 7 global `omit` on encrypted columns + `PrismaPg` timeouts/error hooks; and zeroized derived AES keys in `crypto.ts`.
+
 ## [0.9.7.8] — 2026-11-26 — Dependency updates
 
 ### Changed

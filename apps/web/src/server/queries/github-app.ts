@@ -36,7 +36,10 @@ function canDecrypt(value: string): boolean {
  *   to belong to an organization, whose settings live under `/organizations/<owner>/settings/apps`.
  */
 export async function getGitHubAppView(viewerLogin?: string | null): Promise<GitHubAppView> {
-  const row = await prisma.instanceSettings.findUnique({ where: { id: INSTANCE_SETTINGS_ID }, select: GITHUB_APP_SETTINGS_SELECT });
+  const row = await prisma.instanceSettings.findUnique({
+    where: { id: INSTANCE_SETTINGS_ID },
+    select: GITHUB_APP_SETTINGS_SELECT,
+  });
   const slug = row?.githubAppSlug ?? null;
   const owner = row?.githubAppOwner ?? null;
   const keySaved = Boolean(row?.githubAppPrivateKeyEncrypted);

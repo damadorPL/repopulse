@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import type { Route } from "next";
 import { useRouter } from "next/navigation";
-import { Trash2Icon } from "lucide-react";
+import { TrashIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,7 +30,7 @@ export function RemoveSubscriptionButton({
 }: {
   subscriptionId: string;
   fullName: string;
-  redirectTo?: string;
+  redirectTo?: Route;
   withLabel?: boolean;
 }) {
   const router = useRouter();
@@ -54,12 +55,17 @@ export function RemoveSubscriptionButton({
       <DialogTrigger asChild>
         {withLabel ? (
           <Button variant="destructive" size="sm">
-            <Trash2Icon />
+            <TrashIcon />
             Stop tracking
           </Button>
         ) : (
-          <Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-destructive" aria-label={`Stop tracking ${fullName}`}>
-            <Trash2Icon />
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground hover:text-destructive"
+            aria-label={`Stop tracking ${fullName}`}
+          >
+            <TrashIcon />
           </Button>
         )}
       </DialogTrigger>

@@ -11,10 +11,10 @@ import {
   type MappedPathCommit,
   type PathCommitSummary,
 } from "@repopulse/github";
-import { createLogger } from "../logger";
-import { mergeFanOutPlans, planFanOut, type FanOutPlan, type StoredRelease } from "./fan-out";
-import type { TokenCandidate } from "./github-tokens";
-import { loadSubscribers, STORED_RELEASE_SELECT, type SubscriberWithMode } from "./repo-tags";
+import { createLogger } from "../logger.js";
+import { mergeFanOutPlans, planFanOut, type FanOutPlan, type StoredRelease } from "./fan-out.js";
+import type { TokenCandidate } from "./github-tokens.js";
+import { loadSubscribers, STORED_RELEASE_SELECT, type SubscriberWithMode } from "./repo-tags.js";
 
 const log = createLogger("repo-paths");
 
@@ -68,8 +68,8 @@ function requestSignal(jobSignal: AbortSignal | undefined): AbortSignal {
   return jobSignal ? AbortSignal.any([jobSignal, timeout]) : timeout;
 }
 
-function newestFirst<T extends { publishedAt: Date }>(rows: T[]): T[] {
-  return [...rows].sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
+function newestFirst<T extends { publishedAt: Date }>(rows: readonly T[]): T[] {
+  return rows.toSorted((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
 }
 
 /** A commit returned by this poll, with the watched paths that returned it. */
@@ -105,7 +105,12 @@ export function planPathFanOut(params: {
   createdIds: ReadonlySet<string>;
   newlyAdded: ReadonlySet<string>;
   limit?: number;
-}): { plan: FanOutPlan; readStates: Array<{ userId: string; releaseId: string }>; freshIds: Set<string>; importedIds: Set<string> } {
+}): {
+  plan: FanOutPlan;
+  readStates: Array<{ userId: string; releaseId: string }>;
+  freshIds: Set<string>;
+  importedIds: Set<string>;
+} {
   const { subscribers, commits, createdIds, newlyAdded, limit = INITIAL_RELEASES_LIMIT } = params;
   const plans: FanOutPlan[] = [];
   const readStates: Array<{ userId: string; releaseId: string }> = [];
@@ -117,10 +122,10 @@ export function planPathFanOut(params: {
     const fresh: StoredRelease[] = [];
     const imported: StoredRelease[] = [];
     for (const { stored, matchedBy } of commits) {
-      const own = [...matchedBy].filter((path) => watched.has(path));
-      if (own.length === 0) continue;
-      if (createdIds.has(stored.id) && own.some((path) => !newlyAdded.has(path))) fresh.push(stored);
-      else if (own.some((path) => newlyAdded.has(path))) imported.push(stored);
+      const own = matchedBy.intersection(watched);
+      if (own.size === 0) continue;
+      if (createdIds.has(stored.id) && !own.isSubsetOf(newlyAdded)) fresh.push(stored);
+      else if (!own.isDisjointFrom(newlyAdded)) imported.push(stored);
     }
 
     const freshPlan = planFanOut([subscriber], newestFirst(fresh), limit);
@@ -191,7 +196,7 @@ export async function pollRepoPaths(
 
     const paths = [...new Set(subscribers.flatMap((s) => s.watchedPaths))];
     const polledBefore = new Set(repository.polledPaths);
-    const newlyAdded = new Set(paths.filter((path) => !polledBefore.has(path)));
+    const newlyAdded = new Set(paths).difference(polledBefore);
 
     // 1. Newest commits per path; each commit once, with every path that returned it.
     const polled = new Map<string, PolledCommit>();
@@ -234,10 +239,18 @@ export async function pollRepoPaths(
       if (storedBySha.has(sha) || takenShortShas.has(sha.slice(0, 7))) continue;
       let detail: CommitDetail | null = null;
       try {
-        detail = await fetchDetail({ owner: repo.owner, name: repo.name, ref: sha, accessToken: token, signal: requestSignal(jobSignal) });
+        detail = await fetchDetail({
+          owner: repo.owner,
+          name: repo.name,
+          ref: sha,
+          accessToken: token,
+          signal: requestSignal(jobSignal),
+        });
       } catch (error) {
         if (error instanceof GitHubRateLimitError) throw error;
-        log.warn(`${repo.fullName}: could not read the files of commit ${sha.slice(0, 7)}; storing it without them (${String(error)})`);
+        log.warn(
+          `${repo.fullName}: could not read the files of commit ${sha.slice(0, 7)}; storing it without them (${String(error)})`,
+        );
       }
       rows.push(mapPathCommit(summary, detail, [...matchedBy].sort()));
     }
@@ -262,7 +275,11 @@ export async function pollRepoPaths(
         const missing = [...matchedBy].filter((path) => !row.changedPaths.includes(path));
         if (missing.length === 0) continue;
         row.changedPaths = [...row.changedPaths, ...missing];
-        await tx.release.update({ where: { id: row.id }, data: { changedPaths: row.changedPaths }, select: { id: true } });
+        await tx.release.update({
+          where: { id: row.id },
+          data: { changedPaths: row.changedPaths },
+          select: { id: true },
+        });
       }
 
       const commits = [...polled].flatMap(([sha, { matchedBy }]) => {
@@ -294,7 +311,10 @@ export async function pollRepoPaths(
       const finalPlan: FanOutPlan = {
         states: plan.states.filter(isNew),
         deliveries: plan.deliveries
-          .map(({ userId, releases }) => ({ userId, releases: releases.filter((release) => isNew({ userId, releaseId: release.id })) }))
+          .map(({ userId, releases }) => ({
+            userId,
+            releases: releases.filter((release) => isNew({ userId, releaseId: release.id })),
+          }))
           .filter((delivery) => delivery.releases.length > 0),
         notifications: plan.notifications,
       };
@@ -310,7 +330,13 @@ export async function pollRepoPaths(
       await tx.repository.update({ where: { id: repo.id }, data: { lastPathsPolledAt: now(), polledPaths: paths } });
 
       return {
-        counts: { paths: paths.length, received: polled.size, stored: created.length, fresh: freshIds.size, imported: importedIds.size },
+        counts: {
+          paths: paths.length,
+          received: polled.size,
+          stored: created.length,
+          fresh: freshIds.size,
+          imported: importedIds.size,
+        },
         plan: finalPlan,
       };
     });

@@ -139,16 +139,46 @@ function etagOf(headers: ResponseHeaders): string | null {
   return typeof etag === "string" && etag.length > 0 ? etag : null;
 }
 
+function headerString(headers: ResponseHeaders | undefined, name: string): string | null {
+  const raw = headers?.[name];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (value === undefined || value === null) return null;
+  const trimmed = String(value).trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+/** Parses an HTTP `Retry-After` header (numeric delay-seconds or HTTP-date) into a `Date`. */
+export function parseRetryAfter(headers: ResponseHeaders | undefined): Date | null {
+  const raw = headerString(headers, "retry-after") ?? headerString(headers, "Retry-After");
+  if (raw === null) return null;
+  if (/^\d+(?:\.\d+)?$/.test(raw)) {
+    const seconds = Number(raw);
+    return Number.isFinite(seconds) && seconds >= 0 ? new Date(Date.now() + seconds * 1000) : null;
+  }
+  const timestamp = Date.parse(raw);
+  return Number.isFinite(timestamp) ? new Date(timestamp) : null;
+}
+
+/**
+ * The rate-limit error for a primary (`x-ratelimit-remaining: 0`, 429) or secondary (`retry-after`)
+ * GitHub rate limit, or `null` for any other error.
+ */
+export function toRateLimitError(error: unknown): GitHubRateLimitError | null {
+  if (!isGitHubHttpError(error) || (error.status !== 403 && error.status !== 429)) return null;
+  const headers = error.response?.headers;
+  const rateLimit = getRateLimitInfo(headers);
+  const retryAfter = parseRetryAfter(headers);
+  if (rateLimit.remaining === 0) return new GitHubRateLimitError(rateLimit.resetAt ?? retryAfter);
+  if (retryAfter) return new GitHubRateLimitError(retryAfter);
+  return error.status === 429 ? new GitHubRateLimitError(rateLimit.resetAt) : null;
+}
+
 /** Converts Octokit HTTP errors into typed domain errors; re-throws everything else. */
 export function rethrowGitHubError(error: unknown, owner: string, name: string): never {
-  if (isGitHubHttpError(error)) {
-    const rateLimit = getRateLimitInfo(error.response?.headers);
-    if (error.status === 429 || (error.status === 403 && rateLimit.remaining === 0)) {
-      throw new GitHubRateLimitError(rateLimit.resetAt);
-    }
-    if (error.status === 404) {
-      throw new GitHubRepositoryNotFoundError(owner, name);
-    }
+  const rateLimited = toRateLimitError(error);
+  if (rateLimited) throw rateLimited;
+  if (isGitHubHttpError(error) && error.status === 404) {
+    throw new GitHubRepositoryNotFoundError(owner, name);
   }
   throw error;
 }

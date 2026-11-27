@@ -45,7 +45,14 @@ function subscriptionRow(extra: Record<string, unknown> = {}) {
       backfillTarget: 100,
       _count: { releases: 2 },
       releases: [
-        { id: "r2", tagName: "v16.0.0", semverType: "MAJOR", publishedAt: new Date("2026-10-20T00:00:00Z"), isPrerelease: false, source: "RELEASE" },
+        {
+          id: "r2",
+          tagName: "v16.0.0",
+          semverType: "MAJOR",
+          publishedAt: new Date("2026-10-20T00:00:00Z"),
+          isPrerelease: false,
+          source: "RELEASE",
+        },
       ],
     },
     ...extra,
@@ -108,29 +115,37 @@ describe("getRepositorySettings", () => {
     expect(await getRepositorySettings(USER, "vercel", "next.js")).toBeNull();
   });
 
-  it.each(["TAG", "PRERELEASE"])("keeps the latest stable release behind more than 20 excluded %s rows", async (kind) => {
-    const stable = subscriptionRow().repository.releases[0]!;
-    const hidden = Array.from({ length: 25 }, (_, i) => ({
-      ...stable,
-      id: `hidden_${i}`,
-      source: kind === "TAG" ? "TAG" : "RELEASE",
-      isPrerelease: kind === "PRERELEASE",
-      publishedAt: new Date("2026-11-01T00:00:00Z"),
-    }));
-    prisma.userSubscription.findMany.mockImplementation(async ({ select }) => {
-      const selection = select.repository.select.releases;
-      // A visibility predicate must be applied before the database's limit.
-      const visible = selection.where.AND?.[0];
-      const candidates = visible ? [stable] : [...hidden, stable];
-      return [{ ...subscriptionRow(), repository: { ...subscriptionRow().repository, releases: candidates.slice(0, selection.take) } }];
-    });
-    const settings = await getRepositorySettings(USER, "vercel", "next.js");
-    expect(settings?.latestRelease?.id).toBe(stable.id);
-    expect(settings?.latestActivityAt).toEqual(stable.publishedAt);
-    const selection = prisma.userSubscription.findMany.mock.calls[0]![0].select.repository.select.releases;
-    expect(selection.where.AND).toEqual([visibleReleasesWhere(USER), { source: { in: ["RELEASE", "TAG"] } }]);
-    expect(selection.take).toBe(1);
-  });
+  it.each(["TAG", "PRERELEASE"])(
+    "keeps the latest stable release behind more than 20 excluded %s rows",
+    async (kind) => {
+      const stable = subscriptionRow().repository.releases[0]!;
+      const hidden = Array.from({ length: 25 }, (_, i) => ({
+        ...stable,
+        id: `hidden_${i}`,
+        source: kind === "TAG" ? "TAG" : "RELEASE",
+        isPrerelease: kind === "PRERELEASE",
+        publishedAt: new Date("2026-11-01T00:00:00Z"),
+      }));
+      prisma.userSubscription.findMany.mockImplementation(async ({ select }) => {
+        const selection = select.repository.select.releases;
+        // A visibility predicate must be applied before the database's limit.
+        const visible = selection.where.AND?.[0];
+        const candidates = visible ? [stable] : [...hidden, stable];
+        return [
+          {
+            ...subscriptionRow(),
+            repository: { ...subscriptionRow().repository, releases: candidates.slice(0, selection.take) },
+          },
+        ];
+      });
+      const settings = await getRepositorySettings(USER, "vercel", "next.js");
+      expect(settings?.latestRelease?.id).toBe(stable.id);
+      expect(settings?.latestActivityAt).toEqual(stable.publishedAt);
+      const selection = prisma.userSubscription.findMany.mock.calls[0]![0].select.repository.select.releases;
+      expect(selection.where.AND).toEqual([visibleReleasesWhere(USER), { source: { in: ["RELEASE", "TAG"] } }]);
+      expect(selection.take).toBe(1);
+    },
+  );
 
   it("returns null for an unknown repository without looking for subscriptions", async () => {
     prisma.repository.findFirst.mockResolvedValue(null);
@@ -146,9 +161,24 @@ describe("getRepositorySettings", () => {
   it("computes the version status from visible releases only", async () => {
     prisma.userSubscription.findMany.mockResolvedValue([subscriptionRow({ currentVersion: "v15.0.0" })]);
     prisma.release.findMany.mockResolvedValue([
-      { repositoryId: "repo_1", tagName: "v16.0.0", publishedAt: new Date("2026-10-20T00:00:00Z"), semverType: "MAJOR" },
-      { repositoryId: "repo_1", tagName: "v15.1.0", publishedAt: new Date("2026-09-20T00:00:00Z"), semverType: "MINOR" },
-      { repositoryId: "repo_1", tagName: "v15.0.0", publishedAt: new Date("2026-08-20T00:00:00Z"), semverType: "MAJOR" },
+      {
+        repositoryId: "repo_1",
+        tagName: "v16.0.0",
+        publishedAt: new Date("2026-10-20T00:00:00Z"),
+        semverType: "MAJOR",
+      },
+      {
+        repositoryId: "repo_1",
+        tagName: "v15.1.0",
+        publishedAt: new Date("2026-09-20T00:00:00Z"),
+        semverType: "MINOR",
+      },
+      {
+        repositoryId: "repo_1",
+        tagName: "v15.0.0",
+        publishedAt: new Date("2026-08-20T00:00:00Z"),
+        semverType: "MAJOR",
+      },
     ]);
     const settings = await getRepositorySettings(USER, "vercel", "next.js");
     expect(settings?.versionStatus).toEqual({ behind: 2, major: 1, matched: true });

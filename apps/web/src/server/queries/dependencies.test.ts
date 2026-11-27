@@ -1,3 +1,4 @@
+import type * as GithubModule from "@repopulse/github";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const prisma = {
@@ -20,7 +21,7 @@ class GitHubAppKeyUnreadableError extends Error {}
 
 vi.mock("@repopulse/db", () => ({ prisma, loadGitHubAppSettings, GitHubAppKeyUnreadableError }));
 vi.mock("@repopulse/github", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@repopulse/github")>()),
+  ...(await importOriginal<typeof GithubModule>()),
   ...github,
   createOctokit: vi.fn(() => ({})),
 }));
@@ -65,10 +66,18 @@ describe("getDependencyProjects", () => {
     prisma.userSubscription.findMany.mockResolvedValue([{ repositoryId: "r1" }]);
 
     const [project] = await queries.getDependencyProjects("u1");
-    expect(prisma.dependencyProject.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: "u1" } }));
-    expect(prisma.dependencyUpdate.groupBy).toHaveBeenCalledWith(expect.objectContaining({ where: { status: "OUTDATED", project: { userId: "u1" } } }));
+    expect(prisma.dependencyProject.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: "u1" } }),
+    );
+    expect(prisma.dependencyUpdate.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { status: "OUTDATED", project: { userId: "u1" } } }),
+    );
     expect(prisma.userSubscription.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: "u1" } }));
-    expect(project).toMatchObject({ packageManagers: ["PNPM", "UV"], outdated: { major: 2, minor: 0, patch: 1, other: 4 }, tracked: true });
+    expect(project).toMatchObject({
+      packageManagers: ["PNPM", "UV"],
+      outdated: { major: 2, minor: 0, patch: 1, other: 4 },
+      tracked: true,
+    });
     expect(queries.planListPullRequests(project!, { appConfigured: true, lockfileRegeneration: true })).toEqual([]);
   });
 
@@ -90,14 +99,36 @@ describe("getDependencyProjects", () => {
         scanError: null,
         prOwnership: { projectId: "p1" },
         repository: null,
-        manifests: [{ id: "m1", path: "package.json", ecosystem: "NPM", packageManager: "PNPM", lockfilePath: "pnpm-lock.yaml" }],
+        manifests: [
+          { id: "m1", path: "package.json", ecosystem: "NPM", packageManager: "PNPM", lockfilePath: "pnpm-lock.yaml" },
+        ],
         updates: [
-          { manifestId: "m1", name: "react", currentVersion: "18.0.0", targetVersion: "18.3.0", level: "MINOR", status: "OUTDATED" },
-          { manifestId: "m1", name: "vite", currentVersion: "5.0.0", targetVersion: "6.0.0", level: "MAJOR", status: "OUTDATED" },
+          {
+            manifestId: "m1",
+            name: "react",
+            currentVersion: "18.0.0",
+            targetVersion: "18.3.0",
+            level: "MINOR",
+            status: "OUTDATED",
+          },
+          {
+            manifestId: "m1",
+            name: "vite",
+            currentVersion: "5.0.0",
+            targetVersion: "6.0.0",
+            level: "MAJOR",
+            status: "OUTDATED",
+          },
         ],
         pullRequests: [
           { id: "pr1", number: 12, htmlUrl: "https://github.com/acme/web/pull/12", groupKey: "all", state: "OPEN" },
-          { id: "pr2", number: 13, htmlUrl: "https://github.com/acme/web/pull/13", groupKey: "major-vite", state: "EDITED" },
+          {
+            id: "pr2",
+            number: 13,
+            htmlUrl: "https://github.com/acme/web/pull/13",
+            groupKey: "major-vite",
+            state: "EDITED",
+          },
         ],
       },
       {
@@ -117,7 +148,16 @@ describe("getDependencyProjects", () => {
         prOwnership: null,
         repository: null,
         manifests: [{ id: "m2", path: "package.json", ecosystem: "NPM", packageManager: "NONE", lockfilePath: null }],
-        updates: [{ manifestId: "m2", name: "zod", currentVersion: "3.0.0", targetVersion: "3.1.0", level: "MINOR", status: "OUTDATED" }],
+        updates: [
+          {
+            manifestId: "m2",
+            name: "zod",
+            currentVersion: "3.0.0",
+            targetVersion: "3.1.0",
+            level: "MINOR",
+            status: "OUTDATED",
+          },
+        ],
         pullRequests: [],
       },
     ]);
@@ -126,7 +166,9 @@ describe("getDependencyProjects", () => {
     ]);
 
     const [p1, p2] = await queries.getDependencyProjects("u1");
-    expect(p1!.openPullRequests).toEqual([{ id: "pr1", number: 12, htmlUrl: "https://github.com/acme/web/pull/12", groupKey: "all" }]);
+    expect(p1!.openPullRequests).toEqual([
+      { id: "pr1", number: 12, htmlUrl: "https://github.com/acme/web/pull/12", groupKey: "all" },
+    ]);
     expect(prisma.dependencyPrOwner.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { githubRepoId: { in: [20] } } }),
     );
@@ -136,12 +178,12 @@ describe("getDependencyProjects", () => {
       ["all", null],
       ["major-vite", "Someone else pushed to this pull request, so RepoPulse no longer updates it."],
     ]);
-    expect(queries.planListPullRequests(p1!, { appConfigured: true, lockfileRegeneration: false })[0]!.disabledReason).toContain(
-      "pnpm-lock.yaml",
-    );
-    expect(queries.planListPullRequests(p1!, { appConfigured: false, lockfileRegeneration: true })[0]!.disabledReason).toContain(
-      "not set up",
-    );
+    expect(
+      queries.planListPullRequests(p1!, { appConfigured: true, lockfileRegeneration: false })[0]!.disabledReason,
+    ).toContain("pnpm-lock.yaml");
+    expect(
+      queries.planListPullRequests(p1!, { appConfigured: false, lockfileRegeneration: true })[0]!.disabledReason,
+    ).toContain("not set up");
 
     const p2Plans = queries.planListPullRequests(p2!, { appConfigured: true, lockfileRegeneration: true });
     expect(p2Plans[0]!.disabledReason).toContain("bob");
@@ -155,8 +197,13 @@ describe("getAddableSubscriptions", () => {
       { id: "s2", repository: { githubRepoId: 2, fullName: "a/two", description: "d", avatarUrl: null } },
     ]);
     prisma.dependencyProject.findMany.mockResolvedValue([{ githubRepoId: 1 }]);
-    expect(await queries.getAddableSubscriptions("u1")).toEqual([{ subscriptionId: "s2", fullName: "a/two", description: "d", avatarUrl: null }]);
-    expect(prisma.dependencyProject.findMany).toHaveBeenCalledWith({ where: { userId: "u1" }, select: { githubRepoId: true } });
+    expect(await queries.getAddableSubscriptions("u1")).toEqual([
+      { subscriptionId: "s2", fullName: "a/two", description: "d", avatarUrl: null },
+    ]);
+    expect(prisma.dependencyProject.findMany).toHaveBeenCalledWith({
+      where: { userId: "u1" },
+      select: { githubRepoId: true },
+    });
   });
 });
 
@@ -188,11 +235,67 @@ function storedProject(overrides: Record<string, unknown> = {}) {
     scanError: null,
     createdAt: new Date(),
     repository: null,
-    manifests: [{ id: "m1", path: "package.json", ecosystem: "NPM", packageManager: "NONE", lockfilePath: null, workspaceRoot: null, dependencyCount: 3, warnings: [] }],
+    manifests: [
+      {
+        id: "m1",
+        path: "package.json",
+        ecosystem: "NPM",
+        packageManager: "NONE",
+        lockfilePath: null,
+        workspaceRoot: null,
+        dependencyCount: 3,
+        warnings: [],
+      },
+    ],
     updates: [
-      { id: "d1", manifestId: "m1", name: "react", kind: "PROD", group: "", declared: "^18.0.0", currentVersion: "18.0.0", wantedVersion: "18.3.0", targetVersion: "18.3.0", latestVersion: "19.0.0", level: "MINOR", status: "OUTDATED", targetReleasedAt: null, sourceRepoUrl: null },
-      { id: "d2", manifestId: "m1", name: "vite", kind: "DEV", group: "", declared: "^5.0.0", currentVersion: "5.0.0", wantedVersion: "5.0.0", targetVersion: "6.0.0", latestVersion: "6.0.0", level: "MAJOR", status: "OUTDATED", targetReleasedAt: null, sourceRepoUrl: null },
-      { id: "d3", manifestId: "m1", name: "vue", kind: "PROD", group: "", declared: "^3.0.0", currentVersion: "3.0.0", wantedVersion: null, targetVersion: null, latestVersion: "3.5.0", level: null, status: "IGNORED", targetReleasedAt: null, sourceRepoUrl: null },
+      {
+        id: "d1",
+        manifestId: "m1",
+        name: "react",
+        kind: "PROD",
+        group: "",
+        declared: "^18.0.0",
+        currentVersion: "18.0.0",
+        wantedVersion: "18.3.0",
+        targetVersion: "18.3.0",
+        latestVersion: "19.0.0",
+        level: "MINOR",
+        status: "OUTDATED",
+        targetReleasedAt: null,
+        sourceRepoUrl: null,
+      },
+      {
+        id: "d2",
+        manifestId: "m1",
+        name: "vite",
+        kind: "DEV",
+        group: "",
+        declared: "^5.0.0",
+        currentVersion: "5.0.0",
+        wantedVersion: "5.0.0",
+        targetVersion: "6.0.0",
+        latestVersion: "6.0.0",
+        level: "MAJOR",
+        status: "OUTDATED",
+        targetReleasedAt: null,
+        sourceRepoUrl: null,
+      },
+      {
+        id: "d3",
+        manifestId: "m1",
+        name: "vue",
+        kind: "PROD",
+        group: "",
+        declared: "^3.0.0",
+        currentVersion: "3.0.0",
+        wantedVersion: null,
+        targetVersion: null,
+        latestVersion: "3.5.0",
+        level: null,
+        status: "IGNORED",
+        targetReleasedAt: null,
+        sourceRepoUrl: null,
+      },
     ],
     pullRequests: [],
     ...overrides,
@@ -215,7 +318,10 @@ describe("getDependencyProject", () => {
 
   it("names another user who owns the PRs and reads ignore rules defensively", async () => {
     prisma.dependencyProject.findFirst.mockResolvedValue(storedProject());
-    prisma.dependencyPrOwner.findUnique.mockResolvedValue({ projectId: "p9", project: { user: { githubLogin: "bob", name: null } } });
+    prisma.dependencyPrOwner.findUnique.mockResolvedValue({
+      projectId: "p9",
+      project: { user: { githubLogin: "bob", name: null } },
+    });
     const project = await queries.getDependencyProject("u1", "acme", "web");
     expect(project?.prOwner).toEqual({ kind: "other", ownerName: "bob" });
     expect(project?.settings.ignoreRules).toEqual([{ name: "vue" }]);
@@ -224,7 +330,10 @@ describe("getDependencyProject", () => {
 });
 
 describe("planPullRequests", () => {
-  async function load(overrides: Record<string, unknown> = {}, owner: unknown = { projectId: "p1", project: { user: { githubLogin: "me", name: null } } }) {
+  async function load(
+    overrides: Record<string, unknown> = {},
+    owner: unknown = { projectId: "p1", project: { user: { githubLogin: "me", name: null } } },
+  ) {
     prisma.dependencyProject.findFirst.mockResolvedValue(storedProject(overrides));
     prisma.dependencyPrOwner.findUnique.mockResolvedValue(owner);
     return (await queries.getDependencyProject("u1", "acme", "web"))!;
@@ -239,22 +348,64 @@ describe("planPullRequests", () => {
       ["major-vite", false],
     ]);
     expect(plans[1]!.disabledReason).toContain("free slot");
-    expect(plans[0]!.updates).toEqual([{ name: "react", manifestPath: "package.json", from: "18.0.0", to: "18.3.0", level: "MINOR" }]);
+    expect(plans[0]!.updates).toEqual([
+      { name: "react", manifestPath: "package.json", from: "18.0.0", to: "18.3.0", level: "MINOR" },
+    ]);
   });
 
   it("explains why Create PR is disabled", async () => {
-    expect(queries.planPullRequests(await load({ updateMode: "NOTIFY" }), installed, sandbox)[0]!.disabledReason).toContain("only notifies");
-    expect(queries.planPullRequests(await load(), { state: "not_configured" }, sandbox)[0]!.disabledReason).toContain("not set up");
-    expect(queries.planPullRequests(await load(), { state: "not_installed", installUrl: "x" }, sandbox)[0]!.disabledReason).toContain("Install");
-    expect(queries.planPullRequests(await load({}, { projectId: "p9", project: { user: { githubLogin: "bob", name: null } } }), installed, sandbox)[0]!.disabledReason).toContain("bob");
-    const yarn = await load({ manifests: [{ id: "m1", path: "package.json", ecosystem: "NPM", packageManager: "YARN", lockfilePath: "yarn.lock", workspaceRoot: null, dependencyCount: 3, warnings: [] }] });
+    expect(
+      queries.planPullRequests(await load({ updateMode: "NOTIFY" }), installed, sandbox)[0]!.disabledReason,
+    ).toContain("only notifies");
+    expect(queries.planPullRequests(await load(), { state: "not_configured" }, sandbox)[0]!.disabledReason).toContain(
+      "not set up",
+    );
+    expect(
+      queries.planPullRequests(await load(), { state: "not_installed", installUrl: "x" }, sandbox)[0]!.disabledReason,
+    ).toContain("Install");
+    expect(
+      queries.planPullRequests(
+        await load({}, { projectId: "p9", project: { user: { githubLogin: "bob", name: null } } }),
+        installed,
+        sandbox,
+      )[0]!.disabledReason,
+    ).toContain("bob");
+    const yarn = await load({
+      manifests: [
+        {
+          id: "m1",
+          path: "package.json",
+          ecosystem: "NPM",
+          packageManager: "YARN",
+          lockfilePath: "yarn.lock",
+          workspaceRoot: null,
+          dependencyCount: 3,
+          warnings: [],
+        },
+      ],
+    });
     expect(queries.planPullRequests(yarn, installed, sandbox)[0]!.disabledReason).toContain("Yarn");
   });
 
   it("disables lockfile groups while the sandbox is unreachable", async () => {
     const pnpm = async () =>
-      load({ manifests: [{ id: "m1", path: "package.json", ecosystem: "NPM", packageManager: "PNPM", lockfilePath: "pnpm-lock.yaml", workspaceRoot: null, dependencyCount: 3, warnings: [] }] });
-    expect(queries.planPullRequests(await pnpm(), installed, { lockfileRegeneration: false })[0]!.disabledReason).toContain("pnpm-lock.yaml");
+      load({
+        manifests: [
+          {
+            id: "m1",
+            path: "package.json",
+            ecosystem: "NPM",
+            packageManager: "PNPM",
+            lockfilePath: "pnpm-lock.yaml",
+            workspaceRoot: null,
+            dependencyCount: 3,
+            warnings: [],
+          },
+        ],
+      });
+    expect(
+      queries.planPullRequests(await pnpm(), installed, { lockfileRegeneration: false })[0]!.disabledReason,
+    ).toContain("pnpm-lock.yaml");
     expect(queries.planPullRequests(await pnpm(), installed, sandbox)[0]!.disabledReason).toBeNull();
   });
 });
@@ -273,7 +424,12 @@ describe("checkRepoAccess", () => {
   it("checks the user's permission with a token narrowed to the repository", async () => {
     github.getCollaboratorPermission.mockResolvedValue("read");
     expect(await queries.checkRepoAccess(user, repo, "read")).toEqual({ ok: true, installationId: 9 });
-    expect(github.createInstallationToken).toHaveBeenCalledWith(expect.anything(), 9, { repositoryIds: [5], permissions: { metadata: "read" } }, expect.anything());
+    expect(github.createInstallationToken).toHaveBeenCalledWith(
+      expect.anything(),
+      9,
+      { repositoryIds: [5], permissions: { metadata: "read" } },
+      expect.anything(),
+    );
     expect(await queries.checkRepoAccess(user, repo, "write")).toMatchObject({ ok: false, code: "FORBIDDEN" });
   });
 

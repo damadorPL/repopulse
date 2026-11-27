@@ -21,15 +21,16 @@ FROM base AS installer
 COPY --from=pruner /app/out/json/ .
 COPY --from=pruner /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
 # turbo prune keeps the `allowBuilds` block of pnpm-workspace.yaml, so Prisma's install scripts run.
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile
 COPY --from=pruner /app/out/full/ .
 # `build` depends on `^db:generate`, so `prisma generate` runs here on Alpine.
 RUN pnpm turbo run build --filter=@repopulse/deps-worker
 
-# ---- Stage 3: drop devDependencies (typescript, tsx, vitest, ...) in place.
+# ---- Stage 3: drop devDependencies (typescript, tsx, vitest, ...) and unused TypeScript sources in place.
 FROM installer AS prod-deps
 RUN CI=true pnpm prune --prod \
- && rm -rf node_modules/.cache .turbo apps/*/.turbo packages/*/.turbo
+ && rm -rf node_modules/.cache .turbo apps/*/.turbo packages/*/.turbo apps/*/src packages/*/src \
+ && find apps packages -not -path '*/node_modules/*' -name '*.test.ts' -delete
 
 # ---- Target: production deps-worker runtime (default: last stage)
 FROM node:26-alpine AS runner
@@ -42,4 +43,6 @@ ENV NODE_ENV=production \
 COPY --from=prod-deps /app /app
 USER node
 EXPOSE 3002
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://localhost:${DEPS_HEALTH_PORT:-3002}/health >/dev/null || exit 1
 CMD ["node", "apps/deps-worker/dist/index.js"]

@@ -9,8 +9,20 @@ import {
   formatDependencyDiscordPayload,
 } from "./formatters/dependencies.js";
 import { DISCORD_DESCRIPTION_LIMIT, formatDiscordPayload } from "./formatters/discord.js";
-import { createSmtpSender, defaultSmtpFrom, renderReleaseEmail, toSmtpConfig } from "./formatters/email.js";
-import { buildGotifyRequest, buildNtfyRequest, encodeHeaderValue, resolveGotifyEndpoint } from "./formatters/ntfy-gotify.js";
+import {
+  closeSmtpTransports,
+  createSmtpSender,
+  defaultSmtpFrom,
+  renderReleaseEmail,
+  toSmtpConfig,
+  verifySmtpConfig,
+} from "./formatters/email.js";
+import {
+  buildGotifyRequest,
+  buildNtfyRequest,
+  encodeHeaderValue,
+  resolveGotifyEndpoint,
+} from "./formatters/ntfy-gotify.js";
 import { formatSlackPayload } from "./formatters/slack.js";
 import {
   cleanMarkdown,
@@ -24,20 +36,32 @@ import {
 } from "./markdown.js";
 import type { MessageContext, SemverType } from "./types.js";
 
-function context(overrides: { semverType?: SemverType; body?: string; tag?: { name: string; colorHex: string } | null } = {}): MessageContext {
+function context(
+  overrides: { semverType?: SemverType; body?: string; tag?: { name: string; colorHex: string } | null } = {},
+): MessageContext {
   return {
-    rule: { id: "rule1", channel: "DISCORD_WEBHOOK", destinationUrl: "https://discord.com/api/webhooks/1/x", tag: overrides.tag ?? null },
+    rule: {
+      id: "rule1",
+      channel: "DISCORD_WEBHOOK",
+      destinationUrl: "https://discord.com/api/webhooks/1/x",
+      tag: overrides.tag ?? null,
+    },
     release: {
       id: "rel1",
       tagName: "v2.0.0",
       title: "Version 2",
-      bodyMarkdown: overrides.body ?? "## Breaking\n\n- Dropped **Node 18** support\n- See [docs](https://example.com/docs)",
+      bodyMarkdown:
+        overrides.body ?? "## Breaking\n\n- Dropped **Node 18** support\n- See [docs](https://example.com/docs)",
       htmlUrl: "https://github.com/acme/widget/releases/tag/v2.0.0",
       semverType: overrides.semverType ?? "MAJOR",
       isPrerelease: false,
       publishedAt: new Date("2026-10-30T12:00:00Z"),
     },
-    repository: { fullName: "acme/widget", htmlUrl: "https://github.com/acme/widget", avatarUrl: "https://avatars.example/acme.png" },
+    repository: {
+      fullName: "acme/widget",
+      htmlUrl: "https://github.com/acme/widget",
+      avatarUrl: "https://avatars.example/acme.png",
+    },
     user: { id: "u1", email: "dev@example.com" },
     appBaseUrl: "https://pulse.example.com",
     readerUrl: "https://pulse.example.com/?release=rel1",
@@ -87,8 +111,16 @@ describe("Slack", () => {
     ]);
   });
 
-  it("escapes &, < and > outside of links", () => {
+  it("escapes &, < and > outside of links, protects inline code, and escapes | in link text", () => {
     expect(markdownToSlack("a < b && c > d")).toBe("a &lt; b &amp;&amp; c &gt; d");
+    expect(markdownToSlack("`__init__` and `**not_bold**` and `[x](https://x.io)`")).toBe(
+      "`__init__` and `**not_bold**` and `[x](https://x.io)`",
+    );
+    expect(markdownToSlack("`a & b < c > d`")).toBe("`a &amp; b &lt; c &gt; d`");
+    expect(markdownToSlack("[foo | bar](https://example.com) and ![a | b](https://example.com/a.png)")).toBe(
+      "<https://example.com|foo &#124; bar> and <https://example.com/a.png|a &#124; b>",
+    );
+    expect(markdownToSlack("[`a|b`](https://example.com)")).toBe("<https://example.com|`a&#124;b`>");
   });
 });
 
@@ -104,15 +136,24 @@ describe("ntfy", () => {
       Markdown: "yes",
     });
     expect(request.body).toContain("**Version 2**");
-    expect(buildNtfyRequest(context({ semverType: "PATCH" }), "https://ntfy.sh/alerts").headers.Priority).toBe("default");
+    expect(buildNtfyRequest(context({ semverType: "PATCH" }), "https://ntfy.sh/alerts").headers.Priority).toBe(
+      "default",
+    );
   });
 
-  it("encodes non-ASCII header values, strips newlines, and keeps the body under 4096 bytes", () => {
+  it("encodes non-ASCII header values, strips newlines, sanitizes Click/Actions delimiters, and keeps the body under 4096 bytes", () => {
     expect(encodeHeaderValue("Neue Version ✨")).toMatch(/^=\?UTF-8\?B\?.+\?=$/);
     expect(encodeHeaderValue("plain")).toBe("plain");
     expect(encodeHeaderValue("line1\r\nline2\nline3")).toBe("line1 line2 line3");
     const request = buildNtfyRequest(context({ body: "🚀".repeat(3000) }), "https://ntfy.sh/alerts");
     expect(Buffer.byteLength(request.body)).toBeLessThanOrEqual(3800);
+
+    const dirty = context();
+    dirty.release.htmlUrl = "https://github.com/acme/a,b;c\r\nX-Inject: 1";
+    dirty.readerUrl = "https://pulse.example.com/?a=1,2;3\r\nX-Evil: 2";
+    const sanitized = buildNtfyRequest(dirty, "https://ntfy.sh/alerts");
+    expect(sanitized.headers.Click).toBe("https://github.com/acme/a%2Cb%3BcX-Inject: 1");
+    expect(sanitized.headers.Actions).toBe("view, Open in RepoPulse, https://pulse.example.com/?a=1%2C2%3B3X-Evil: 2");
   });
 });
 
@@ -125,19 +166,28 @@ describe("Gotify", () => {
     expect(body.title).toBe("New Release: acme/widget v2.0.0");
     expect(body.priority).toBe(8);
     expect(body.extras["client::display"]).toEqual({ contentType: "text/markdown" });
-    expect(JSON.parse(buildGotifyRequest(context({ semverType: "MINOR" }), "https://g.example/message?token=x").body).priority).toBe(5);
+    expect(
+      JSON.parse(buildGotifyRequest(context({ semverType: "MINOR" }), "https://g.example/message?token=x").body)
+        .priority,
+    ).toBe(5);
   });
 
   it("appends /message to a bare server URL without duplicating it, keeps other query params, and requires a token", () => {
-    expect(resolveGotifyEndpoint("https://example.com/gotify/?token=t").url.href).toBe("https://example.com/gotify/message");
-    expect(resolveGotifyEndpoint("https://example.com/message/?token=t&foo=bar").url.href).toBe("https://example.com/message/?foo=bar");
+    expect(resolveGotifyEndpoint("https://example.com/gotify/?token=t").url.href).toBe(
+      "https://example.com/gotify/message",
+    );
+    expect(resolveGotifyEndpoint("https://example.com/message/?token=t&foo=bar").url.href).toBe(
+      "https://example.com/message/?foo=bar",
+    );
     expect(() => resolveGotifyEndpoint("https://gotify.example.com/message")).toThrow(/application token/);
   });
 });
 
 describe("email", () => {
   it("renders an escaped HTML email with version badge and RepoPulse button", () => {
-    const email = renderReleaseEmail(context({ body: "Fixes <script>alert(1)</script> and **more**", tag: { name: "Critical", colorHex: "#EF4444" } }));
+    const email = renderReleaseEmail(
+      context({ body: "Fixes <script>alert(1)</script> and **more**", tag: { name: "Critical", colorHex: "#EF4444" } }),
+    );
     expect(email.subject).toBe("acme/widget v2.0.0 released (major)");
     expect(email.html).toContain("Major release");
     expect(email.html).toContain('href="https://pulse.example.com/?release=rel1"');
@@ -146,19 +196,44 @@ describe("email", () => {
     expect(email.text).toContain("Open in RepoPulse: https://pulse.example.com/?release=rel1");
   });
 
-  it("markdownToEmailHtml escapes raw HTML and only links http(s)", () => {
-    const html = markdownToEmailHtml('<img src=x onerror=alert(1)>\n[bad](javascript:alert(1)) [ok](https://example.com)');
+  it("markdownToEmailHtml escapes raw HTML, protects inline code from bold/italic/link corruption, and only links http(s)", () => {
+    const html = markdownToEmailHtml(
+      "<img src=x onerror=alert(1)>\n[bad](javascript:alert(1)) [ok](https://example.com)\n`__init__` `*em*` `[no](https://x.io)` and `foo_bar` *yes*",
+    );
     expect(html).not.toMatch(/<img/);
     expect(html).not.toContain('href="javascript');
     expect(html).toContain('href="https://example.com"');
+    expect(html).toContain(">__init__</code>");
+    expect(html).toContain(">*em*</code>");
+    expect(html).toContain(">[no](https://x.io)</code>");
+    expect(html).toContain(">foo_bar</code>");
+    expect(html).toContain("<em>yes</em>");
+  });
+
+  it("validates tag colorHex and button hrefs in release emails", () => {
+    const bad = context({ tag: { name: "Injected", colorHex: "red;background:url(x)" } });
+    bad.readerUrl = "javascript:alert(1)";
+    const email = renderReleaseEmail(bad);
+    expect(email.html).toContain('style="color:#475569">Injected');
+    expect(email.html).not.toContain("background:url(x)");
+    expect(email.html).not.toContain('href="javascript:');
   });
 
   it("builds the SMTP config from the stored settings with sensible defaults", () => {
-    const base = { smtpHost: null, smtpPort: 587, smtpSecure: null, smtpUser: null, smtpPassword: null, smtpFrom: null };
+    const base = {
+      smtpHost: null,
+      smtpPort: 587,
+      smtpSecure: null,
+      smtpUser: null,
+      smtpPassword: null,
+      smtpFrom: null,
+    };
     expect(toSmtpConfig(null)).toBeNull();
     expect(toSmtpConfig(base)).toBeNull();
     expect(toSmtpConfig({ ...base, smtpHost: "  " })).toBeNull();
-    expect(toSmtpConfig({ ...base, smtpHost: "smtp.example.com", smtpUser: "bot@example.com", smtpPassword: "x" })).toEqual({
+    expect(
+      toSmtpConfig({ ...base, smtpHost: "smtp.example.com", smtpUser: "bot@example.com", smtpPassword: "x" }),
+    ).toEqual({
       host: "smtp.example.com",
       port: 587,
       secure: false,
@@ -167,8 +242,12 @@ describe("email", () => {
       from: "RepoPulse <bot@example.com>",
     });
     expect(toSmtpConfig({ ...base, smtpHost: "smtp.example.com", smtpPort: 465 })?.secure).toBe(true);
-    expect(toSmtpConfig({ ...base, smtpHost: "smtp.example.com", smtpPort: 465, smtpSecure: false })?.secure).toBe(false);
-    expect(toSmtpConfig({ ...base, smtpHost: "h", smtpFrom: "Releases <r@example.com>" })?.from).toBe("Releases <r@example.com>");
+    expect(toSmtpConfig({ ...base, smtpHost: "smtp.example.com", smtpPort: 465, smtpSecure: false })?.secure).toBe(
+      false,
+    );
+    expect(toSmtpConfig({ ...base, smtpHost: "h", smtpFrom: "Releases <r@example.com>" })?.from).toBe(
+      "Releases <r@example.com>",
+    );
     expect(toSmtpConfig({ ...base, smtpHost: "relay.lan" })).toMatchObject({
       user: undefined,
       pass: undefined,
@@ -205,28 +284,106 @@ describe("email", () => {
       expect(close).toHaveBeenCalledTimes(1);
 
       sendMail.mockRejectedValueOnce(Object.assign(new Error("Invalid login"), { code: "EAUTH" }));
-      await expect(sender2({ from: "r@test", to: "a@test", subject: "s", text: "t", html: "h" })).rejects.toMatchObject({
-        name: "NotificationDeliveryError",
-        permanent: true,
-        message: expect.stringContaining("SMTP authentication failed"),
-      });
+      await expect(sender2({ from: "r@test", to: "a@test", subject: "s", text: "t", html: "h" })).rejects.toMatchObject(
+        {
+          name: "NotificationDeliveryError",
+          permanent: true,
+          message: expect.stringContaining("SMTP authentication failed"),
+        },
+      );
 
-      sendMail.mockRejectedValueOnce(Object.assign(new Error("Mailbox unavailable"), { responseCode: 550, response: "550 User unknown" }));
-      await expect(sender2({ from: "r@test", to: "a@test", subject: "s", text: "t", html: "h" })).rejects.toMatchObject({
-        permanent: true,
-        message: expect.stringContaining("550 User unknown"),
-      });
+      sendMail.mockRejectedValueOnce(
+        Object.assign(new Error("Mailbox unavailable"), { responseCode: 550, response: "550 User unknown" }),
+      );
+      await expect(sender2({ from: "r@test", to: "a@test", subject: "s", text: "t", html: "h" })).rejects.toMatchObject(
+        {
+          permanent: true,
+          message: expect.stringContaining("550 User unknown"),
+        },
+      );
 
-      sendMail.mockRejectedValueOnce(Object.assign(new Error("Try again"), { responseCode: 421, response: "421 Service busy" }));
-      const transient = (await sender2({ from: "r@test", to: "a@test", subject: "s", text: "t", html: "h" }).catch((e: unknown) => e)) as NotificationDeliveryError;
+      sendMail.mockRejectedValueOnce(
+        Object.assign(new Error("Try again"), { responseCode: 421, response: "421 Service busy" }),
+      );
+      const transient = (await sender2({ from: "r@test", to: "a@test", subject: "s", text: "t", html: "h" }).catch(
+        (e: unknown) => e,
+      )) as NotificationDeliveryError;
       expect(transient).toBeInstanceOf(NotificationDeliveryError);
       expect(transient.permanent).toBe(false);
 
       sendMail.mockRejectedValueOnce(Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }));
-      await expect(sender2({ from: "r@test", to: "a@test", subject: "s", text: "t", html: "h" })).rejects.toMatchObject({
-        permanent: false,
-      });
+      await expect(sender2({ from: "r@test", to: "a@test", subject: "s", text: "t", html: "h" })).rejects.toMatchObject(
+        {
+          permanent: false,
+        },
+      );
     } finally {
+      closeSmtpTransports();
+      createSpy.mockRestore();
+    }
+  });
+
+  it("enables pooling, TLS 1.2+, and DNS timeout, supports closeSmtpTransports, and verifies with an ephemeral transport", async () => {
+    const sendMail = vi.fn<() => Promise<void>>(async () => {});
+    const verify = vi.fn<() => Promise<true>>(async () => true);
+    const close = vi.fn();
+    const createSpy = vi
+      .spyOn(nodemailer, "createTransport")
+      .mockImplementation(
+        () => ({ sendMail, verify, close }) as unknown as ReturnType<typeof nodemailer.createTransport>,
+      );
+
+    try {
+      const cfg = {
+        host: "smtp.example.com",
+        port: 587,
+        secure: false,
+        user: "bot@example.com",
+        pass: "s3cr3t",
+        from: "r@test",
+      };
+      createSmtpSender(cfg);
+      expect(createSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          host: "smtp.example.com",
+          port: 587,
+          secure: false,
+          pool: true,
+          maxConnections: 5,
+          maxMessages: 100,
+          dnsTimeout: 10_000,
+          tls: { minVersion: "TLSv1.2" },
+        }),
+      );
+
+      // Changing the password produces a different SHA-256 cache key and replaces the transport.
+      createSmtpSender({ ...cfg, pass: "new-s3cr3t" });
+      expect(createSpy).toHaveBeenCalledTimes(2);
+      expect(close).toHaveBeenCalledTimes(1);
+
+      closeSmtpTransports();
+      expect(close).toHaveBeenCalledTimes(2);
+      createSmtpSender({ ...cfg, pass: "new-s3cr3t" });
+      expect(createSpy).toHaveBeenCalledTimes(3);
+
+      // verifySmtpConfig uses a non-pooled transport and always closes it.
+      await verifySmtpConfig(cfg);
+      expect(verify).toHaveBeenCalledTimes(1);
+      expect(close).toHaveBeenCalledTimes(3);
+      const verifyOpts = createSpy.mock.calls[3]?.[0] as Record<string, unknown>;
+      expect(verifyOpts.pool).toBeUndefined();
+      expect(verifyOpts.dnsTimeout).toBe(10_000);
+      expect(verifyOpts.tls).toEqual({ minVersion: "TLSv1.2" });
+
+      verify.mockRejectedValueOnce(Object.assign(new Error("Invalid login"), { code: "EAUTH" }));
+      await expect(verifySmtpConfig(cfg)).rejects.toMatchObject({
+        name: "NotificationDeliveryError",
+        permanent: true,
+        message: expect.stringContaining("SMTP authentication failed"),
+      });
+      expect(close).toHaveBeenCalledTimes(4);
+    } finally {
+      closeSmtpTransports();
       createSpy.mockRestore();
     }
   });
@@ -250,7 +407,13 @@ describe("commit notifications", () => {
     const ctx = context({ semverType: "OTHER" });
     return {
       ...ctx,
-      release: { ...ctx.release, source: "COMMIT", tagName: "0123456", title: "fix(db): index", htmlUrl: "https://github.com/acme/widget/commit/0123456" },
+      release: {
+        ...ctx.release,
+        source: "COMMIT",
+        tagName: "0123456",
+        title: "fix(db): index",
+        htmlUrl: "https://github.com/acme/widget/commit/0123456",
+      },
     };
   };
 
@@ -281,7 +444,9 @@ describe("markdown helpers", () => {
   });
 
   it("converts fenced code, images, strikethrough and quotes in markdownToSlack and markdownToEmailHtml", () => {
-    const slack = markdownToSlack("```ts\nconst x = a < b && c > d;\n```\n![logo](https://x.io/a.png)\n![](https://x.io/b.png)\n~~old~~\n> quote");
+    const slack = markdownToSlack(
+      "```ts\nconst x = a < b && c > d;\n```\n![logo](https://x.io/a.png)\n![](https://x.io/b.png)\n~~old~~\n> quote",
+    );
     expect(slack).toContain("```const x = a &lt; b &amp;&amp; c &gt; d;```");
     expect(slack).toContain("<https://x.io/a.png|logo>");
     expect(slack).toContain("<https://x.io/b.png|image>");

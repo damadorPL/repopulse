@@ -20,7 +20,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { feedHref } from "@/lib/feed-filters";
-import { NOTHING_TRACKED_MESSAGE, PATHS_OPTION, TRACK_MODE_OPTIONS, tracksSomething, type TrackModeValue } from "@/lib/track-modes";
+import {
+  NOTHING_TRACKED_MESSAGE,
+  PATHS_OPTION,
+  TRACK_MODE_OPTIONS,
+  tracksSomething,
+  type TrackModeValue,
+} from "@/lib/track-modes";
 import { cn } from "@/lib/utils";
 import { validateWatchedPaths } from "@/lib/watched-paths";
 import { addRepositoryAction } from "@/server/actions/repositories";
@@ -30,7 +36,9 @@ type TrackingChoice = Exclude<TrackModeValue, "NONE"> | "PATHS";
 
 /** The tracking choices of the dialog: one release mode at most, plus "Files / folders". */
 const TRACKING_CHOICES: ReadonlyArray<{ key: TrackingChoice; label: string; hint: string }> = [
-  ...TRACK_MODE_OPTIONS.flatMap((option) => (option.value === "NONE" ? [] : [{ key: option.value, label: option.label, hint: option.hint }])),
+  ...TRACK_MODE_OPTIONS.flatMap((option) =>
+    option.value === "NONE" ? [] : [{ key: option.value, label: option.label, hint: option.hint }],
+  ),
   { key: "PATHS", label: PATHS_OPTION.label, hint: PATHS_OPTION.hint },
 ];
 
@@ -39,7 +47,15 @@ function plural(count: number, word: string): string {
 }
 
 /** "Add repository" dialog; `children` is the trigger element. `defaultRepo` prefills the repository field. */
-export function AddRepoModal({ tags, children, defaultRepo = "" }: { tags: TagPill[]; children: ReactNode; defaultRepo?: string }) {
+export function AddRepoModal({
+  tags,
+  children,
+  defaultRepo = "",
+}: {
+  tags: TagPill[];
+  children: ReactNode;
+  defaultRepo?: string;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [repo, setRepo] = useState(defaultRepo);
@@ -181,7 +197,7 @@ export function AddRepoModal({ tags, children, defaultRepo = "" }: { tags: TagPi
                   <label
                     key={choice.key}
                     className={cn(
-                      "relative grid cursor-pointer gap-0.5 rounded-md border p-2.5 pr-8 text-sm transition-colors has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50",
+                      "relative grid cursor-pointer gap-0.5 rounded-md border p-2.5 pr-8 text-sm transition-colors has-focus-visible:ring-[3px] has-focus-visible:ring-ring/50",
                       selected ? "border-foreground/40 bg-secondary" : "hover:bg-accent",
                     )}
                   >
@@ -208,7 +224,10 @@ export function AddRepoModal({ tags, children, defaultRepo = "" }: { tags: TagPi
                 );
               })}
             </div>
-            <p id="add-repo-tracking-help" className={cn("text-xs", tracksAnything ? "text-muted-foreground" : "text-destructive")}>
+            <p
+              id="add-repo-tracking-help"
+              className={cn("text-xs", tracksAnything ? "text-muted-foreground" : "text-destructive")}
+            >
               {tracksAnything ? "Pick releases or releases + tags, files / folders, or both." : NOTHING_TRACKED_MESSAGE}
             </p>
           </fieldset>
@@ -234,8 +253,8 @@ export function AddRepoModal({ tags, children, defaultRepo = "" }: { tags: TagPi
                 describedBy="add-repo-paths-help"
               />
               <p id="add-repo-paths-help" className="text-xs text-muted-foreground">
-                Type to search the default branch, or browse its folders. A folder matches every file inside it. Each commit
-                that changes a watched path shows up with its changed files.
+                Type to search the default branch, or browse its folders. A folder matches every file inside it. Each
+                commit that changes a watched path shows up with its changed files.
               </p>
             </div>
           ) : null}
@@ -261,7 +280,9 @@ export function AddRepoModal({ tags, children, defaultRepo = "" }: { tags: TagPi
                       onClick={() => toggleTag(tag.id)}
                       className={cn(
                         "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors",
-                        selected ? "border-foreground/40 bg-secondary font-medium" : "text-muted-foreground hover:bg-accent",
+                        selected
+                          ? "border-foreground/40 bg-secondary font-medium"
+                          : "text-muted-foreground hover:bg-accent",
                       )}
                     >
                       <TagDot color={tag.colorHex} />
@@ -276,7 +297,9 @@ export function AddRepoModal({ tags, children, defaultRepo = "" }: { tags: TagPi
           <DialogFooter>
             <Button
               type="submit"
-              disabled={pending || !repo.trim() || !tracksAnything || (tracksPaths && paths.length === 0 && !pathsDraft.trim())}
+              disabled={
+                pending || !repo.trim() || !tracksAnything || (tracksPaths && paths.length === 0 && !pathsDraft.trim())
+              }
             >
               {pending ? <LoaderCircleIcon className="animate-spin" /> : null}
               {pending ? (tracksReleases ? "Fetching releases…" : "Adding…") : "Add repository"}

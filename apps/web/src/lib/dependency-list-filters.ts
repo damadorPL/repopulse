@@ -4,12 +4,9 @@
  * The lists are small (≤ 50 projects, ≤ 1000 rows), so filtering runs in memory. Browser-safe.
  */
 
+import type { Route } from "next";
 import { MAX_SEARCH_LENGTH } from "./feed-filters";
-import type {
-  DependencyEcosystemValue,
-  DependencyKindValue,
-  DependencyUpdateStatusValue,
-} from "./dependency-settings";
+import type { DependencyEcosystemValue, DependencyKindValue, DependencyUpdateStatusValue } from "./dependency-settings";
 
 export const DEPENDENCY_LIST_SORTS = ["name", "outdated", "checked"] as const;
 export type DependencyListSort = (typeof DEPENDENCY_LIST_SORTS)[number];
@@ -54,21 +51,21 @@ export function dependencyListSearchParams(filters: Partial<DependencyListFilter
   return params;
 }
 
-export function dependencyListHref(filters: Partial<DependencyListFilters> = {}): string {
+export function dependencyListHref(filters: Partial<DependencyListFilters> = {}): Route {
   const query = dependencyListSearchParams(filters).toString();
   return query ? `${DEPENDENCIES_PATH}?${query}` : DEPENDENCIES_PATH;
 }
 
 /** The page of a project; `from` carries the list's query string for the back link. */
-export function dependencyProjectHref(fullName: string, from?: Partial<DependencyListFilters>): string {
+export function dependencyProjectHref(fullName: string, from?: Partial<DependencyListFilters>): Route {
   const [owner = "", name = ""] = fullName.split("/");
   const path = `${DEPENDENCIES_PATH}/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
   const query = from ? dependencyListSearchParams(from).toString() : "";
-  return query ? `${path}?from=${encodeURIComponent(query)}` : path;
+  return (query ? `${path}?from=${encodeURIComponent(query)}` : path) as Route;
 }
 
 /** The list URL to return to from a project page's `?from=` value (re-parsed: it can only point at the list). */
-export function dependencyListHrefFrom(from: string | string[] | undefined): string {
+export function dependencyListHrefFrom(from: string | string[] | undefined): Route {
   const value = Array.isArray(from) ? from[0] : from;
   if (!value || value.length > 1000) return DEPENDENCIES_PATH;
   return dependencyListHref(parseDependencyListFilters(new URLSearchParams(value)));
@@ -94,7 +91,10 @@ function byName(a: DependencyListRow, b: DependencyListRow): number {
  * Filters and sorts projects. Every search word must match the full name or a package manager.
  * `outdated`: most majors first, then the total; `checked`: most recently checked first (never last).
  */
-export function applyDependencyListFilters<T extends DependencyListRow>(rows: readonly T[], filters: DependencyListFilters): T[] {
+export function applyDependencyListFilters<T extends DependencyListRow>(
+  rows: readonly T[],
+  filters: DependencyListFilters,
+): T[] {
   const words = (filters.q ?? "").toLowerCase().split(/\s+/).filter(Boolean);
   const filtered = rows.filter((row) => {
     if (words.length === 0) return true;

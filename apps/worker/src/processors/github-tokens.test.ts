@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { MAX_TOKEN_CANDIDATES, tokenCandidates } from "./github-tokens.js";
 
 vi.mock("@repopulse/db", () => ({
   decryptToken: (value: string) => {
@@ -6,8 +7,6 @@ vi.mock("@repopulse/db", () => ({
     return `plain:${value}`;
   },
 }));
-
-const { MAX_TOKEN_CANDIDATES, tokenCandidates } = await import("./github-tokens");
 
 function fakePrisma(rows: Array<[string, string]>) {
   return {

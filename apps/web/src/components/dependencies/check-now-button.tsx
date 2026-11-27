@@ -45,7 +45,10 @@ export function CheckNowButton({
         });
         return;
       }
-      toast.loading(`Checking the dependencies of ${data.fullName}…`, { id: depsScanToastId(projectId), duration: 120_000 });
+      toast.loading(`Checking the dependencies of ${data.fullName}…`, {
+        id: depsScanToastId(projectId),
+        duration: 120_000,
+      });
     });
   }
 

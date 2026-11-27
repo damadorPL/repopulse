@@ -19,7 +19,14 @@ const PROJECT_URL = "https://pulse.example.com/dependencies/acme/widget";
 const BASE = "https://pulse.example.com";
 
 const UPDATES: DependencyUpdateInput[] = [
-  { name: "typing_extensions", from: "4.12.0", to: "4.13.1", level: "MINOR", manifest: "requirements.txt", ecosystem: "PYPI" },
+  {
+    name: "typing_extensions",
+    from: "4.12.0",
+    to: "4.13.1",
+    level: "MINOR",
+    manifest: "requirements.txt",
+    ecosystem: "PYPI",
+  },
   { name: "react", from: "18.3.1", to: "19.3.0", level: "MAJOR", manifest: "package.json", ecosystem: "NPM" },
   { name: "lodash", from: null, to: "4.17.22", level: "PATCH", manifest: "apps/web/package.json" },
 ];
@@ -43,12 +50,23 @@ function pullRequest(event: "opened" | "updated" | "edited" | "access_lost", upd
     pullRequest:
       event === "access_lost"
         ? { event }
-        : { event, number: 12, url: "https://github.com/acme/widget/pull/12", title: "chore(deps): update typing_extensions to 4.13.1" },
+        : {
+            event,
+            number: 12,
+            url: "https://github.com/acme/widget/pull/12",
+            title: "chore(deps): update typing_extensions to 4.13.1",
+          },
   });
 }
 
 function many(count: number): DependencyUpdateInput[] {
-  return Array.from({ length: count }, (_, i) => ({ name: `pkg-${i}`, from: "1.0.0", to: "1.1.0", level: "MINOR" as const, manifest: "package.json" }));
+  return Array.from({ length: count }, (_, i) => ({
+    name: `pkg-${i}`,
+    from: "1.0.0",
+    to: "1.1.0",
+    level: "MINOR" as const,
+    manifest: "package.json",
+  }));
 }
 
 describe("buildDependencyContext", () => {
@@ -125,7 +143,9 @@ describe("Slack", () => {
   it("adds the PR button and the event explanation", () => {
     const payload = formatDependencySlackPayload(pullRequest("edited"));
     expect(JSON.stringify(payload.blocks)).toContain("no longer updates it");
-    expect(payload.blocks.at(-1)).toMatchObject({ elements: [{ action_id: "open_repopulse" }, { action_id: "open_pull_request" }] });
+    expect(payload.blocks.at(-1)).toMatchObject({
+      elements: [{ action_id: "open_repopulse" }, { action_id: "open_pull_request" }],
+    });
   });
 });
 
@@ -137,15 +157,35 @@ describe("ntfy / Gotify", () => {
     expect(request.headers.Markdown).toBe("yes");
     expect(request.headers.Title).toBe("acme/widget: 3 outdated dependencies");
     expect(request.body).toContain("`react` 18.3.1 → 19.3.0");
-    expect(buildDependencyNtfyRequest(digest(UPDATES.slice(0, 1)), "https://ntfy.sh/deps").headers.Priority).toBe("default");
+    expect(buildDependencyNtfyRequest(digest(UPDATES.slice(0, 1)), "https://ntfy.sh/deps").headers.Priority).toBe(
+      "default",
+    );
     expect(buildDependencyNtfyRequest(pullRequest("opened"), "https://ntfy.sh/deps").headers.Actions).toContain(
       "view, View pull request, https://github.com/acme/widget/pull/12",
+    );
+
+    const dirty = buildDependencyContext(
+      {
+        project: { fullName: "acme/widget", url: "https://pulse.example.com/a,b;c\r\nBad: 1" },
+        kind: "pull_request",
+        updates: [],
+        pullRequest: { event: "opened", number: 12, url: "https://github.com/acme/pull/1,2;3\nBad: 2" },
+        rule: { channel: "NTFY_WEBHOOK", destinationUrl: "https://ntfy.sh/deps" },
+      },
+      BASE,
+    );
+    const sanitized = buildDependencyNtfyRequest(dirty, "https://ntfy.sh/deps");
+    expect(sanitized.headers.Click).toBe("https://pulse.example.com/a%2Cb%3BcBad: 1");
+    expect(sanitized.headers.Actions).toBe(
+      "view, Open in RepoPulse, https://pulse.example.com/a%2Cb%3BcBad: 1; view, View pull request, https://github.com/acme/pull/1%2C2%3B3Bad: 2",
     );
   });
 
   it("ntfy: keeps the body under 4096 bytes", () => {
     const long = many(25).map((u) => ({ ...u, name: `${u.name}-${"ü".repeat(200)}` }));
-    expect(Buffer.byteLength(buildDependencyNtfyRequest(digest(long), "https://ntfy.sh/deps").body)).toBeLessThanOrEqual(3800);
+    expect(
+      Buffer.byteLength(buildDependencyNtfyRequest(digest(long), "https://ntfy.sh/deps").body),
+    ).toBeLessThanOrEqual(3800);
   });
 
   it("Gotify: priority 8 with a major, the token moves to a header", () => {
@@ -154,7 +194,10 @@ describe("ntfy / Gotify", () => {
     const request = buildDependencyGotifyRequest(digest(), "https://gotify.example.com?token=abc");
     expect(request.url.href).toBe("https://gotify.example.com/message");
     expect(request.headers["X-Gotify-Key"]).toBe("abc");
-    const body = JSON.parse(request.body) as { message: string; extras: { "client::notification": { click: { url: string } } } };
+    const body = JSON.parse(request.body) as {
+      message: string;
+      extras: { "client::notification": { click: { url: string } } };
+    };
     expect(body.message).toContain(`[Open in RepoPulse](${PROJECT_URL})`);
     expect(body.extras["client::notification"].click.url).toBe(PROJECT_URL);
   });
@@ -166,7 +209,14 @@ describe("custom webhook", () => {
     expect(payload.event).toBe("dependencies.outdated");
     expect(payload.updates).toHaveLength(25);
     expect(payload.totalUpdates).toBe(33);
-    expect(payload.updates[0]).toEqual({ name: "react", from: "18.3.1", to: "19.3.0", level: "MAJOR", manifest: "package.json", ecosystem: "NPM" });
+    expect(payload.updates[0]).toEqual({
+      name: "react",
+      from: "18.3.1",
+      to: "19.3.0",
+      level: "MAJOR",
+      manifest: "package.json",
+      ecosystem: "NPM",
+    });
     expect(payload.repository).toEqual({ fullName: "acme/widget", htmlUrl: "https://github.com/acme/widget" });
     expect(payload.pullRequest).toBeNull();
     expect(payload.links).toEqual({ repopulse: PROJECT_URL, pullRequest: null });
@@ -193,7 +243,10 @@ describe("custom webhook", () => {
 describe("email", () => {
   it("renders an escaped HTML table and a text part", () => {
     const email = renderDependencyEmail(
-      digest([{ name: "<b>evil</b>", from: "1.0.0", to: "2.0.0", level: "MAJOR", manifest: "package.json" }, ...many(26)]),
+      digest([
+        { name: "<b>evil</b>", from: "1.0.0", to: "2.0.0", level: "MAJOR", manifest: "package.json" },
+        ...many(26),
+      ]),
     );
     expect(email.subject).toBe("acme/widget: 27 outdated dependencies (major)");
     expect(email.html).toContain("&lt;b&gt;evil&lt;/b&gt;");
@@ -206,10 +259,25 @@ describe("email", () => {
     expect(email.text).toContain("https://pulse.example.com/settings/notifications");
   });
 
-  it("explains PR events", () => {
+  it("explains PR events and omits non-http(s) button hrefs", () => {
     const email = renderDependencyEmail(pullRequest("access_lost", []));
     expect(email.subject).toBe("acme/widget: dependency pull requests paused");
     expect(email.text).toContain("switched to notify-only");
     expect(email.html).not.toContain("<th");
+
+    const unsafe = renderDependencyEmail(
+      buildDependencyContext(
+        {
+          project: { fullName: "acme/widget", url: "javascript:alert(1)" },
+          kind: "pull_request",
+          updates: [],
+          pullRequest: { event: "opened", number: 1, url: "data:text/html,evil" },
+          rule: { channel: "EMAIL_INSTANT", destinationUrl: null },
+        },
+        BASE,
+      ),
+    );
+    expect(unsafe.html).not.toContain('href="javascript:');
+    expect(unsafe.html).not.toContain('href="data:');
   });
 });

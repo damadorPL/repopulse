@@ -57,8 +57,8 @@ function WorkerRow({ worker }: { worker: DepsWorkerStatus }) {
   if (worker.state === "missing") {
     return (
       <StatusRow icon={CircleXIcon} tone="warn" title="Dependency checks are not running">
-        No heartbeat from the <code className="text-[12px]">deps-worker</code> service in the last 90 seconds. Deploy it (see the
-        deployment docs) or check its logs.
+        No heartbeat from the <code className="text-[12px]">deps-worker</code> service in the last 90 seconds. Deploy it
+        (see the deployment docs) or check its logs.
       </StatusRow>
     );
   }
@@ -80,8 +80,9 @@ function SandboxRow({ worker }: { worker: DepsWorkerStatus }) {
   if (!worker.sandbox) {
     return (
       <StatusRow icon={CircleXIcon} tone="warn" title="Sandbox unreachable">
-        <code className="text-[12px]">deps-worker</code> can&apos;t reach <code className="text-[12px]">deps-sandbox</code>. Checks and
-        manifest-only pull requests work; pull requests that regenerate a lockfile are disabled.
+        <code className="text-[12px]">deps-worker</code> can&apos;t reach{" "}
+        <code className="text-[12px]">deps-sandbox</code>. Checks and manifest-only pull requests work; pull requests
+        that regenerate a lockfile are disabled.
       </StatusRow>
     );
   }
@@ -119,8 +120,8 @@ export default async function AdminDependenciesPage() {
       <div>
         <h2 className="text-lg font-semibold tracking-tight">Dependencies</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Members check their own repositories for outdated npm, Bun and PyPI dependencies, get notified, and (with the GitHub App) receive
-          update pull requests.
+          Members check their own repositories for outdated npm, Bun and PyPI dependencies, get notified, and (with the
+          GitHub App) receive update pull requests.
         </p>
       </div>
 
@@ -138,7 +139,9 @@ export default async function AdminDependenciesPage() {
             tone={view.appConfigured ? "ok" : "muted"}
             title={view.appConfigured ? "GitHub App configured" : "No GitHub App"}
           >
-            {view.appConfigured ? "Members can install it to get update pull requests and check private repositories." : "Checks work in notify mode only. "}
+            {view.appConfigured
+              ? "Members can install it to get update pull requests and check private repositories."
+              : "Checks work in notify mode only. "}
             <Link href="/admin/github-app" className="font-medium text-foreground underline underline-offset-2">
               {view.appConfigured ? "Manage the App" : "Set up the GitHub App"}
             </Link>
@@ -158,8 +161,8 @@ export default async function AdminDependenciesPage() {
       <p className="flex items-start gap-2 text-xs text-muted-foreground">
         <BoxIcon className="mt-px size-3.5 shrink-0" aria-hidden />
         <span>
-          Package managers run only in <code className="text-[11px]">deps-sandbox</code>, which has no secrets and reaches only the public
-          registries through <code className="text-[11px]">deps-egress</code>.
+          Package managers run only in <code className="text-[11px]">deps-sandbox</code>, which has no secrets and
+          reaches only the public registries through <code className="text-[11px]">deps-egress</code>.
         </span>
       </p>
     </div>

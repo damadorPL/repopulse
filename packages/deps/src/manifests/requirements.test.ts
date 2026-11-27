@@ -152,7 +152,9 @@ describe("parseRequirementsTree", () => {
   });
 
   it("skips requirements of other manifests", async () => {
-    const tree = await parseRequirementsTree("requirements.txt", read, { skipPaths: new Set(["requirements/base.txt"]) });
+    const tree = await parseRequirementsTree("requirements.txt", read, {
+      skipPaths: new Set(["requirements/base.txt"]),
+    });
     expect(tree.dependencies.map((d) => d.name)).toEqual(["flask", "click"]);
   });
 

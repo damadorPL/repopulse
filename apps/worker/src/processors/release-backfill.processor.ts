@@ -9,15 +9,16 @@ import {
 } from "@repopulse/github";
 import {
   publishUserEvent,
+  QUEUE_NAMES,
+  rateLimitDelayMs,
   readBackfillConfig,
   type BackfillConfig,
   type Redis,
   type ReleaseBackfillJobData,
 } from "@repopulse/queue";
-import { createLogger } from "../logger";
-import { effectiveTarget, maxAgeCutoff, planBackfillPage, targetStop, type BackfillStop } from "./backfill-plan";
-import { rateLimitDelayMs } from "./fan-out";
-import { tokenCandidates, type TokenCandidate } from "./github-tokens";
+import { createLogger } from "../logger.js";
+import { effectiveTarget, maxAgeCutoff, planBackfillPage, targetStop, type BackfillStop } from "./backfill-plan.js";
+import { tokenCandidates, type TokenCandidate } from "./github-tokens.js";
 
 const log = createLogger("release-backfill");
 
@@ -25,7 +26,13 @@ const GITHUB_REQUEST_TIMEOUT_MS = 30_000;
 
 export type ReleaseBackfillOutcome =
   | { status: "SKIPPED"; reason: "REPOSITORY_GONE" | "NO_SUBSCRIBERS" }
-  | { status: "FINISHED"; backfillStatus: BackfillStop["status"]; reason: BackfillStop["reason"]; added: number; pages: number }
+  | {
+      status: "FINISHED";
+      backfillStatus: BackfillStop["status"];
+      reason: BackfillStop["reason"];
+      added: number;
+      pages: number;
+    }
   | { status: "NOT_FOUND" };
 
 export interface ReleaseBackfillDeps {
@@ -55,7 +62,15 @@ async function fetchWithFallback(
       return await fetchPage({ owner: repo.owner, name: repo.name, page, accessToken: candidate.token, signal });
     } catch (error) {
       if (isGitHubHttpError(error) && error.status === 401 && cursor.index < candidates.length - 1) {
-        log.warn(`${repo.fullName}: token of user ${candidate.userId} was rejected (401); trying the next one`);
+        log.warn(
+          {
+            queue: QUEUE_NAMES.releaseBackfill,
+            repositoryId: repo.id,
+            repository: repo.fullName,
+            userId: candidate.userId,
+          },
+          `${repo.fullName}: token of user ${candidate.userId} was rejected (401); trying the next one`,
+        );
         cursor.index += 1;
         continue;
       }
@@ -80,7 +95,10 @@ async function publishBackfilled(deps: ReleaseBackfillDeps, repo: BackfillTarget
           added,
         });
       } catch (error) {
-        log.error(`could not publish HISTORY_BACKFILLED to user ${userId}`, error);
+        log.error(
+          { queue: QUEUE_NAMES.releaseBackfill, repositoryId: repo.id, userId, err: error },
+          `could not publish HISTORY_BACKFILLED to user ${userId}`,
+        );
       }
     }),
   );
@@ -110,6 +128,7 @@ export async function processReleaseBackfill(
   const now = () => deps.now?.() ?? new Date();
   const fetchPage = deps.fetchPage ?? fetchReleasesPage;
   const { repositoryId, trigger } = job.data;
+  const ctx = { queue: QUEUE_NAMES.releaseBackfill, jobId: job.id, repositoryId };
 
   const row = await prisma.repository.findUnique({
     where: { id: repositoryId },
@@ -146,6 +165,15 @@ export async function processReleaseBackfill(
   const finish = async (stop: BackfillStop, nextPage: number | null): Promise<ReleaseBackfillOutcome> => {
     await setStatus({ backfillStatus: stop.status, backfillNextPage: nextPage, backfilledAt: now() });
     log.info(
+      {
+        ...ctx,
+        repository: repo.fullName,
+        status: stop.status,
+        reason: stop.reason,
+        added,
+        pages,
+        nextPage,
+      },
       `${repo.fullName}: backfill ${stop.status} (${stop.reason}), ${added} releases imported over ${pages} page(s)` +
         (nextPage === null ? "" : `, resumes at page ${nextPage}`),
     );
@@ -157,7 +185,10 @@ export async function processReleaseBackfill(
   const pauseUntil = async (resetAt: Date | null, why: string): Promise<never> => {
     const delayMs = rateLimitDelayMs(resetAt, now());
     await setStatus({ backfillStatus: "QUEUED", backfillNextPage: page });
-    log.warn(`${repo.fullName}: ${why}; backfill paused for ${Math.ceil(delayMs / 1000)}s at page ${page}`);
+    log.warn(
+      { ...ctx, repository: repo.fullName, delayMs, page },
+      `${repo.fullName}: ${why}; backfill paused for ${Math.ceil(delayMs / 1000)}s at page ${page}`,
+    );
     await job.moveToDelayed(now().getTime() + delayMs, token);
     throw new DelayedError();
   };
@@ -225,7 +256,9 @@ export async function processReleaseBackfill(
         }
         // Idempotent through the (repositoryId, githubReleaseId) unique key. No UserReleaseState rows.
         const { count } = await prisma.release.createMany({
-          data: plan.insert.filter((r) => !tagRowByName.has(r.tagName)).map((release) => ({ ...release, repositoryId })),
+          data: plan.insert
+            .filter((r) => !tagRowByName.has(r.tagName))
+            .map((release) => ({ ...release, repositoryId })),
           skipDuplicates: true,
         });
         added += count;
@@ -237,7 +270,10 @@ export async function processReleaseBackfill(
       await setStatus({ backfillNextPage: page });
 
       if (result.rateLimitRemaining !== null && result.rateLimitRemaining < config.minQuota) {
-        await pauseUntil(result.rateLimitResetAt, `GitHub quota ${result.rateLimitRemaining} is below ${config.minQuota}`);
+        await pauseUntil(
+          result.rateLimitResetAt,
+          `GitHub quota ${result.rateLimitRemaining} is below ${config.minQuota}`,
+        );
       }
     }
   } catch (error) {
@@ -250,14 +286,20 @@ export async function processReleaseBackfill(
     if (error instanceof GitHubRepositoryNotFoundError) {
       // Removal of vanished repositories is repo-poll's job (errorCount / ERROR).
       await setStatus({ backfillStatus: "ERROR" });
-      log.warn(`${repo.fullName}: HTTP 404 Not Found; backfill stopped (trigger ${trigger})`);
+      log.warn(
+        { ...ctx, repository: repo.fullName, trigger },
+        `${repo.fullName}: HTTP 404 Not Found; backfill stopped (trigger ${trigger})`,
+      );
       return { status: "NOT_FOUND" };
     }
 
     // Network errors, timeouts, 5xx: BullMQ retries with exponential backoff, resuming at backfillNextPage.
     const finalAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
     await setStatus({ backfillStatus: finalAttempt ? "ERROR" : "QUEUED" }).catch((e: unknown) =>
-      log.error(`${repo.fullName}: could not record the backfill failure`, e),
+      log.error(
+        { ...ctx, repository: repo.fullName, err: e },
+        `${repo.fullName}: could not record the backfill failure`,
+      ),
     );
     throw error;
   }

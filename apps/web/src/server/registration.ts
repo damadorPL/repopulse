@@ -1,10 +1,22 @@
-import { INSTANCE_SETTINGS_ID, prisma } from "@repopulse/db";
+import { INSTANCE_SETTINGS_ID, prisma, type Prisma } from "@repopulse/db";
 import { isWellFormedInviteToken } from "@/lib/invites";
 import { hashInviteToken } from "@/server/invite-tokens";
 
+export interface RegistrationDbClient {
+  user: Pick<Prisma.TransactionClient["user"], "count">;
+  instanceSettings: Pick<Prisma.TransactionClient["instanceSettings"], "findUnique">;
+  invite: Pick<Prisma.TransactionClient["invite"], "updateMany">;
+  $executeRaw: (query: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>;
+}
+
 /** `true` unless the super admin turned public sign-up off. A missing settings row means the default. */
-export async function isPublicRegistrationOpen(): Promise<boolean> {
-  const settings = await prisma.instanceSettings.findUnique({ where: { id: INSTANCE_SETTINGS_ID }, select: { publicRegistration: true } });
+export async function isPublicRegistrationOpen(
+  db: Pick<RegistrationDbClient, "instanceSettings"> = prisma,
+): Promise<boolean> {
+  const settings = await db.instanceSettings.findUnique({
+    where: { id: INSTANCE_SETTINGS_ID },
+    select: { publicRegistration: true },
+  });
   return settings?.publicRegistration ?? true;
 }
 
@@ -21,67 +33,59 @@ export async function findUsableInvite(token: string) {
 export const INVITE_REQUIRED_REDIRECT = "/login?error=InviteRequired";
 export const INVITE_INVALID_REDIRECT = "/login?error=InviteInvalid";
 
-/** Profile data for a new `User` row, taken from the GitHub sign-in. */
-export interface GitHubUserFields {
-  githubId: string;
-  email: string;
-  name: string | null;
-  avatarUrl: string | null;
-  githubAccessTokenEncrypted: string;
-}
+export type RegistrationAdmission =
+  | { admitted: true; isSuperAdmin: boolean; claimedInviteTokenHash: string | null }
+  | { admitted: false; errorCode: "InviteRequired" | "InviteInvalid"; redirectTo: string };
 
-class InviteUnavailableError extends Error {}
-
-/**
- * Registration gate for a GitHub sign-in (Auth.js `signIn` callback).
- *
- * - Existing users always get in.
- * - The very first account is created here as the super admin (fresh install).
- * - With an invite token, the invite is claimed and the account created in one transaction,
- *   so a link can't be used twice.
- * - Otherwise new accounts need public registration to be on (the `jwt` callback creates them).
- *
- * Returns `true` to continue, or a path to redirect to.
- */
-export async function admitGitHubUser(
-  fields: GitHubUserFields,
+async function runAdmissionInTx(
+  tx: RegistrationDbClient,
   inviteToken: string | undefined,
-): Promise<true | string> {
-  const existing = await prisma.user.findUnique({ where: { githubId: fields.githubId }, select: { id: true } });
-  if (existing) return true;
-
+): Promise<RegistrationAdmission> {
   // Serialize bootstrap across web processes: two initial OAuth callbacks must not
   // both observe an empty instance and acquire administrator privileges.
-  const admitted = await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(724512, 1)`;
-    if (await tx.user.findUnique({ where: { githubId: fields.githubId }, select: { id: true } })) return true;
-    if ((await tx.user.count()) !== 0) return false;
-    await tx.user.create({ data: { ...fields, isSuperAdmin: true } });
-    return true;
-  });
-  if (admitted) return true;
-  const publicRegistration = await isPublicRegistrationOpen();
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(724512, 1)`;
+  if ((await tx.user.count()) === 0) {
+    return { admitted: true, isSuperAdmin: true, claimedInviteTokenHash: null };
+  }
+
+  const publicRegistration = await isPublicRegistrationOpen(tx);
 
   if (inviteToken && isWellFormedInviteToken(inviteToken)) {
     const tokenHash = hashInviteToken(inviteToken);
-    try {
-      await prisma.$transaction(async (tx) => {
-        const now = new Date();
-        const { count } = await tx.invite.updateMany({
-          where: { tokenHash, usedAt: null, expiresAt: { gt: now } },
-          data: { usedAt: now },
-        });
-        if (count !== 1) throw new InviteUnavailableError();
-        const user = await tx.user.create({ data: fields, select: { id: true } });
-        await tx.invite.update({ where: { tokenHash }, data: { usedById: user.id } });
-      });
-      return true;
-    } catch (error) {
-      if (!(error instanceof InviteUnavailableError)) throw error;
-      // Used / expired / revoked link: fine while sign-up is open anyway.
-      return publicRegistration ? true : INVITE_INVALID_REDIRECT;
+    const now = new Date();
+    const { count } = await tx.invite.updateMany({
+      where: { tokenHash, usedAt: null, expiresAt: { gt: now } },
+      data: { usedAt: now },
+    });
+    if (count === 1) {
+      return { admitted: true, isSuperAdmin: false, claimedInviteTokenHash: tokenHash };
     }
+    // Used / expired / revoked link: fine while sign-up is open anyway.
+    return publicRegistration
+      ? { admitted: true, isSuperAdmin: false, claimedInviteTokenHash: null }
+      : { admitted: false, errorCode: "InviteInvalid", redirectTo: INVITE_INVALID_REDIRECT };
   }
 
-  return publicRegistration ? true : INVITE_REQUIRED_REDIRECT;
+  return publicRegistration
+    ? { admitted: true, isSuperAdmin: false, claimedInviteTokenHash: null }
+    : { admitted: false, errorCode: "InviteRequired", redirectTo: INVITE_REQUIRED_REDIRECT };
+}
+
+/**
+ * Registration gate for a brand-new GitHub user (`databaseHooks.user.create.before`).
+ *
+ * - The very first account becomes the super admin (fresh install), serialized with
+ *   `pg_advisory_xact_lock(724512, 1)` on the active user-creation transaction.
+ * - With a valid invite token, claims the invite atomically inside the same transaction
+ *   (and `databaseHooks.account.create.before` sets `usedById` once the user row exists).
+ * - Otherwise new accounts need public registration to be enabled.
+ */
+export async function admitNewGitHubUser(
+  inviteToken: string | undefined,
+  tx?: RegistrationDbClient,
+): Promise<RegistrationAdmission> {
+  if (tx) {
+    return runAdmissionInTx(tx, inviteToken);
+  }
+  return prisma.$transaction((innerTx) => runAdmissionInTx(innerTx, inviteToken));
 }

@@ -1,37 +1,39 @@
 import { Worker, type Job, type Queue } from "bullmq";
 import type { PrismaClient } from "@repopulse/db";
 import {
-  compareCommits,
-  fetchCommitDetail,
-  fetchCommitsForPath,
-  fetchRecentTags,
   GitHubRateLimitError,
   GitHubRepositoryNotFoundError,
   isGitHubHttpError,
   pollRepoReleases,
+  type compareCommits,
+  type fetchCommitDetail,
+  type fetchCommitsForPath,
+  type fetchRecentTags,
   type MappedRelease,
 } from "@repopulse/github";
 import {
   JOB_NAMES,
   notificationJobId,
   publishUserEvent,
+  QUEUE_NAMES,
+  rateLimitDelayMs,
   type NotificationJobData,
   type RealtimeEvent,
   type Redis,
   type RepoPollJobData,
 } from "@repopulse/queue";
-import { createLogger } from "../logger";
-import { tokenCandidates, type TokenCandidate } from "./github-tokens";
+import { createLogger } from "../logger.js";
+import { tokenCandidates, type TokenCandidate } from "./github-tokens.js";
+import { EMPTY_FAN_OUT_PLAN, mergeFanOutPlans, planFanOut, selectFreshReleases, type FanOutPlan } from "./fan-out.js";
+import { pollRepoPaths, type PathStepCounts, type PathStepResult } from "./repo-paths.js";
 import {
-  EMPTY_FAN_OUT_PLAN,
-  mergeFanOutPlans,
-  planFanOut,
-  rateLimitDelayMs,
-  selectFreshReleases,
-  type FanOutPlan,
-} from "./fan-out";
-import { pollRepoPaths, type PathStepCounts, type PathStepResult } from "./repo-paths";
-import { loadSubscribers, pollRepoTags, STORED_RELEASE_SELECT, tracksReleases, tracksTags, type TagStepResult } from "./repo-tags";
+  loadSubscribers,
+  pollRepoTags,
+  STORED_RELEASE_SELECT,
+  tracksReleases,
+  tracksTags,
+  type TagStepResult,
+} from "./repo-tags.js";
 
 const log = createLogger("repo-poll");
 
@@ -51,7 +53,14 @@ export type TagOutcome = {
 export type RepoPollOutcome =
   | { status: "SKIPPED"; reason: "REPOSITORY_GONE" | "NO_SUBSCRIBERS" }
   | ({ status: "NOT_MODIFIED" } & TagOutcome)
-  | ({ status: "UPDATED"; received: number; stored: number; promoted: number; fresh: number; notifications: number } & TagOutcome)
+  | ({
+      status: "UPDATED";
+      received: number;
+      stored: number;
+      promoted: number;
+      fresh: number;
+      notifications: number;
+    } & TagOutcome)
   | { status: "NOT_FOUND"; errorCount: number };
 
 export interface RepoPollDeps {
@@ -67,7 +76,14 @@ export interface RepoPollDeps {
   now?: () => Date;
 }
 
-type PollTarget = { id: string; owner: string; name: string; fullName: string; htmlUrl: string; lastEtag: string | null };
+type PollTarget = {
+  id: string;
+  owner: string;
+  name: string;
+  fullName: string;
+  htmlUrl: string;
+  lastEtag: string | null;
+};
 
 /** Polls with each candidate token in turn, moving on only when GitHub rejects the token (401). */
 async function pollWithFallback(
@@ -78,7 +94,13 @@ async function pollWithFallback(
 ) {
   for (const [index, candidate] of candidates.entries()) {
     try {
-      return await poll({ owner: repo.owner, name: repo.name, lastEtag: repo.lastEtag, accessToken: candidate.token, signal });
+      return await poll({
+        owner: repo.owner,
+        name: repo.name,
+        lastEtag: repo.lastEtag,
+        accessToken: candidate.token,
+        signal,
+      });
     } catch (error) {
       if (isGitHubHttpError(error) && error.status === 401 && index < candidates.length - 1) {
         log.warn(`${repo.fullName}: token of user ${candidate.userId} was rejected (401); trying the next one`);
@@ -167,7 +189,10 @@ async function storeAndFanOut(
       plan = mergeFanOutPlans(
         planFanOut(subscribers, fresh),
         // Tag-mode subscribers already received these as tags.
-        planFanOut(subscribers.filter((s) => !tracksTags(s)), freshPromoted),
+        planFanOut(
+          subscribers.filter((s) => !tracksTags(s)),
+          freshPromoted,
+        ),
       );
       if (plan.states.length > 0) {
         await tx.userReleaseState.createMany({
@@ -213,11 +238,25 @@ async function publish(redis: Pick<Redis, "publish">, userId: string, event: Rea
   try {
     await publishUserEvent(redis, userId, event);
   } catch (error) {
-    log.error(`could not publish ${event.type} to user ${userId}`, error);
+    log.error(
+      {
+        queue: QUEUE_NAMES.repoPoll,
+        ...("repositoryId" in event ? { repositoryId: event.repositoryId } : {}),
+        userId,
+        eventType: event.type,
+        err: error,
+      },
+      `could not publish ${event.type} to user ${userId}`,
+    );
   }
 }
 
-async function dispatchFanOut(deps: RepoPollDeps, repo: PollTarget, plan: FanOutPlan): Promise<void> {
+async function dispatchFanOut(
+  deps: RepoPollDeps,
+  repo: PollTarget,
+  plan: FanOutPlan,
+  jobId: string | undefined,
+): Promise<void> {
   await Promise.all(
     plan.deliveries.flatMap(({ userId, releases }) =>
       releases.map((release) =>
@@ -243,7 +282,17 @@ async function dispatchFanOut(deps: RepoPollDeps, repo: PollTarget, plan: FanOut
     );
   } catch (error) {
     // Not rethrown: a retry of this poll would find nothing new and could not re-plan these jobs.
-    log.error(`${repo.fullName}: could not enqueue ${plan.notifications.length} notification job(s)`, error);
+    log.error(
+      {
+        queue: QUEUE_NAMES.repoPoll,
+        jobId,
+        repositoryId: repo.id,
+        repository: repo.fullName,
+        count: plan.notifications.length,
+        err: error,
+      },
+      `${repo.fullName}: could not enqueue ${plan.notifications.length} notification job(s)`,
+    );
   }
 }
 
@@ -263,6 +312,7 @@ export async function processRepoPoll(
   const { prisma } = deps;
   const now = () => deps.now?.() ?? new Date();
   const { repositoryId, requestedByUserId } = job.data;
+  const ctx = { queue: QUEUE_NAMES.repoPoll, jobId: job.id, repositoryId };
 
   const row = await prisma.repository.findUnique({
     where: { id: repositoryId },
@@ -324,10 +374,23 @@ export async function processRepoPoll(
         where: { id: repositoryId },
         data: { lastPolledAt: now(), pollStatus: "IDLE", errorCount: 0 },
       });
-      log.info(`${repo.fullName}: HTTP 304 Not Modified${quota(result.rateLimitRemaining)}`);
+      log.info(
+        { ...ctx, repository: repo.fullName, rateLimitRemaining: result.rateLimitRemaining },
+        `${repo.fullName}: HTTP 304 Not Modified${quota(result.rateLimitRemaining)}`,
+      );
     } else {
       releaseStep = await storeAndFanOut(prisma, repositoryId, result.releases, result.etag, now());
       log.info(
+        {
+          ...ctx,
+          repository: repo.fullName,
+          received: result.releases.length,
+          stored: releaseStep.stored,
+          promoted: releaseStep.promoted,
+          fresh: releaseStep.fresh,
+          deliveries: releaseStep.plan.deliveries.length,
+          rateLimitRemaining: result.rateLimitRemaining,
+        },
         `${repo.fullName}: HTTP 200 OK, ${result.releases.length} releases received, ${releaseStep.stored} stored, ` +
           `${releaseStep.promoted} promoted from tags, ${releaseStep.fresh} new, ` +
           `fanned out to ${releaseStep.plan.deliveries.length} user(s)${quota(result.rateLimitRemaining)}`,
@@ -336,7 +399,13 @@ export async function processRepoPoll(
 
     // After the release step, so a tag whose Release arrived in this poll is not stored twice.
     const tagStep: TagStepResult | null = withTags
-      ? await pollRepoTags({ prisma, fetchTags: deps.fetchTags, compare: deps.compare, now }, repo, candidates, newestBefore, signal)
+      ? await pollRepoTags(
+          { prisma, fetchTags: deps.fetchTags, compare: deps.compare, now },
+          repo,
+          candidates,
+          newestBefore,
+          signal,
+        )
       : null;
     const tags = tagStep ? { tags: { received: tagStep.received, stored: tagStep.stored, fresh: tagStep.fresh } } : {};
     // Best effort too: commits touching watched paths ("Files / folders", Slice 06).
@@ -355,12 +424,13 @@ export async function processRepoPoll(
       tagStep?.plan ?? EMPTY_FAN_OUT_PLAN,
       pathStep?.plan ?? EMPTY_FAN_OUT_PLAN,
     );
-    await dispatchFanOut(deps, repo, plan);
+    await dispatchFanOut(deps, repo, plan, job.id);
     await notifyRequester({
       type: "SYNC_COMPLETED",
       repositoryId,
       repositoryName: repo.fullName,
-      result: releaseStep || (tagStep?.stored ?? 0) > 0 || (pathStep?.counts.stored ?? 0) > 0 ? "UPDATED" : "NOT_MODIFIED",
+      result:
+        releaseStep || (tagStep?.stored ?? 0) > 0 || (pathStep?.counts.stored ?? 0) > 0 ? "UPDATED" : "NOT_MODIFIED",
       newReleases: plan.deliveries.find((d) => d.userId === requestedByUserId)?.releases.length ?? 0,
     });
 
@@ -382,25 +452,38 @@ export async function processRepoPoll(
       // Pause the whole queue until the quota resets; the job goes back to waiting
       // without consuming an attempt.
       await deps.repoPollQueue.rateLimit(delayMs);
-      log.warn(`${repo.fullName}: GitHub rate limit exceeded; pausing repo-poll for ${Math.ceil(delayMs / 1000)}s`);
-      await syncFailed("RATE_LIMITED", `GitHub rate limit reached. The sync resumes in about ${Math.ceil(delayMs / 60_000)} min.`);
+      log.warn(
+        { ...ctx, repository: repo.fullName, delayMs },
+        `${repo.fullName}: GitHub rate limit exceeded; pausing repo-poll for ${Math.ceil(delayMs / 1000)}s`,
+      );
+      await syncFailed(
+        "RATE_LIMITED",
+        `GitHub rate limit reached. The sync resumes in about ${Math.ceil(delayMs / 60_000)} min.`,
+      );
       throw Worker.RateLimitError();
     }
 
     if (error instanceof GitHubRepositoryNotFoundError) {
       // Retrying within this job is pointless; the counter spans scheduler ticks instead.
       const errorCount = await recordFailure(prisma, repositoryId, now(), true);
-      log.warn(`${repo.fullName}: HTTP 404 Not Found (errorCount ${errorCount}/${MAX_ERROR_COUNT})`);
-      await syncFailed("NOT_FOUND", `${repo.fullName} was not found on GitHub. It may have been renamed, deleted or made private.`);
+      log.warn(
+        { ...ctx, repository: repo.fullName, errorCount },
+        `${repo.fullName}: HTTP 404 Not Found (errorCount ${errorCount}/${MAX_ERROR_COUNT})`,
+      );
+      await syncFailed(
+        "NOT_FOUND",
+        `${repo.fullName} was not found on GitHub. It may have been renamed, deleted or made private.`,
+      );
       return { status: "NOT_FOUND", errorCount };
     }
 
     // Network errors, timeouts, 5xx: BullMQ retries with exponential backoff.
     const finalAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
     await recordFailure(prisma, repositoryId, now(), finalAttempt).catch((e: unknown) =>
-      log.error(`${repo.fullName}: could not record the failure`, e),
+      log.error({ ...ctx, repository: repo.fullName, err: e }, `${repo.fullName}: could not record the failure`),
     );
-    if (finalAttempt) await syncFailed("ERROR", `Could not sync ${repo.fullName}. It will be retried on the next scheduled poll.`);
+    if (finalAttempt)
+      await syncFailed("ERROR", `Could not sync ${repo.fullName}. It will be retried on the next scheduled poll.`);
     throw error;
   }
 }

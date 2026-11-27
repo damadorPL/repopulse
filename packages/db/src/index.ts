@@ -2,15 +2,52 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "./generated/prisma/client.js";
 
 /**
+ * Global field omissions: encrypted secrets stay excluded from default queries and must be
+ * requested explicitly with `select` or `omit: { ...: false }` by server-side callers.
+ */
+const GLOBAL_OMIT = {
+  user: {
+    githubAccessTokenEncrypted: true,
+  },
+  instanceSettings: {
+    smtpPasswordEncrypted: true,
+    githubAppPrivateKeyEncrypted: true,
+    githubAppWebhookSecretEncrypted: true,
+  },
+} as const;
+
+/**
  * Prisma 7 uses the Rust-free query compiler and connects through a driver
  * adapter (node-postgres here) instead of a native query engine.
+ *
+ * `statementNameGenerator` is intentionally omitted: with PgBouncer transaction pooling
+ * and Prisma 7 dynamic IN-list queries, named prepared statements can fail across rotated
+ * backend connections and accumulate per-connection statement caches.
  */
 function createPrismaClient(): PrismaClient {
-  const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+  const adapter = new PrismaPg(
+    {
+      connectionString: process.env.DATABASE_URL,
+      connectionTimeoutMillis: 10_000,
+      application_name: "repopulse",
+    },
+    {
+      onPoolError: (err) => {
+        console.error("[db] idle pool client error", err);
+      },
+      onConnectionError: (err) => {
+        console.error("[db] connection error", err);
+      },
+    },
+  );
+  // Prisma 7's `OmitOpts` generic on `PrismaClient` is invariant (`in out`), so casting back
+  // to `PrismaClient` keeps `Pick<PrismaClient, "instanceSettings">` and worker signatures
+  // compatible while enforcing `GLOBAL_OMIT` at runtime on every query.
   return new PrismaClient({
     adapter,
+    omit: GLOBAL_OMIT,
     log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
-  });
+  }) as unknown as PrismaClient;
 }
 
 /**

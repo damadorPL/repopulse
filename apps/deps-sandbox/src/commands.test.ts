@@ -144,7 +144,14 @@ describe("buildCommands", () => {
       { packageManager: "BUN", upgrade: [{ name: "ms", version: "2.1.3" }], lockfileOnly: true },
       { workspace: true },
     );
-    expect(wsSteps[0]!.args).toEqual(["update", "--recursive", "--lockfile-only", "--ignore-scripts", "--no-env-file", "ms"]);
+    expect(wsSteps[0]!.args).toEqual([
+      "update",
+      "--recursive",
+      "--lockfile-only",
+      "--ignore-scripts",
+      "--no-env-file",
+      "ms",
+    ]);
     expect(wsSteps[1]).toMatchObject({ restoreManifests: true });
   });
 
@@ -235,7 +242,11 @@ describe("tool version checks", () => {
         JSON.stringify({
           packageManager: "pnpm@10.12.1+sha512.abc",
           devEngines: {
-            packageManager: [{ name: "pnpm", version: "^10" }, { name: "npm" }, { name: "custom-pm", version: "1.0.0" }],
+            packageManager: [
+              { name: "pnpm", version: "^10" },
+              { name: "npm" },
+              { name: "custom-pm", version: "1.0.0" },
+            ],
           },
         }),
       ),
@@ -249,7 +260,9 @@ describe("tool version checks", () => {
     const unknownAndWildcard = JSON.stringify({
       devEngines: { packageManager: [{ name: "custom-pm", version: "99.0.0" }, { name: "npm" }] },
     });
-    expect(codeOf(() => checkToolVersions({ packageManager: "NPM", packageJson: unknownAndWildcard }, TOOLS))).toBeNull();
+    expect(
+      codeOf(() => checkToolVersions({ packageManager: "NPM", packageJson: unknownAndWildcard }, TOOLS)),
+    ).toBeNull();
   });
 
   it("refuses a packageManager major different from the installed tool", () => {
@@ -266,9 +279,7 @@ describe("tool version checks", () => {
     expect(codeOf(() => checkToolVersions({ packageManager: "NPM", packageJson: pkg("yarn@4.5.0") }, TOOLS))).toBe(
       "UNSUPPORTED_TOOL_VERSION",
     );
-    expect(codeOf(() => checkToolVersions({ packageManager: "BUN", packageJson: pkg("bun@1.2.0") }, TOOLS))).toBe(
-      null,
-    );
+    expect(codeOf(() => checkToolVersions({ packageManager: "BUN", packageJson: pkg("bun@1.2.0") }, TOOLS))).toBe(null);
     const devEngines = JSON.stringify({ devEngines: { packageManager: { name: "npm", version: ">=13" } } });
     expect(codeOf(() => checkToolVersions({ packageManager: "NPM", packageJson: devEngines }, TOOLS))).toBe(
       "UNSUPPORTED_TOOL_VERSION",
@@ -291,10 +302,12 @@ describe("tool version checks", () => {
     expect(check("PNPM", "lockfileVersion: '6.0'\n")).toBe("UNSUPPORTED_TOOL_VERSION");
     expect(check("PNPM", "---\nlockfileVersion: '9.0'\n\nimporters: {}\n")).toBe(null);
     expect(check("PNPM", "---\nlockfileVersion: '9.0'\n---\nlockfileVersion: '9.0'\n")).toBe(null);
-    expect(check("PNPM", "---\nlockfileVersion: '9.0'\n---\nlockfileVersion: '6.0'\n")).toBe("UNSUPPORTED_TOOL_VERSION");
+    expect(check("PNPM", "---\nlockfileVersion: '9.0'\n---\nlockfileVersion: '6.0'\n")).toBe(
+      "UNSUPPORTED_TOOL_VERSION",
+    );
     expect(check("BUN", '{\n  "lockfileVersion": 1,\n  "workspaces": {}\n}')).toBe(null);
     expect(check("BUN", '{\n  "lockfileVersion": 0,\n}')).toBe("UNSUPPORTED_TOOL_VERSION");
-    expect(check("UV", "version = 1\nrevision = 3\nrequires-python = \">=3.12\"\n")).toBe(null);
+    expect(check("UV", 'version = 1\nrevision = 3\nrequires-python = ">=3.12"\n')).toBe(null);
     expect(check("UV", "version = 2\n")).toBe("UNSUPPORTED_TOOL_VERSION");
     expect(check("POETRY", '[[package]]\nname = "a"\n\n[metadata]\nlock-version = "2.1"\n')).toBe(null);
     expect(check("POETRY", '[metadata]\nlock-version = "1.1"\n')).toBe("UNSUPPORTED_TOOL_VERSION");
@@ -309,12 +322,7 @@ describe("tool version checks", () => {
         "---\nlockfileVersion: '9.0'\nimporters:\n  .:\n    packageManagerDependencies: {}\n---\nlockfileVersion: '9.0'\nimporters:\n  .: {}\n",
       ),
     ).toBe("9.0");
-    expect(
-      lockfileFormat(
-        "PNPM",
-        "---\nlockfileVersion: '9.0'\n---\nlockfileVersion: '6.0'\n",
-      ),
-    ).toBeNull();
+    expect(lockfileFormat("PNPM", "---\nlockfileVersion: '9.0'\n---\nlockfileVersion: '6.0'\n")).toBeNull();
     expect(lockfileFormat("NPM", '{"lockfileVersion": 2}')).toBe("2");
     expect(lockfileFormat("POETRY", 'x\n[metadata]\nlock-version = "2.1"\n')).toBe("2.1");
   });

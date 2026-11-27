@@ -52,7 +52,9 @@ export default async function AdminAccessPage() {
           <div className="rounded-lg border border-dashed px-6 py-12 text-center">
             <TicketIcon className="mx-auto size-6 text-muted-foreground" aria-hidden />
             <h3 className="mt-3 font-medium">No invite links yet</h3>
-            <p className="mt-1 text-sm text-muted-foreground">Create one above and send it to the person you want to invite.</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Create one above and send it to the person you want to invite.
+            </p>
           </div>
         ) : (
           <ul className="divide-y overflow-hidden rounded-lg border bg-card">

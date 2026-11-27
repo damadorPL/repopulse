@@ -1,7 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
-import { HistoryIcon, LoaderCircleIcon, TriangleAlertIcon } from "lucide-react";
+import { LoaderCircleIcon, RotateCcwClockIcon, TriangleExclamationPointIcon } from "lucide-react";
 import { toast } from "sonner";
 import { formatWait } from "@/components/repositories/sync-repo-button";
 import { Button } from "@/components/ui/button";
@@ -90,20 +90,14 @@ export function HistoryStatus({
       {importing ? (
         <LoaderCircleIcon className="size-3.5 animate-spin" aria-hidden />
       ) : failed ? (
-        <TriangleAlertIcon className="size-3.5" aria-hidden />
+        <TriangleExclamationPointIcon className="size-3.5" aria-hidden />
       ) : (
-        <HistoryIcon className="size-3.5" aria-hidden />
+        <RotateCcwClockIcon className="size-3.5" aria-hidden />
       )}
       <dd className="flex items-center gap-1.5">
         {describe(history, releaseCount)}
         {action ? (
-          <Button
-            variant="link"
-            size="sm"
-            className="h-auto px-0 text-xs"
-            onClick={request}
-            disabled={pending}
-          >
+          <Button variant="link" size="sm" className="h-auto px-0 text-xs" onClick={request} disabled={pending}>
             {pending ? "Requesting…" : action}
           </Button>
         ) : null}

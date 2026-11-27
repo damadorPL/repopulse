@@ -195,7 +195,7 @@ describe("findPyprojectRegistries", () => {
       "# [[tool.uv.index]]",
       "dev-dependencies = []",
       "[tool.uv.sources]",
-      'foo = { workspace = true }',
+      "foo = { workspace = true }",
     ].join("\n");
     expect(findPyprojectRegistries(text)).toEqual([]);
   });
@@ -272,36 +272,34 @@ describe("TailBuffer", () => {
 
 describe("buildSandboxEnv", () => {
   it("builds the env from scratch: no inherited secrets, caches inside the job dir", () => {
-    process.env.GITHUB_TOKEN = "should-not-leak";
-    process.env.DEPS_SANDBOX_TOKEN = "should-not-leak";
-    try {
-      const env = buildSandboxEnv("/tmp/lock-1", { proxy: "http://deps-egress:3128", path: "/usr/bin" });
-      expect(Object.values(env)).not.toContain("should-not-leak");
-      expect(Object.keys(env).filter((k) => /TOKEN/i.test(k))).toEqual([]);
-      expect(env).toMatchObject({
-        HOME: path.join("/tmp/lock-1", "home"),
-        PATH: "/usr/bin",
-        HTTP_PROXY: "http://deps-egress:3128",
-        HTTPS_PROXY: "http://deps-egress:3128",
-        CI: "1",
-        npm_config_ignore_scripts: "true",
-        pnpm_config_ignore_scripts: "true",
-        pnpm_config_pm_on_fail: "ignore",
-        UV_NO_BUILD: "1",
-      });
-      expect(buildSandboxEnv("/tmp/lock-1", { proxy: null, pnpmPmOnFail: "warn" }).pnpm_config_pm_on_fail).toBe("warn");
-      for (const [key, value] of Object.entries(env)) {
-        if (/_DIR$|^npm_config_cache$|^TMPDIR$|^XDG_/.test(key)) expect(value.startsWith(path.join("/tmp/lock-1"))).toBe(true);
-      }
-      expect(buildSandboxEnv("/tmp/lock-1", { proxy: null }).HTTPS_PROXY).toBeUndefined();
-    } finally {
-      delete process.env.GITHUB_TOKEN;
-      delete process.env.DEPS_SANDBOX_TOKEN;
+    vi.stubEnv("GITHUB_TOKEN", "should-not-leak");
+    vi.stubEnv("DEPS_SANDBOX_TOKEN", "should-not-leak");
+    const env = buildSandboxEnv("/tmp/lock-1", { proxy: "http://deps-egress:3128", path: "/usr/bin" });
+    expect(Object.values(env)).not.toContain("should-not-leak");
+    expect(Object.keys(env).filter((k) => /TOKEN/i.test(k))).toEqual([]);
+    expect(env).toMatchObject({
+      HOME: path.join("/tmp/lock-1", "home"),
+      PATH: "/usr/bin",
+      HTTP_PROXY: "http://deps-egress:3128",
+      HTTPS_PROXY: "http://deps-egress:3128",
+      CI: "1",
+      npm_config_ignore_scripts: "true",
+      pnpm_config_ignore_scripts: "true",
+      pnpm_config_pm_on_fail: "ignore",
+      UV_NO_BUILD: "1",
+    });
+    expect(buildSandboxEnv("/tmp/lock-1", { proxy: null, pnpmPmOnFail: "warn" }).pnpm_config_pm_on_fail).toBe("warn");
+    for (const [key, value] of Object.entries(env)) {
+      if (/_DIR$|^npm_config_cache$|^TMPDIR$|^XDG_/.test(key))
+        expect(value.startsWith(path.join("/tmp/lock-1"))).toBe(true);
     }
+    expect(buildSandboxEnv("/tmp/lock-1", { proxy: null }).HTTPS_PROXY).toBeUndefined();
   });
 
   it("hasPnpmPackageManagerDependencies detects packageManagerDependencies only in the boot document", () => {
-    expect(hasPnpmPackageManagerDependencies("lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies: {}\n")).toBe(false);
+    expect(hasPnpmPackageManagerDependencies("lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies: {}\n")).toBe(
+      false,
+    );
     expect(
       hasPnpmPackageManagerDependencies(
         "---\nlockfileVersion: '9.0'\nimporters:\n  .:\n    packageManagerDependencies:\n      pnpm:\n        specifier: 12.16.1\n---\nlockfileVersion: '9.0'\n",
@@ -337,7 +335,7 @@ describe("runLock", () => {
     expect(calls[0]!.command).toBe("npm");
     expect(calls[0]!.args).toContain("--ignore-scripts");
     expect(calls[0]!.options.env.HTTPS_PROXY).toBe("http://deps-egress:3128");
-    expect(calls[0]!.options.env.HOME.startsWith(tmpRoot)).toBe(true);
+    expect(calls[0]!.options.env.HOME?.startsWith(tmpRoot)).toBe(true);
     expect(killTree).toHaveBeenCalled(); // stragglers in the process group are reaped
     await expectNoJobDirs();
   });
@@ -502,7 +500,9 @@ describe("runLock", () => {
 
   it("answers BUSY when aborted by a shutdown", async () => {
     const { spawn } = fakeSpawn(() => undefined);
-    killTree.mockImplementation((child: SpawnedProcess) => (child as FakeChild).exit(null, "SIGKILL"));
+    killTree.mockImplementation((child: SpawnedProcess) => {
+      (child as FakeChild).exit(null, "SIGKILL");
+    });
     const abort = new AbortController();
     const pending = runLock(
       parse({
@@ -542,17 +542,28 @@ describe("runLock", () => {
       stderrTail: "custom package registry configured: pyproject.toml: [[tool.poetry.source]]",
     });
 
-    const cases: Array<{ pm: "PNPM" | "NPM" | "BUN" | "UV"; lock: string; files: Array<{ path: string; contentBase64: string }>; expected: string }> = [
+    const cases: Array<{
+      pm: "PNPM" | "NPM" | "BUN" | "UV";
+      lock: string;
+      files: Array<{ path: string; contentBase64: string }>;
+      expected: string;
+    }> = [
       {
         pm: "PNPM",
         lock: "pnpm-lock.yaml",
-        files: [file("package.json", PKG), file("pnpm-workspace.yaml", "packages:\n  - apps/*\nregistries:\n  default: https://registry.npmjs.org/\n")],
+        files: [
+          file("package.json", PKG),
+          file("pnpm-workspace.yaml", "packages:\n  - apps/*\nregistries:\n  default: https://registry.npmjs.org/\n"),
+        ],
         expected: "pnpm-workspace.yaml: registries",
       },
       {
         pm: "NPM",
         lock: "package-lock.json",
-        files: [file("package.json", PKG), file(".yarnrc.yml", "npmScopes:\n  acme:\n    npmRegistryServer: https://npm.acme.dev\n")],
+        files: [
+          file("package.json", PKG),
+          file(".yarnrc.yml", "npmScopes:\n  acme:\n    npmRegistryServer: https://npm.acme.dev\n"),
+        ],
         expected: ".yarnrc.yml: npmRegistryServer; .yarnrc.yml: npmScopes",
       },
       {
@@ -634,9 +645,9 @@ describe("runLock", () => {
       code: "BAD_REQUEST",
     });
     expect(await run({ ...base, files: [file("README.md", "x")] })).toMatchObject({ code: "BAD_REQUEST" });
-    expect(await run({ ...base, files: [file("package.json", PKG), file("a", "1"), file("a/b", "2")] })).toMatchObject(
-      { code: "BAD_REQUEST" },
-    );
+    expect(await run({ ...base, files: [file("package.json", PKG), file("a", "1"), file("a/b", "2")] })).toMatchObject({
+      code: "BAD_REQUEST",
+    });
     expect(
       await run({
         ...base,
@@ -729,11 +740,7 @@ describe.skipIf(!npmCli)("runLock with the real npm", () => {
         parse({
           packageManager: "NPM",
           workdir: "",
-          files: [
-            file("package.json", pkg),
-            file(".npmrc", "ignore-scripts=false\n"),
-            file(".pnpmfile.cjs", pnpmfile),
-          ],
+          files: [file("package.json", pkg), file(".npmrc", "ignore-scripts=false\n"), file(".pnpmfile.cjs", pnpmfile)],
           upgrade: [],
           expectLockfile: "package-lock.json",
         }),

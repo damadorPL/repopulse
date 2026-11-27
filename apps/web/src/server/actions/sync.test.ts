@@ -12,6 +12,7 @@ const prisma = {
 };
 
 const queueAdd = vi.fn();
+const queueGetDeduplicationJobId = vi.fn();
 const queueGetJob = vi.fn();
 const publishToUser = vi.fn();
 
@@ -28,7 +29,7 @@ vi.mock("@repopulse/github", () => ({
 }));
 vi.mock("@/server/realtime", () => ({
   RealtimeUnavailableError,
-  getRepoPollQueue: () => ({ add: queueAdd, getJob: queueGetJob }),
+  getRepoPollQueue: () => ({ add: queueAdd, getDeduplicationJobId: queueGetDeduplicationJobId, getJob: queueGetJob }),
   publishToUser,
   withRedisTimeout: <T>(op: Promise<T>) => op,
 }));
@@ -37,6 +38,7 @@ const { triggerManualRepoSyncAction } = await import("./sync");
 
 beforeEach(() => {
   vi.clearAllMocks();
+  queueGetDeduplicationJobId.mockResolvedValue(null);
   queueGetJob.mockResolvedValue(null);
 });
 
@@ -71,7 +73,7 @@ describe("triggerManualRepoSyncAction", () => {
     expect(queueAdd).toHaveBeenCalledWith(
       JOB_NAMES.poll,
       { repositoryId: "repo1", trigger: "manual", requestedByUserId: "u1" },
-      { jobId: "poll-repo1", priority: REPO_POLL_PRIORITY.manual },
+      { deduplication: { id: "poll-repo1", keepLastIfActive: true }, priority: REPO_POLL_PRIORITY.manual },
     );
     expect(publishToUser).toHaveBeenCalledWith("u1", {
       type: "SYNC_STARTED",
@@ -88,6 +90,7 @@ describe("triggerManualRepoSyncAction", () => {
       });
       const updateData = vi.fn();
       const changePriority = vi.fn();
+      queueGetDeduplicationJobId.mockResolvedValueOnce("42");
       queueGetJob.mockResolvedValueOnce({
         getState: vi.fn(async () => state),
         updateData,
@@ -112,6 +115,7 @@ describe("triggerManualRepoSyncAction", () => {
     });
     const updateData = vi.fn();
     const changePriority = vi.fn();
+    queueGetDeduplicationJobId.mockResolvedValueOnce("42");
     queueGetJob.mockResolvedValueOnce({
       getState: vi.fn(async () => "delayed"),
       updateData,
@@ -129,6 +133,7 @@ describe("triggerManualRepoSyncAction", () => {
     });
     const updateData = vi.fn();
     const changePriority = vi.fn();
+    queueGetDeduplicationJobId.mockResolvedValueOnce("42");
     queueGetJob.mockResolvedValueOnce({
       getState: vi.fn(async () => "active"),
       updateData,
@@ -144,7 +149,7 @@ describe("triggerManualRepoSyncAction", () => {
     prisma.userSubscription.findUnique.mockResolvedValueOnce({
       repository: { fullName: "acme/web", lastPolledAt: null },
     });
-    queueGetJob.mockRejectedValueOnce(new RealtimeUnavailableError("Redis unavailable"));
+    queueGetDeduplicationJobId.mockRejectedValueOnce(new RealtimeUnavailableError("Redis unavailable"));
 
     const result = await triggerManualRepoSyncAction({ repositoryId: "repo1" });
     expect(result).toEqual({ ok: false, error: { code: "UNAVAILABLE", message: "Redis unavailable" } });

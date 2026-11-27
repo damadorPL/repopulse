@@ -1,6 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Route } from "next";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { auth, signIn } from "@/lib/auth";
+import { SubmitButton } from "@/components/ui/submit-button";
+import { auth } from "@/lib/auth";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { isPublicRegistrationOpen } from "@/server/registration";
 
@@ -8,6 +10,7 @@ export const metadata: Metadata = { title: "Sign in · RepoPulse" };
 
 const ERROR_MESSAGES: Record<string, string> = {
   AccessDenied: "Access was denied. Please authorize the RepoPulse GitHub app to continue.",
+  access_denied: "Access was denied. Please authorize the RepoPulse GitHub app to continue.",
   Configuration: "Sign-in is misconfigured on the server. Check the AUTH_* environment variables and database.",
   Verification: "The sign-in link is no longer valid.",
   InviteRequired: "RepoPulse is invite-only. Ask the super admin for an invite link to create an account.",
@@ -25,7 +28,8 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
   const redirectTo = safeCallbackUrl(first(params.callbackUrl));
   const errorCode = first(params.error);
 
-  const session = await auth();
+  const requestHeaders = await headers();
+  const session = await auth.api.getSession({ headers: requestHeaders });
   if (session?.user?.id) {
     redirect(redirectTo);
   }
@@ -33,60 +37,47 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
 
   async function signInWithGitHub() {
     "use server";
-    await signIn("github", { redirectTo });
+    const result = await auth.api.signInSocial({
+      body: {
+        provider: "github",
+        callbackURL: redirectTo,
+        errorCallbackURL: "/login",
+      },
+      headers: await headers(),
+    });
+    if (result?.url) {
+      redirect(result.url as Route);
+    }
   }
 
   return (
-    <main
-      style={{
-        fontFamily: "system-ui, sans-serif",
-        minHeight: "100dvh",
-        display: "grid",
-        placeItems: "center",
-        padding: "2rem",
-      }}
-    >
-      <section style={{ width: "100%", maxWidth: 360, textAlign: "center" }}>
-        <h1 style={{ marginBottom: "0.25rem" }}>RepoPulse</h1>
-        <p style={{ color: "#6b7280", marginTop: 0 }}>Track GitHub releases you care about.</p>
+    <main className="grid min-h-dvh place-items-center bg-background p-8 text-foreground">
+      <section className="grid w-full max-w-sm gap-4 rounded-lg border border-border bg-card p-6 text-center text-card-foreground shadow-xs">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight">RepoPulse</h1>
+          <p className="text-sm text-muted-foreground">Track GitHub releases you care about.</p>
+        </div>
 
         {errorCode ? (
           <p
             role="alert"
-            style={{
-              background: "#fef2f2",
-              color: "#991b1b",
-              border: "1px solid #fecaca",
-              borderRadius: 8,
-              padding: "0.75rem",
-              fontSize: 14,
-            }}
+            className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
           >
             {ERROR_MESSAGES[errorCode] ?? "Sign-in failed. Please try again."}
           </p>
         ) : null}
 
         <form action={signInWithGitHub}>
-          <button
-            type="submit"
-            style={{
-              width: "100%",
-              padding: "0.75rem 1rem",
-              borderRadius: 8,
-              border: "none",
-              background: "#111827",
-              color: "#fff",
-              fontSize: 16,
-              cursor: "pointer",
-            }}
-          >
+          <SubmitButton size="lg" className="w-full" pendingLabel="Signing in…">
             Sign in with GitHub
-          </button>
+          </SubmitButton>
         </form>
         {!publicRegistration ? (
-          <p style={{ color: "#6b7280", fontSize: 13 }}>New accounts are invite-only. Existing members can sign in as usual.</p>
+          <p className="text-[13px] text-muted-foreground">
+            New accounts are invite-only. Existing members can sign in as usual.
+          </p>
         ) : null}
-        <p style={{ color: "#9ca3af", fontSize: 12 }}>
+        <p className="text-xs text-muted-foreground">
           Requests <code>read:user</code> and <code>user:email</code>. Your token is stored encrypted.
         </p>
       </section>

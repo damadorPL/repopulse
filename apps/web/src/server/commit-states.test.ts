@@ -21,7 +21,12 @@ describe("planCommitStates", () => {
   });
 
   it("does nothing for a user whose states already match", () => {
-    expect(planCommitStates([commit("c1", "docs/a.md")], ["docs"], new Set(["c1"]))).toEqual({ unread: [], read: [], prune: [], matching: 1 });
+    expect(planCommitStates([commit("c1", "docs/a.md")], ["docs"], new Set(["c1"]))).toEqual({
+      unread: [],
+      read: [],
+      prune: [],
+      matching: 1,
+    });
   });
 });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
@@ -18,22 +18,25 @@ import {
 import { feedHref } from "@/lib/feed-filters";
 import { cn } from "@/lib/utils";
 
+const emptySubscribe = () => () => {};
+let cachedClientNow: Date | null = null;
+const getClientNow = () => (cachedClientNow ??= new Date());
+const getServerNow = () => null;
+
 /**
- * The current time, set after mount. `null` during the server render and hydration: bucketing by
+ * The current time on the client. `null` during the server render and hydration: bucketing by
  * local day needs the browser's time zone, so nothing date-dependent is rendered on the server.
  */
 export function useClientNow(): Date | null {
-  const [now, setNow] = useState<Date | null>(null);
-  useEffect(() => setNow(new Date()), []);
-  return now;
+  return useSyncExternalStore(emptySubscribe, getClientNow, getServerNow);
 }
 
 const LEVEL_CLASSES = [
   "bg-muted",
-  "bg-[var(--activity-1)]",
-  "bg-[var(--activity-2)]",
-  "bg-[var(--activity-3)]",
-  "bg-[var(--activity-4)]",
+  "bg-(--activity-1)",
+  "bg-(--activity-2)",
+  "bg-(--activity-3)",
+  "bg-(--activity-4)",
 ] as const;
 
 const SOURCE_FILTERS: ReadonlyArray<{ value: ActivitySource | "ALL"; label: string }> = [
@@ -74,11 +77,11 @@ export function ActivityGrid({
   const [source, setSource] = useState<ActivitySource | "ALL">("ALL");
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const filtered = useMemo(() => (source === "ALL" ? items : items.filter((item) => item.source === source)), [items, source]);
-  const buckets = useMemo(() => (now ? bucketByLocalDay(filtered) : new Map()), [filtered, now]);
-  const weeks = useMemo(() => (now ? buildWeeks(now) : []), [now]);
-  const months = useMemo(() => monthLabels(weeks), [weeks]);
-  const thresholds = useMemo(() => activityThresholds([...buckets.values()].map((b) => b.count)), [buckets]);
+  const filtered = source === "ALL" ? items : items.filter((item) => item.source === source);
+  const buckets = now ? bucketByLocalDay(filtered) : new Map();
+  const weeks = now ? buildWeeks(now) : [];
+  const months = monthLabels(weeks);
+  const thresholds = activityThresholds([...buckets.values()].map((b) => b.count));
 
   // Newest week in view on narrow screens.
   useLayoutEffect(() => {
@@ -99,7 +102,11 @@ export function ActivityGrid({
             <span />
             <div className="relative h-4" style={{ width: `${weeks.length * 13 - 3}px` }} aria-hidden>
               {months.map((month) => (
-                <span key={`${month.index}-${month.label}`} className="absolute top-0" style={{ left: `${month.index * 13}px` }}>
+                <span
+                  key={`${month.index}-${month.label}`}
+                  className="absolute top-0"
+                  style={{ left: `${month.index * 13}px` }}
+                >
                   {month.label}
                 </span>
               ))}
@@ -111,7 +118,11 @@ export function ActivityGrid({
                 </span>
               ))}
             </div>
-            <div className="grid grid-flow-col grid-rows-7 gap-[3px]" role="group" aria-label="Updates per day over the last year">
+            <div
+              className="grid grid-flow-col grid-rows-7 gap-[3px]"
+              role="group"
+              aria-label="Updates per day over the last year"
+            >
               {weeks.flatMap((week) =>
                 week.map((day) => {
                   if (day.outOfRange) return <span key={day.key} className="size-2.5" aria-hidden />;
@@ -127,7 +138,7 @@ export function ActivityGrid({
                       disabled={!bucket}
                       onClick={() => bucket && router.push(feedHref({ repositoryId }, bucket.newestId))}
                       className={cn(
-                        "size-2.5 rounded-[2px] outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default",
+                        "size-2.5 rounded-[2px] outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default",
                         LEVEL_CLASSES[level],
                         bucket?.hasMajor && "ring-1 ring-amber-500 ring-offset-1 ring-offset-card dark:ring-amber-400",
                       )}
@@ -153,7 +164,9 @@ export function ActivityGrid({
                 onClick={() => setSource(option.value)}
                 className={cn(
                   "rounded-full border px-2 py-0.5 transition-colors",
-                  source === option.value ? "border-foreground/40 bg-secondary font-medium text-foreground" : "hover:bg-accent",
+                  source === option.value
+                    ? "border-foreground/40 bg-secondary font-medium text-foreground"
+                    : "hover:bg-accent",
                 )}
               >
                 {option.label}

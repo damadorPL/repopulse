@@ -3,10 +3,12 @@ import { notFound, redirect } from "next/navigation";
 import type { NextRequest } from "next/server";
 import { convertAppManifest } from "@repopulse/github";
 import { getCurrentUserOrThrow, UnauthorizedError } from "@/lib/auth";
-import { completeManifestCallback, GITHUB_APP_STATE_COOKIE, githubAppStateCookieOptions, saveConvertedApp } from "@/server/github-app";
-
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+import {
+  completeManifestCallback,
+  GITHUB_APP_STATE_COOKIE,
+  githubAppStateCookieOptions,
+  saveConvertedApp,
+} from "@/server/github-app";
 
 /**
  * GET /api/github-app/manifest/callback?code=…&state=…: GitHub sends the super admin here after

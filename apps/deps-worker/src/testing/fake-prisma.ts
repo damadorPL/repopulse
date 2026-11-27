@@ -85,7 +85,8 @@ export function matches(row: Row, where: Where | undefined): boolean {
 function applyData(row: Row, data: Row): void {
   for (const [key, value] of Object.entries(data)) {
     if (value === undefined) continue;
-    if (isPlainObject(value) && "increment" in value) row[key] = ((row[key] as number) ?? 0) + (value.increment as number);
+    if (isPlainObject(value) && "increment" in value)
+      row[key] = ((row[key] as number) ?? 0) + (value.increment as number);
     else if (isPlainObject(value) && "set" in value) row[key] = value.set;
     else row[key] = value;
   }
@@ -97,13 +98,20 @@ let counter = 0;
 
 export class FakeTable {
   rows: Row[] = [];
-  constructor(
-    private readonly defaults: () => Row = () => ({}),
-    private readonly touch = false,
-  ) {}
+  private readonly defaults: () => Row;
+  private readonly touch: boolean;
+
+  constructor(defaults: () => Row = () => ({}), touch = false) {
+    this.defaults = defaults;
+    this.touch = touch;
+  }
 
   private create1(data: Row): Row {
-    const row: Row = { id: `id${++counter}`, ...this.defaults(), ...(this.touch ? { createdAt: new Date(), updatedAt: new Date() } : {}) };
+    const row: Row = {
+      id: `id${++counter}`,
+      ...this.defaults(),
+      ...(this.touch ? { createdAt: new Date(), updatedAt: new Date() } : {}),
+    };
     applyData(row, data);
     this.rows.push(row);
     return row;
@@ -205,9 +213,20 @@ export function createFakePrisma() {
   const tables = {
     instanceSettings: new FakeTable(),
     user: new FakeTable(() => ({ githubAccessTokenEncrypted: null, githubLogin: null, name: null })),
-    notificationRule: new FakeTable(() => ({ tagId: null, destinationUrl: null, enabled: true, onlyMajorReleases: false, events: ["RELEASES"] })),
+    notificationRule: new FakeTable(() => ({
+      tagId: null,
+      destinationUrl: null,
+      enabled: true,
+      onlyMajorReleases: false,
+      events: ["RELEASES"],
+    })),
     dependencyProject: new FakeTable(() => ({ ...PROJECT_DEFAULTS, ignoreRules: [], manifestPaths: [] }), true),
-    dependencyManifest: new FakeTable(() => ({ lockfilePath: null, workspaceRoot: null, dependencyCount: 0, warnings: [] })),
+    dependencyManifest: new FakeTable(() => ({
+      lockfilePath: null,
+      workspaceRoot: null,
+      dependencyCount: 0,
+      warnings: [],
+    })),
     dependencyUpdate: new FakeTable(() => ({
       group: "",
       currentVersion: null,
@@ -239,9 +258,34 @@ export type FakePrisma = ReturnType<typeof createFakePrisma>;
 
 /** Seeds the settings row (`depsEnabled`) plus one user and one project; returns their ids. */
 export function seed(prisma: FakePrisma, options: { depsEnabled?: boolean; project?: Row; user?: Row } = {}) {
-  prisma.instanceSettings.rows.push({ id: 1, depsEnabled: options.depsEnabled ?? true, smtpHost: null, smtpPort: 587, smtpSecure: null, smtpUser: null, smtpPasswordEncrypted: null, smtpFrom: null });
-  prisma.user.rows.push({ id: "u1", email: "dev@example.com", githubId: "1001", githubLogin: "dev", githubAccessTokenEncrypted: null, name: "Dev", ...options.user });
-  const project = { id: "p1", ...PROJECT_DEFAULTS, ignoreRules: [], manifestPaths: [], createdAt: new Date(), updatedAt: new Date(), ...options.project };
+  prisma.instanceSettings.rows.push({
+    id: 1,
+    depsEnabled: options.depsEnabled ?? true,
+    smtpHost: null,
+    smtpPort: 587,
+    smtpSecure: null,
+    smtpUser: null,
+    smtpPasswordEncrypted: null,
+    smtpFrom: null,
+  });
+  prisma.user.rows.push({
+    id: "u1",
+    email: "dev@example.com",
+    githubId: "1001",
+    githubLogin: "dev",
+    githubAccessTokenEncrypted: null,
+    name: "Dev",
+    ...options.user,
+  });
+  const project = {
+    id: "p1",
+    ...PROJECT_DEFAULTS,
+    ignoreRules: [],
+    manifestPaths: [],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...options.project,
+  };
   prisma.dependencyProject.rows.push(project);
   return project;
 }
