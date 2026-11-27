@@ -56,18 +56,30 @@ function discoverActiveMarkdownFiles() {
 }
 
 /**
+ * Removes inline `<...>` HTML tag spans iteratively without regex sanitization.
+ * @param {string} input
+ * @returns {string}
+ */
+function stripInlineHtmlTags(input) {
+  let text = input;
+  for (;;) {
+    const start = text.indexOf("<");
+    if (start === -1) break;
+    const end = text.indexOf(">", start + 1);
+    if (end === -1) break;
+    text = text.slice(0, start) + text.slice(end + 1);
+  }
+  return text;
+}
+
+/**
  * Converts a markdown heading into its GitHub-compatible anchor slug.
  * @param {string} rawHeading
  * @returns {string}
  */
 function slugifyHeading(rawHeading) {
-  const plain = rawHeading
-    .replace(/\s+#+\s*$/, "")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/<[^>]+>/g, "")
-    .replace(/[`*~]/g, "")
-    .trim()
-    .toLowerCase();
+  const withoutLinks = rawHeading.replace(/\s+#+\s*$/, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
+  const plain = stripInlineHtmlTags(withoutLinks).replace(/[`*~]/g, "").trim().toLowerCase();
 
   return plain.replace(/[^\p{L}\p{N}_ -]/gu, "").replace(/ /g, "-");
 }

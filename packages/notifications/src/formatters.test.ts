@@ -356,7 +356,11 @@ describe("email", () => {
         }),
       );
 
-      // Changing the password produces a different SHA-256 cache key and replaces the transport.
+      // Reusing the same config reuses the cached transport without creating a new one.
+      createSmtpSender({ ...cfg });
+      expect(createSpy).toHaveBeenCalledTimes(1);
+
+      // Changing the password invalidates the cached transport and replaces it.
       createSmtpSender({ ...cfg, pass: "new-s3cr3t" });
       expect(createSpy).toHaveBeenCalledTimes(2);
       expect(close).toHaveBeenCalledTimes(1);

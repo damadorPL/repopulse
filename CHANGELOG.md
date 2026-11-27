@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.8.2] — 2026-11-27 — SMTP transport cache & docs slugifier cleanup
+
+### Fixed
+
+- **SMTP transport cache (`packages/notifications`)**: Replaced SHA-256 hashing of SMTP credentials in `createSmtpSender` with direct field comparison (`sameSmtpTransportConfig`) on a single cached transport.
+- **Docs heading slugifier (`scripts/check-docs.mjs`)**: Replaced regex HTML tag stripping in `slugifyHeading` with iterative `stripInlineHtmlTags`.
+
 ## [0.9.8.1] — 2026-11-27 — Docs hierarchy, AGENTS.md, and dependency updates
 
 ### Added

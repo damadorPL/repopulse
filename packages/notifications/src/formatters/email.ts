@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import nodemailer from "nodemailer";
 import { NotificationDeliveryError } from "../errors.js";
 import {
@@ -80,12 +79,25 @@ export interface EmailMessage {
 
 export type MailSender = (message: EmailMessage) => Promise<void>;
 
-const transports = new Map<string, ReturnType<typeof nodemailer.createTransport>>();
+interface CachedSmtpTransport {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string | undefined;
+  pass: string | undefined;
+  transport: ReturnType<typeof nodemailer.createTransport>;
+}
 
-function smtpConfigKey(config: SmtpConfig): string {
-  return createHash("sha256")
-    .update(JSON.stringify([config.host, config.port, config.secure, config.user ?? null, config.pass ?? null]))
-    .digest("hex");
+let cachedTransport: CachedSmtpTransport | null = null;
+
+function sameSmtpTransportConfig(cached: CachedSmtpTransport, config: SmtpConfig): boolean {
+  return (
+    cached.host === config.host &&
+    cached.port === config.port &&
+    cached.secure === config.secure &&
+    cached.user === config.user &&
+    cached.pass === config.pass
+  );
 }
 
 function smtpTransportOptions(config: SmtpConfig) {
@@ -102,15 +114,12 @@ function smtpTransportOptions(config: SmtpConfig) {
   };
 }
 
-/** Closes all cached pooled SMTP transports and clears the transport cache. */
+/** Closes the cached pooled SMTP transport and clears the transport cache. */
 export function closeSmtpTransports(): void {
-  for (const [key, transport] of transports) {
-    try {
-      transport.close();
-    } finally {
-      transports.delete(key);
-    }
-  }
+  const current = cachedTransport;
+  if (!current) return;
+  cachedTransport = null;
+  current.transport.close();
 }
 
 /**
@@ -130,23 +139,27 @@ export async function verifySmtpConfig(config: SmtpConfig): Promise<void> {
 
 /**
  * Pooled Nodemailer SMTP transport (15 s connection/greeting timeouts, 10 s DNS timeout, TLS 1.2+),
- * reused while the configuration stays the same. Saving new settings in the UI changes the SHA-256
- * cache key, and the old transport is closed.
+ * reused while the configuration stays the same. Saving new settings in the UI invalidates the
+ * cached transport, and the old transport is closed.
  */
 export function createSmtpSender(config: SmtpConfig): MailSender {
-  const key = smtpConfigKey(config);
-  let transport = transports.get(key);
-  if (!transport) {
+  if (!cachedTransport || !sameSmtpTransportConfig(cachedTransport, config)) {
     closeSmtpTransports();
-    transport = nodemailer.createTransport({
-      ...smtpTransportOptions(config),
-      pool: true,
-      maxConnections: 5,
-      maxMessages: 100,
-    });
-    transports.set(key, transport);
+    cachedTransport = {
+      host: config.host,
+      port: config.port,
+      secure: config.secure,
+      user: config.user,
+      pass: config.pass,
+      transport: nodemailer.createTransport({
+        ...smtpTransportOptions(config),
+        pool: true,
+        maxConnections: 5,
+        maxMessages: 100,
+      }),
+    };
   }
-  const mailer = transport;
+  const mailer = cachedTransport.transport;
   return async (message) => {
     try {
       await mailer.sendMail(message);
