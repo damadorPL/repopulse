@@ -245,7 +245,7 @@ describe("registry safety at processor boundaries", () => {
   it("rechecks registry config before manifest-only PRs, including stale previously-outdated rows", async () => {
     const prisma = createFakePrisma();
     seed(prisma, { project: { updateMode: "MANUAL_PR", lastScannedAt: NOW } });
-    prisma.dependencyPrOwner.rows.push({ githubRepoId: 42, projectId: "p1" });
+    prisma.dependencyPrOwner.rows.push({ githubRepoId: 42n, projectId: "p1" });
     prisma.dependencyManifest.rows.push({
       id: "m1",
       projectId: "p1",

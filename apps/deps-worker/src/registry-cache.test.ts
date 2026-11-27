@@ -138,12 +138,12 @@ describe("createRedisBlobCache batching & createRedisTreeCache", () => {
     const redis = fakeRedis();
     const treeCache = createRedisTreeCache(redis as never);
 
-    await treeCache.set(42, "c1", {
+    await treeCache.set(42n, "c1", {
       entries: [{ path: "package.json", type: "blob", sha: "s1", size: 10 }],
       truncated: false,
     });
     expect(redis.set).toHaveBeenCalledWith("deps:tree:42:c1", expect.any(String), "EX", TREE_CACHE_TTL_SECONDS);
-    expect(await treeCache.get(42, "c1")).toEqual({
+    expect(await treeCache.get(42n, "c1")).toEqual({
       entries: [{ path: "package.json", type: "blob", sha: "s1", size: 10 }],
       truncated: false,
     });
@@ -157,7 +157,7 @@ describe("createRedisBlobCache batching & createRedisTreeCache", () => {
     expect(Buffer.byteLength(JSON.stringify({ entries: huge, truncated: false }), "utf8")).toBeGreaterThan(
       MAX_TREE_CACHE_BYTES,
     );
-    await treeCache.set(42, "huge", { entries: huge, truncated: false });
-    expect(await treeCache.get(42, "huge")).toBeNull();
+    await treeCache.set(42n, "huge", { entries: huge, truncated: false });
+    expect(await treeCache.get(42n, "huge")).toBeNull();
   });
 });

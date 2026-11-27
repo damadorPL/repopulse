@@ -184,7 +184,7 @@ describe("getDependencyProjects", () => {
       },
       {
         id: "p2",
-        githubRepoId: 20,
+        githubRepoId: 20n,
         owner: "acme",
         name: "api",
         fullName: "acme/api",
@@ -213,7 +213,7 @@ describe("getDependencyProjects", () => {
       },
     ]);
     prisma.dependencyPrOwner.findMany.mockResolvedValue([
-      { githubRepoId: 20, projectId: "p-other", project: { user: { githubLogin: "bob", name: null } } },
+      { githubRepoId: 20n, projectId: "p-other", project: { user: { githubLogin: "bob", name: null } } },
     ]);
 
     const [p1, p2] = await queries.getDependencyProjects("u1");
@@ -221,7 +221,7 @@ describe("getDependencyProjects", () => {
       { id: "pr1", number: 12, htmlUrl: "https://github.com/acme/web/pull/12", groupKey: "all" },
     ]);
     expect(prisma.dependencyPrOwner.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { githubRepoId: { in: [20] } } }),
+      expect.objectContaining({ where: { githubRepoId: { in: [20n] } } }),
     );
 
     const p1Plans = queries.planListPullRequests(p1!, { appConfigured: true, lockfileRegeneration: true });
@@ -302,7 +302,7 @@ describe("getAddableSubscriptions", () => {
 function storedProject(overrides: Record<string, unknown> = {}) {
   return {
     id: "p1",
-    githubRepoId: 5,
+    githubRepoId: 5n,
     owner: "acme",
     name: "web",
     fullName: "acme/web",
@@ -396,25 +396,35 @@ function storedProject(overrides: Record<string, unknown> = {}) {
 
 describe("getDependencyProject", () => {
   it("looks the project up by user and case-insensitive name", async () => {
-    prisma.dependencyProject.findFirst.mockResolvedValue(null);
+    prisma.dependencyProject.findMany.mockResolvedValue([]);
     expect(await queries.getDependencyProject("u2", "Acme", "Web")).toBeNull();
-    expect(prisma.dependencyProject.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { userId: "u2", fullName: { equals: "Acme/Web", mode: "insensitive" } } }),
+    expect(prisma.dependencyProject.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: "u2", fullName: { equals: "Acme/Web", mode: "insensitive" } },
+        take: 5,
+      }),
     );
+  });
+
+  it("ignores ILIKE underscore wildcard mismatches", async () => {
+    prisma.dependencyProject.findMany.mockResolvedValue([storedProject({ fullName: "my-org/web" })]);
+    expect(await queries.getDependencyProject("u1", "my_org", "web")).toBeNull();
   });
 
   it("rejects implausible segments without a query", async () => {
     expect(await queries.getDependencyProject("u1", "..", "web")).toBeNull();
-    expect(prisma.dependencyProject.findFirst).not.toHaveBeenCalled();
+    expect(prisma.dependencyProject.findMany).not.toHaveBeenCalled();
   });
 
-  it("names another user who owns the PRs and reads ignore rules defensively", async () => {
-    prisma.dependencyProject.findFirst.mockResolvedValue(storedProject());
+  it("names another user who owns the PRs, converts githubRepoId to number, and reads ignore rules defensively", async () => {
+    prisma.dependencyProject.findMany.mockResolvedValue([storedProject()]);
     prisma.dependencyPrOwner.findUnique.mockResolvedValue({
       projectId: "p9",
       project: { user: { githubLogin: "bob", name: null } },
     });
     const project = await queries.getDependencyProject("u1", "acme", "web");
+    expect(project?.githubRepoId).toBe(5);
+    expect(typeof project?.githubRepoId).toBe("number");
     expect(project?.prOwner).toEqual({ kind: "other", ownerName: "bob" });
     expect(project?.settings.ignoreRules).toEqual([{ name: "vue" }]);
     expect(project?.updates[0]).toMatchObject({ manifestPath: "package.json", ecosystem: "NPM" });
@@ -426,7 +436,7 @@ describe("planPullRequests", () => {
     overrides: Record<string, unknown> = {},
     owner: unknown = { projectId: "p1", project: { user: { githubLogin: "me", name: null } } },
   ) {
-    prisma.dependencyProject.findFirst.mockResolvedValue(storedProject(overrides));
+    prisma.dependencyProject.findMany.mockResolvedValue([storedProject(overrides)]);
     prisma.dependencyPrOwner.findUnique.mockResolvedValue(owner);
     return (await queries.getDependencyProject("u1", "acme", "web"))!;
   }

@@ -92,8 +92,8 @@ model User {
   githubLogin                String?
   /// The super admin manages instance settings (registration, invite links, SMTP). The first user to sign up is the super admin.
   isSuperAdmin               Boolean             @default(false)
-  createdAt                  DateTime            @default(now())
-  updatedAt                  DateTime            @updatedAt
+  createdAt                  DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt                  DateTime            @updatedAt @db.Timestamptz(3)
   sessions                   Session[]
   accounts                   Account[]
   subscriptions              UserSubscription[]
@@ -107,10 +107,10 @@ model User {
 
 model Session {
   id        String   @id @default(cuid())
-  expiresAt DateTime
+  expiresAt DateTime @db.Timestamptz(3)
   token     String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
   ipAddress String?
   userAgent String?
   userId    String
@@ -129,12 +129,12 @@ model Account {
   accessToken           String?
   refreshToken          String?
   idToken               String?
-  accessTokenExpiresAt  DateTime?
-  refreshTokenExpiresAt DateTime?
+  accessTokenExpiresAt  DateTime? @db.Timestamptz(3)
+  refreshTokenExpiresAt DateTime? @db.Timestamptz(3)
   scope                 String?
   password              String?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @db.Timestamptz(3)
 
   @@unique([providerId, accountId])
   @@index([userId])
@@ -144,15 +144,16 @@ model Verification {
   id         String   @id @default(cuid())
   identifier String
   value      String
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  expiresAt  DateTime @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
 
   @@index([identifier])
   @@index([expiresAt])
 }
 
 /// Instance-wide settings: a single row with `id = 1`; a missing row means the defaults.
+/// Raw-SQL CHECK constraints: `InstanceSettings_id_check`, `InstanceSettings_smtpPort_check`.
 model InstanceSettings {
   id                              Int      @id @default(1)
   /// `false` = invite-only: new accounts need an invite link (existing users can always sign in).
@@ -189,20 +190,21 @@ model InstanceSettings {
   githubAppWebhookSecretEncrypted String?
   /// Account (user or organization) that owns the App, for display.
   githubAppOwner                  String?
-  updatedAt                       DateTime @updatedAt
+  updatedAt                       DateTime @updatedAt @db.Timestamptz(3)
 }
 
 /// Single-use sign-up link. Only the SHA-256 of the token is stored; the link is shown once.
+/// Raw-SQL managed: partial index `Invite_pending_expiresAt_idx` (`usedAt IS NULL`), CHECK `Invite_expiresAt_check`.
 model Invite {
   id          String    @id @default(cuid())
   tokenHash   String    @unique
   /// Optional reminder of who the link is for.
   note        String?
   createdById String
-  expiresAt   DateTime
-  usedAt      DateTime?
+  expiresAt   DateTime  @db.Timestamptz(3)
+  usedAt      DateTime? @db.Timestamptz(3)
   usedById    String?   @unique
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
   createdBy   User      @relation("InviteCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
   usedBy      User?     @relation("InviteUsedBy", fields: [usedById], references: [id], onDelete: SetNull)
 
@@ -210,9 +212,11 @@ model Invite {
   @@index([createdById])
 }
 
+/// Raw-SQL managed: `Repository_pollStatus_lastPolledAt_idx`, partial indexes `Repository_polling_updatedAt_idx`
+/// and `Repository_backfill_pending_idx`, `fillfactor = 80`, and CHECK constraints (`starsCount`, `errorCount`, `backfillTarget`).
 model Repository {
   id                  String              @id @default(cuid())
-  githubRepoId        Int                 @unique
+  githubRepoId        BigInt              @unique
   owner               String
   name                String
   fullName            String              @unique
@@ -220,7 +224,7 @@ model Repository {
   avatarUrl           String?
   htmlUrl             String
   starsCount          Int                 @default(0)
-  lastPolledAt        DateTime?
+  lastPolledAt        DateTime?           @db.Timestamptz(3)
   lastEtag            String?
   pollStatus          PollStatus          @default(IDLE)
   errorCount          Int                 @default(0)
@@ -230,58 +234,58 @@ model Repository {
   backfillNextPage    Int?
   /// How many releases the repository should hold in total.
   backfillTarget      Int                 @default(100)
-  backfilledAt        DateTime?
+  backfilledAt        DateTime?           @db.Timestamptz(3)
   /// Last "Load older releases" request; drives its 5-minute cooldown claim.
-  backfillRequestedAt DateTime?
+  backfillRequestedAt DateTime?           @db.Timestamptz(3)
   /// Last time the tags were read (Slice 04c); `null` = never, so the first "Releases + tags" subscriber queues a poll.
-  lastTagsPolledAt    DateTime?
+  lastTagsPolledAt    DateTime?           @db.Timestamptz(3)
   /// Last time watched paths were polled (Slice 06); `null` = never.
-  lastPathsPolledAt   DateTime?
+  lastPathsPolledAt   DateTime?           @db.Timestamptz(3)
   /// Normalized paths whose initial import is done. A watched path missing here is "newly added":
   /// its first poll imports existing history quietly (no notifications).
   polledPaths         String[]            @default([])
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
+  createdAt           DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime            @updatedAt @db.Timestamptz(3)
   releases            Release[]
   subscriptions       UserSubscription[]
   dependencyProjects  DependencyProject[]
 
-  @@index([lastPolledAt, pollStatus])
-  @@index([backfillStatus])
   @@index([fullName(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
+/// Raw-SQL managed: covering partial indexes `Release_visible_publishedAt_id_idx` and
+/// `Release_visible_repo_publishedAt_id_idx`, FTS GIN index `Release_searchVector_idx`,
+/// extended statistics `Release_visibility_stats`, and `fillfactor = 90`.
 model Release {
-  id              String             @id @default(cuid())
+  id              String                   @id @default(cuid())
   repositoryId    String
   /// `null` for tag and commit rows (`source = TAG` / `COMMIT`).
   githubReleaseId BigInt?
-  source          ReleaseSource      @default(RELEASE)
+  source          ReleaseSource            @default(RELEASE)
   /// Tagged commit of a tag row; the full SHA of a commit row (whose `tagName` is the 7-char short SHA).
   tagSha          String?
   tagName         String
   title           String
-  bodyMarkdown    String             @db.Text
+  bodyMarkdown    String                   @db.Text
+  /// Stored generated tsvector (`tagName` A, `title` B, `bodyMarkdown` C); managed in raw SQL migration.
+  searchVector    Unsupported("tsvector")?
   htmlUrl         String
-  isPrerelease    Boolean            @default(false)
-  isDraft         Boolean            @default(false)
-  semverType      SemverType         @default(OTHER)
-  publishedAt     DateTime
-  discoveredAt    DateTime           @default(now())
+  isPrerelease    Boolean                  @default(false)
+  isDraft         Boolean                  @default(false)
+  semverType      SemverType               @default(OTHER)
+  publishedAt     DateTime                 @db.Timestamptz(3)
+  discoveredAt    DateTime                 @default(now()) @db.Timestamptz(3)
   /// Commit rows: repo-relative paths the commit changed, plus the watched paths it was found
   /// through (a fallback when GitHub's file list is unavailable or truncated).
-  changedPaths    String[]           @default([])
-  repository      Repository         @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  changedPaths    String[]                 @default([])
+  repository      Repository               @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
   userStates      UserReleaseState[]
 
   @@unique([repositoryId, githubReleaseId])
   @@unique([repositoryId, source, tagName])
-  @@index([repositoryId, publishedAt(sort: Desc)])
-  @@index([publishedAt(sort: Desc), id(sort: Desc)])
-  @@index([repositoryId, source, publishedAt(sort: Desc)])
+  @@index([repositoryId, source, publishedAt(sort: Desc), id(sort: Desc)])
   @@index([tagName(ops: raw("gin_trgm_ops"))], type: Gin)
   @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
-  @@index([bodyMarkdown(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
 model UserSubscription {
@@ -302,10 +306,10 @@ model UserSubscription {
   /// Slice 07: per-repository notification override, applied before the user's rules in the worker fan-out.
   notificationLevel  NotificationLevel @default(ALL)
   /// Slice 07: no external notifications while `snoozedUntil > now` (the feed still updates; not retroactive).
-  snoozedUntil       DateTime?
+  snoozedUntil       DateTime?         @db.Timestamptz(3)
   /// Slice 07: the version the user runs (at most 100 characters), compared with stored release and tag rows.
   currentVersion     String?
-  createdAt          DateTime          @default(now())
+  createdAt          DateTime          @default(now()) @db.Timestamptz(3)
   user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   repository         Repository        @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
   tags               SubscriptionTag[]
@@ -325,7 +329,6 @@ model Tag {
   notificationRules NotificationRule[]
 
   @@unique([userId, slug])
-  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
 model SubscriptionTag {
@@ -338,16 +341,16 @@ model SubscriptionTag {
   @@index([tagId])
 }
 
+/// Raw-SQL managed: partial covering index `UserReleaseState_userId_unread_releaseId_idx` (`isRead = false`).
 model UserReleaseState {
   userId    String
   releaseId String
   isRead    Boolean   @default(false)
-  readAt    DateTime?
+  readAt    DateTime? @db.Timestamptz(3)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   release   Release   @relation(fields: [releaseId], references: [id], onDelete: Cascade)
 
   @@id([userId, releaseId])
-  @@index([userId, isRead])
   @@index([releaseId])
 }
 
@@ -362,7 +365,7 @@ model NotificationRule {
   /// Slice 08: which events the rule sends. Existing rules default to `[RELEASES]`. A tag-scoped rule supports only
   /// `RELEASES` (dependency projects have no tags).
   events            NotificationEvent[] @default([RELEASES])
-  createdAt         DateTime            @default(now())
+  createdAt         DateTime            @default(now()) @db.Timestamptz(3)
   user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   tag               Tag?                @relation(fields: [tagId], references: [id], onDelete: SetNull)
 
@@ -457,10 +460,13 @@ enum DepsPrState {
 }
 
 /// A repository whose dependencies one user checks (Slice 08). Independent of `UserSubscription`.
+/// Raw-SQL managed: partial indexes `DependencyProject_due_nextScanAt_id_idx` (`scanStatus <> 'SCANNING'`)
+/// and `DependencyProject_scanning_updatedAt_idx` (`scanStatus = 'SCANNING'`), `fillfactor = 80`, and CHECK constraints
+/// (`minReleaseAgeDays`, `maxOpenPrs`, `scanIntervalHours`, `errorCount`, `ignoreRules`).
 model DependencyProject {
   id                 String                  @id @default(cuid())
   userId             String
-  githubRepoId       Int
+  githubRepoId       BigInt
   owner              String
   name               String
   /// Refreshed on every scan (renames).
@@ -488,15 +494,15 @@ model DependencyProject {
   commitPrefix       String                  @default("chore(deps):")
   /// "Notify about what is outdated now" in the Add dialog: the first scan sends a digest. Default off.
   notifyOnFirstScan  Boolean                 @default(false)
-  lastScannedAt      DateTime?
+  lastScannedAt      DateTime?               @db.Timestamptz(3)
   lastScannedSha     String?
-  nextScanAt         DateTime?
+  nextScanAt         DateTime?               @db.Timestamptz(3)
   scanStatus         DepsScanStatus          @default(IDLE)
   /// User-safe message, never a stack or a token.
   scanError          String?
   errorCount         Int                     @default(0)
-  createdAt          DateTime                @default(now())
-  updatedAt          DateTime                @updatedAt
+  createdAt          DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime                @updatedAt @db.Timestamptz(3)
   user               User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
   repository         Repository?             @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
   manifests          DependencyManifest[]
@@ -507,7 +513,6 @@ model DependencyProject {
   branchWriteIntents DependencyBranchWriteIntent[]
 
   @@unique([userId, githubRepoId])
-  @@index([nextScanAt, scanStatus])
   @@index([githubRepoId])
   @@index([repositoryId])
 }
@@ -519,12 +524,14 @@ model DependencyBranchWriteIntent {
   commitSha String
   /// Bot head observed before preparing this commit; retained when a replacement ref write fails.
   previousHeadSha String?
-  createdAt DateTime          @default(now())
+  createdAt DateTime          @default(now()) @db.Timestamptz(3)
   project   DependencyProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@id([projectId, groupKey])
+  @@index([createdAt])
 }
 
+/// Raw-SQL CHECK constraint: `DependencyManifest_dependencyCount_check`.
 model DependencyManifest {
   id              String              @id @default(cuid())
   projectId       String
@@ -568,13 +575,13 @@ model DependencyUpdate {
   /// Of current → target.
   level            SemverType?
   status           DependencyUpdateStatus
-  targetReleasedAt DateTime?
+  targetReleasedAt DateTime?              @db.Timestamptz(3)
   /// From registry metadata, for changelog links.
   sourceRepoUrl    String?
   /// First scan that saw this target.
-  firstSeenAt      DateTime               @default(now())
+  firstSeenAt      DateTime               @default(now()) @db.Timestamptz(3)
   /// A digest already mentioned this target.
-  notifiedAt       DateTime?
+  notifiedAt       DateTime?              @db.Timestamptz(3)
   project          DependencyProject      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   manifest         DependencyManifest     @relation(fields: [manifestId], references: [id], onDelete: Cascade)
 
@@ -582,6 +589,7 @@ model DependencyUpdate {
   @@index([projectId, status, level])
 }
 
+/// Raw-SQL managed: partial index `DependencyPullRequest_open_projectId_idx` (`state = 'OPEN'`).
 model DependencyPullRequest {
   id        String            @id @default(cuid())
   projectId String
@@ -596,9 +604,9 @@ model DependencyPullRequest {
   headSha   String
   /// "manifestPath#name@version" the PR currently sets.
   targets   String[]
-  openedAt  DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
-  closedAt  DateTime?
+  openedAt  DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime          @updatedAt @db.Timestamptz(3)
+  closedAt  DateTime?         @db.Timestamptz(3)
   project   DependencyProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, groupKey])
@@ -606,17 +614,18 @@ model DependencyPullRequest {
 
 /// Only one project per GitHub repository, instance-wide, may open PRs (two users would race on the same branches).
 model DependencyPrOwner {
-  githubRepoId Int               @id
+  githubRepoId BigInt            @id
   projectId    String            @unique
   project      DependencyProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 /// Durable queue intents; removed only after BullMQ acknowledges enqueueing the deterministic job id.
+/// Raw-SQL managed: aggressive autovacuum (`autovacuum_vacuum_scale_factor = 0.05`, `threshold = 50`) and CHECK `DependencyNotificationOutbox_payload_check`.
 model DependencyNotificationOutbox {
   id        String            @id
   projectId String
   payload   Json
-  createdAt DateTime          @default(now())
+  createdAt DateTime          @default(now()) @db.Timestamptz(3)
   project   DependencyProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([createdAt, id])

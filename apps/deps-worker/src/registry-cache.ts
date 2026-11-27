@@ -78,8 +78,8 @@ export interface CachedGitTree {
  * (`knownCommitSha`) has not moved skip `GET /git/trees/{sha}?recursive=1` completely.
  */
 export interface TreeCache {
-  get(githubRepoId: number, commitSha: string): Promise<CachedGitTree | null>;
-  set(githubRepoId: number, commitSha: string, value: CachedGitTree): Promise<void>;
+  get(githubRepoId: bigint | number, commitSha: string): Promise<CachedGitTree | null>;
+  set(githubRepoId: bigint | number, commitSha: string, value: CachedGitTree): Promise<void>;
 }
 
 export const BLOB_CACHE_TTL_SECONDS = 7 * 24 * 3600;
@@ -165,7 +165,7 @@ export function createRedisTreeCache(redis: CacheRedis): TreeCache {
   return {
     async get(githubRepoId, commitSha) {
       try {
-        const raw = await redis.get(`deps:tree:${githubRepoId}:${commitSha}`);
+        const raw = await redis.get(`deps:tree:${String(githubRepoId)}:${commitSha}`);
         if (!raw) return null;
         const parsed = JSON.parse(raw) as Partial<CachedGitTree>;
         if (!Array.isArray(parsed.entries) || typeof parsed.truncated !== "boolean") return null;
@@ -178,7 +178,7 @@ export function createRedisTreeCache(redis: CacheRedis): TreeCache {
       try {
         const serialized = JSON.stringify(value);
         if (Buffer.byteLength(serialized, "utf8") > MAX_TREE_CACHE_BYTES) return;
-        await redis.set(`deps:tree:${githubRepoId}:${commitSha}`, serialized, "EX", TREE_CACHE_TTL_SECONDS);
+        await redis.set(`deps:tree:${String(githubRepoId)}:${commitSha}`, serialized, "EX", TREE_CACHE_TTL_SECONDS);
       } catch {
         // best effort
       }

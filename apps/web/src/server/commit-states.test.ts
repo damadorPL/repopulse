@@ -62,6 +62,8 @@ describe("syncCommitStates", () => {
       prune: ["c2"],
       matching: 2,
     });
+    expect(tx.release.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 5000 }));
+    expect(tx.release.findMany).toHaveBeenCalledBefore(tx.userReleaseState.findMany);
     expect(tx.userReleaseState.deleteMany).toHaveBeenCalledWith({
       where: { userId: "u1", releaseId: { in: ["c2"] } },
     });
@@ -72,5 +74,34 @@ describe("syncCommitStates", () => {
       ],
       skipDuplicates: true,
     });
+  });
+
+  it("runs queries sequentially and chunks createMany in batches of 2000", async () => {
+    const order: string[] = [];
+    const manyCommits = Array.from({ length: 2500 }, (_, i) => commit(`c${i}`, "packages/db/index.ts"));
+    const tx = {
+      release: {
+        findMany: vi.fn(async () => {
+          order.push("release.findMany:start");
+          await Promise.resolve();
+          order.push("release.findMany:end");
+          return manyCommits;
+        }),
+      },
+      userReleaseState: {
+        findMany: vi.fn(async () => {
+          order.push("userReleaseState.findMany");
+          return [];
+        }),
+        deleteMany: vi.fn(),
+        createMany: vi.fn(),
+      },
+    };
+
+    await syncCommitStates(tx as never, "u1", "repo1", ["packages/db"]);
+    expect(order).toEqual(["release.findMany:start", "release.findMany:end", "userReleaseState.findMany"]);
+    expect(tx.userReleaseState.createMany).toHaveBeenCalledTimes(2);
+    expect(tx.userReleaseState.createMany.mock.calls[0]![0].data).toHaveLength(2000);
+    expect(tx.userReleaseState.createMany.mock.calls[1]![0].data).toHaveLength(500);
   });
 });

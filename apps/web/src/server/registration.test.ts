@@ -37,7 +37,20 @@ describe("admitNewGitHubUser", () => {
       isSuperAdmin: true,
       claimedInviteTokenHash: null,
     });
-    expect(tx.$executeRaw).toHaveBeenCalledBefore(tx.user.findFirst);
+    expect(tx.user.findFirst).toHaveBeenCalledTimes(2);
+    expect(tx.user.findFirst).toHaveBeenCalledBefore(tx.$executeRaw);
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips the advisory lock when users already exist", async () => {
+    setup({ users: 3, open: true });
+    await expect(admitNewGitHubUser(undefined)).resolves.toEqual({
+      admitted: true,
+      isSuperAdmin: false,
+      claimedInviteTokenHash: null,
+    });
+    expect(tx.user.findFirst).toHaveBeenCalledTimes(1);
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
   });
 
   it("admits only one bootstrap admin when initial callbacks overlap", async () => {

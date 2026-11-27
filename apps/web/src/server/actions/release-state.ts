@@ -6,7 +6,12 @@ import { prisma } from "@repopulse/db";
 import { getCurrentUserOrThrow } from "@/lib/auth";
 import { MAX_SEARCH_LENGTH, SEMVER_TYPES } from "@/lib/feed-filters";
 import { fail, invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
-import { buildFeedWhereForSubscriptions, getUserFeedContext, visibleReleasesWhere } from "@/server/queries/feed";
+import {
+  buildFeedWhereForSubscriptions,
+  findSearchUnreadReleaseIds,
+  getUserFeedContext,
+  visibleReleasesWhere,
+} from "@/server/queries/feed";
 
 const id = z.string().min(1).max(64);
 
@@ -72,6 +77,22 @@ export async function markAllReadAction(
     if (!parsed.success) return invalidInput(parsed.error);
 
     const context = await getUserFeedContext(user.id);
+    const searchUnreadIds = await findSearchUnreadReleaseIds(user.id, parsed.data, context.subscriptionVisibility);
+    if (searchUnreadIds !== null) {
+      if (searchUnreadIds.length === 0) return ok({ count: 0 });
+      let count = 0;
+      const readAt = new Date();
+      for (let i = 0; i < searchUnreadIds.length; i += 5_000) {
+        const res = await prisma.userReleaseState.updateMany({
+          where: { userId: user.id, isRead: false, releaseId: { in: searchUnreadIds.slice(i, i + 5_000) } },
+          data: { isRead: true, readAt },
+        });
+        count += res.count;
+      }
+      revalidatePath("/", "layout");
+      return ok({ count });
+    }
+
     const releaseWhere = buildFeedWhereForSubscriptions(user.id, parsed.data, context.subscriptionVisibility, {
       omitOnlyUnread: true,
       assumeUserStateExists: true,

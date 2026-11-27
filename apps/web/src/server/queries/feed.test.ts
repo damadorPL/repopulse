@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import type * as DbModule from "@repopulse/db";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const prisma = {
   release: {
@@ -12,7 +13,10 @@ const prisma = {
   userReleaseState: { findMany: vi.fn(), count: vi.fn() },
 };
 
-vi.mock("@repopulse/db", () => ({ prisma }));
+vi.mock("@repopulse/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof DbModule>();
+  return { ...actual, prisma };
+});
 
 const {
   afterCursorWhere,
@@ -21,10 +25,12 @@ const {
   countUnread,
   decodeFeedCursor,
   encodeFeedCursor,
+  findSearchUnreadReleaseIds,
   getDashboardData,
   getReleaseDetail,
   getReleaseFeed,
   getUserFeedContext,
+  loadTrackedRepositories,
   visibleReleasesWhere,
   visibleReleasesWhereForSubscriptions,
 } = await import("./feed");
@@ -507,5 +513,220 @@ describe("visibleReleasesWhereForSubscriptions & buildFeedWhereForSubscriptions"
 
     const repoFiltered = buildFeedWhereForSubscriptions(USER, { repositoryId: "r2" }, subs);
     expect(repoFiltered?.AND).toContainEqual({ repositoryId: "r2" });
+  });
+});
+
+describe("FTS searchVector ($queryRaw) and loadTrackedRepositories LATERAL queries", () => {
+  const queryRaw = vi.fn();
+
+  beforeEach(() => {
+    queryRaw.mockReset();
+    (prisma as { $queryRaw?: unknown }).$queryRaw = queryRaw;
+  });
+
+  afterEach(() => {
+    delete (prisma as { $queryRaw?: unknown }).$queryRaw;
+  });
+
+  it("uses searchVector + websearch_to_tsquery('english'/'simple') in getReleaseFeed and NEVER runs bodyMarkdown ILIKE", async () => {
+    const subs = [
+      {
+        repositoryId: "r1",
+        includePrereleases: false,
+        trackMode: "RELEASES" as const,
+        trackPaths: true,
+        tagSlugs: ["core"],
+        fullName: "acme/web",
+        tagNames: ["Core UI"],
+      },
+    ];
+    const repoContextById = new Map([
+      [
+        "r1",
+        {
+          repository: {
+            id: "r1",
+            owner: "acme",
+            name: "web",
+            fullName: "acme/web",
+            avatarUrl: null,
+            htmlUrl: "https://github.com/acme/web",
+          },
+          subscriptionId: "sub1",
+          currentVersion: null,
+          tags: [],
+        },
+      ],
+    ]);
+
+    queryRaw.mockResolvedValueOnce([{ id: "rel2" }, { id: "rel1" }]);
+    prisma.release.findMany.mockResolvedValueOnce([
+      {
+        id: "rel1",
+        repositoryId: "r1",
+        source: "RELEASE",
+        tagName: "v1.0.0",
+        title: "First",
+        htmlUrl: "https://github.com/acme/web/releases/tag/v1.0.0",
+        isPrerelease: false,
+        semverType: "MAJOR",
+        publishedAt: new Date("2026-11-01T00:00:00.000Z"),
+        userStates: [],
+      },
+      {
+        id: "rel2",
+        repositoryId: "r1",
+        source: "RELEASE",
+        tagName: "v2.0.0",
+        title: "Second",
+        htmlUrl: "https://github.com/acme/web/releases/tag/v2.0.0",
+        isPrerelease: false,
+        semverType: "MAJOR",
+        publishedAt: new Date("2026-11-02T00:00:00.000Z"),
+        userStates: [{ isRead: false }],
+      },
+    ]);
+
+    const page = await getReleaseFeed({
+      userId: USER,
+      searchQuery: "100%_test\\q",
+      semverType: "MAJOR",
+      cursor: `${new Date("2026-11-05T00:00:00.000Z").getTime()}.rel9`,
+      limit: 10,
+      subscriptions: subs,
+      repoContextById,
+    });
+
+    expect(queryRaw).toHaveBeenCalledTimes(1);
+    const sqlObj = queryRaw.mock.calls[0]![0] as { sql: string; values: unknown[] };
+    expect(sqlObj.sql).toContain("r.\"searchVector\" @@ (websearch_to_tsquery('english',");
+    expect(sqlObj.sql).toContain("websearch_to_tsquery('simple',");
+    expect(sqlObj.sql).toContain('r."tagName" ILIKE');
+    expect(sqlObj.sql).toContain('r."title" ILIKE');
+    expect(sqlObj.sql).not.toContain("bodyMarkdown");
+    expect(sqlObj.values).toContain("100%_test\\q");
+    expect(sqlObj.values).toContain("%100\\%\\_test\\\\q%");
+    expect(sqlObj.values).toContain("MAJOR");
+
+    // Preserves $queryRaw order (rel2 then rel1) after findMany hydration.
+    expect(page.items.map((item) => item.id)).toEqual(["rel2", "rel1"]);
+    expect(prisma.release.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: { in: ["rel2", "rel1"] } } }),
+    );
+  });
+
+  it("uses searchVector + websearch_to_tsquery in countUnread and findSearchUnreadReleaseIds without bodyMarkdown ILIKE", async () => {
+    const subs = [
+      {
+        repositoryId: "r1",
+        includePrereleases: false,
+        trackMode: "RELEASES" as const,
+        trackPaths: false,
+        tagSlugs: ["core"],
+        fullName: "acme/web",
+        tagNames: ["Core"],
+      },
+    ];
+
+    queryRaw.mockResolvedValueOnce([{ count: 7 }]);
+    await expect(countUnread(USER, { searchQuery: "security fix" }, subs)).resolves.toBe(7);
+    const countSql = queryRaw.mock.calls[0]![0] as { sql: string; values: unknown[] };
+    expect(countSql.sql).toContain("r.\"searchVector\" @@ (websearch_to_tsquery('english',");
+    expect(countSql.sql).toContain("websearch_to_tsquery('simple',");
+    expect(countSql.sql).not.toContain("bodyMarkdown");
+    expect(prisma.userReleaseState.count).not.toHaveBeenCalled();
+
+    queryRaw.mockResolvedValueOnce([{ id: "r-unread-1" }, { id: "r-unread-2" }]);
+    await expect(findSearchUnreadReleaseIds(USER, { searchQuery: "security fix" }, subs)).resolves.toEqual([
+      "r-unread-1",
+      "r-unread-2",
+    ]);
+    const idsSql = queryRaw.mock.calls[1]![0] as { sql: string; values: unknown[] };
+    expect(idsSql.sql).toContain("r.\"searchVector\" @@ (websearch_to_tsquery('english',");
+    expect(idsSql.sql).toContain("websearch_to_tsquery('simple',");
+    expect(idsSql.sql).not.toContain("bodyMarkdown");
+  });
+
+  it("loadTrackedRepositories uses groupBy _count._all and CROSS JOIN LATERAL without nested _count/releases", async () => {
+    prisma.userSubscription.findMany.mockResolvedValueOnce([
+      {
+        id: "sub1",
+        includePrereleases: false,
+        trackMode: "TAGS_AND_COMMITS",
+        trackPaths: true,
+        watchedPaths: ["src"],
+        isPinned: false,
+        note: null,
+        notificationLevel: "ALL",
+        snoozedUntil: null,
+        currentVersion: null,
+        createdAt: new Date("2026-10-01T00:00:00Z"),
+        tags: [],
+        repository: {
+          id: "repo1",
+          owner: "acme",
+          name: "web",
+          fullName: "acme/web",
+          avatarUrl: null,
+          htmlUrl: "https://github.com/acme/web",
+          description: null,
+          starsCount: 10,
+          lastPolledAt: null,
+          pollStatus: "IDLE",
+          backfillStatus: "DONE",
+          backfillNextPage: null,
+          backfillTarget: 100,
+        },
+      },
+    ]);
+    prisma.release.groupBy.mockResolvedValueOnce([
+      {
+        repositoryId: "repo1",
+        _min: { publishedAt: new Date("2026-01-01T00:00:00Z") },
+        _count: { _all: 42 },
+      },
+    ]);
+    queryRaw
+      .mockResolvedValueOnce([
+        {
+          id: "rel1",
+          repositoryId: "repo1",
+          source: "RELEASE",
+          tagName: "v1.0.0",
+          semverType: "MAJOR",
+          publishedAt: new Date("2026-11-01T00:00:00Z"),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "c1",
+          repositoryId: "repo1",
+          source: "COMMIT",
+          tagName: "abc1234",
+          semverType: "OTHER",
+          publishedAt: new Date("2026-11-02T00:00:00Z"),
+        },
+      ]);
+
+    const repos = await loadTrackedRepositories(USER);
+    expect(prisma.userSubscription.findMany.mock.calls[0]![0].select.repository.select).not.toHaveProperty("_count");
+    expect(prisma.userSubscription.findMany.mock.calls[0]![0].select.repository.select).not.toHaveProperty("releases");
+    expect(prisma.release.groupBy).toHaveBeenCalledWith({
+      by: ["repositoryId"],
+      where: { repositoryId: { in: ["repo1"] }, isDraft: false, source: "RELEASE" },
+      _min: { publishedAt: true },
+      _count: { _all: true },
+    });
+    expect(queryRaw).toHaveBeenCalledTimes(2);
+    const releasesSql = (queryRaw.mock.calls[0]![0] as { sql: string }).sql;
+    expect(releasesSql).toContain("CROSS JOIN LATERAL");
+    expect(releasesSql).toContain("unnest(");
+    const commitsSql = (queryRaw.mock.calls[1]![0] as { sql: string }).sql;
+    expect(commitsSql).toContain('r."isDraft" = false');
+    expect(repos[0]).toMatchObject({
+      repository: { releaseCount: 42, history: { oldestAt: new Date("2026-01-01T00:00:00Z") } },
+      latestRelease: { id: "rel1" },
+      latestActivityAt: new Date("2026-11-02T00:00:00Z"),
+    });
   });
 });

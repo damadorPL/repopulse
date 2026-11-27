@@ -19,6 +19,38 @@ const root = path.resolve(import.meta.dirname, "..");
  */
 const ADDITIONS = [
   {
+    key: "POSTGRES_APP_USER",
+    after: "DATABASE_URL",
+    lines: [
+      "# Least-privilege runtime role bootstrapped by the migrator for web/worker/deps-worker.",
+      "POSTGRES_APP_USER=repopulse_app",
+    ],
+  },
+  {
+    key: "POSTGRES_APP_PASSWORD",
+    after: "POSTGRES_APP_USER",
+    lines: ({ example }) => [`POSTGRES_APP_PASSWORD=${example ? "" : randomBytes(18).toString("base64url")}`],
+  },
+  {
+    key: "SERVICE_PASSWORD_64_POSTGRESAPP",
+    after: "POSTGRES_APP_PASSWORD",
+    lines: [
+      "# docker-compose.coolify.yml passes SERVICE_PASSWORD_64_POSTGRESAPP to migrator and apps: Coolify generates it",
+      "# automatically; for local compose it reuses POSTGRES_APP_PASSWORD.",
+      "SERVICE_PASSWORD_64_POSTGRESAPP=${POSTGRES_APP_PASSWORD}",
+    ],
+  },
+  {
+    key: "DATABASE_POOL_MAX",
+    after: "SERVICE_PASSWORD_64_POSTGRESAPP",
+    lines: ["# Optional pool sizing and application_name overrides (defaults shown).", "# DATABASE_POOL_MAX=10"],
+  },
+  {
+    key: "DATABASE_APP_NAME",
+    after: "DATABASE_POOL_MAX",
+    lines: ["# DATABASE_APP_NAME=repopulse"],
+  },
+  {
     key: "SERVICE_URL_WEB",
     after: "AUTH_GITHUB_SECRET",
     lines: [

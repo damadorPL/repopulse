@@ -35,6 +35,7 @@ const password = () => randomBytes(18).toString("base64url");
 const hex32 = () => randomBytes(32).toString("hex");
 
 const pgPassword = password();
+const pgAppPassword = password();
 const redisPassword = password();
 const githubId = values["github-id"];
 const githubSecret = values["github-secret"];
@@ -55,6 +56,15 @@ POSTGRES_USER=repopulse
 POSTGRES_PASSWORD=${pgPassword}
 POSTGRES_DB=repopulse
 DATABASE_URL=postgresql://repopulse:${pgPassword}@127.0.0.1:5432/repopulse
+# Least-privilege runtime role bootstrapped by the migrator for web/worker/deps-worker.
+POSTGRES_APP_USER=repopulse_app
+POSTGRES_APP_PASSWORD=${pgAppPassword}
+# docker-compose.coolify.yml passes SERVICE_PASSWORD_64_POSTGRESAPP to migrator and apps: Coolify generates it
+# automatically; for local compose it reuses POSTGRES_APP_PASSWORD.
+SERVICE_PASSWORD_64_POSTGRESAPP=\${POSTGRES_APP_PASSWORD}
+# Optional pool sizing and application_name overrides (defaults shown).
+# DATABASE_POOL_MAX=10
+# DATABASE_APP_NAME=repopulse
 
 # ─── Redis (BullMQ + SSE pub/sub) ─────────────────────────────────────────
 REDIS_PASSWORD=${redisPassword}

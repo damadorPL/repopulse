@@ -4,9 +4,11 @@ import { encryptToken } from "./crypto.js";
 import {
   createCachedLoader,
   GitHubAppKeyUnreadableError,
+  loadAdminSettingsSnapshot,
   loadBackfillOverrides,
   loadDepsEnabled,
   loadGitHubAppSettings,
+  loadGitHubAppWebhookSettings,
   loadSmtpSettings,
   NO_BACKFILL_OVERRIDES,
   SmtpPasswordUnreadableError,
@@ -220,6 +222,189 @@ describe("loadDepsEnabled", () => {
     await expect(loadDepsEnabled(client(null))).resolves.toBe(false);
     await expect(loadDepsEnabled(client({ depsEnabled: false }))).resolves.toBe(false);
     await expect(loadDepsEnabled(client({ depsEnabled: true }))).resolves.toBe(true);
+  });
+});
+
+describe("loadGitHubAppWebhookSettings", () => {
+  const originalKey = process.env.TOKEN_ENCRYPTION_KEY;
+  beforeEach(() => {
+    process.env.TOKEN_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+  });
+  afterEach(() => {
+    process.env.TOKEN_ENCRYPTION_KEY = originalKey;
+  });
+
+  it("returns depsEnabled=false and app=null when row is null", async () => {
+    await expect(loadGitHubAppWebhookSettings(client(null))).resolves.toEqual({ depsEnabled: false, app: null });
+  });
+
+  it("returns depsEnabled and app=null without decrypting webhook secret when app is unconfigured", async () => {
+    await expect(
+      loadGitHubAppWebhookSettings(
+        client({
+          depsEnabled: true,
+          githubAppId: null,
+          githubAppSlug: "app",
+          githubAppPrivateKeyEncrypted: null,
+          githubAppWebhookSecretEncrypted: "invalid-ciphertext",
+        }),
+      ),
+    ).resolves.toEqual({ depsEnabled: true, app: null });
+  });
+
+  it("decrypts webhook secret in a single query when app is configured", async () => {
+    const db = client({
+      depsEnabled: true,
+      githubAppId: 123,
+      githubAppSlug: "repopulse-app",
+      githubAppPrivateKeyEncrypted: "not-decrypted-here",
+      githubAppWebhookSecretEncrypted: encryptToken("whsec_live"),
+    });
+    await expect(loadGitHubAppWebhookSettings(db)).resolves.toEqual({
+      depsEnabled: true,
+      app: { webhookSecret: "whsec_live" },
+    });
+  });
+
+  it("throws GitHubAppKeyUnreadableError when webhook secret decryption fails", async () => {
+    const encrypted = encryptToken("whsec_live");
+    process.env.TOKEN_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+    await expect(
+      loadGitHubAppWebhookSettings(
+        client({
+          depsEnabled: true,
+          githubAppId: 123,
+          githubAppSlug: "repopulse-app",
+          githubAppPrivateKeyEncrypted: "opaque",
+          githubAppWebhookSecretEncrypted: encrypted,
+        }),
+      ),
+    ).rejects.toBeInstanceOf(GitHubAppKeyUnreadableError);
+  });
+});
+
+describe("loadAdminSettingsSnapshot", () => {
+  const originalKey = process.env.TOKEN_ENCRYPTION_KEY;
+  beforeEach(() => {
+    process.env.TOKEN_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+  });
+  afterEach(() => {
+    process.env.TOKEN_ENCRYPTION_KEY = originalKey;
+  });
+
+  it("returns safe defaults when settings row does not exist", async () => {
+    await expect(loadAdminSettingsSnapshot(client(null))).resolves.toEqual({
+      publicRegistration: true,
+      depsEnabled: false,
+      smtp: {
+        host: null,
+        port: 587,
+        secure: null,
+        user: null,
+        hasPassword: false,
+        from: null,
+      },
+      backfillOverrides: NO_BACKFILL_OVERRIDES,
+      githubApp: {
+        configured: false,
+        appId: null,
+        slug: null,
+        clientId: null,
+        owner: null,
+        keySaved: false,
+        keyReadable: false,
+        webhookSecretSaved: false,
+      },
+    });
+  });
+
+  it("maps all sections in one query without exposing ciphertext", async () => {
+    const snap = await loadAdminSettingsSnapshot(
+      client({
+        publicRegistration: false,
+        depsEnabled: true,
+        smtpHost: "smtp.example.com",
+        smtpPort: 465,
+        smtpSecure: true,
+        smtpUser: "mailer",
+        smtpPasswordEncrypted: encryptToken("pass"),
+        smtpFrom: "noreply@example.com",
+        backfillDefaultTarget: 200,
+        backfillMaxAgeDays: 30,
+        backfillHardCap: 500,
+        backfillMinQuota: 50,
+        backfillDeepStep: 25,
+        backfillDeepCooldownMinutes: 5,
+        githubAppId: 99,
+        githubAppSlug: "rp-app",
+        githubAppClientId: "Iv1",
+        githubAppOwner: "org",
+        githubAppPrivateKeyEncrypted: encryptToken("pem"),
+        githubAppWebhookSecretEncrypted: encryptToken("whsec"),
+      }),
+    );
+
+    expect(snap).toEqual({
+      publicRegistration: false,
+      depsEnabled: true,
+      smtp: {
+        host: "smtp.example.com",
+        port: 465,
+        secure: true,
+        user: "mailer",
+        hasPassword: true,
+        from: "noreply@example.com",
+      },
+      backfillOverrides: {
+        defaultTarget: 200,
+        maxAgeDays: 30,
+        hardCap: 500,
+        minQuota: 50,
+        deepStep: 25,
+        deepCooldownMinutes: 5,
+      },
+      githubApp: {
+        configured: true,
+        appId: 99,
+        slug: "rp-app",
+        clientId: "Iv1",
+        owner: "org",
+        keySaved: true,
+        keyReadable: true,
+        webhookSecretSaved: true,
+      },
+    });
+  });
+
+  it("reports keyReadable=false when the stored GitHub App key cannot be decrypted", async () => {
+    const encrypted = encryptToken("pem");
+    process.env.TOKEN_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+    const snap = await loadAdminSettingsSnapshot(
+      client({
+        publicRegistration: true,
+        depsEnabled: false,
+        smtpHost: null,
+        smtpPort: 587,
+        smtpSecure: null,
+        smtpUser: null,
+        smtpPasswordEncrypted: null,
+        smtpFrom: null,
+        backfillDefaultTarget: null,
+        backfillMaxAgeDays: null,
+        backfillHardCap: null,
+        backfillMinQuota: null,
+        backfillDeepStep: null,
+        backfillDeepCooldownMinutes: null,
+        githubAppId: 99,
+        githubAppSlug: "rp-app",
+        githubAppClientId: null,
+        githubAppOwner: null,
+        githubAppPrivateKeyEncrypted: encrypted,
+        githubAppWebhookSecretEncrypted: null,
+      }),
+    );
+    expect(snap.githubApp.keySaved).toBe(true);
+    expect(snap.githubApp.keyReadable).toBe(false);
   });
 });
 

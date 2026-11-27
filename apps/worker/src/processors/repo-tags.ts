@@ -10,6 +10,7 @@ import {
   type MappedTag,
 } from "@repopulse/github";
 import { createLogger } from "../logger.js";
+import { createUserReleaseStatesInBatches } from "./batch-db.js";
 import { mapWithConcurrency } from "./concurrency.js";
 import {
   EMPTY_FAN_OUT_PLAN,
@@ -101,6 +102,7 @@ export interface TagStepResult {
   received: number;
   stored: number;
   fresh: number;
+  polledAt: Date;
   plan: FanOutPlan;
 }
 
@@ -217,12 +219,7 @@ export async function pollRepoTags(
 
     let result: TagStepResult;
     if (rows.length === 0) {
-      await prisma.repository.update({
-        where: { id: repo.id },
-        data: { lastTagsPolledAt: now() },
-        select: { id: true },
-      });
-      result = { received: tags.length, stored: 0, fresh: 0, plan: EMPTY_FAN_OUT_PLAN };
+      result = { received: tags.length, stored: 0, fresh: 0, polledAt: now(), plan: EMPTY_FAN_OUT_PLAN };
     } else {
       // Pre-resolve shared outer subscribers before opening `$transaction` so we never hold one pool
       // connection while awaiting another.
@@ -244,18 +241,13 @@ export async function pollRepoTags(
           const subscribers = allSubscribers.filter(tracksTags);
           plan = planFanOut(subscribers, fresh);
           if (plan.states.length > 0) {
-            await tx.userReleaseState.createMany({
-              data: plan.states.map((state) => ({ ...state, isRead: false })),
-              skipDuplicates: true,
-            });
+            await createUserReleaseStatesInBatches(
+              tx,
+              plan.states.map((state) => ({ ...state, isRead: false })),
+            );
           }
         }
-        await tx.repository.update({
-          where: { id: repo.id },
-          data: { lastTagsPolledAt: now() },
-          select: { id: true },
-        });
-        return { received: tags.length, stored: created.length, fresh: fresh.length, plan };
+        return { received: tags.length, stored: created.length, fresh: fresh.length, polledAt: now(), plan };
       });
     }
 

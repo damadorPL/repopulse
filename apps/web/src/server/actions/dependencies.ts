@@ -154,16 +154,41 @@ class PrOwnerConflictError extends Error {
  * Claims `DependencyPrOwner` for `projectId` inside the transaction. Throws {@link PrOwnerConflictError}
  * when another project already owns the repository.
  */
-async function claimPrOwnership(tx: Prisma.TransactionClient, projectId: string, githubRepoId: number): Promise<void> {
+async function claimPrOwnership(
+  tx: Prisma.TransactionClient,
+  projectId: string,
+  githubRepoId: number | bigint,
+): Promise<void> {
+  const repoId = BigInt(githubRepoId);
   const owner = await tx.dependencyPrOwner.findUnique({
-    where: { githubRepoId },
+    where: { githubRepoId: repoId },
     select: { projectId: true, project: { select: { user: { select: { githubLogin: true, name: true } } } } },
   });
   if (owner) {
     if (owner.projectId !== projectId) throw new PrOwnerConflictError(userDisplayName(owner.project.user));
     return;
   }
-  await tx.dependencyPrOwner.create({ data: { githubRepoId, projectId } });
+  await tx.dependencyPrOwner.create({ data: { githubRepoId: repoId, projectId } });
+}
+
+async function lockAndReadIgnoreRules(
+  tx: Prisma.TransactionClient,
+  projectId: string,
+  userId: string,
+): Promise<{ ignoreRules: Prisma.JsonValue } | null> {
+  if (typeof tx.$queryRaw === "function") {
+    const rows = await tx.$queryRaw<Array<{ ignoreRules: Prisma.JsonValue }>>`
+      SELECT "ignoreRules"
+      FROM "DependencyProject"
+      WHERE "id" = ${projectId} AND "userId" = ${userId}
+      FOR UPDATE
+    `;
+    return rows[0] ?? null;
+  }
+  return tx.dependencyProject.findFirst({
+    where: { id: projectId, userId },
+    select: { ignoreRules: true },
+  });
 }
 
 /** Range syntaxes an ignore rule's `versions` is tried in, for a row of this ecosystem / manager. */
@@ -429,21 +454,21 @@ export async function addDependencyProjectsAction(
       if (!access.ok) return fail(access.code, access.message);
     }
 
-    const githubRepoIds = fetched.map((repo) => repo.githubRepoId);
+    const githubRepoIds = fetched.map((repo) => BigInt(repo.githubRepoId));
     const existingProjects = await prisma.dependencyProject.findMany({
       where: { userId: user.id, githubRepoId: { in: githubRepoIds } },
       select: { id: true, fullName: true, githubRepoId: true },
     });
-    const existingIds = new Set(existingProjects.map((p) => p.githubRepoId));
+    const existingIds = new Set(existingProjects.map((p) => Number(p.githubRepoId)));
     const toCreate = fetched.filter((repo) => !existingIds.has(repo.githubRepoId));
     const repositories =
       toCreate.length > 0
         ? await prisma.repository.findMany({
-            where: { githubRepoId: { in: toCreate.map((repo) => repo.githubRepoId) } },
+            where: { githubRepoId: { in: toCreate.map((repo) => BigInt(repo.githubRepoId)) } },
             select: { id: true, githubRepoId: true },
           })
         : [];
-    const repositoryIdByGithubId = new Map(repositories.map((r) => [r.githubRepoId, r.id]));
+    const repositoryIdByGithubId = new Map(repositories.map((r) => [Number(r.githubRepoId), r.id]));
 
     let added: AddDependencyProjectsResult["added"] = [];
     if (toCreate.length > 0) {
@@ -461,7 +486,7 @@ export async function addDependencyProjectsAction(
           const project = await tx.dependencyProject.create({
             data: {
               userId: user.id,
-              githubRepoId: repo.githubRepoId,
+              githubRepoId: BigInt(repo.githubRepoId),
               owner: repo.owner,
               name: repo.name,
               fullName: repo.fullName,
@@ -630,25 +655,28 @@ export async function updateDependencyProjectSettingsAction(
 
     const updateMode = fields.updateMode ?? project.updateMode;
     if (fields.updateMode && fields.updateMode !== "NOTIFY" && !project.prOwnership) {
-      const access = await checkRepoAccess(user, project, "write");
+      const access = await checkRepoAccess(user, { ...project, githubRepoId: Number(project.githubRepoId) }, "write");
       if (!access.ok) return fail(access.code, access.message);
     }
 
-    const storedRules = readIgnoreRules(project.ignoreRules);
-    const addedRules = ignoreRules?.filter((rule) => !storedRules.some((r) => sameIgnoreRule(r, rule))) ?? [];
-    const removedRules = ignoreRules
-      ? storedRules.filter((rule) => !ignoreRules.some((r) => sameIgnoreRule(r, rule)))
-      : [];
-    const policyChanged =
-      (fields.maxUpdateLevel !== undefined && fields.maxUpdateLevel !== project.maxUpdateLevel) ||
-      (fields.includePrereleases !== undefined && fields.includePrereleases !== project.includePrereleases) ||
-      (fields.minReleaseAgeDays !== undefined && fields.minReleaseAgeDays !== project.minReleaseAgeDays) ||
-      (fields.rangeStrategy !== undefined && fields.rangeStrategy !== project.rangeStrategy) ||
-      (manifestPaths !== undefined && !sameStrings(manifestPaths, project.manifestPaths)) ||
-      removedRules.length > 0 ||
-      addedRules.some((rule) => rule.versions);
+    const txResult = await prisma.$transaction(async (tx) => {
+      const locked = await lockAndReadIgnoreRules(tx, project.id, user.id);
+      if (!locked) return { notFound: true as const };
 
-    const ignored = await prisma.$transaction(async (tx) => {
+      const storedRules = readIgnoreRules(locked.ignoreRules);
+      const addedRules = ignoreRules?.filter((rule) => !storedRules.some((r) => sameIgnoreRule(r, rule))) ?? [];
+      const removedRules = ignoreRules
+        ? storedRules.filter((rule) => !ignoreRules.some((r) => sameIgnoreRule(r, rule)))
+        : [];
+      const policyChanged =
+        (fields.maxUpdateLevel !== undefined && fields.maxUpdateLevel !== project.maxUpdateLevel) ||
+        (fields.includePrereleases !== undefined && fields.includePrereleases !== project.includePrereleases) ||
+        (fields.minReleaseAgeDays !== undefined && fields.minReleaseAgeDays !== project.minReleaseAgeDays) ||
+        (fields.rangeStrategy !== undefined && fields.rangeStrategy !== project.rangeStrategy) ||
+        (manifestPaths !== undefined && !sameStrings(manifestPaths, project.manifestPaths)) ||
+        removedRules.length > 0 ||
+        addedRules.some((rule) => rule.versions);
+
       if (fields.updateMode !== undefined) {
         if (fields.updateMode === "NOTIFY") await tx.dependencyPrOwner.deleteMany({ where: { projectId: project.id } });
         else await claimPrOwnership(tx, project.id, project.githubRepoId);
@@ -666,19 +694,21 @@ export async function updateDependencyProjectSettingsAction(
           ...(nextScanAt ? { nextScanAt } : {}),
         },
       });
-      return applyIgnoreRules(tx, project.id, addedRules);
+      const ignored = await applyIgnoreRules(tx, project.id, addedRules);
+      return { notFound: false as const, ignored, storedRules, policyChanged };
     });
+    if (txResult.notFound) return fail("NOT_FOUND", "Project not found.");
 
-    const rescanQueued = policyChanged
+    const rescanQueued = txResult.policyChanged
       ? await queueRecheck(project.id, user.id, "updateDependencyProjectSettingsAction")
       : false;
     revalidateDependencies();
     return ok({
       projectId: project.id,
       updateMode,
-      ignoreRules: ignoreRules ?? storedRules,
+      ignoreRules: ignoreRules ?? txResult.storedRules,
       manifestPaths: manifestPaths ?? project.manifestPaths,
-      ignored,
+      ignored: txResult.ignored,
       rescanQueued,
     });
   } catch (error) {
@@ -788,7 +818,7 @@ async function loadPrOwnedProject(userId: string, projectId: string) {
   }
   if (!project.prOwnership) {
     const owner = await prisma.dependencyPrOwner.findUnique({
-      where: { githubRepoId: project.githubRepoId },
+      where: { githubRepoId: BigInt(project.githubRepoId) },
       select: { project: { select: { user: { select: { githubLogin: true, name: true } } } } },
     });
     return {
@@ -874,7 +904,7 @@ export async function createDependencyPullRequestAction(input: {
     );
     if (disabled) return fail("CONFLICT", disabled);
 
-    const access = await checkRepoAccess(user, project, "write");
+    const access = await checkRepoAccess(user, { ...project, githubRepoId: Number(project.githubRepoId) }, "write");
     if (!access.ok) return fail(access.code, access.message);
 
     if (!isRealtimeConfigured())
@@ -929,7 +959,7 @@ export async function createProjectDependencyPullRequestsAction(input: {
       return fail("CONFLICT", firstDisabledReason ?? "No pull request group can be updated right now.");
     }
 
-    const access = await checkRepoAccess(user, project, "write");
+    const access = await checkRepoAccess(user, { ...project, githubRepoId: Number(project.githubRepoId) }, "write");
     if (!access.ok) return fail(access.code, access.message);
 
     if (!isRealtimeConfigured())
@@ -970,24 +1000,27 @@ export async function ignoreDependencyAction(input: IgnoreDependencyInput): Prom
       ? { name: ruleParsed.data.name, versions: ruleParsed.data.versions }
       : { name: ruleParsed.data.name };
 
-    const project = await prisma.dependencyProject.findFirst({
-      where: { id: parsed.data.projectId, userId: user.id },
-      select: { id: true, ignoreRules: true },
+    const txResult = await prisma.$transaction(async (tx) => {
+      const locked = await lockAndReadIgnoreRules(tx, parsed.data.projectId, user.id);
+      if (!locked) return { status: "not_found" as const };
+      const rules = readIgnoreRules(locked.ignoreRules);
+      if (rules.some((r) => sameIgnoreRule(r, rule))) return { status: "duplicate" as const, rules };
+      if (rules.length >= MAX_IGNORE_RULES) return { status: "limit" as const };
+      const next = [...rules, rule];
+      await tx.dependencyProject.update({ where: { id: parsed.data.projectId }, data: { ignoreRules: next } });
+      const ignored = await applyIgnoreRules(tx, parsed.data.projectId, [rule]);
+      return { status: "updated" as const, next, ignored };
     });
-    if (!project) return fail("NOT_FOUND", "Project not found.");
-    const rules = readIgnoreRules(project.ignoreRules);
-    if (rules.some((r) => sameIgnoreRule(r, rule))) return ok({ ignoreRules: rules, ignored: 0, rescanQueued: false });
-    if (rules.length >= MAX_IGNORE_RULES)
+    if (txResult.status === "not_found") return fail("NOT_FOUND", "Project not found.");
+    if (txResult.status === "duplicate") return ok({ ignoreRules: txResult.rules, ignored: 0, rescanQueued: false });
+    if (txResult.status === "limit") {
       return fail("INVALID_INPUT", `A project can have at most ${MAX_IGNORE_RULES} ignore rules.`);
-    const next = [...rules, rule];
-
-    const ignored = await prisma.$transaction(async (tx) => {
-      await tx.dependencyProject.update({ where: { id: project.id }, data: { ignoreRules: next } });
-      return applyIgnoreRules(tx, project.id, [rule]);
-    });
-    const rescanQueued = rule.versions ? await queueRecheck(project.id, user.id, "ignoreDependencyAction") : false;
+    }
+    const rescanQueued = rule.versions
+      ? await queueRecheck(parsed.data.projectId, user.id, "ignoreDependencyAction")
+      : false;
     revalidateDependencies();
-    return ok({ ignoreRules: next, ignored, rescanQueued });
+    return ok({ ignoreRules: txResult.next, ignored: txResult.ignored, rescanQueued });
   } catch (error) {
     return toDependencyActionError(error, "ignoreDependencyAction");
   }
@@ -1002,20 +1035,22 @@ export async function removeIgnoreRuleAction(input: IgnoreDependencyInput): Prom
     const user = await getCurrentUserOrThrow();
     const parsed = ignoreDependencyInput.safeParse(input);
     if (!parsed.success) return invalidInput(parsed.error);
-    const project = await prisma.dependencyProject.findFirst({
-      where: { id: parsed.data.projectId, userId: user.id },
-      select: { id: true, ignoreRules: true },
-    });
-    if (!project) return fail("NOT_FOUND", "Project not found.");
-    const rules = readIgnoreRules(project.ignoreRules);
-    const target: IgnoreRuleValue = { name: parsed.data.name, versions: parsed.data.versions };
-    const next = rules.filter((rule) => !sameIgnoreRule(rule, target));
-    if (next.length === rules.length) return fail("NOT_FOUND", "Ignore rule not found.");
 
-    await prisma.dependencyProject.update({ where: { id: project.id }, data: { ignoreRules: next } });
-    const rescanQueued = await queueRecheck(project.id, user.id, "removeIgnoreRuleAction");
+    const txResult = await prisma.$transaction(async (tx) => {
+      const locked = await lockAndReadIgnoreRules(tx, parsed.data.projectId, user.id);
+      if (!locked) return { status: "not_found" as const, message: "Project not found." };
+      const rules = readIgnoreRules(locked.ignoreRules);
+      const target: IgnoreRuleValue = { name: parsed.data.name, versions: parsed.data.versions };
+      const next = rules.filter((rule) => !sameIgnoreRule(rule, target));
+      if (next.length === rules.length) return { status: "not_found" as const, message: "Ignore rule not found." };
+      await tx.dependencyProject.update({ where: { id: parsed.data.projectId }, data: { ignoreRules: next } });
+      return { status: "updated" as const, next };
+    });
+    if (txResult.status === "not_found") return fail("NOT_FOUND", txResult.message);
+
+    const rescanQueued = await queueRecheck(parsed.data.projectId, user.id, "removeIgnoreRuleAction");
     revalidateDependencies();
-    return ok({ ignoreRules: next, ignored: 0, rescanQueued });
+    return ok({ ignoreRules: txResult.next, ignored: 0, rescanQueued });
   } catch (error) {
     return toDependencyActionError(error, "removeIgnoreRuleAction");
   }

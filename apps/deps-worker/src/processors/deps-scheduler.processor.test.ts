@@ -58,11 +58,29 @@ describe("processDepsSchedulerTick", () => {
     });
   });
 
-  it("works through large sets in batches", async () => {
+  it("works through large sets in batches and orders nulls first for non-scanning projects", async () => {
     const { deps, project, scanQueue } = setup();
-    for (let i = 0; i < SCHEDULER_BATCH_SIZE + 5; i++) project(`p${String(i).padStart(4, "0")}`, { nextScanAt: null });
+    for (let i = 0; i < SCHEDULER_BATCH_SIZE + 5; i++) {
+      project(`p${String(i).padStart(4, "0")}`, {
+        nextScanAt: i < 5 ? new Date(NOW.getTime() - (10 - i) * 1000) : null,
+      });
+    }
     expect(await processDepsSchedulerTick(deps)).toEqual({ status: "OK", due: SCHEDULER_BATCH_SIZE + 5 });
     expect(scanQueue.addBulk).toHaveBeenCalledTimes(2);
     expect(new Set(queued(scanQueue)).size).toBe(SCHEDULER_BATCH_SIZE + 5);
+    const firstBatchIds = scanQueue.addBulk.mock.calls[0]![0].map((j) => j.data.projectId);
+    expect(firstBatchIds.slice(0, 5)).toEqual(["p0005", "p0006", "p0007", "p0008", "p0009"]);
+  });
+
+  it("deduplicates projects returned by both non-scanning and stale-scanning passes", async () => {
+    const { deps, prisma, scanQueue } = setup();
+    const findMany = vi
+      .spyOn(prisma.dependencyProject, "findMany")
+      .mockResolvedValueOnce([{ id: "p1" }, { id: "p2" }] as never)
+      .mockResolvedValueOnce([{ id: "p2" }, { id: "p3" }] as never);
+
+    expect(await processDepsSchedulerTick(deps)).toEqual({ status: "OK", due: 3 });
+    expect(findMany).toHaveBeenCalledTimes(2);
+    expect(queued(scanQueue)).toEqual(["p1", "p2", "p3"]);
   });
 });

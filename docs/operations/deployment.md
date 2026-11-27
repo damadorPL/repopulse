@@ -8,10 +8,10 @@
 
 | Service | Image / build | Purpose | Health |
 | --- | --- | --- | --- |
-| `postgres` | `deploy/postgres/Dockerfile` (`postgres:19-alpine3.24` with PG 16 and 18 binaries bundled for in-place upgrade), volume `postgres_data:/var/lib/postgresql` | State | `pg_isready` (`start_period: 60s`) |
+| `postgres` | `deploy/postgres/Dockerfile` (`postgres:19-alpine3.24` with PG 16 and 18 binaries bundled for in-place upgrade), volume `postgres_data:/var/lib/postgresql`, `shm_size: 256m`, `stop_grace_period: 60s` | State (tuned for SSD/OLTP, `pg_stat_statements`, slow-query/lock logging) | `pg_isready` (`start_period: 60s`) |
 | `redis` | `redis:8-alpine`, `--appendonly yes --maxmemory-policy noeviction --requirepass`, volume `redis_data` | BullMQ + Pub/Sub. **`noeviction` is required by BullMQ** | `redis-cli ping` |
-| `migrator` | `apps/worker/Dockerfile` target `migrator` | `prisma migrate deploy`, exits 0 (`restart: "no"`) | — |
-| `web` | `apps/web/Dockerfile` (standalone Next output, `node apps/web/server.js`, user `nextjs`, `HOSTNAME="::"`) | UI and SSE on 3000 | `wget localhost:3000/api/health` |
+| `migrator` | `apps/worker/Dockerfile` target `migrator` | `prisma migrate deploy` + `bootstrap-app-role.js`, exits 0 (`restart: "no"`) | — |
+| `web` | `apps/web/Dockerfile` (standalone Next output, `node apps/web/server.js`, user `nextjs`, `HOSTNAME="::"`) | UI and SSE on 3000. `stop_grace_period: 20s` | `wget localhost:3000/api/health` |
 | `worker` | `apps/worker/Dockerfile` target `runner` (`node apps/worker/dist/index.js`) | Jobs, health on 3001. `stop_grace_period: 30s` | `wget localhost:3001/health` |
 | `deps-worker` | `apps/deps-worker/Dockerfile` target `runner` (`node apps/deps-worker/dist/index.js`, user `node`) | Dependency scans, PRs, notifications; health on 3002. Networks `default` + `deps_sandbox`. `stop_grace_period: 30s` | `wget localhost:3002/health` |
 | `deps-sandbox` | `apps/deps-sandbox/Dockerfile` (`node:26-trixie-slim`, Python 3.13, `tini`, uid `10001`) | Lockfile regeneration on 3003. Network `deps_sandbox` only | `fetch 127.0.0.1:3003/health` |
@@ -21,7 +21,8 @@ Startup order: `postgres` and `redis` healthy → `migrator` completed successfu
 
 ## Environment in Compose
 
-- `DATABASE_URL` and `REDIS_URL` are built from YAML anchors (`x-database-url`, `x-redis-url`) using `POSTGRES_*` / `REDIS_PASSWORD`.
+- `DATABASE_URL` and `REDIS_URL` are built from YAML anchors (`x-database-url` for `migrator` using `POSTGRES_*`, `x-app-database-url` for `web`/`worker`/`deps-worker` using `POSTGRES_APP_USER` + `SERVICE_PASSWORD_64_POSTGRESAPP`, and `x-redis-url`).
+- `web`, `worker`, and `deps-worker` set `DATABASE_APP_NAME` and `DATABASE_POOL_MAX` (`10` / `15` / `10` by default).
 - `web`: `AUTH_*`, `TOKEN_ENCRYPTION_KEY`, `RELEASE_BACKFILL_*`, `ALLOW_INTERNAL_WEBHOOK_HOSTS`, `APP_BASE_URL`, and `NEXTAUTH_URL` (both `${SERVICE_URL_WEB}`).
 - `worker`: `TOKEN_ENCRYPTION_KEY`, `POLL_INTERVAL_CRON`, concurrency settings, `RELEASE_BACKFILL_*`, `ALLOW_INTERNAL_WEBHOOK_HOSTS`, `APP_BASE_URL`.
 - `deps-worker`: `DATABASE_URL`, `REDIS_URL`, `TOKEN_ENCRYPTION_KEY`, `ALLOW_INTERNAL_WEBHOOK_HOSTS`, `APP_BASE_URL`, `DEPS_SANDBOX_URL`, `DEPS_SANDBOX_TOKEN`, `DEPS_SCAN_CRON`, `DEPS_SCAN_CONCURRENCY`, `DEPS_UPDATE_CONCURRENCY`, `DEPS_HEALTH_PORT`.
@@ -71,7 +72,13 @@ docker compose -f docker-compose.coolify.yml up --build
 ## Upgrading PostgreSQL 16/18 → 19 and Redis 7 → 8
 
 - **Redis 7 → 8:** upgrades in-place automatically on deploy.
-- **PostgreSQL 16/18 → 19:** `deploy/postgres/Dockerfile` bundles PG 16, 18, and 19 binaries (`alpine3.24`). On first boot with an existing PG 16 or 18 `postgres_data` volume (`/var/lib/postgresql`), `docker-entrypoint-upgrade.sh` moves `/var/lib/postgresql/18/docker` (`18-pre-upgrade`) or legacy `/var/lib/postgresql/PG_VERSION` (`16-pre-upgrade`), runs crash recovery, matches superuser/encoding/locale/checksum settings, and runs `pg_upgrade` in copy mode into `/var/lib/postgresql/19/docker`, preserving `pg_hba.conf`. Once verified, you may reclaim disk space with `rm -rf /var/lib/postgresql/16-pre-upgrade /var/lib/postgresql/18-pre-upgrade` inside the `postgres` container. Subsequent boots hand off directly to `docker-entrypoint.sh`.
+- **PostgreSQL 16/18 → 19:** `deploy/postgres/Dockerfile` bundles PG 16, 18, and 19 binaries (`alpine3.24`). On first boot with an existing PG 16 or 18 `postgres_data` volume (`/var/lib/postgresql`), `docker-entrypoint-upgrade.sh` moves `/var/lib/postgresql/18/docker` (`18-pre-upgrade`) or legacy `/var/lib/postgresql/PG_VERSION` (`16-pre-upgrade`), runs crash recovery, matches superuser/encoding/locale/checksum settings, and runs `pg_upgrade` in copy mode into `/var/lib/postgresql/19/docker`, preserving `pg_hba.conf`. For PG 16 → 19 upgrades, it runs `vacuumdb --all --analyze-in-stages` immediately so planner statistics are populated before traffic resumes. Once verified, you may reclaim disk space with `rm -rf /var/lib/postgresql/16-pre-upgrade /var/lib/postgresql/18-pre-upgrade` inside the `postgres` container. Subsequent boots hand off directly to `docker-entrypoint.sh`.
+
+## External PostgreSQL, Backups & Diagnostics
+
+- **External / managed PostgreSQL:** `pg_trgm` is required (`20261127143000_performance_indexes`). If `migrator` connects as a non-superuser role on PG 15+, grant `CREATE` on schema `public` (or pre-install `CREATE EXTENSION IF NOT EXISTS pg_trgm;`) before first deploy. If `POSTGRES_APP_PASSWORD` is set, `bootstrap-app-role.js` provisions `POSTGRES_APP_USER` and attempts `CREATE EXTENSION IF NOT EXISTS pg_stat_statements` (best-effort).
+- **Backups:** Take logical backups with `pg_dump --format=custom --no-owner --no-acl -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f repopulse.dump` and test restores regularly with `pg_restore` into a scratch database.
+- **Diagnostics:** `deploy/postgres/Dockerfile` preloads `pg_stat_statements` and logs slow queries (`>= 500 ms`), lock waits, and temp files. Query top total-time statements via `SELECT query, calls, total_exec_time, mean_exec_time FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 20;`.
 
 ## Upgrading from Legacy Releases
 

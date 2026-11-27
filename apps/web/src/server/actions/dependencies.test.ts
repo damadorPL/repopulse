@@ -121,7 +121,7 @@ describe("addDependencyProjectsAction", () => {
     repoGet.mockImplementation(async ({ owner, repo }: { owner: string; repo: string }) =>
       repoData({ web: 30, api: 31, cli: 32 }[repo] ?? 0, `${owner}/${repo}`),
     );
-    prisma.repository.findMany.mockResolvedValue([{ id: "r-web", githubRepoId: 30 }]);
+    prisma.repository.findMany.mockResolvedValue([{ id: "r-web", githubRepoId: 30n }]);
 
     const result = await actions.addDependencyProjectsAction({
       sources: [{ subscriptionId: "s1" }, { subscriptionId: "s2" }, { subscriptionId: "s3" }],
@@ -198,7 +198,7 @@ describe("addDependencyProjectsAction", () => {
 
   it("reports existing projects instead of duplicating them", async () => {
     repoGet.mockResolvedValue(repoData(5, "acme/web"));
-    prisma.dependencyProject.findMany.mockResolvedValue([{ id: "p-old", fullName: "acme/web", githubRepoId: 5 }]);
+    prisma.dependencyProject.findMany.mockResolvedValue([{ id: "p-old", fullName: "acme/web", githubRepoId: 5n }]);
     const result = await actions.addDependencyProjectsAction({
       sources: [{ repoUrlOrSlug: "https://github.com/acme/web" }],
     });
@@ -275,7 +275,7 @@ describe("addDependencyProjectsAction", () => {
     });
     expect(claimed).toMatchObject({ ok: true });
     expect(checkRepoAccess).toHaveBeenCalledWith(currentUser, expect.anything(), "write");
-    expect(prisma.dependencyPrOwner.create).toHaveBeenCalledWith({ data: { githubRepoId: 5, projectId: "p1" } });
+    expect(prisma.dependencyPrOwner.create).toHaveBeenCalledWith({ data: { githubRepoId: 5n, projectId: "p1" } });
 
     prisma.dependencyPrOwner.findUnique.mockResolvedValue({
       projectId: "other",
@@ -361,7 +361,7 @@ describe("updateDependencyProjectSettingsAction", () => {
     const result = await actions.updateDependencyProjectSettingsAction({ projectId: "p1", updateMode: "AUTO_PR" });
     expect(result).toMatchObject({ ok: true, data: { updateMode: "AUTO_PR", rescanQueued: false } });
     expect(checkRepoAccess).toHaveBeenCalledWith(currentUser, storedProject, "write");
-    expect(prisma.dependencyPrOwner.create).toHaveBeenCalledWith({ data: { githubRepoId: 5, projectId: "p1" } });
+    expect(prisma.dependencyPrOwner.create).toHaveBeenCalledWith({ data: { githubRepoId: 5n, projectId: "p1" } });
   });
 
   it("is a CONFLICT naming the owner when another project owns the PRs", async () => {
@@ -887,5 +887,43 @@ describe("ignore rules", () => {
       ok: false,
       error: { code: "NOT_FOUND" },
     });
+  });
+
+  it("locks the project row with FOR UPDATE inside $transaction when $queryRaw is available", async () => {
+    const queryRaw = vi.fn().mockResolvedValueOnce([{ ignoreRules: [{ name: "vue" }] }]);
+    (prisma as { $queryRaw?: unknown }).$queryRaw = queryRaw;
+    try {
+      const addRes = await actions.ignoreDependencyAction({ projectId: "p1", name: "react" });
+      expect(addRes).toEqual({
+        ok: true,
+        data: { ignoreRules: [{ name: "vue" }, { name: "react" }], ignored: 0, rescanQueued: false },
+      });
+      const addSql = (queryRaw.mock.calls[0]![0] as string[]).join("");
+      expect(addSql).toContain("FOR UPDATE");
+
+      queryRaw.mockResolvedValueOnce([{ ignoreRules: [{ name: "vue" }, { name: "react" }] }]);
+      const rmRes = await actions.removeIgnoreRuleAction({ projectId: "p1", name: "react" });
+      expect(rmRes).toEqual({
+        ok: true,
+        data: { ignoreRules: [{ name: "vue" }], ignored: 0, rescanQueued: true },
+      });
+      const rmSql = (queryRaw.mock.calls[1]![0] as string[]).join("");
+      expect(rmSql).toContain("FOR UPDATE");
+
+      prisma.dependencyProject.findFirst.mockResolvedValueOnce({ ...storedProject, githubRepoId: 5n });
+      queryRaw.mockResolvedValueOnce([{ ignoreRules: [{ name: "vue" }] }]);
+      const settingsRes = await actions.updateDependencyProjectSettingsAction({
+        projectId: "p1",
+        ignoreRules: [{ name: "vue" }, { name: "lodash" }],
+      });
+      expect(settingsRes).toMatchObject({
+        ok: true,
+        data: { ignoreRules: [{ name: "vue" }, { name: "lodash" }] },
+      });
+      const settingsSql = (queryRaw.mock.calls[2]![0] as string[]).join("");
+      expect(settingsSql).toContain("FOR UPDATE");
+    } finally {
+      delete (prisma as { $queryRaw?: unknown }).$queryRaw;
+    }
   });
 });

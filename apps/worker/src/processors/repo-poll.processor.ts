@@ -23,6 +23,7 @@ import {
   type RepoPollJobData,
 } from "@repopulse/queue";
 import { createLogger } from "../logger.js";
+import { createUserReleaseStatesInBatches } from "./batch-db.js";
 import { tokenCandidates, type TokenCandidate } from "./github-tokens.js";
 import { EMPTY_FAN_OUT_PLAN, mergeFanOutPlans, planFanOut, selectFreshReleases, type FanOutPlan } from "./fan-out.js";
 import { pollRepoPaths, type PathStepCounts, type PathStepResult } from "./repo-paths.js";
@@ -115,7 +116,7 @@ async function pollWithFallback(
 
 /**
  * Inserts the releases not yet in PostgreSQL and fans the genuinely new ones out as unread
- * `UserReleaseState`s, all in one transaction with the Repository bookkeeping.
+ * `UserReleaseState`s in one transaction.
  *
  * A release whose tag is already stored as a tag row ("Releases + tags", Slice 04c) **promotes**
  * that row in place instead of adding a second entry: `TAGS_AND_COMMITS` subscribers keep their
@@ -125,8 +126,6 @@ async function storeAndFanOut(
   prisma: PrismaClient,
   repositoryId: string,
   releases: MappedRelease[],
-  etag: string | null,
-  polledAt: Date,
   onSubscribersLoaded?: (subscribers: SubscriberWithMode[]) => void,
 ): Promise<{ stored: number; promoted: number; fresh: number; plan: FanOutPlan }> {
   return prisma.$transaction(async (tx) => {
@@ -205,18 +204,12 @@ async function storeAndFanOut(
         ),
       );
       if (plan.states.length > 0) {
-        await tx.userReleaseState.createMany({
-          data: plan.states.map((state) => ({ ...state, isRead: false })),
-          skipDuplicates: true,
-        });
+        await createUserReleaseStatesInBatches(
+          tx,
+          plan.states.map((state) => ({ ...state, isRead: false })),
+        );
       }
     }
-
-    await tx.repository.update({
-      where: { id: repositoryId },
-      data: { lastEtag: etag, lastPolledAt: polledAt, pollStatus: "IDLE", errorCount: 0 },
-      select: { id: true },
-    });
 
     return { stored: created.length, promoted: promoted.length, fresh: fresh.length + freshPromoted.length, plan };
   });
@@ -233,6 +226,22 @@ async function recordFailure(
   polledAt: Date,
   countIt: boolean,
 ): Promise<number> {
+  const increment = countIt ? 1 : 0;
+  if (typeof prisma.$queryRaw === "function") {
+    const rows = await prisma.$queryRaw<Array<{ errorCount: number }>>`
+      UPDATE "Repository"
+      SET "lastPolledAt" = ${polledAt},
+          "errorCount" = "errorCount" + ${increment},
+          "pollStatus" = CASE
+            WHEN "errorCount" + ${increment} >= ${MAX_ERROR_COUNT} THEN 'ERROR'::"PollStatus"
+            ELSE 'IDLE'::"PollStatus"
+          END
+      WHERE "id" = ${repositoryId}
+      RETURNING "errorCount"
+    `;
+    return rows[0]?.errorCount ?? 0;
+  }
+
   const { errorCount } = await prisma.repository.update({
     where: { id: repositoryId },
     data: { lastPolledAt: polledAt, pollStatus: "IDLE", ...(countIt ? { errorCount: { increment: 1 } } : {}) },
@@ -315,6 +324,10 @@ function quota(remaining: number | null): string {
   return remaining === null ? "" : `, quota left ${remaining}`;
 }
 
+function arraysEqual(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
 /**
  * `repo-poll` job: conditional (`If-None-Match`) poll of one repository, storage of new releases,
  * fan-out to subscribers, Pub/Sub events and notification jobs.
@@ -361,9 +374,7 @@ export async function processRepoPoll(
 
   await prisma.repository.update({
     where: { id: repositoryId },
-    // Nobody watches paths any more: forget them, so a path watched again later is imported quietly
-    // instead of notifying its subscriber about everything committed in between.
-    data: { pollStatus: "POLLING", ...(!withPaths && polledPaths.length > 0 ? { polledPaths: [] } : {}) },
+    data: { pollStatus: "POLLING" },
     select: { id: true },
   });
 
@@ -400,19 +411,15 @@ export async function processRepoPoll(
       return cachedSubscribersPromise;
     };
 
+    const releasePolledAt = now();
     let releaseStep: Awaited<ReturnType<typeof storeAndFanOut>> | null = null;
     if (result.status === "NOT_MODIFIED") {
-      await prisma.repository.update({
-        where: { id: repositoryId },
-        data: { lastPolledAt: now(), pollStatus: "IDLE", errorCount: 0 },
-        select: { id: true },
-      });
       log.info(
         { ...ctx, repository: repo.fullName, rateLimitRemaining: result.rateLimitRemaining },
         `${repo.fullName}: HTTP 304 Not Modified${quota(result.rateLimitRemaining)}`,
       );
     } else {
-      releaseStep = await storeAndFanOut(prisma, repositoryId, result.releases, result.etag, now(), (subs) => {
+      releaseStep = await storeAndFanOut(prisma, repositoryId, result.releases, (subs) => {
         cachedSubscribersPromise = Promise.resolve(subs);
       });
       log.info(
@@ -461,6 +468,31 @@ export async function processRepoPoll(
           )
         : Promise.resolve(null),
     ]);
+
+    // Nobody watches paths any more: forget them, so a path watched again later is imported quietly
+    // instead of notifying its subscriber about everything committed in between.
+    const nextPolledPaths = pathStep
+      ? arraysEqual(pathStep.polledPaths, polledPaths)
+        ? undefined
+        : pathStep.polledPaths
+      : !withPaths && polledPaths.length > 0
+        ? []
+        : undefined;
+
+    await prisma.repository.update({
+      where: { id: repositoryId },
+      data: {
+        pollStatus: "IDLE",
+        errorCount: 0,
+        lastPolledAt: releasePolledAt,
+        ...(result.status === "UPDATED" ? { lastEtag: result.etag } : {}),
+        ...(tagStep ? { lastTagsPolledAt: tagStep.polledAt } : {}),
+        ...(pathStep ? { lastPathsPolledAt: pathStep.polledAt } : {}),
+        ...(nextPolledPaths !== undefined ? { polledPaths: nextPolledPaths } : {}),
+      },
+      select: { id: true },
+    });
+
     const tags = tagStep ? { tags: { received: tagStep.received, stored: tagStep.stored, fresh: tagStep.fresh } } : {};
     const stepOutcomes: TagOutcome = { ...tags, ...(pathStep ? { paths: pathStep.counts } : {}) };
 

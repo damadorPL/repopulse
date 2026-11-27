@@ -9,8 +9,7 @@ const handleGitHubAppWebhook = vi.fn();
 vi.mock("@repopulse/db", () => ({
   prisma: {},
   GitHubAppKeyUnreadableError,
-  loadDepsEnabled: vi.fn(),
-  loadGitHubAppSettings: vi.fn(),
+  loadGitHubAppWebhookSettings: vi.fn(),
 }));
 vi.mock("@/server/deps-webhook-queue", () => ({ enqueueWebhookScan: vi.fn() }));
 vi.mock("@/server/github-app-webhook", () => ({ handleGitHubAppWebhook }));

@@ -45,6 +45,9 @@ export function planCommitStates(
   return plan;
 }
 
+const COMMIT_STATES_SCAN_LIMIT = 5_000;
+const COMMIT_STATES_CREATE_BATCH = 2_000;
+
 /** Applies {@link planCommitStates} for one user and repository inside a transaction. */
 export async function syncCommitStates(
   tx: Prisma.TransactionClient,
@@ -52,17 +55,16 @@ export async function syncCommitStates(
   repositoryId: string,
   watchedPaths: readonly string[],
 ): Promise<CommitStatePlan> {
-  const [commits, states] = await Promise.all([
-    tx.release.findMany({
-      where: { repositoryId, source: "COMMIT" },
-      orderBy: [{ publishedAt: "desc" }, { id: "desc" }],
-      select: { id: true, changedPaths: true },
-    }),
-    tx.userReleaseState.findMany({
-      where: { userId, release: { repositoryId, source: "COMMIT" } },
-      select: { releaseId: true },
-    }),
-  ]);
+  const commits = await tx.release.findMany({
+    where: { repositoryId, source: "COMMIT" },
+    orderBy: [{ publishedAt: "desc" }, { id: "desc" }],
+    take: COMMIT_STATES_SCAN_LIMIT,
+    select: { id: true, changedPaths: true },
+  });
+  const states = await tx.userReleaseState.findMany({
+    where: { userId, release: { repositoryId, source: "COMMIT" } },
+    select: { releaseId: true },
+  });
   const plan = planCommitStates(commits, watchedPaths, new Set(states.map((s) => s.releaseId)));
 
   if (plan.prune.length > 0) {
@@ -72,7 +74,12 @@ export async function syncCommitStates(
     ...plan.unread.map((releaseId) => ({ userId, releaseId, isRead: false })),
     ...plan.read.map((releaseId) => ({ userId, releaseId, isRead: true })),
   ];
-  if (seed.length > 0) await tx.userReleaseState.createMany({ data: seed, skipDuplicates: true });
+  for (let i = 0; i < seed.length; i += COMMIT_STATES_CREATE_BATCH) {
+    await tx.userReleaseState.createMany({
+      data: seed.slice(i, i + COMMIT_STATES_CREATE_BATCH),
+      skipDuplicates: true,
+    });
+  }
   return plan;
 }
 

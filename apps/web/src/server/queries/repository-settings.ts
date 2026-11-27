@@ -53,10 +53,14 @@ export async function getRepositorySettings(
   const repoName = parseRepoSegment(name);
   if (!ownerName || !repoName) return null;
 
-  const repository = await prisma.repository.findFirst({
-    where: { fullName: { equals: `${ownerName}/${repoName}`, mode: "insensitive" } },
-    select: { id: true },
+  const targetFullName = `${ownerName}/${repoName}`;
+  const targetFullNameLower = targetFullName.toLowerCase();
+  const repositoryCandidates = await prisma.repository.findMany({
+    where: { fullName: { equals: targetFullName, mode: "insensitive" } },
+    take: 5,
+    select: { id: true, fullName: true },
   });
+  const repository = repositoryCandidates.find((r) => r.fullName.toLowerCase() === targetFullNameLower) ?? null;
   if (!repository) return null;
 
   // `loadTrackedRepositories` always adds `userId`: another user's subscription can never match.

@@ -9,15 +9,11 @@ import {
   UsersIcon,
   type LucideIcon,
 } from "lucide-react";
-import { prisma } from "@repopulse/db";
+import { loadAdminSettingsSnapshot, prisma } from "@repopulse/db";
+import { applyBackfillOverrides, readBackfillConfig } from "@repopulse/queue";
 import { AppVersionLink } from "@/components/layout/app-version-link";
-import { getBackfillSettingsView } from "@/server/backfill-settings";
-import { isDepsEnabled } from "@/server/deps-status";
 import { getMemberCount } from "@/server/queries/access";
-import { getGitHubAppView } from "@/server/queries/github-app";
-import { isPublicRegistrationOpen } from "@/server/registration";
 import { requireSuperAdmin } from "@/server/session";
-import { getSmtpSettingsView } from "@/server/smtp-settings";
 
 export const metadata: Metadata = { title: "Admin · RepoPulse" };
 
@@ -60,22 +56,19 @@ function SectionCard({
 }
 
 export default async function AdminOverviewPage() {
-  const admin = await requireSuperAdmin();
+  await requireSuperAdmin();
 
-  const [publicRegistration, pendingInvites, memberCount, smtp, history, repositoryCount, githubApp, depsEnabled] =
-    await Promise.all([
-      isPublicRegistrationOpen(),
-      prisma.invite.count({ where: { usedAt: null, expiresAt: { gt: new Date() } } }),
-      getMemberCount(),
-      getSmtpSettingsView(),
-      getBackfillSettingsView(),
-      prisma.repository.count({ where: { subscriptions: { some: {} } } }),
-      getGitHubAppView(admin.githubLogin),
-      isDepsEnabled(),
-    ]);
-  const value = (key: string) => history.find((s) => s.key === key)!.value;
-  const customCount = history.filter((s) => s.source === "admin").length;
-  const maxAge = value("maxAgeDays");
+  const [settings, pendingInvites, memberCount, repositoryCount] = await Promise.all([
+    loadAdminSettingsSnapshot(prisma),
+    prisma.invite.count({ where: { usedAt: null, expiresAt: { gt: new Date() } } }),
+    getMemberCount(),
+    prisma.repository.count({ where: { subscriptions: { some: {} } } }),
+  ]);
+  const { publicRegistration, smtp, backfillOverrides, githubApp, depsEnabled } = settings;
+  const backfill = applyBackfillOverrides(readBackfillConfig(), backfillOverrides);
+  const customCount = Object.values(backfillOverrides).filter((v) => v !== null).length;
+  const maxAge = backfill.maxAgeDays;
+  const smtpEnabled = Boolean(smtp.host);
 
   return (
     <div className="space-y-6">
@@ -104,16 +97,14 @@ export default async function AdminOverviewPage() {
           href="/admin/email"
           icon={MailIcon}
           title="Email (SMTP)"
-          status={
-            smtp.enabled ? `Sending through ${smtp.host}:${smtp.port}` : "Not set up: email notifications are off"
-          }
+          status={smtpEnabled ? `Sending through ${smtp.host}:${smtp.port}` : "Not set up: email notifications are off"}
           details="The SMTP server email notifications go through."
         />
         <SectionCard
           href="/admin/history"
           icon={RotateCcwClockIcon}
           title="Release history"
-          status={`${numberFormat.format(value("defaultTarget"))} releases on add${maxAge > 0 ? `, up to ${numberFormat.format(maxAge)} days back` : ""} · cap ${numberFormat.format(value("hardCap"))}`}
+          status={`${numberFormat.format(backfill.defaultTarget)} releases on add${maxAge > 0 ? `, up to ${numberFormat.format(maxAge)} days back` : ""} · cap ${numberFormat.format(backfill.hardCap)}`}
           details={
             customCount > 0
               ? `${customCount} custom ${customCount === 1 ? "setting" : "settings"}; the rest from the environment or defaults.`

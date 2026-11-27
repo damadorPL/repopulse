@@ -35,4 +35,22 @@ describe("GET /api/health", () => {
       timestamp: expect.any(String),
     });
   });
+
+  it("returns 503 when the database query times out after 3000ms", async () => {
+    vi.useFakeTimers();
+    try {
+      prisma.$queryRaw.mockImplementationOnce(() => new Promise(() => {}));
+      const responsePromise = GET();
+      await vi.advanceTimersByTimeAsync(3_000);
+      const response = await responsePromise;
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({
+        status: "error",
+        message: "database unavailable",
+        timestamp: expect.any(String),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

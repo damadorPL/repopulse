@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const prisma = {
-  repository: { findFirst: vi.fn() },
+  repository: { findMany: vi.fn() },
   userSubscription: { findMany: vi.fn() },
   release: { findMany: vi.fn(), groupBy: vi.fn(), count: vi.fn(), aggregate: vi.fn() },
   tag: { findMany: vi.fn() },
@@ -61,7 +61,7 @@ function subscriptionRow(extra: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  prisma.repository.findFirst.mockResolvedValue({ id: "repo_1" });
+  prisma.repository.findMany.mockResolvedValue([{ id: "repo_1", fullName: "vercel/next.js" }]);
   prisma.userSubscription.findMany.mockResolvedValue([subscriptionRow()]);
   prisma.release.groupBy.mockResolvedValue([]);
   prisma.release.findMany.mockResolvedValue([]);
@@ -89,9 +89,10 @@ describe("getRepositorySettings", () => {
   it("resolves the repository case-insensitively, then only the signed-in user's subscription", async () => {
     const settings = await getRepositorySettings(USER, "Vercel", "Next.js");
 
-    expect(prisma.repository.findFirst).toHaveBeenCalledWith({
+    expect(prisma.repository.findMany).toHaveBeenCalledWith({
       where: { fullName: { equals: "Vercel/Next.js", mode: "insensitive" } },
-      select: { id: true },
+      take: 5,
+      select: { id: true, fullName: true },
     });
     expect(prisma.userSubscription.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { repositoryId: "repo_1", userId: USER } }),
@@ -148,14 +149,20 @@ describe("getRepositorySettings", () => {
   );
 
   it("returns null for an unknown repository without looking for subscriptions", async () => {
-    prisma.repository.findFirst.mockResolvedValue(null);
+    prisma.repository.findMany.mockResolvedValue([]);
     expect(await getRepositorySettings(USER, "nobody", "nothing")).toBeNull();
+    expect(prisma.userSubscription.findMany).not.toHaveBeenCalled();
+  });
+
+  it("ignores ILIKE underscore wildcard mismatches", async () => {
+    prisma.repository.findMany.mockResolvedValue([{ id: "repo_other", fullName: "my-org/next.js" }]);
+    expect(await getRepositorySettings(USER, "my_org", "next.js")).toBeNull();
     expect(prisma.userSubscription.findMany).not.toHaveBeenCalled();
   });
 
   it("returns null for invalid route segments without querying", async () => {
     expect(await getRepositorySettings(USER, "..", "x")).toBeNull();
-    expect(prisma.repository.findFirst).not.toHaveBeenCalled();
+    expect(prisma.repository.findMany).not.toHaveBeenCalled();
   });
 
   it("computes the version status from visible releases only", async () => {

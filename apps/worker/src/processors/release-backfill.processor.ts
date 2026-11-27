@@ -18,7 +18,6 @@ import {
 } from "@repopulse/queue";
 import { createLogger } from "../logger.js";
 import { effectiveTarget, maxAgeCutoff, planBackfillPage, targetStop, type BackfillStop } from "./backfill-plan.js";
-import { mapWithConcurrency } from "./concurrency.js";
 import { tokenCandidates, type TokenCandidate } from "./github-tokens.js";
 
 const log = createLogger("release-backfill");
@@ -195,24 +194,29 @@ export async function processReleaseBackfill(
   };
 
   try {
+    const [newest, initialStoredCount] = await Promise.all([
+      prisma.release.findFirst({
+        where: { repositoryId, source: "RELEASE" },
+        orderBy: { publishedAt: "desc" },
+        select: { publishedAt: true },
+      }),
+      // GitHub Releases only: tag rows ("Releases + tags") are not release history.
+      prisma.release.count({ where: { repositoryId, source: "RELEASE" } }),
+    ]);
+    // Nothing stored means GitHub had no releases when the repository was added; anything
+    // published since is new and arrives through repo-poll.
+    if (!newest) return await finish({ status: "DONE", reason: "COMPLETE" }, null);
+
+    let storedCount = initialStoredCount;
     const candidates = await tokenCandidates(prisma, repositoryId, undefined);
     const cursor = { index: 0 };
 
     for (;;) {
       // Re-read every page: "Load older releases" may raise the target while this job runs.
-      const [current, storedCount, newest] = await Promise.all([
-        prisma.repository.findUnique({ where: { id: repositoryId }, select: { backfillTarget: true } }),
-        // GitHub Releases only: tag rows ("Releases + tags") are not release history.
-        prisma.release.count({ where: { repositoryId, source: "RELEASE" } }),
-        prisma.release.findFirst({
-          where: { repositoryId, source: "RELEASE" },
-          orderBy: { publishedAt: "desc" },
-          select: { publishedAt: true },
-        }),
-      ]);
-      // Nothing stored means GitHub had no releases when the repository was added; anything
-      // published since is new and arrives through repo-poll.
-      if (!newest) return await finish({ status: "DONE", reason: "COMPLETE" }, null);
+      const current = await prisma.repository.findUnique({
+        where: { id: repositoryId },
+        select: { backfillTarget: true },
+      });
 
       const target = effectiveTarget(current?.backfillTarget ?? 0, config.hardCap);
       if (storedCount >= target) return await finish(targetStop(target, config.hardCap), page);
@@ -250,17 +254,17 @@ export async function processReleaseBackfill(
         const tagRowByName = new Map(tagRows.map((r) => [r.tagName, r.id]));
         const toPromote = plan.insert.filter((r) => tagRowByName.has(r.tagName));
         if (toPromote.length > 0) {
-          await mapWithConcurrency(
-            toPromote,
-            (release) =>
+          await prisma.$transaction(
+            toPromote.map((release) =>
               prisma.release.update({
                 where: { id: tagRowByName.get(release.tagName)! },
                 data: { ...release, source: "RELEASE", tagSha: null },
                 select: { id: true },
               }),
-            4,
+            ),
           );
           added += toPromote.length;
+          storedCount += toPromote.length;
         }
         // Idempotent through the (repositoryId, githubReleaseId) unique key. No UserReleaseState rows.
         const { count } = await prisma.release.createMany({
@@ -270,6 +274,7 @@ export async function processReleaseBackfill(
           skipDuplicates: true,
         });
         added += count;
+        storedCount += count;
       }
 
       if (plan.stop) return await finish(plan.stop, plan.stop.reason === "COMPLETE" ? null : plan.nextPage);

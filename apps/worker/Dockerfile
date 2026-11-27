@@ -41,7 +41,7 @@ ENV NODE_ENV=production
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=prod-deps /app/packages/db ./packages/db
 USER node
-CMD ["node", "packages/db/node_modules/prisma/build/index.js", "migrate", "deploy", "--config", "packages/db/prisma.config.ts"]
+CMD ["sh", "-c", "node packages/db/node_modules/prisma/build/index.js migrate deploy --config packages/db/prisma.config.ts && node packages/db/dist/bootstrap-app-role.js"]
 
 # ---- Target: production worker runtime (default: last stage)
 FROM node:26-alpine AS runner

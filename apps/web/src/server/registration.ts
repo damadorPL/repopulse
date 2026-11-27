@@ -41,11 +41,13 @@ async function runAdmissionInTx(
   tx: RegistrationDbClient,
   inviteToken: string | undefined,
 ): Promise<RegistrationAdmission> {
-  // Serialize bootstrap across web processes: two initial OAuth callbacks must not
-  // both observe an empty instance and acquire administrator privileges.
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(724512, 1)`;
   if ((await tx.user.findFirst({ select: { id: true } })) === null) {
-    return { admitted: true, isSuperAdmin: true, claimedInviteTokenHash: null };
+    // Serialize bootstrap across web processes: two initial OAuth callbacks must not
+    // both observe an empty instance and acquire administrator privileges.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(724512, 1)`;
+    if ((await tx.user.findFirst({ select: { id: true } })) === null) {
+      return { admitted: true, isSuperAdmin: true, claimedInviteTokenHash: null };
+    }
   }
 
   const publicRegistration = await isPublicRegistrationOpen(tx);

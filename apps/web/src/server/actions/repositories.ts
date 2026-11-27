@@ -171,10 +171,15 @@ export async function addRepositoryAction(input: {
     const { owner, name } = parseRepoInput(repoUrlOrSlug);
 
     // GitHub slugs are case-insensitive ("CoolLabsIO/Coolify" === "coollabsio/coolify").
-    const existing = await prisma.repository.findFirst({
-      where: { fullName: { equals: `${owner}/${name}`, mode: "insensitive" } },
+    // Filter with `toLowerCase()` after `findMany` so `_` in slugs cannot wildcard-match in ILIKE.
+    const targetFullName = `${owner}/${name}`;
+    const targetFullNameLower = targetFullName.toLowerCase();
+    const existingCandidates = await prisma.repository.findMany({
+      where: { fullName: { equals: targetFullName, mode: "insensitive" } },
+      take: 5,
       select: { ...REPOSITORY_IMPORT_SELECT, releases: { take: 1, select: { id: true } } },
     });
+    const existing = existingCandidates.find((r) => r.fullName.toLowerCase() === targetFullNameLower) ?? null;
 
     // Fetch from GitHub before opening the transaction so no DB connection is held during network I/O.
     const fetched =
@@ -199,9 +204,10 @@ export async function addRepositoryAction(input: {
           lastPolledAt: new Date(),
         };
         // Keyed by the immutable GitHub id so renames/transfers update the same row.
+        const githubRepoId = BigInt(repo.githubRepoId);
         repository = await tx.repository.upsert({
-          where: { githubRepoId: repo.githubRepoId },
-          create: { githubRepoId: repo.githubRepoId, ...fields },
+          where: { githubRepoId },
+          create: { githubRepoId, ...fields },
           update: fields,
           select: REPOSITORY_IMPORT_SELECT,
         });
@@ -269,7 +275,9 @@ export async function addRepositoryAction(input: {
             skipDuplicates: true,
           });
         }
-        releasesCount = await tx.release.count({ where: { repositoryId: repository.id, ...sourceFilter(trackMode) } });
+        releasesCount = await tx.release.count({
+          where: { repositoryId: repository.id, isDraft: false, ...sourceFilter(trackMode) },
+        });
       }
 
       return {

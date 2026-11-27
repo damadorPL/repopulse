@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { GitHubAppKeyUnreadableError, loadDepsEnabled, loadGitHubAppSettings, prisma } from "@repopulse/db";
+import { GitHubAppKeyUnreadableError, loadGitHubAppWebhookSettings, prisma } from "@repopulse/db";
 import { enqueueWebhookScan } from "@/server/deps-webhook-queue";
 import { handleGitHubAppWebhook, type WebhookDeps } from "@/server/github-app-webhook";
 import { RealtimeUnavailableError } from "@/server/realtime";
@@ -12,17 +12,17 @@ import { RealtimeUnavailableError } from "@/server/realtime";
  * writes. Polling stays the fallback, so a failed delivery only delays a scan.
  */
 const deps: WebhookDeps = {
-  async loadSettings() {
-    const [app, depsEnabled] = await Promise.all([loadGitHubAppSettings(prisma), loadDepsEnabled(prisma)]);
-    return { depsEnabled, app: app ? { webhookSecret: app.webhookSecret } : null };
-  },
+  loadSettings: () => loadGitHubAppWebhookSettings(prisma),
   findProjectsOnBranch: (githubRepoId, branch) =>
     prisma.dependencyProject.findMany({
-      where: { githubRepoId, defaultBranch: branch },
+      where: { githubRepoId: BigInt(githubRepoId), defaultBranch: branch },
       select: { id: true, manifestPaths: true },
     }),
   async findPrOwnerProjectId(githubRepoId) {
-    const owner = await prisma.dependencyPrOwner.findUnique({ where: { githubRepoId }, select: { projectId: true } });
+    const owner = await prisma.dependencyPrOwner.findUnique({
+      where: { githubRepoId: BigInt(githubRepoId) },
+      select: { projectId: true },
+    });
     return owner?.projectId ?? null;
   },
   enqueueScan: enqueueWebhookScan,

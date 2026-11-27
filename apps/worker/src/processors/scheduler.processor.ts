@@ -21,7 +21,7 @@ export const STALE_POLLING_MS = 15 * 60_000;
 /** Repositories in `ERROR` (e.g. 5× 404) are retried, but only every 6 hours. */
 export const ERROR_REPOLL_AFTER_MS = 6 * 60 * 60_000;
 
-const ENQUEUE_BATCH_SIZE = 500;
+export const ENQUEUE_BATCH_SIZE = 500;
 /** Repositories handed to `release-backfill` per tick, so pre-existing repositories catch up gradually. */
 export const BACKFILL_SWEEP_BATCH = 10;
 
@@ -98,25 +98,35 @@ async function sweepBackfills(deps: SchedulerDeps): Promise<number> {
  */
 export async function processSchedulerTick(deps: SchedulerDeps): Promise<{ due: number; backfills: number }> {
   const now = deps.now?.() ?? new Date();
-  const due = await deps.prisma.repository.findMany({
-    where: dueRepositoriesWhere(now),
-    select: { id: true },
-    orderBy: [{ lastPolledAt: { sort: "asc", nulls: "first" } }],
-  });
+  const where = dueRepositoriesWhere(now);
+  let cursorId: string | undefined;
+  let dueCount = 0;
 
-  for (let i = 0; i < due.length; i += ENQUEUE_BATCH_SIZE) {
+  for (;;) {
+    const batch = await deps.prisma.repository.findMany({
+      where,
+      select: { id: true },
+      orderBy: [{ lastPolledAt: { sort: "asc", nulls: "first" } }, { id: "asc" }],
+      take: ENQUEUE_BATCH_SIZE,
+      ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+    });
+    if (batch.length === 0) break;
+
     await deps.repoPollQueue.addBulk(
-      due.slice(i, i + ENQUEUE_BATCH_SIZE).map((repo) => ({
+      batch.map((repo) => ({
         name: JOB_NAMES.poll,
         data: { repositoryId: repo.id, trigger: "schedule" as const },
         opts: deduplicatedJobOptions(repoPollJobId(repo.id), REPO_POLL_PRIORITY.scheduled),
       })),
     );
+    dueCount += batch.length;
+    if (batch.length < ENQUEUE_BATCH_SIZE) break;
+    cursorId = batch[batch.length - 1]!.id;
   }
 
   log.info(
-    { queue: QUEUE_NAMES.scheduler, due: due.length },
-    `${due.length} due ${due.length === 1 ? "repository" : "repositories"} enqueued`,
+    { queue: QUEUE_NAMES.scheduler, due: dueCount },
+    `${dueCount} due ${dueCount === 1 ? "repository" : "repositories"} enqueued`,
   );
 
   // History is secondary: a failure here must not fail the poll tick.
@@ -132,5 +142,5 @@ export async function processSchedulerTick(deps: SchedulerDeps): Promise<{ due: 
   } catch (error) {
     log.error({ queue: QUEUE_NAMES.scheduler, err: error }, "could not queue history backfills");
   }
-  return { due: due.length, backfills };
+  return { due: dueCount, backfills };
 }

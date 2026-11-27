@@ -110,6 +110,9 @@ function fakeDb(options: {
         subscribers.map((userId) => ({ userId, user: { githubAccessTokenEncrypted: `t-${userId}` } })),
       ),
     },
+    $transaction: vi.fn(async (arg: unknown) =>
+      Array.isArray(arg) ? Promise.all(arg) : (arg as (tx: unknown) => unknown)(prisma),
+    ),
   };
   return { prisma, repo, releases, statuses, promoted };
 }
@@ -228,6 +231,8 @@ describe("processReleaseBackfill", () => {
     expect(github.mock.calls.map(([p]) => p.page)).toEqual([2, 3]);
     expect(first).toMatchObject({ backfillStatus: "DONE", reason: "COMPLETE", added: 100 + 50 });
     expect(db.repo.backfillNextPage).toBeNull();
+    expect(db.prisma.release.findFirst).toHaveBeenCalledTimes(1);
+    expect(db.prisma.release.count).toHaveBeenCalledTimes(1);
 
     const second = await processReleaseBackfill(job(), "token", deps(db, fakeGitHub(250)));
     expect(second).toMatchObject({ backfillStatus: "DONE", reason: "COMPLETE", added: 0 });
@@ -325,6 +330,7 @@ describe("processReleaseBackfill", () => {
     const db = fakeDb({ stored: range(50, 46), tagRows: ["v45", "v10"] });
     const outcome = await processReleaseBackfill(job(), "token", deps(db, fakeGitHub(50)));
     expect(db.promoted.sort()).toEqual(["v10", "v45"]);
+    expect(db.prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(outcome).toMatchObject({ reason: "COMPLETE", added: 45 });
     expect(db.releases.size).toBe(50);
   });

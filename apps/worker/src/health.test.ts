@@ -10,7 +10,15 @@ import {
   startHealthServer,
 } from "./health.js";
 import { createLogger, errorMessage } from "./logger.js";
-import { closeQueues, pollIntervalCron, registerSchedule, type Queues } from "./queues/index.js";
+import {
+  closeQueues,
+  MAINTENANCE_CRON,
+  MAINTENANCE_SCHEDULER_ID,
+  pollIntervalCron,
+  registerMaintenanceSchedule,
+  registerSchedule,
+  type Queues,
+} from "./queues/index.js";
 
 const { queryRaw } = vi.hoisted(() => ({
   queryRaw: vi.fn(async (..._args: unknown[]) => [{ "?column?": 1 }]),
@@ -228,6 +236,18 @@ describe("queues helpers", () => {
       "scan-due-repositories",
       {},
       { deduplication: { id: "repo-scheduler-cron-startup", keepLastIfActive: true } },
+    );
+  });
+
+  it("registerMaintenanceSchedule upserts the daily db-maintenance scheduler", async () => {
+    const schedulerQueue = {
+      upsertJobScheduler: vi.fn(async () => undefined),
+    };
+    await registerMaintenanceSchedule(schedulerQueue as never);
+    expect(schedulerQueue.upsertJobScheduler).toHaveBeenCalledWith(
+      MAINTENANCE_SCHEDULER_ID,
+      { pattern: MAINTENANCE_CRON },
+      { name: MAINTENANCE_SCHEDULER_ID, data: {} },
     );
   });
 

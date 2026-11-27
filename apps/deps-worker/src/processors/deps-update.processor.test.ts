@@ -68,7 +68,7 @@ function setup(
     project: { updateMode: "MANUAL_PR", lastScannedAt: NOW, ...options.project },
     ...(options.user ? { user: options.user } : {}),
   });
-  if (options.owner !== false) prisma.dependencyPrOwner.rows.push({ githubRepoId: 42, projectId: "p1" });
+  if (options.owner !== false) prisma.dependencyPrOwner.rows.push({ githubRepoId: 42n, projectId: "p1" });
   prisma.notificationRule.rows.push({
     id: "r1",
     userId: "u1",
@@ -168,7 +168,7 @@ describe("processDepsUpdate: server-side checks", () => {
 
   it("refuses when another project owns PRs for the repository", async () => {
     const { deps, prisma, github } = setup({ owner: false });
-    prisma.dependencyPrOwner.rows.push({ githubRepoId: 42, projectId: "someone-else" });
+    prisma.dependencyPrOwner.rows.push({ githubRepoId: 42n, projectId: "someone-else" });
     await expect(processDepsUpdate(updateJob(), deps)).rejects.toThrow("Another RepoPulse user manages pull requests");
     expect(commits(github)).toEqual([]);
   });
@@ -429,8 +429,10 @@ describe("processDepsUpdate: hashed requirements (no lockfile)", () => {
       expect.objectContaining({ event: "opened", prId: prisma.dependencyPullRequest.rows[0]!.id }),
     ]);
 
-    // A second run with no new versions: no commit, no new notification.
+    // A second run with no new versions: no commit, no redundant DB upsert, no new notification.
+    const prUpsertSpy = vi.spyOn(prisma.dependencyPullRequest, "upsert");
     expect(await processDepsUpdate(updateJob(), deps)).toMatchObject({ status: "UNCHANGED", number: 1 });
+    expect(prUpsertSpy).not.toHaveBeenCalled();
     expect(commits(github)).toHaveLength(1);
     expect(notifyJobs(queues)).toHaveLength(1);
   });
@@ -438,12 +440,19 @@ describe("processDepsUpdate: hashed requirements (no lockfile)", () => {
   it("stops for good when someone else pushed to the bot branch", async () => {
     const { deps, prisma, github, queues } = setup();
     await processDepsUpdate(updateJob(), deps);
+    prisma.dependencyBranchWriteIntent.rows.push({
+      projectId: "p1",
+      groupKey: "all",
+      commitSha: "stale-intent",
+      previousHeadSha: null,
+    });
     github.push(BRANCH, { "requirements.txt": "requests==2.32.3\nflask==3.0.0\n" });
     const humanHead = github.branches.get(BRANCH);
 
     expect(await processDepsUpdate(updateJob(), deps)).toEqual({ status: "EDITED", number: 1 });
     expect(github.branches.get(BRANCH)).toBe(humanHead);
     expect(prisma.dependencyPullRequest.rows[0]!.state).toBe("EDITED");
+    expect(prisma.dependencyBranchWriteIntent.rows).toEqual([]);
     expect(notifyJobs(queues).map((j) => j.event)).toEqual(["opened", "edited"]);
     expect(commits(github)).toHaveLength(1);
   });
@@ -451,10 +460,17 @@ describe("processDepsUpdate: hashed requirements (no lockfile)", () => {
   it("closes the PR with a comment when the group became empty", async () => {
     const { deps, prisma, github } = setup();
     await processDepsUpdate(updateJob(), deps);
+    prisma.dependencyBranchWriteIntent.rows.push({
+      projectId: "p1",
+      groupKey: "all",
+      commitSha: "stale-intent",
+      previousHeadSha: null,
+    });
     deps.registry = fakeRegistry({ "PYPI:requests": [version("2.31.0", 300)] });
     expect(await processDepsUpdate(updateJob(), deps)).toEqual({ status: "CLOSED", number: 1 });
     expect(github.prs[0]).toMatchObject({ state: "closed", comments: [EMPTY_GROUP_COMMENT] });
     expect(prisma.dependencyPullRequest.rows[0]).toMatchObject({ state: "CLOSED", closedAt: NOW });
+    expect(prisma.dependencyBranchWriteIntent.rows).toEqual([]);
   });
 
   it("leaves an edited PR open (EDITED) instead of closing it when the group became empty", async () => {

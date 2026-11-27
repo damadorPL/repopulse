@@ -11,6 +11,8 @@ services:
       context: ./deploy/postgres
       dockerfile: Dockerfile
     restart: unless-stopped
+    shm_size: 256m
+    stop_grace_period: 30s
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-repopulse}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run `pnpm env:setup` to create .env}

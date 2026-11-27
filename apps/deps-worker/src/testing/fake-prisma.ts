@@ -20,8 +20,8 @@ function eq(a: unknown, b: unknown): boolean {
 }
 
 function cmp(a: unknown, b: unknown): number {
-  const x = a instanceof Date ? a.getTime() : (a as number | string);
-  const y = b instanceof Date ? b.getTime() : (b as number | string);
+  const x = a instanceof Date ? a.getTime() : (a as number | bigint | string);
+  const y = b instanceof Date ? b.getTime() : (b as number | bigint | string);
   return x < y ? -1 : x > y ? 1 : 0;
 }
 
@@ -131,7 +131,15 @@ export class FakeTable {
     for (const order of [...orders].reverse()) {
       const [field, direction] = Object.entries(order as Record<string, unknown>)[0]!;
       const dir = (isPlainObject(direction) ? direction.sort : direction) === "desc" ? -1 : 1;
-      out = [...out].sort((a, b) => dir * cmp(a[field] ?? "", b[field] ?? ""));
+      const nulls = isPlainObject(direction) ? direction.nulls : undefined;
+      out = [...out].sort((a, b) => {
+        const av = a[field] ?? null;
+        const bv = b[field] ?? null;
+        if (av === null && bv === null) return 0;
+        if (av === null) return nulls === "first" ? -1 : nulls === "last" ? 1 : dir === -1 ? -1 : 1;
+        if (bv === null) return nulls === "first" ? 1 : nulls === "last" ? -1 : dir === -1 ? 1 : -1;
+        return dir * cmp(av, bv);
+      });
     }
     if (args.cursor) {
       const index = out.findIndex((r) => matches(r, args.cursor));
@@ -151,6 +159,14 @@ export class FakeTable {
       count += 1;
     }
     return { count };
+  };
+  createManyAndReturn = async ({ data, skipDuplicates }: { data: Row[]; skipDuplicates?: boolean }) => {
+    const created: Row[] = [];
+    for (const item of data) {
+      if (skipDuplicates && item.id !== undefined && this.rows.some((r) => r.id === item.id)) continue;
+      created.push(clone(this.create1(item)));
+    }
+    return created;
   };
   update = async ({ where, data }: { where: Where; data: Row }) => {
     const row = this.rows.find((r) => matches(r, where));
@@ -186,7 +202,7 @@ export class FakeTable {
 
 export const PROJECT_DEFAULTS = {
   userId: "u1",
-  githubRepoId: 42,
+  githubRepoId: 42n,
   owner: "acme",
   name: "widget",
   fullName: "acme/widget",

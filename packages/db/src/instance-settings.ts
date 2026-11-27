@@ -91,6 +91,24 @@ export const NO_BACKFILL_OVERRIDES: BackfillSettingsOverrides = {
   deepCooldownMinutes: null,
 };
 
+function mapBackfillOverrides(row: {
+  backfillDefaultTarget: number | null;
+  backfillMaxAgeDays: number | null;
+  backfillHardCap: number | null;
+  backfillMinQuota: number | null;
+  backfillDeepStep: number | null;
+  backfillDeepCooldownMinutes: number | null;
+}): BackfillSettingsOverrides {
+  return {
+    defaultTarget: row.backfillDefaultTarget,
+    maxAgeDays: row.backfillMaxAgeDays,
+    hardCap: row.backfillHardCap,
+    minQuota: row.backfillMinQuota,
+    deepStep: row.backfillDeepStep,
+    deepCooldownMinutes: row.backfillDeepCooldownMinutes,
+  };
+}
+
 /** Reads the admin overrides; all `null` when the settings row doesn't exist yet. */
 export async function loadBackfillOverrides(
   client: Pick<PrismaClient, "instanceSettings">,
@@ -100,14 +118,7 @@ export async function loadBackfillOverrides(
     select: BACKFILL_SETTINGS_SELECT,
   });
   if (!row) return { ...NO_BACKFILL_OVERRIDES };
-  return {
-    defaultTarget: row.backfillDefaultTarget,
-    maxAgeDays: row.backfillMaxAgeDays,
-    hardCap: row.backfillHardCap,
-    minQuota: row.backfillMinQuota,
-    deepStep: row.backfillDeepStep,
-    deepCooldownMinutes: row.backfillDeepCooldownMinutes,
-  };
+  return mapBackfillOverrides(row);
 }
 
 /** The GitHub App columns of `InstanceSettings` (Admin → GitHub App, Slice 08 Part B). */
@@ -142,6 +153,18 @@ export class GitHubAppKeyUnreadableError extends Error {
   }
 }
 
+function isGitHubAppConfiguredRow(row: {
+  githubAppId: number | null;
+  githubAppSlug: string | null;
+  githubAppPrivateKeyEncrypted: string | null;
+}): row is {
+  githubAppId: number;
+  githubAppSlug: string;
+  githubAppPrivateKeyEncrypted: string;
+} {
+  return row.githubAppId !== null && Boolean(row.githubAppSlug) && Boolean(row.githubAppPrivateKeyEncrypted);
+}
+
 /**
  * Reads the GitHub App settings, or `null` when the App is not configured (id, slug and key must all be set).
  * Throws {@link GitHubAppKeyUnreadableError} when a stored secret can't be decrypted.
@@ -153,7 +176,7 @@ export async function loadGitHubAppSettings(
     where: { id: INSTANCE_SETTINGS_ID },
     select: GITHUB_APP_SETTINGS_SELECT,
   });
-  if (!row || row.githubAppId === null || !row.githubAppSlug || !row.githubAppPrivateKeyEncrypted) return null;
+  if (!row || !isGitHubAppConfiguredRow(row)) return null;
   try {
     return {
       appId: row.githubAppId,
@@ -168,6 +191,50 @@ export async function loadGitHubAppSettings(
   }
 }
 
+/** Combined select for the GitHub App webhook endpoint (`depsEnabled` + webhook verification secret). */
+export const GITHUB_APP_WEBHOOK_SETTINGS_SELECT = {
+  depsEnabled: true,
+  githubAppId: true,
+  githubAppSlug: true,
+  githubAppPrivateKeyEncrypted: true,
+  githubAppWebhookSecretEncrypted: true,
+} as const;
+
+export interface GitHubAppWebhookSettings {
+  depsEnabled: boolean;
+  app: { webhookSecret: string | null } | null;
+}
+
+/**
+ * Loads `depsEnabled` and the GitHub App webhook secret in a single `InstanceSettings` query.
+ * Decrypts `githubAppWebhookSecretEncrypted` only when the App is configured, throwing
+ * {@link GitHubAppKeyUnreadableError} if the stored webhook secret cannot be decrypted.
+ */
+export async function loadGitHubAppWebhookSettings(
+  client: Pick<PrismaClient, "instanceSettings">,
+): Promise<GitHubAppWebhookSettings> {
+  const row = await client.instanceSettings.findUnique({
+    where: { id: INSTANCE_SETTINGS_ID },
+    select: GITHUB_APP_WEBHOOK_SETTINGS_SELECT,
+  });
+  if (!row) return { depsEnabled: false, app: null };
+  if (!isGitHubAppConfiguredRow(row)) {
+    return { depsEnabled: row.depsEnabled, app: null };
+  }
+  let webhookSecret: string | null = null;
+  if (row.githubAppWebhookSecretEncrypted) {
+    try {
+      webhookSecret = decryptToken(row.githubAppWebhookSecretEncrypted);
+    } catch (error) {
+      throw new GitHubAppKeyUnreadableError({ cause: error });
+    }
+  }
+  return {
+    depsEnabled: row.depsEnabled,
+    app: { webhookSecret },
+  };
+}
+
 /** Whether the Dependencies module is enabled (Admin → Dependencies). `false` when the settings row doesn't exist. */
 export async function loadDepsEnabled(client: Pick<PrismaClient, "instanceSettings">): Promise<boolean> {
   const row = await client.instanceSettings.findUnique({
@@ -175,6 +242,108 @@ export async function loadDepsEnabled(client: Pick<PrismaClient, "instanceSettin
     select: { depsEnabled: true },
   });
   return row?.depsEnabled ?? false;
+}
+
+/** Combined select for the Admin overview page (`/admin`) to read all settings in one query. */
+export const ADMIN_OVERVIEW_SETTINGS_SELECT = {
+  publicRegistration: true,
+  depsEnabled: true,
+  ...SMTP_SETTINGS_SELECT,
+  ...BACKFILL_SETTINGS_SELECT,
+  ...GITHUB_APP_SETTINGS_SELECT,
+} as const;
+
+/** Safe admin-overview snapshot (never exposes encrypted secret strings). */
+export interface AdminSettingsSnapshot {
+  publicRegistration: boolean;
+  depsEnabled: boolean;
+  smtp: {
+    host: string | null;
+    port: number;
+    secure: boolean | null;
+    user: string | null;
+    hasPassword: boolean;
+    from: string | null;
+  };
+  backfillOverrides: BackfillSettingsOverrides;
+  githubApp: {
+    configured: boolean;
+    appId: number | null;
+    slug: string | null;
+    clientId: string | null;
+    owner: string | null;
+    keySaved: boolean;
+    keyReadable: boolean;
+    webhookSecretSaved: boolean;
+  };
+}
+
+function canDecrypt(value: string): boolean {
+  try {
+    decryptToken(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Reads all instance settings needed by the Admin overview page in a single `InstanceSettings` query. */
+export async function loadAdminSettingsSnapshot(
+  client: Pick<PrismaClient, "instanceSettings">,
+): Promise<AdminSettingsSnapshot> {
+  const row = await client.instanceSettings.findUnique({
+    where: { id: INSTANCE_SETTINGS_ID },
+    select: ADMIN_OVERVIEW_SETTINGS_SELECT,
+  });
+  if (!row) {
+    return {
+      publicRegistration: true,
+      depsEnabled: false,
+      smtp: {
+        host: null,
+        port: 587,
+        secure: null,
+        user: null,
+        hasPassword: false,
+        from: null,
+      },
+      backfillOverrides: { ...NO_BACKFILL_OVERRIDES },
+      githubApp: {
+        configured: false,
+        appId: null,
+        slug: null,
+        clientId: null,
+        owner: null,
+        keySaved: false,
+        keyReadable: false,
+        webhookSecretSaved: false,
+      },
+    };
+  }
+  const keySaved = Boolean(row.githubAppPrivateKeyEncrypted);
+  return {
+    publicRegistration: row.publicRegistration,
+    depsEnabled: row.depsEnabled,
+    smtp: {
+      host: row.smtpHost,
+      port: row.smtpPort,
+      secure: row.smtpSecure,
+      user: row.smtpUser,
+      hasPassword: Boolean(row.smtpPasswordEncrypted),
+      from: row.smtpFrom,
+    },
+    backfillOverrides: mapBackfillOverrides(row),
+    githubApp: {
+      configured: isGitHubAppConfiguredRow(row),
+      appId: row.githubAppId,
+      slug: row.githubAppSlug,
+      clientId: row.githubAppClientId,
+      owner: row.githubAppOwner,
+      keySaved,
+      keyReadable: keySaved && canDecrypt(row.githubAppPrivateKeyEncrypted!),
+      webhookSecretSaved: Boolean(row.githubAppWebhookSecretEncrypted),
+    },
+  };
 }
 
 /** Default TTL for in-memory worker settings caches (changes in Admin apply within 15s without restart). */

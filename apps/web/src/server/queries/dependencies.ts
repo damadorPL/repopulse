@@ -107,7 +107,7 @@ export interface DependencyProjectListItem {
 function buildDependencyProjectListItems(
   projects: Array<{
     id: string;
-    githubRepoId: number;
+    githubRepoId: bigint | number;
     owner: string;
     name: string;
     fullName: string;
@@ -145,17 +145,17 @@ function buildDependencyProjectListItems(
     }>;
   }>,
   owners: Array<{
-    githubRepoId: number;
+    githubRepoId: bigint | number;
     projectId: string;
     project: { user: { githubLogin: string | null; name: string | null } };
   }>,
   trackedRepoIds: ReadonlySet<string>,
 ): DependencyProjectListItem[] {
-  const ownerByRepoId = new Map(owners.map((owner) => [owner.githubRepoId, owner]));
+  const ownerByRepoId = new Map(owners.map((owner) => [Number(owner.githubRepoId), owner]));
 
   return projects.map((project) => {
     const manifestById = new Map(project.manifests.map((m) => [m.id ?? m.packageManager, m]));
-    const ownerRecord = project.prOwnership ? null : ownerByRepoId.get(project.githubRepoId);
+    const ownerRecord = project.prOwnership ? null : ownerByRepoId.get(Number(project.githubRepoId));
     const prOwner: PrOwnerView = project.prOwnership
       ? { kind: "self" }
       : ownerRecord
@@ -221,7 +221,7 @@ async function fetchPrOwnersForProjects(
   projects: ReadonlyArray<{
     updateMode: DepsUpdateMode;
     prOwnership: { projectId: string } | null;
-    githubRepoId: number;
+    githubRepoId: bigint | number;
   }>,
 ) {
   const unownedRepoIds = [
@@ -229,9 +229,11 @@ async function fetchPrOwnersForProjects(
       projects
         .filter(
           (project) =>
-            project.updateMode !== "NOTIFY" && !project.prOwnership && typeof project.githubRepoId === "number",
+            project.updateMode !== "NOTIFY" &&
+            !project.prOwnership &&
+            (typeof project.githubRepoId === "bigint" || typeof project.githubRepoId === "number"),
         )
-        .map((project) => project.githubRepoId),
+        .map((project) => BigInt(project.githubRepoId)),
     ),
   ];
   return unownedRepoIds.length > 0
@@ -322,9 +324,9 @@ export async function getDependenciesListData(userId: string): Promise<{
 
   const owners = await fetchPrOwnersForProjects(projects);
   const tracked = new Set(subscriptions.map((s) => s.repositoryId));
-  const taken = new Set(projects.map((p) => p.githubRepoId));
+  const taken = new Set(projects.map((p) => Number(p.githubRepoId)));
   const addable: AddableSubscription[] = subscriptions
-    .filter((s) => !taken.has(s.repository.githubRepoId))
+    .filter((s) => !taken.has(Number(s.repository.githubRepoId)))
     .map((s) => ({
       subscriptionId: s.id,
       fullName: s.repository.fullName,
@@ -358,9 +360,9 @@ export async function getAddableSubscriptions(userId: string): Promise<AddableSu
     }),
     prisma.dependencyProject.findMany({ where: { userId }, select: { githubRepoId: true } }),
   ]);
-  const taken = new Set(projects.map((p) => p.githubRepoId));
+  const taken = new Set(projects.map((p) => Number(p.githubRepoId)));
   return subscriptions
-    .filter((s) => !taken.has(s.repository.githubRepoId))
+    .filter((s) => !taken.has(Number(s.repository.githubRepoId)))
     .map((s) => ({
       subscriptionId: s.id,
       fullName: s.repository.fullName,
@@ -476,8 +478,11 @@ export async function getDependencyProject(
   const repoName = parseRepoSegment(name);
   if (!ownerName || !repoName) return null;
 
-  const project = await prisma.dependencyProject.findFirst({
-    where: { userId, fullName: { equals: `${ownerName}/${repoName}`, mode: "insensitive" } },
+  const targetFullName = `${ownerName}/${repoName}`;
+  const targetFullNameLower = targetFullName.toLowerCase();
+  const projectCandidates = await prisma.dependencyProject.findMany({
+    where: { userId, fullName: { equals: targetFullName, mode: "insensitive" } },
+    take: 5,
     include: {
       repository: { select: { avatarUrl: true } },
       manifests: { orderBy: { path: "asc" } },
@@ -485,11 +490,12 @@ export async function getDependencyProject(
       pullRequests: { orderBy: { openedAt: "desc" } },
     },
   });
+  const project = projectCandidates.find((p) => p.fullName.toLowerCase() === targetFullNameLower) ?? null;
   if (!project) return null;
 
   const [owner_, subscriptions] = await Promise.all([
     prisma.dependencyPrOwner.findUnique({
-      where: { githubRepoId: project.githubRepoId },
+      where: { githubRepoId: BigInt(project.githubRepoId) },
       select: { projectId: true, project: { select: { user: { select: { githubLogin: true, name: true } } } } },
     }),
     prisma.userSubscription.findMany({
@@ -506,7 +512,7 @@ export async function getDependencyProject(
 
   return {
     id: project.id,
-    githubRepoId: project.githubRepoId,
+    githubRepoId: Number(project.githubRepoId),
     owner: project.owner,
     name: project.name,
     fullName: project.fullName,
@@ -601,7 +607,7 @@ export async function getDependencyProjectForRepository(
   });
   if (!repository) return null;
   const project = await prisma.dependencyProject.findFirst({
-    where: { userId, OR: [{ githubRepoId: repository.githubRepoId }, { repositoryId }] },
+    where: { userId, OR: [{ githubRepoId: BigInt(repository.githubRepoId) }, { repositoryId }] },
     select: { id: true, fullName: true, lastScannedAt: true, scanStatus: true },
   });
   if (!project) return null;

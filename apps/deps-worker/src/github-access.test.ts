@@ -4,7 +4,7 @@ import { GitHubAppAuthError, GitHubAppInstallationError } from "@repopulse/githu
 import { GitHubAccess, PRIVATE_WITHOUT_APP_MESSAGE, TOKEN_REFRESH_MARGIN_MS } from "./github-access.js";
 
 const APP = { appId: 1, slug: "repopulse", clientId: null, owner: null, privateKey: "PEM", webhookSecret: null };
-const PROJECT = { owner: "acme", name: "widget", githubRepoId: 42, isPrivate: false };
+const PROJECT = { owner: "acme", name: "widget", githubRepoId: 42n, isPrivate: false };
 const USER = { id: "u1", githubAccessTokenEncrypted: "enc" };
 
 function setup(
@@ -52,9 +52,9 @@ describe("GitHubAccess", () => {
   it("caches installation tokens until 5 minutes before expiry, per repository and scope", async () => {
     const { access, createInstallationToken, tick } = setup();
     const app = (await access.app())!;
-    expect(await access.installationToken(app, 7, 42, "read")).toBe("ghs_secret_1");
-    expect(await access.installationToken(app, 7, 42, "read")).toBe("ghs_secret_1");
-    expect(await access.installationToken(app, 7, 42, "write")).toBe("ghs_secret_2");
+    expect(await access.installationToken(app, 7, 42n, "read")).toBe("ghs_secret_1");
+    expect(await access.installationToken(app, 7, 42n, "read")).toBe("ghs_secret_1");
+    expect(await access.installationToken(app, 7, 42n, "write")).toBe("ghs_secret_2");
     expect(createInstallationToken.mock.calls[0]![2]).toEqual({
       repositoryIds: [42],
       permissions: { contents: "read", pull_requests: "read" },
@@ -65,9 +65,9 @@ describe("GitHubAccess", () => {
     });
 
     tick(60 * 60_000 - TOKEN_REFRESH_MARGIN_MS - 1);
-    expect(await access.installationToken(app, 7, 42, "read")).toBe("ghs_secret_1");
+    expect(await access.installationToken(app, 7, 42n, "read")).toBe("ghs_secret_1");
     tick(2);
-    expect(await access.installationToken(app, 7, 42, "read")).toBe("ghs_secret_3");
+    expect(await access.installationToken(app, 7, 42n, "read")).toBe("ghs_secret_3");
 
     access.invalidate(7);
     expect(access.cachedTokenCount).toBe(0);

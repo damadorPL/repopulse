@@ -41,7 +41,7 @@ export type ReadAccess =
 export interface AccessProject {
   owner: string;
   name: string;
-  githubRepoId: number;
+  githubRepoId: bigint | number;
   isPrivate: boolean;
 }
 
@@ -129,16 +129,16 @@ export class GitHubAccess {
   async installationToken(
     app: AppContext,
     installationId: number,
-    githubRepoId: number,
+    githubRepoId: bigint | number,
     scope: "read" | "write",
   ): Promise<string> {
-    const key = `${app.auth.appId}:${installationId}:${githubRepoId}:${scope}`;
+    const key = `${app.auth.appId}:${installationId}:${String(githubRepoId)}:${scope}`;
     const cached = this.tokens.get(key);
     if (cached && cached.expiresAt - TOKEN_REFRESH_MARGIN_MS > this.now()) return cached.token;
     const { token, expiresAt } = await this.github.createInstallationToken(
       app.auth,
       installationId,
-      { repositoryIds: [githubRepoId], permissions: scope === "read" ? READ_PERMISSIONS : WRITE_PERMISSIONS },
+      { repositoryIds: [Number(githubRepoId)], permissions: scope === "read" ? READ_PERMISSIONS : WRITE_PERMISSIONS },
       { octokit: this.appOctokit(app) },
     );
     this.tokens.set(key, { token, expiresAt: expiresAt.getTime() });

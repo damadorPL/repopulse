@@ -211,7 +211,36 @@ describe("processRepoPoll", () => {
   it("forgets the polled paths once nobody watches paths", async () => {
     const { prisma, updates } = fakePrisma({ polledPaths: ["docs"] });
     await processRepoPoll(job(), deps(prisma, notModified));
-    expect(updates[0]).toEqual({ pollStatus: "POLLING", polledPaths: [] });
+    expect(updates[0]).toEqual({ pollStatus: "POLLING" });
+    expect(updates[1]).toEqual({
+      pollStatus: "IDLE",
+      errorCount: 0,
+      lastPolledAt: new Date("2026-10-31T12:00:00Z"),
+      polledPaths: [],
+    });
+  });
+
+  it("uses a single atomic $queryRaw update in recordFailure when available", async () => {
+    const poll = vi.fn(async () => {
+      throw new GitHubRepositoryNotFoundError("acme", "widget");
+    });
+    const { prisma, updates } = fakePrisma({ errorCount: MAX_ERROR_COUNT - 1 });
+    const queryRaw = vi.fn(async () => [{ errorCount: MAX_ERROR_COUNT }]);
+    (prisma as Record<string, unknown>).$queryRaw = queryRaw;
+
+    expect(await processRepoPoll(job(), deps(prisma, poll))).toEqual({
+      status: "NOT_FOUND",
+      errorCount: MAX_ERROR_COUNT,
+    });
+    expect(queryRaw).toHaveBeenCalledTimes(1);
+    expect(updates).toEqual([{ pollStatus: "POLLING" }]);
+    const [strings, polledAt, inc1, inc2, threshold, repoId] = queryRaw.mock.calls[0]! as unknown[];
+    expect((strings as TemplateStringsArray).join("?")).toContain('UPDATE "Repository"');
+    expect(polledAt).toEqual(new Date("2026-10-31T12:00:00Z"));
+    expect(inc1).toBe(1);
+    expect(inc2).toBe(1);
+    expect(threshold).toBe(MAX_ERROR_COUNT);
+    expect(repoId).toBe(REPO.id);
   });
 
   it("rethrows other errors for BullMQ retries, counting only the final attempt and tolerating recordFailure errors", async () => {
@@ -606,8 +635,18 @@ describe("processRepoPoll release → tag promotion", () => {
     // loadSubscribers is shared across tag + path steps (1 subscriber query + 1 token query).
     const subscriberLoads = prisma.userSubscription.findMany.mock.calls.filter(([args]) => "trackMode" in args.select);
     expect(subscriberLoads).toHaveLength(1);
-    // Preserves polledPaths when withPaths is true.
-    expect(repoUpdates[0]).toEqual({ pollStatus: "POLLING" });
+    // Only two repository updates: POLLING at start, then ONE consolidated IDLE update at the end.
+    // Preserves polledPaths (omits it from the update) when unchanged.
+    expect(repoUpdates).toEqual([
+      { pollStatus: "POLLING" },
+      {
+        pollStatus: "IDLE",
+        errorCount: 0,
+        lastPolledAt: new Date("2026-10-31T12:00:00Z"),
+        lastTagsPolledAt: new Date("2026-10-31T12:00:00Z"),
+        lastPathsPolledAt: new Date("2026-10-31T12:00:00Z"),
+      },
+    ]);
     expect(d.redis.publish).toHaveBeenCalledWith(
       "user:u1:events",
       JSON.stringify({
@@ -618,5 +657,61 @@ describe("processRepoPoll release → tag promotion", () => {
         newReleases: 2,
       }),
     );
+  });
+
+  it("consolidates lastEtag and changed polledPaths into a single IDLE update after HTTP 200", async () => {
+    const db = promotionDb();
+    const repoUpdates: Array<Record<string, unknown>> = [];
+    db.prisma.repository.findUnique.mockResolvedValue({
+      ...REPO,
+      polledPaths: [],
+      _count: { subscriptions: 1 },
+      subscriptions: [{ trackMode: "RELEASES", trackPaths: true }],
+    } as never);
+    db.prisma.repository.update.mockImplementation((async ({ data }: { data: Record<string, unknown> }) => {
+      repoUpdates.push(data);
+      return {};
+    }) as never);
+    db.prisma.userSubscription.findMany.mockImplementation(async (args: { select: Record<string, unknown> }) =>
+      "trackMode" in args.select
+        ? [
+            {
+              userId: "both",
+              includePrereleases: false,
+              trackMode: "RELEASES",
+              trackPaths: true,
+              watchedPaths: ["src"],
+              tags: [],
+              user: { notificationRules: [] },
+            },
+          ]
+        : [{ userId: "both", user: { githubAccessTokenEncrypted: "t1" } }],
+    );
+    (db.prisma.userReleaseState as Record<string, unknown>).findMany = vi.fn(async () => []);
+
+    const poll = vi.fn(async () => ({
+      status: "UPDATED" as const,
+      etag: '"v2"',
+      releases: [mapped(201, "v2.1.0", "2026-10-31T00:00:00Z")],
+      rateLimitRemaining: 4000,
+    }));
+    const d = {
+      ...deps(db.prisma, poll),
+      fetchPathCommits: vi.fn(async () => []),
+    };
+
+    await processRepoPoll(job(), d);
+
+    expect(repoUpdates).toEqual([
+      { pollStatus: "POLLING" },
+      {
+        pollStatus: "IDLE",
+        errorCount: 0,
+        lastPolledAt: new Date("2026-10-31T12:00:00Z"),
+        lastEtag: '"v2"',
+        lastPathsPolledAt: new Date("2026-10-31T12:00:00Z"),
+        polledPaths: ["src"],
+      },
+    ]);
   });
 });

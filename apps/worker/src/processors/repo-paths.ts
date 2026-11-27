@@ -14,6 +14,7 @@ import {
 } from "@repopulse/github";
 import type { Redis } from "@repopulse/queue";
 import { createLogger } from "../logger.js";
+import { createUserReleaseStatesInBatches } from "./batch-db.js";
 import { mapWithConcurrency } from "./concurrency.js";
 import { mergeFanOutPlans, planFanOut, type FanOutPlan, type StoredRelease } from "./fan-out.js";
 import type { TokenCandidate } from "./github-tokens.js";
@@ -52,6 +53,8 @@ export interface PathStepCounts {
 
 export interface PathStepResult {
   counts: PathStepCounts;
+  polledAt: Date;
+  polledPaths: string[];
   plan: FanOutPlan;
 }
 
@@ -331,22 +334,33 @@ export async function pollRepoPaths(
 
       // A stored commit found through a path it does not list yet (a newly watched path, or its
       // file list was missing or truncated): record the path, so seeding on add matches it.
-      const pathUpdates: Promise<unknown>[] = [];
+      const pathUpdates: Array<{ id: string; changedPaths: string[] }> = [];
       for (const [sha, row] of storedBySha) {
         const matchedBy = polled.get(sha)?.matchedBy;
         if (!matchedBy) continue;
         const missing = [...matchedBy].filter((path) => !row.changedPaths.includes(path));
         if (missing.length === 0) continue;
         row.changedPaths = [...row.changedPaths, ...missing];
-        pathUpdates.push(
-          tx.release.update({
-            where: { id: row.id },
-            data: { changedPaths: row.changedPaths },
-            select: { id: true },
-          }),
+        pathUpdates.push({ id: row.id, changedPaths: row.changedPaths });
+      }
+      if (pathUpdates.length > 1 && typeof tx.$executeRaw === "function") {
+        await tx.$executeRaw`
+          UPDATE "Release" AS r
+          SET "changedPaths" = ARRAY(SELECT jsonb_array_elements_text(v."changedPaths"))
+          FROM jsonb_to_recordset(${JSON.stringify(pathUpdates)}::jsonb) AS v("id" text, "changedPaths" jsonb)
+          WHERE r."id" = v."id"
+        `;
+      } else if (pathUpdates.length > 0) {
+        await Promise.all(
+          pathUpdates.map((update) =>
+            tx.release.update({
+              where: { id: update.id },
+              data: { changedPaths: update.changedPaths },
+              select: { id: true },
+            }),
+          ),
         );
       }
-      if (pathUpdates.length > 0) await Promise.all(pathUpdates);
 
       const commits = [...polled].flatMap(([sha, { matchedBy }]) => {
         const stored = storedBySha.get(sha);
@@ -389,15 +403,7 @@ export async function pollRepoPaths(
         ...finalPlan.states.map((state) => ({ ...state, isRead: false })),
         ...readStates.map((state) => ({ ...state, isRead: true })),
       ];
-      if (states.length > 0) await tx.userReleaseState.createMany({ data: states, skipDuplicates: true });
-
-      // Exactly the paths watched now: a path nobody watches any more is forgotten, so watching it
-      // again later is a quiet initial import rather than a burst of notifications.
-      await tx.repository.update({
-        where: { id: repo.id },
-        data: { lastPathsPolledAt: now(), polledPaths: paths },
-        select: { id: true },
-      });
+      if (states.length > 0) await createUserReleaseStatesInBatches(tx, states);
 
       return {
         counts: {
@@ -407,6 +413,8 @@ export async function pollRepoPaths(
           fresh: freshIds.size,
           imported: importedIds.size,
         },
+        polledAt: now(),
+        polledPaths: paths,
         plan: finalPlan,
       };
     });

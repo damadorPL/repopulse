@@ -26,7 +26,8 @@ export async function ownerHasPermission(
   user: AccessOwner,
   min: "read" | "write",
 ): Promise<boolean> {
-  const saveLogin = (login: string) => prisma.user.update({ where: { id: user.id }, data: { githubLogin: login } });
+  const saveLogin = (login: string) =>
+    prisma.user.update({ where: { id: user.id }, data: { githubLogin: login }, select: { id: true } });
   let login = user.githubLogin;
   if (!login) {
     login = await github.getUserLoginById(octokit, user.githubId);
@@ -62,7 +63,11 @@ export async function revokePullRequestMode(
 ): Promise<boolean> {
   if (project.updateMode === "NOTIFY") return false;
   await deps.prisma.$transaction(async (tx) => {
-    await tx.dependencyProject.update({ where: { id: project.id }, data: { updateMode: "NOTIFY" } });
+    await tx.dependencyProject.update({
+      where: { id: project.id },
+      data: { updateMode: "NOTIFY" },
+      select: { id: true },
+    });
     await tx.dependencyPrOwner.deleteMany({ where: { projectId: project.id } });
   });
   await notifyPullRequestEvent(

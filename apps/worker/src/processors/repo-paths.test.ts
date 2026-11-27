@@ -192,7 +192,9 @@ describe("pollRepoPaths", () => {
     // Live updates, but existing history never triggers webhook or email rules.
     expect(result!.plan.notifications).toEqual([]);
     expect(result!.plan.deliveries.map((d) => d.userId).sort()).toEqual(["db-fan", "docs-fan"]);
-    expect(db.repoUpdates).toEqual([{ lastPathsPolledAt: NOW, polledPaths: ["packages/db", "docs", "packages/cli"] }]);
+    expect(result!.polledAt).toEqual(NOW);
+    expect(result!.polledPaths).toEqual(["packages/db", "docs", "packages/cli"]);
+    expect(db.repoUpdates).toEqual([]);
   });
 
   it("marks only the 10 newest imported commits unread and the rest read", async () => {
@@ -290,7 +292,8 @@ describe("pollRepoPaths", () => {
     ]);
     // The stored commit now also lists the path it was found through.
     expect(db.releaseUpdates).toEqual([{ id: "old2", data: { changedPaths: ["README.md"] } }]);
-    expect(db.repoUpdates[0]).toMatchObject({ polledPaths: ["packages/db", "README.md"] });
+    expect(result!.polledPaths).toEqual(["packages/db", "README.md"]);
+    expect(db.repoUpdates).toEqual([]);
   });
 
   it("stores a commit without files when its detail request fails", async () => {
@@ -453,6 +456,46 @@ describe("pollRepoPaths", () => {
     await pollRepoPaths({ prisma: db2.prisma as never, redis, fetchCommits }, REPO, TOKENS);
     expect(seenCalls.find((c) => c.path === "docs")?.etag).toBe("etag-docs");
     expect(seenCalls.find((c) => c.path === "src")?.etag).toBe("etag-src");
+  });
+
+  it("batches multiple changedPaths Release updates into a single $executeRaw query when available", async () => {
+    const db = fakePrisma({
+      polledPaths: ["packages/db"],
+      subscribers: [{ userId: "u", trackMode: "NONE", trackPaths: true, watchedPaths: ["packages/db", "README.md"] }],
+      stored: [
+        {
+          id: "old2",
+          tagName: short(2),
+          tagSha: commit(2).sha,
+          changedPaths: [],
+          publishedAt: commit(2).committedDate,
+        },
+        {
+          id: "old3",
+          tagName: short(3),
+          tagSha: commit(3).sha,
+          changedPaths: ["existing"],
+          publishedAt: commit(3).committedDate,
+        },
+      ],
+    });
+    const executeRaw = vi.fn(async (_strings: TemplateStringsArray, ..._values: unknown[]) => 2);
+    (db.prisma as Record<string, unknown>).$executeRaw = executeRaw;
+
+    const fetchCommits = commitsByPath({ "packages/db": [], "README.md": [commit(3), commit(2)] });
+    await pollRepoPaths({ prisma: db.prisma as never, fetchCommits, fetchDetail: detailStub() }, REPO, TOKENS);
+
+    expect(executeRaw).toHaveBeenCalledTimes(1);
+    expect(db.releaseUpdates).toEqual([]);
+    const [strings, jsonArg] = executeRaw.mock.calls[0]!;
+    expect(strings.join("?")).toContain('UPDATE "Release" AS r');
+    expect(strings.join("?")).toContain("jsonb_to_recordset");
+    expect(JSON.parse(String(jsonArg))).toEqual(
+      expect.arrayContaining([
+        { id: "old2", changedPaths: ["README.md"] },
+        { id: "old3", changedPaths: ["existing", "README.md"] },
+      ]),
+    );
   });
 });
 

@@ -10,7 +10,7 @@ class InvalidRepositoryInputError extends Error {}
 const currentUser = { id: "u1", githubAccessTokenEncrypted: "enc(ghp_test)" };
 
 const prisma = {
-  repository: { findFirst: vi.fn(), upsert: vi.fn(), updateMany: vi.fn() },
+  repository: { findMany: vi.fn(), upsert: vi.fn(), updateMany: vi.fn() },
   release: { createMany: vi.fn(), findMany: vi.fn(), count: vi.fn() },
   userSubscription: { upsert: vi.fn(), findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
   tag: { findMany: vi.fn() },
@@ -76,7 +76,7 @@ beforeEach(() => {
   isRealtimeConfigured.mockReturnValue(true);
   needsPathImport.mockReturnValue(false);
   syncCommitStates.mockResolvedValue({ matching: 0, unread: [], read: [], prune: [] });
-  prisma.repository.findFirst.mockResolvedValue(null);
+  prisma.repository.findMany.mockResolvedValue([]);
   prisma.repository.upsert.mockResolvedValue(baseRepoState);
   prisma.repository.updateMany.mockResolvedValue({ count: 1 });
   prisma.userSubscription.upsert.mockResolvedValue({ id: "sub1" });
@@ -143,17 +143,42 @@ describe("addRepositoryAction", () => {
   });
 
   it("skips validateAndFetchRepo when the repository already exists with stored releases", async () => {
-    prisma.repository.findFirst.mockResolvedValueOnce({
-      ...baseRepoState,
-      backfillStatus: "DONE",
-      releases: [{ id: "rel-existing" }],
-    });
+    prisma.repository.findMany.mockResolvedValueOnce([
+      {
+        ...baseRepoState,
+        backfillStatus: "DONE",
+        releases: [{ id: "rel-existing" }],
+      },
+    ]);
 
     const result = await addRepositoryAction({ repoUrlOrSlug: "acme/web", includePrereleases: false, tagIds: [] });
     expect(result).toMatchObject({ ok: true, data: { repositoryId: "repo1", subscriptionId: "sub1" } });
     expect(validateAndFetchRepo).not.toHaveBeenCalled();
     expect(prisma.repository.upsert).not.toHaveBeenCalled();
     expect(enqueueReleaseBackfill).not.toHaveBeenCalled();
+  });
+
+  it("ignores ILIKE underscore wildcard mismatches and passes BigInt githubRepoId + isDraft: false", async () => {
+    prisma.repository.findMany.mockResolvedValueOnce([
+      {
+        ...baseRepoState,
+        fullName: "my-org/web",
+        backfillStatus: "DONE",
+        releases: [{ id: "rel-other" }],
+      },
+    ]);
+
+    await addRepositoryAction({ repoUrlOrSlug: "my_org/web", includePrereleases: false, tagIds: [] });
+    expect(validateAndFetchRepo).toHaveBeenCalledWith("my_org", "web", "ghp_test");
+    expect(prisma.repository.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { githubRepoId: 100n },
+        create: expect.objectContaining({ githubRepoId: 100n }),
+      }),
+    );
+    expect(prisma.release.count).toHaveBeenCalledWith({
+      where: { repositoryId: "repo1", isDraft: false, source: "RELEASE" },
+    });
   });
 
   it("attaches only tags belonging to the current user", async () => {

@@ -137,7 +137,7 @@ async function fetchWithFallback(
       const snapshot = await github.fetchGitTree({
         owner: project.owner,
         name: project.name,
-        repositoryId: project.githubRepoId,
+        repositoryId: Number(project.githubRepoId),
         ...(knownCommitSha ? { knownCommitSha } : {}),
         octokit,
         ...(signal ? { signal } : {}),
@@ -192,6 +192,35 @@ function sameDate(a: Date | null, b: Date | null): boolean {
   return (a?.getTime() ?? null) === (b?.getTime() ?? null);
 }
 
+function sameStringArray(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+interface ManifestData {
+  ecosystem: "NPM" | "PYPI";
+  packageManager: "NPM" | "PNPM" | "BUN" | "YARN" | "PIP" | "PIP_TOOLS" | "UV" | "POETRY" | "NONE";
+  lockfilePath: string | null;
+  workspaceRoot: string | null;
+  blobSha: string;
+  dependencyCount: number;
+  warnings: string[];
+}
+
+function manifestChanged(existing: ManifestData, next: ManifestData): boolean {
+  return (
+    existing.ecosystem !== next.ecosystem ||
+    existing.packageManager !== next.packageManager ||
+    existing.lockfilePath !== next.lockfilePath ||
+    existing.workspaceRoot !== next.workspaceRoot ||
+    existing.blobSha !== next.blobSha ||
+    existing.dependencyCount !== next.dependencyCount ||
+    !sameStringArray(existing.warnings, next.warnings)
+  );
+}
+
+const UPDATE_BATCH_SIZE = 50;
+const CREATE_BATCH_SIZE = 500;
+
 function rowChanged(existing: RowData & { firstSeenAt: Date; notifiedAt: Date | null }, next: RowData): boolean {
   return (
     existing.declared !== next.declared ||
@@ -242,30 +271,64 @@ export async function processDepsScan(
       : Promise.resolve();
   const intervalMs = project.scanIntervalHours * 3600_000;
 
-  /** Handled failure: user-safe `scanError`, `ERROR`, no BullMQ retry. */
-  const recordHandled = async (message: string, countIt: boolean): Promise<number> => {
+  /** Atomic failure persistence: computes `nextScanAt` + `errorCount` (and optional `isPrivate`) in one query. */
+  const recordScanFailure = async (opts: {
+    message: string;
+    countIt: boolean;
+    normalRescanMs: number;
+    markPrivate?: boolean;
+  }): Promise<number> => {
     const at = now();
-    const { errorCount } = await prisma.dependencyProject.update({
-      where: { id: projectId },
-      data: {
-        scanStatus: "ERROR",
-        scanError: message,
-        nextScanAt: new Date(at.getTime() + intervalMs),
-        ...(countIt ? { errorCount: { increment: 1 } } : {}),
-      },
-      select: { errorCount: true },
-    });
-    if (countIt && errorCount >= MAX_ERROR_COUNT) {
-      await prisma.dependencyProject.update({
+    const normalNextScanAt = new Date(at.getTime() + opts.normalRescanMs);
+    const pausedNextScanAt = new Date(at.getTime() + PAUSED_RESCAN_MS);
+    let errorCount: number;
+    if (typeof (prisma as { $queryRaw?: unknown }).$queryRaw === "function") {
+      const increment = opts.countIt ? 1 : 0;
+      const markPrivate = Boolean(opts.markPrivate);
+      const rows = await prisma.$queryRaw<Array<{ errorCount: number }>>`
+        UPDATE "DependencyProject"
+        SET
+          "scanStatus" = 'ERROR'::"DepsScanStatus",
+          "scanError" = ${opts.message},
+          "errorCount" = "errorCount" + ${increment},
+          "nextScanAt" = CASE
+            WHEN ${opts.countIt} AND "errorCount" + ${increment} >= ${MAX_ERROR_COUNT} THEN ${pausedNextScanAt}
+            ELSE ${normalNextScanAt}
+          END,
+          "isPrivate" = CASE WHEN ${markPrivate} THEN true ELSE "isPrivate" END,
+          "updatedAt" = ${at}
+        WHERE "id" = ${projectId}
+        RETURNING "errorCount"
+      `;
+      errorCount = rows[0]?.errorCount ?? project.errorCount + increment;
+    } else {
+      const paused = opts.countIt && project.errorCount + 1 >= MAX_ERROR_COUNT;
+      const updated = await prisma.dependencyProject.update({
         where: { id: projectId },
-        data: { nextScanAt: new Date(at.getTime() + PAUSED_RESCAN_MS) },
+        data: {
+          scanStatus: "ERROR",
+          scanError: opts.message,
+          nextScanAt: paused ? pausedNextScanAt : normalNextScanAt,
+          ...(opts.countIt ? { errorCount: { increment: 1 } } : {}),
+          ...(opts.markPrivate ? { isPrivate: true } : {}),
+        },
+        select: { errorCount: true },
       });
+      errorCount = updated.errorCount;
     }
-    await scanFailed(message);
+    await scanFailed(opts.message);
     return errorCount;
   };
 
-  await prisma.dependencyProject.update({ where: { id: projectId }, data: { scanStatus: "SCANNING" } });
+  /** Handled failure: user-safe `scanError`, `ERROR`, no BullMQ retry. */
+  const recordHandled = (message: string, countIt: boolean, markPrivate = false): Promise<number> =>
+    recordScanFailure({ message, countIt, normalRescanMs: intervalMs, markPrivate });
+
+  await prisma.dependencyProject.update({
+    where: { id: projectId },
+    data: { scanStatus: "SCANNING" },
+    select: { id: true },
+  });
   const firstScan = project.lastScannedAt === null;
 
   try {
@@ -293,19 +356,18 @@ export async function processDepsScan(
     );
     const { candidate, octokit } = fetched;
     let { snapshot } = fetched;
-    if (snapshot.repository.id !== project.githubRepoId)
+    if (BigInt(snapshot.repository.id) !== project.githubRepoId)
       throw new GitHubRepositoryNotFoundError(project.owner, project.name);
     if (snapshot.unchanged && cachedTree) {
       snapshot = { ...snapshot, entries: cachedTree.entries, truncated: cachedTree.truncated };
     } else if (snapshot.commitSha && deps.treeCache) {
-      await deps.treeCache.set(snapshot.repository.id, snapshot.commitSha, {
+      await deps.treeCache.set(BigInt(snapshot.repository.id), snapshot.commitSha, {
         entries: snapshot.entries,
         truncated: snapshot.truncated,
       });
     }
     if (snapshot.repository.isPrivate && candidate.source !== "app") {
-      await prisma.dependencyProject.update({ where: { id: projectId }, data: { isPrivate: true } });
-      await recordHandled(PRIVATE_WITHOUT_APP_MESSAGE, false);
+      await recordHandled(PRIVATE_WITHOUT_APP_MESSAGE, false, true);
       return { status: "PRIVATE_WITHOUT_APP" };
     }
     // Private repository read with the App token: the installation alone never grants access, so the owner's
@@ -342,7 +404,20 @@ export async function processDepsScan(
 
     // Step 3: registries + policy.
     const [storedManifests, storedUpdates] = await Promise.all([
-      prisma.dependencyManifest.findMany({ where: { projectId }, select: { id: true, path: true } }),
+      prisma.dependencyManifest.findMany({
+        where: { projectId },
+        select: {
+          id: true,
+          path: true,
+          ecosystem: true,
+          packageManager: true,
+          lockfilePath: true,
+          workspaceRoot: true,
+          blobSha: true,
+          dependencyCount: true,
+          warnings: true,
+        },
+      }),
       prisma.dependencyUpdate.findMany({ where: { projectId } }),
     ]);
     const manifestPathById = new Map(storedManifests.map((m) => [m.id, m.path]));
@@ -372,37 +447,55 @@ export async function processDepsScan(
       }),
     );
     const detectedPaths = analysis.manifests.map((m) => m.detected.path);
+    const detectedPathSet = new Set(detectedPaths);
+    const storedByPath = new Map(storedManifests.map((m) => [m.path, m]));
     const manifestIds = await prisma.$transaction(async (tx) => {
-      await tx.dependencyManifest.deleteMany({ where: { projectId, path: { notIn: detectedPaths } } });
-      const manifestRows = await Promise.all(
-        analysis.manifests.map((manifest, index) => {
-          const { detected } = manifest;
-          // Project-level warnings (manifest / dependency caps) are shown with the first manifest.
-          const warnings = index === 0 ? [...new Set([...analysis.warnings, ...manifest.warnings])] : manifest.warnings;
-          const data = {
-            ecosystem: detected.ecosystem,
-            packageManager: detected.packageManager,
-            lockfilePath: detected.lockfilePath,
-            workspaceRoot: detected.workspaceRoot,
-            blobSha: detected.blobSha ?? "",
-            dependencyCount: manifest.dependencies.length,
-            warnings,
-          };
-          return tx.dependencyManifest
-            .upsert({
-              where: { projectId_path: { projectId, path: detected.path } },
-              create: { projectId, path: detected.path, ...data },
-              update: data,
-              select: { id: true },
-            })
-            .then((row) => [detected.path, row.id] as const);
-        }),
-      );
-      const idsByPath = new Map<string, string>(manifestRows);
+      if (storedManifests.some((m) => !detectedPathSet.has(m.path))) {
+        await tx.dependencyManifest.deleteMany({ where: { projectId, path: { notIn: detectedPaths } } });
+      }
+      const idsByPath = new Map<string, string>();
+      const manifestsToCreate: Array<ManifestData & { projectId: string; path: string }> = [];
+      const manifestsToUpdate: Array<{ id: string; data: ManifestData }> = [];
+
+      for (const [index, manifest] of analysis.manifests.entries()) {
+        const { detected } = manifest;
+        // Project-level warnings (manifest / dependency caps) are shown with the first manifest.
+        const warnings = index === 0 ? [...new Set([...analysis.warnings, ...manifest.warnings])] : manifest.warnings;
+        const data: ManifestData = {
+          ecosystem: detected.ecosystem,
+          packageManager: detected.packageManager,
+          lockfilePath: detected.lockfilePath,
+          workspaceRoot: detected.workspaceRoot,
+          blobSha: detected.blobSha ?? "",
+          dependencyCount: manifest.dependencies.length,
+          warnings,
+        };
+        const existing = storedByPath.get(detected.path);
+        if (!existing) {
+          manifestsToCreate.push({ projectId, path: detected.path, ...data });
+        } else {
+          idsByPath.set(detected.path, existing.id);
+          if (manifestChanged(existing, data)) manifestsToUpdate.push({ id: existing.id, data });
+        }
+      }
+      if (manifestsToCreate.length > 0) {
+        const created = await tx.dependencyManifest.createManyAndReturn({
+          data: manifestsToCreate,
+          select: { id: true, path: true },
+        });
+        for (const row of created) idsByPath.set(row.path, row.id);
+      }
+      if (manifestsToUpdate.length > 0) {
+        await Promise.all(
+          manifestsToUpdate.map((entry) =>
+            tx.dependencyManifest.update({ where: { id: entry.id }, data: entry.data, select: { id: true } }),
+          ),
+        );
+      }
 
       const keep = new Set<string>();
       const toCreate: Array<Record<string, unknown>> = [];
-      const toUpdate: Array<{ id: string; data: Record<string, unknown> }> = [];
+      const toUpdate: Array<{ id: string; data: RowData; firstSeenAt: Date; notifiedAt: Date | null }> = [];
       for (const item of planned) {
         const data = rowData(item);
         if (!data) continue;
@@ -428,23 +521,83 @@ export async function processDepsScan(
         if (!sameTarget || rowChanged(existing, data)) {
           toUpdate.push({
             id: existing.id,
+            data,
             // Same target: keep firstSeenAt / notifiedAt. A new target is new news.
-            data: { ...data, ...(sameTarget ? {} : { firstSeenAt: scannedAt, notifiedAt: null }) },
+            firstSeenAt: sameTarget ? existing.firstSeenAt : scannedAt,
+            notifiedAt: sameTarget ? existing.notifiedAt : null,
           });
         }
       }
-      const UPDATE_BATCH_SIZE = 50;
-      for (let i = 0; i < toUpdate.length; i += UPDATE_BATCH_SIZE) {
-        const batch = toUpdate.slice(i, i + UPDATE_BATCH_SIZE);
-        await Promise.all(
-          batch.map((entry) =>
-            tx.dependencyUpdate.update({ where: { id: entry.id }, data: entry.data, select: { id: true } }),
-          ),
-        );
+      if (toUpdate.length > 0) {
+        toUpdate.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+        if (toUpdate.length > 1 && typeof (tx as { $executeRaw?: unknown }).$executeRaw === "function") {
+          const payload = toUpdate.map((entry) => ({
+            id: entry.id,
+            declared: entry.data.declared,
+            currentVersion: entry.data.currentVersion,
+            wantedVersion: entry.data.wantedVersion,
+            targetVersion: entry.data.targetVersion,
+            latestVersion: entry.data.latestVersion,
+            level: entry.data.level,
+            status: entry.data.status,
+            targetReleasedAt: entry.data.targetReleasedAt ? entry.data.targetReleasedAt.toISOString() : null,
+            sourceRepoUrl: entry.data.sourceRepoUrl,
+            firstSeenAt: entry.firstSeenAt.toISOString(),
+            notifiedAt: entry.notifiedAt ? entry.notifiedAt.toISOString() : null,
+          }));
+          await tx.$executeRaw`
+            UPDATE "DependencyUpdate" AS u
+            SET
+              "declared" = v."declared",
+              "currentVersion" = v."currentVersion",
+              "wantedVersion" = v."wantedVersion",
+              "targetVersion" = v."targetVersion",
+              "latestVersion" = v."latestVersion",
+              "level" = v."level"::"SemverType",
+              "status" = v."status"::"DependencyUpdateStatus",
+              "targetReleasedAt" = v."targetReleasedAt",
+              "sourceRepoUrl" = v."sourceRepoUrl",
+              "firstSeenAt" = v."firstSeenAt",
+              "notifiedAt" = v."notifiedAt"
+            FROM jsonb_to_recordset(${JSON.stringify(payload)}::jsonb) AS v(
+              "id" text,
+              "declared" text,
+              "currentVersion" text,
+              "wantedVersion" text,
+              "targetVersion" text,
+              "latestVersion" text,
+              "level" text,
+              "status" text,
+              "targetReleasedAt" timestamptz,
+              "sourceRepoUrl" text,
+              "firstSeenAt" timestamptz,
+              "notifiedAt" timestamptz
+            )
+            WHERE u."id" = v."id"
+          `;
+        } else {
+          for (let i = 0; i < toUpdate.length; i += UPDATE_BATCH_SIZE) {
+            const batch = toUpdate.slice(i, i + UPDATE_BATCH_SIZE);
+            await Promise.all(
+              batch.map((entry) =>
+                tx.dependencyUpdate.update({
+                  where: { id: entry.id },
+                  data: { ...entry.data, firstSeenAt: entry.firstSeenAt, notifiedAt: entry.notifiedAt },
+                  select: { id: true },
+                }),
+              ),
+            );
+          }
+        }
       }
       const stale = [...existingByKey].filter(([key]) => !keep.has(key)).map(([, row]) => row.id);
       if (stale.length > 0) await tx.dependencyUpdate.deleteMany({ where: { id: { in: stale } } });
-      if (toCreate.length > 0) await tx.dependencyUpdate.createMany({ data: toCreate as never });
+      for (let i = 0; i < toCreate.length; i += CREATE_BATCH_SIZE) {
+        await tx.dependencyUpdate.createMany({
+          data: toCreate.slice(i, i + CREATE_BATCH_SIZE) as never,
+          skipDuplicates: true,
+        });
+      }
 
       await tx.dependencyProject.update({
         where: { id: projectId },
@@ -522,7 +675,11 @@ export async function processDepsScan(
   } catch (error) {
     if (error instanceof GitHubRateLimitError) {
       const delayMs = rateLimitDelayMs(error.resetAt, now());
-      await prisma.dependencyProject.update({ where: { id: projectId }, data: { scanStatus: "QUEUED" } });
+      await prisma.dependencyProject.update({
+        where: { id: projectId },
+        data: { scanStatus: "QUEUED" },
+        select: { id: true },
+      });
       await deps.scanQueue.rateLimit(delayMs);
       log.warn(
         { ...ctx, delayMs },
@@ -541,26 +698,17 @@ export async function processDepsScan(
     const message = isRegistryUnavailableError(error) ? registryMessage(error) : SCAN_FAILED_MESSAGE;
     try {
       if (finalAttempt) {
-        const at = now();
-        const { errorCount } = await prisma.dependencyProject.update({
-          where: { id: projectId },
-          data: {
-            scanStatus: "ERROR",
-            scanError: message,
-            errorCount: { increment: 1 },
-            nextScanAt: new Date(at.getTime() + Math.min(intervalMs, FAILED_RESCAN_MAX_MS)),
-          },
-          select: { errorCount: true },
+        await recordScanFailure({
+          message,
+          countIt: true,
+          normalRescanMs: Math.min(intervalMs, FAILED_RESCAN_MAX_MS),
         });
-        if (errorCount >= MAX_ERROR_COUNT) {
-          await prisma.dependencyProject.update({
-            where: { id: projectId },
-            data: { nextScanAt: new Date(at.getTime() + PAUSED_RESCAN_MS) },
-          });
-        }
-        await scanFailed(message);
       } else {
-        await prisma.dependencyProject.update({ where: { id: projectId }, data: { scanStatus: "QUEUED" } });
+        await prisma.dependencyProject.update({
+          where: { id: projectId },
+          data: { scanStatus: "QUEUED" },
+          select: { id: true },
+        });
       }
     } catch (recordError) {
       log.error({ ...ctx, err: recordError }, `${project.fullName}: could not record the failure`);
@@ -613,10 +761,15 @@ async function refreshPullRequests(
         const at = deps.now?.() ?? new Date();
         let next: "MERGED" | "CLOSED" | "EDITED" | null = null;
         if (state.state === "closed" && state.merged) {
-          await prisma.dependencyPullRequest.update({
-            where: { id: pr.id },
-            data: { state: "MERGED", closedAt: at },
-            select: { id: true },
+          await prisma.$transaction(async (tx) => {
+            await tx.dependencyPullRequest.update({
+              where: { id: pr.id },
+              data: { state: "MERGED", closedAt: at },
+              select: { id: true },
+            });
+            await tx.dependencyBranchWriteIntent.deleteMany({
+              where: { projectId: project.id, groupKey: pr.groupKey },
+            });
           });
           next = "MERGED";
         } else if (state.state === "closed") {
@@ -637,6 +790,9 @@ async function refreshPullRequests(
                 data: { status: "DISMISSED" },
               });
             }
+            await tx.dependencyBranchWriteIntent.deleteMany({
+              where: { projectId: project.id, groupKey: pr.groupKey },
+            });
           });
           next = "CLOSED";
         } else if (state.headSha !== pr.headSha) {
@@ -647,11 +803,19 @@ async function refreshPullRequests(
           // A bot push can succeed before its job exhausts retries on PR API / DB failures.
           // Keep it eligible for automatic recovery; only the exact durable SHA is trusted.
           if (intent?.commitSha === state.headSha || intent?.previousHeadSha === state.headSha) return null;
-          const changed = await prisma.dependencyPullRequest.updateMany({
-            where: { id: pr.id, state: "OPEN", headSha: pr.headSha },
-            data: { state: "EDITED" },
+          const changedCount = await prisma.$transaction(async (tx) => {
+            const changed = await tx.dependencyPullRequest.updateMany({
+              where: { id: pr.id, state: "OPEN", headSha: pr.headSha },
+              data: { state: "EDITED" },
+            });
+            if (changed.count > 0) {
+              await tx.dependencyBranchWriteIntent.deleteMany({
+                where: { projectId: project.id, groupKey: pr.groupKey },
+              });
+            }
+            return changed.count;
           });
-          if (changed.count === 0) return null;
+          if (changedCount === 0) return null;
           next = "EDITED";
           await notifyPullRequestEvent(deps, project, pr.id, "edited", "edited");
         }

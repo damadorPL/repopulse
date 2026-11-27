@@ -1,3 +1,4 @@
+import type * as DbModule from "@repopulse/db";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 class UnauthorizedError extends Error {}
@@ -18,7 +19,10 @@ vi.mock("@/lib/auth", () => ({
   getCurrentUserOrThrow: vi.fn(async () => currentUser),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("@repopulse/db", () => ({ prisma }));
+vi.mock("@repopulse/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof DbModule>();
+  return { ...actual, prisma };
+});
 vi.mock("@repopulse/github", () => ({
   GitHubRateLimitError: class extends Error {},
   GitHubRepositoryNotFoundError: class extends Error {},
@@ -137,5 +141,43 @@ describe("markAllReadAction", () => {
     prisma.userReleaseState.updateMany.mockClear();
     expect(await markAllReadAction({})).toEqual({ ok: true, data: { count: 0 } });
     expect(prisma.userReleaseState.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("uses $queryRaw searchVector matching IDs when searchQuery and $queryRaw are present", async () => {
+    const queryRaw = vi.fn().mockResolvedValueOnce([{ id: "rel-a" }, { id: "rel-b" }]);
+    (prisma as { $queryRaw?: unknown }).$queryRaw = queryRaw;
+    try {
+      prisma.tag.findMany.mockResolvedValueOnce([]);
+      prisma.userSubscription.findMany.mockResolvedValueOnce([
+        {
+          id: "sub1",
+          repositoryId: "repo1",
+          includePrereleases: false,
+          trackMode: "RELEASES",
+          trackPaths: false,
+          currentVersion: null,
+          repository: {
+            id: "repo1",
+            owner: "acme",
+            name: "react",
+            fullName: "acme/react",
+            avatarUrl: null,
+            htmlUrl: "https://github.com/acme/react",
+          },
+          tags: [],
+        },
+      ]);
+      prisma.userReleaseState.updateMany.mockResolvedValueOnce({ count: 2 });
+
+      const result = await markAllReadAction({ searchQuery: "hooks" });
+      expect(result).toEqual({ ok: true, data: { count: 2 } });
+      expect(queryRaw).toHaveBeenCalledTimes(1);
+      expect(prisma.userReleaseState.updateMany).toHaveBeenCalledWith({
+        where: { userId: "u1", isRead: false, releaseId: { in: ["rel-a", "rel-b"] } },
+        data: { isRead: true, readAt: expect.any(Date) },
+      });
+    } finally {
+      delete (prisma as { $queryRaw?: unknown }).$queryRaw;
+    }
   });
 });

@@ -15,8 +15,11 @@
 
 | Variable | Used by | Default | Notes |
 | --- | --- | --- | --- |
-| `DATABASE_URL` | `web`, `worker`, `deps-worker`, `migrator`, Prisma CLI | — | Compose builds it from `POSTGRES_*` |
-| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | compose | `repopulse` / — / `repopulse` | |
+| `DATABASE_URL` | `web`, `worker`, `deps-worker`, `migrator`, Prisma CLI | — | Compose builds `migrator`'s URL from `POSTGRES_*` and runtime services' URL from `POSTGRES_APP_USER` / `SERVICE_PASSWORD_64_POSTGRESAPP` |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | compose (`postgres`, `migrator`) | `repopulse` / — / `repopulse` | Database owner / superuser used only by Postgres init and `migrator` |
+| `POSTGRES_APP_USER` / `POSTGRES_APP_PASSWORD` | compose (`migrator`, `web`, `worker`, `deps-worker`) | `repopulse_app` / — | Least-privilege runtime role (`NOSUPERUSER`, `statement_timeout=30s`, `lock_timeout=10s`, `idle_in_transaction_session_timeout=60s`) provisioned by `migrator`. In `docker-compose.coolify.yml`, `SERVICE_PASSWORD_64_POSTGRESAPP` is Coolify's auto-generated password (`.env.example` reuses `${POSTGRES_APP_PASSWORD}`) |
+| `DATABASE_POOL_MAX` | `web`, `worker`, `deps-worker` | `10` (`15` on `worker` in Compose) | `pg.Pool` max connections (`1..100`); `docker-compose.coolify.yml` reads `DATABASE_POOL_MAX_WEB` / `DATABASE_POOL_MAX_WORKER` / `DATABASE_POOL_MAX_DEPS_WORKER` |
+| `DATABASE_APP_NAME` | `web`, `worker`, `deps-worker` | `repopulse` (`PGAPPNAME` fallback) | Sets PostgreSQL `application_name` (`repopulse-web`, `repopulse-worker`, `repopulse-deps-worker` in Compose) |
 | `REDIS_URL` | `web`, `worker`, `deps-worker` | — | Compose: `redis://:${REDIS_PASSWORD}@redis:6379`. Without it, web sync and SSE return `UNAVAILABLE` / 503 and workers refuse to start |
 | `REDIS_PASSWORD` | compose | — | |
 | `AUTH_SECRET` | `web` | — | `openssl rand -hex 32` |

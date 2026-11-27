@@ -269,7 +269,7 @@ describe("processDepsScan", () => {
       app: true,
       installed: true,
     });
-    prisma.dependencyPrOwner.rows.push({ githubRepoId: 42, projectId: "p1" });
+    prisma.dependencyPrOwner.rows.push({ githubRepoId: 42n, projectId: "p1" });
     github.state.permissions.delete("dev");
     github.state.logins.delete("1001");
     expect(await processDepsScan(scanJob(), deps)).toEqual({ status: "NO_ACCESS", switchedToNotify: true });
@@ -421,7 +421,7 @@ describe("processDepsScan", () => {
           app: true,
           installed: true,
         });
-        prisma.dependencyPrOwner.rows.push({ githubRepoId: 42, projectId: "p1" });
+        prisma.dependencyPrOwner.rows.push({ githubRepoId: 42n, projectId: "p1" });
         await withOpenPr(github, prisma);
         github.push("repopulse/deps/all", { "requirements.txt": "requests==2.33.0\n" });
         const currentHead = github.branches.get("repopulse/deps/all");
@@ -465,7 +465,7 @@ describe("processDepsScan", () => {
       app: true,
       installed: true,
     });
-    prisma.dependencyPrOwner.rows.push({ githubRepoId: 42, projectId: "p1" });
+    prisma.dependencyPrOwner.rows.push({ githubRepoId: 42n, projectId: "p1" });
     expect(await processDepsScan(scanJob(), deps)).toMatchObject({ autoUpdates: 1 });
     expect(queues.updateQueue.addBulk).toHaveBeenCalledWith([
       expect.objectContaining({
@@ -552,9 +552,9 @@ describe("processDepsScan", () => {
     const { deps, prisma, github } = setup();
     const treeStore = new Map<string, { entries: unknown[]; truncated: boolean }>();
     const treeCache = {
-      get: vi.fn(async (id: number, sha: string) => (treeStore.get(`${id}:${sha}`) as never) ?? null),
-      set: vi.fn(async (id: number, sha: string, val: { entries: unknown[]; truncated: boolean }) => {
-        treeStore.set(`${id}:${sha}`, val);
+      get: vi.fn(async (id: bigint | number, sha: string) => (treeStore.get(`${String(id)}:${sha}`) as never) ?? null),
+      set: vi.fn(async (id: bigint | number, sha: string, val: { entries: unknown[]; truncated: boolean }) => {
+        treeStore.set(`${String(id)}:${sha}`, val);
       }),
     };
     const scanDeps = { ...deps, treeCache };
@@ -562,7 +562,7 @@ describe("processDepsScan", () => {
     // First scan populates treeCache with lastScannedSha.
     expect(await processDepsScan(scanJob(), scanDeps)).toMatchObject({ status: "SCANNED" });
     const headSha = prisma.dependencyProject.rows[0]!.lastScannedSha as string;
-    expect(treeCache.set).toHaveBeenCalledWith(42, headSha, expect.objectContaining({ truncated: false }));
+    expect(treeCache.set).toHaveBeenCalledWith(42n, headSha, expect.objectContaining({ truncated: false }));
 
     // Second scan passes knownCommitSha and receives unchanged: true with empty entries -> hydrates from treeCache.
     const origFetch = github.raw.fetchGitTree;
@@ -574,7 +574,105 @@ describe("processDepsScan", () => {
       return snap;
     });
     expect(await processDepsScan(scanJob(), scanDeps)).toMatchObject({ status: "SCANNED" });
-    expect(treeCache.get).toHaveBeenCalledWith(42, headSha);
+    expect(treeCache.get).toHaveBeenCalledWith(42n, headSha);
     expect(github.raw.fetchGitTree).toHaveBeenCalledWith(expect.objectContaining({ knownCommitSha: headSha }));
+  });
+
+  it("batches multi-row DependencyUpdate updates via a single sorted $executeRaw and skips unchanged manifests", async () => {
+    const { deps, prisma } = setup({
+      files: { "requirements.txt": "requests==2.31.0\nflask==2.0.0\n" },
+      registry: fakeRegistry({
+        "PYPI:requests": [version("2.31.0", 300), version("2.32.0", 40)],
+        "PYPI:flask": [version("2.0.0", 300), version("2.1.0", 40)],
+      }),
+    });
+    await processDepsScan(scanJob(), deps);
+    expect(prisma.dependencyUpdate.rows).toHaveLength(2);
+
+    // Re-scan with identical state: no manifest update/create, no update calls.
+    const manifestUpdateSpy = vi.spyOn(prisma.dependencyManifest, "update");
+    const manifestCreateSpy = vi.spyOn(prisma.dependencyManifest, "createManyAndReturn");
+    await processDepsScan(scanJob(), deps);
+    expect(manifestUpdateSpy).not.toHaveBeenCalled();
+    expect(manifestCreateSpy).not.toHaveBeenCalled();
+
+    // Update both rows while attaching $executeRaw to verify the single SQL batch path.
+    deps.registry = fakeRegistry({
+      "PYPI:requests": [version("2.31.0", 300), version("2.33.0", 40)],
+      "PYPI:flask": [version("2.0.0", 300), version("2.2.0", 40)],
+    });
+    const executeRaw = vi.fn(async () => 2);
+    const updateSpy = vi.spyOn(prisma.dependencyUpdate, "update");
+    (prisma as unknown as { $executeRaw: typeof executeRaw }).$executeRaw = executeRaw;
+
+    await processDepsScan(scanJob(), deps);
+    expect(updateSpy).not.toHaveBeenCalled();
+    expect(executeRaw).toHaveBeenCalledTimes(1);
+    const [strings, jsonArg] = executeRaw.mock.calls[0] as unknown as [TemplateStringsArray, string];
+    expect(strings.join("")).toContain('UPDATE "DependencyUpdate" AS u');
+    expect(strings.join("")).toContain('::"SemverType"');
+    expect(strings.join("")).toContain('::"DependencyUpdateStatus"');
+    const parsed = JSON.parse(jsonArg) as Array<{ id: string; targetVersion: string }>;
+    expect(parsed).toHaveLength(2);
+    expect(parsed.map((r) => r.id)).toEqual(parsed.map((r) => r.id).toSorted());
+  });
+
+  it("chunks dependencyUpdate.createMany in batches of 500 with skipDuplicates", async () => {
+    const reqLines =
+      Array.from({ length: 505 }, (_, i) => `pkg-${String(i).padStart(3, "0")}==1.0.0`).join("\n") + "\n";
+    const registryMap: Record<string, ReturnType<typeof version>[]> = {};
+    for (let i = 0; i < 505; i++) {
+      registryMap[`PYPI:pkg-${String(i).padStart(3, "0")}`] = [version("1.0.0", 300), version("1.1.0", 40)];
+    }
+    const { deps, prisma } = setup({
+      files: { "requirements.txt": reqLines },
+      registry: fakeRegistry(registryMap),
+    });
+    const createManySpy = vi.spyOn(prisma.dependencyUpdate, "createMany");
+    await processDepsScan(scanJob(), deps);
+    expect(createManySpy).toHaveBeenCalledTimes(2);
+    expect(createManySpy.mock.calls[0]![0]).toMatchObject({ skipDuplicates: true });
+    expect((createManySpy.mock.calls[0]![0] as { data: unknown[] }).data).toHaveLength(500);
+    expect((createManySpy.mock.calls[1]![0] as { data: unknown[] }).data).toHaveLength(5);
+  });
+
+  it("uses atomic $queryRaw for error recording and cleans up branch write intents on terminal PR transitions", async () => {
+    const { deps, prisma, github } = setup({ project: { errorCount: MAX_ERROR_COUNT - 1 } });
+    const queryRaw = vi.fn(async () => [{ errorCount: MAX_ERROR_COUNT }]);
+    (prisma as unknown as { $queryRaw: typeof queryRaw }).$queryRaw = queryRaw;
+    github.state.notFound = true;
+    expect(await processDepsScan(scanJob(), deps)).toEqual({ status: "NOT_FOUND", errorCount: MAX_ERROR_COUNT });
+    expect(queryRaw).toHaveBeenCalledTimes(1);
+    delete (prisma as unknown as { $queryRaw?: unknown }).$queryRaw;
+
+    // Terminal PR transition (MERGED) cleans up leftover DependencyBranchWriteIntent.
+    github.state.notFound = false;
+    github.push("repopulse/deps/all", { "requirements.txt": "requests==2.32.3\n" });
+    const pr = await github.raw.upsertPullRequest(
+      {},
+      { head: "repopulse/deps/all", base: "main", title: "t", body: "b" },
+    );
+    prisma.dependencyPullRequest.rows.push({
+      id: "pr-merged",
+      projectId: "p1",
+      groupKey: "all",
+      branch: "repopulse/deps/all",
+      number: pr.number,
+      htmlUrl: pr.htmlUrl,
+      state: "OPEN",
+      headSha: github.branches.get("repopulse/deps/all"),
+      targets: ["requirements.txt#requests@2.32.3"],
+      openedAt: NOW,
+      closedAt: null,
+    });
+    prisma.dependencyBranchWriteIntent.rows.push({
+      projectId: "p1",
+      groupKey: "all",
+      commitSha: "stale-sha",
+      previousHeadSha: null,
+    });
+    github.mergePr(pr.number);
+    await processDepsScan(scanJob(), deps);
+    expect(prisma.dependencyBranchWriteIntent.rows).toEqual([]);
   });
 });

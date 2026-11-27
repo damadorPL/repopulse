@@ -5,6 +5,7 @@
 # Local test: cp .env.example .env && docker compose -f docker-compose.coolify.yml up --build
 
 x-database-url: &database-url postgresql://${POSTGRES_USER:-repopulse}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-repopulse}
+x-app-database-url: &app-database-url postgresql://${POSTGRES_APP_USER:-repopulse_app}:${SERVICE_PASSWORD_64_POSTGRESAPP}@postgres:5432/${POSTGRES_DB:-repopulse}
 x-redis-url: &redis-url redis://:${REDIS_PASSWORD}@redis:6379
 
 services:
@@ -14,6 +15,8 @@ services:
       context: ./deploy/postgres
       dockerfile: Dockerfile
     restart: unless-stopped
+    shm_size: 256m
+    stop_grace_period: 60s
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-repopulse}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -47,6 +50,8 @@ services:
       target: migrator
     environment:
       DATABASE_URL: *database-url
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:-repopulse_app}
+      POSTGRES_APP_PASSWORD: ${SERVICE_PASSWORD_64_POSTGRESAPP}
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,9 +62,12 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
     restart: unless-stopped
+    stop_grace_period: 20s
     environment:
       NODE_ENV: production
-      DATABASE_URL: *database-url
+      DATABASE_URL: *app-database-url
+      DATABASE_APP_NAME: repopulse-web
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX_WEB:-10}
       REDIS_URL: *redis-url
       AUTH_SECRET: ${AUTH_SECRET}
       AUTH_GITHUB_ID: ${AUTH_GITHUB_ID}
@@ -100,7 +108,9 @@ services:
     stop_grace_period: 30s
     environment:
       NODE_ENV: production
-      DATABASE_URL: *database-url
+      DATABASE_URL: *app-database-url
+      DATABASE_APP_NAME: repopulse-worker
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX_WORKER:-15}
       REDIS_URL: *redis-url
       TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
       POLL_INTERVAL_CRON: ${POLL_INTERVAL_CRON:-*/30 * * * *}
@@ -137,7 +147,9 @@ services:
     stop_grace_period: 30s
     environment:
       NODE_ENV: production
-      DATABASE_URL: *database-url
+      DATABASE_URL: *app-database-url
+      DATABASE_APP_NAME: repopulse-deps-worker
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX_DEPS_WORKER:-10}
       REDIS_URL: *redis-url
       TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
       ALLOW_INTERNAL_WEBHOOK_HOSTS: ${ALLOW_INTERNAL_WEBHOOK_HOSTS:-}

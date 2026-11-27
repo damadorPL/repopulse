@@ -20,4 +20,21 @@ RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint-upgrade.sh \
  && chmod 0755 /usr/local/bin/docker-entrypoint-upgrade.sh
 
 ENTRYPOINT ["docker-entrypoint-upgrade.sh"]
-CMD ["postgres"]
+CMD [ \
+  "postgres", \
+  "-c", "shared_preload_libraries=pg_stat_statements", \
+  "-c", "pg_stat_statements.track=top", \
+  "-c", "shared_buffers=256MB", \
+  "-c", "effective_cache_size=768MB", \
+  "-c", "work_mem=16MB", \
+  "-c", "maintenance_work_mem=128MB", \
+  "-c", "random_page_cost=1.1", \
+  "-c", "effective_io_concurrency=200", \
+  "-c", "jit=off", \
+  "-c", "wal_compression=zstd", \
+  "-c", "idle_in_transaction_session_timeout=60s", \
+  "-c", "idle_session_timeout=10min", \
+  "-c", "log_min_duration_statement=500", \
+  "-c", "log_lock_waits=on", \
+  "-c", "log_temp_files=0" \
+]

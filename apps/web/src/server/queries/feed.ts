@@ -157,9 +157,6 @@ export function buildFeedWhere(userId: string, filters: Partial<FeedFilters>): P
 
   const q = filters.searchQuery?.trim();
   if (q) {
-    // Case-insensitive substring match (ILIKE) over repo names, release tag/title, changelog
-    // bodies and the user's tag names. Fine at self-hosted scale; a pg_trgm / tsvector index
-    // is the upgrade path if feeds grow large.
     const contains = { contains: q, mode: "insensitive" } as const;
     and.push({
       OR: [
@@ -506,6 +503,211 @@ export function afterCursorWhere(
   };
 }
 
+function hasRawSqlSupport(): boolean {
+  return typeof prisma.$queryRaw === "function" && typeof Prisma?.sql === "function";
+}
+
+function escapeLike(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
+}
+
+function bucketSubscriptions(subscriptions: readonly SubscriptionVisibility[]) {
+  const releaseStable: string[] = [];
+  const releaseAll: string[] = [];
+  const tagStable: string[] = [];
+  const tagAll: string[] = [];
+  const commitStable: string[] = [];
+  const commitAll: string[] = [];
+
+  for (const sub of subscriptions) {
+    if (sub.trackMode === "RELEASES" || sub.trackMode === "TAGS_AND_COMMITS") {
+      if (sub.includePrereleases) releaseAll.push(sub.repositoryId);
+      else releaseStable.push(sub.repositoryId);
+    }
+    if (sub.trackMode === "TAGS_AND_COMMITS") {
+      if (sub.includePrereleases) tagAll.push(sub.repositoryId);
+      else tagStable.push(sub.repositoryId);
+    }
+    if (sub.trackPaths) {
+      if (sub.includePrereleases) commitAll.push(sub.repositoryId);
+      else commitStable.push(sub.repositoryId);
+    }
+  }
+
+  return { releaseStable, releaseAll, tagStable, tagAll, commitStable, commitAll };
+}
+
+function buildSqlVisibilityBranches(
+  userId: string,
+  subscriptions: readonly SubscriptionVisibility[],
+  options?: VisibleReleasesOptions,
+): Prisma.Sql[] {
+  const { releaseStable, releaseAll, tagStable, tagAll, commitStable, commitAll } = bucketSubscriptions(subscriptions);
+  const commitStateGuard = options?.assumeUserStateExists
+    ? Prisma.empty
+    : Prisma.sql` AND EXISTS (SELECT 1 FROM "UserReleaseState" urs WHERE urs."releaseId" = r."id" AND urs."userId" = ${userId})`;
+
+  const sqlBranches: Prisma.Sql[] = [];
+  if (releaseStable.length > 0) {
+    sqlBranches.push(
+      Prisma.sql`(r."source" = 'RELEASE' AND r."isPrerelease" = false AND r."repositoryId" = ANY(${releaseStable}::text[]))`,
+    );
+  }
+  if (releaseAll.length > 0) {
+    sqlBranches.push(Prisma.sql`(r."source" = 'RELEASE' AND r."repositoryId" = ANY(${releaseAll}::text[]))`);
+  }
+  if (tagStable.length > 0) {
+    sqlBranches.push(
+      Prisma.sql`(r."source" = 'TAG' AND r."isPrerelease" = false AND r."repositoryId" = ANY(${tagStable}::text[]))`,
+    );
+  }
+  if (tagAll.length > 0) {
+    sqlBranches.push(Prisma.sql`(r."source" = 'TAG' AND r."repositoryId" = ANY(${tagAll}::text[]))`);
+  }
+  if (commitStable.length > 0) {
+    sqlBranches.push(
+      Prisma.sql`(r."source" = 'COMMIT' AND r."isPrerelease" = false AND r."repositoryId" = ANY(${commitStable}::text[])${commitStateGuard})`,
+    );
+  }
+  if (commitAll.length > 0) {
+    sqlBranches.push(
+      Prisma.sql`(r."source" = 'COMMIT' AND r."repositoryId" = ANY(${commitAll}::text[])${commitStateGuard})`,
+    );
+  }
+  return sqlBranches;
+}
+
+function buildSearchConditions(
+  userId: string,
+  filters: Partial<FeedFilters>,
+  subscriptions?: readonly SubscriptionVisibility[],
+  options?: {
+    assumeUserStateExists?: boolean;
+    after?: { publishedAt: Date; id: string } | null;
+    direction?: "asc" | "desc";
+  },
+): Prisma.Sql[] | null {
+  const q = filters.searchQuery?.trim();
+  if (!q) return null;
+  const likePattern = `%${escapeLike(q)}%`;
+  const conditions: Prisma.Sql[] = [Prisma.sql`r."isDraft" = false`];
+
+  if (subscriptions !== undefined) {
+    let matching = subscriptions;
+    if (filters.tagSlug) {
+      matching = matching.filter((sub) => sub.tagSlugs.includes(filters.tagSlug!));
+    }
+    if (filters.repositoryId) {
+      matching = matching.filter((sub) => sub.repositoryId === filters.repositoryId);
+    }
+    const visibilityBranches = buildSqlVisibilityBranches(userId, matching, options);
+    if (visibilityBranches.length === 0) return null;
+    conditions.push(Prisma.sql`(${Prisma.join(visibilityBranches, " OR ")})`);
+
+    if (matching.every((sub) => typeof sub.fullName === "string" && Array.isArray(sub.tagNames))) {
+      const qLower = q.toLowerCase();
+      const matchedRepoIds = matching
+        .filter(
+          (sub) =>
+            sub.fullName!.toLowerCase().includes(qLower) ||
+            sub.tagNames!.some((tagName) => tagName.toLowerCase().includes(qLower)),
+        )
+        .map((sub) => sub.repositoryId);
+      conditions.push(
+        Prisma.sql`(
+          r."searchVector" @@ (websearch_to_tsquery('english', ${q}) || websearch_to_tsquery('simple', ${q}))
+          OR r."tagName" ILIKE ${likePattern}
+          OR r."title" ILIKE ${likePattern}
+          OR r."repositoryId" = ANY(${matchedRepoIds}::text[])
+        )`,
+      );
+    } else {
+      conditions.push(
+        Prisma.sql`(
+          r."searchVector" @@ (websearch_to_tsquery('english', ${q}) || websearch_to_tsquery('simple', ${q}))
+          OR r."tagName" ILIKE ${likePattern}
+          OR r."title" ILIKE ${likePattern}
+          OR EXISTS (
+            SELECT 1 FROM "Repository" repo
+            WHERE repo."id" = r."repositoryId"
+              AND repo."fullName" ILIKE ${likePattern}
+          )
+          OR EXISTS (
+            SELECT 1 FROM "UserSubscription" us
+            INNER JOIN "SubscriptionTag" st ON st."subscriptionId" = us."id"
+            INNER JOIN "Tag" t ON t."id" = st."tagId"
+            WHERE us."repositoryId" = r."repositoryId"
+              AND us."userId" = ${userId}
+              AND t."name" ILIKE ${likePattern}
+          )
+        )`,
+      );
+    }
+  } else {
+    const tagClause = filters.tagSlug
+      ? Prisma.sql`AND EXISTS (
+          SELECT 1 FROM "SubscriptionTag" st
+          INNER JOIN "Tag" t ON t."id" = st."tagId"
+          WHERE st."subscriptionId" = us."id"
+            AND t."slug" = ${filters.tagSlug}
+        )`
+      : Prisma.empty;
+    const commitStateGuard = options?.assumeUserStateExists
+      ? Prisma.empty
+      : Prisma.sql` AND EXISTS (SELECT 1 FROM "UserReleaseState" urs WHERE urs."releaseId" = r."id" AND urs."userId" = ${userId})`;
+
+    conditions.push(
+      Prisma.sql`EXISTS (
+        SELECT 1 FROM "UserSubscription" us
+        WHERE us."repositoryId" = r."repositoryId"
+          AND us."userId" = ${userId}
+          ${tagClause}
+          AND (r."isPrerelease" = false OR us."includePrereleases" = true)
+          AND (
+            (r."source" = 'RELEASE' AND us."trackMode" IN ('RELEASES', 'TAGS_AND_COMMITS'))
+            OR (r."source" = 'TAG' AND us."trackMode" = 'TAGS_AND_COMMITS')
+            OR (r."source" = 'COMMIT' AND us."trackPaths" = true${commitStateGuard})
+          )
+      )`,
+    );
+    conditions.push(
+      Prisma.sql`(
+        r."searchVector" @@ (websearch_to_tsquery('english', ${q}) || websearch_to_tsquery('simple', ${q}))
+        OR r."tagName" ILIKE ${likePattern}
+        OR r."title" ILIKE ${likePattern}
+        OR EXISTS (
+          SELECT 1 FROM "Repository" repo
+          WHERE repo."id" = r."repositoryId"
+            AND repo."fullName" ILIKE ${likePattern}
+        )
+        OR EXISTS (
+          SELECT 1 FROM "UserSubscription" us
+          INNER JOIN "SubscriptionTag" st ON st."subscriptionId" = us."id"
+          INNER JOIN "Tag" t ON t."id" = st."tagId"
+          WHERE us."repositoryId" = r."repositoryId"
+            AND us."userId" = ${userId}
+            AND t."name" ILIKE ${likePattern}
+        )
+      )`,
+    );
+  }
+
+  if (filters.repositoryId) {
+    conditions.push(Prisma.sql`r."repositoryId" = ${filters.repositoryId}`);
+  }
+  if (filters.semverType) {
+    conditions.push(Prisma.sql`r."semverType" = ${filters.semverType}::"SemverType"`);
+  }
+  if (options?.after) {
+    const cmp = options.direction === "asc" ? Prisma.sql`>` : Prisma.sql`<`;
+    conditions.push(
+      Prisma.sql`(r."publishedAt", r."id") ${cmp} (${options.after.publishedAt}::timestamptz, ${options.after.id})`,
+    );
+  }
+
+  return conditions;
+}
+
 /** Cursor-paginated release feed, newest first by default. */
 export async function getReleaseFeed(params: GetReleaseFeedParams): Promise<FeedPage> {
   const { userId, cursor, limit = FEED_PAGE_SIZE, subscriptions, repoContextById, ...filters } = params;
@@ -516,6 +718,77 @@ export async function getReleaseFeed(params: GetReleaseFeedParams): Promise<Feed
 
   const useFlat = Boolean(repoContextById && repoContextById.size > 0);
   const omitOnlyUnread = Boolean(filters.onlyUnread);
+  const searchTerm = filters.searchQuery?.trim();
+
+  if (searchTerm && hasRawSqlSupport()) {
+    const conditions = buildSearchConditions(userId, filters, subscriptions, {
+      assumeUserStateExists: omitOnlyUnread,
+      after,
+      direction,
+    });
+    if (!conditions) return { items: [], nextCursor: null };
+
+    const joinSql = omitOnlyUnread
+      ? Prisma.sql`INNER JOIN "UserReleaseState" urs ON urs."releaseId" = r."id" AND urs."userId" = ${userId} AND urs."isRead" = false`
+      : Prisma.empty;
+    const orderSql =
+      direction === "asc"
+        ? Prisma.sql`ORDER BY r."publishedAt" ASC, r."id" ASC`
+        : Prisma.sql`ORDER BY r."publishedAt" DESC, r."id" DESC`;
+    const matchedRows = await prisma.$queryRaw<Array<{ id: string }>>(
+      Prisma.sql`SELECT r."id"
+        FROM "Release" r
+        ${joinSql}
+        WHERE ${Prisma.join(conditions, " AND ")}
+        ${orderSql}
+        LIMIT ${take + 1}`,
+    );
+    const hasMore = matchedRows.length > take;
+    const pageIds = (hasMore ? matchedRows.slice(0, take) : matchedRows).map((r) => r.id);
+    if (pageIds.length === 0) return { items: [], nextCursor: null };
+
+    if (useFlat && repoContextById) {
+      const rows = (await prisma.release.findMany({
+        where: { id: { in: pageIds } },
+        select: flatFeedItemSelect(userId, !omitOnlyUnread),
+      })) as FlatFeedRow[];
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      const page = pageIds.flatMap((id) => {
+        const row = byId.get(id);
+        return row ? [row] : [];
+      });
+      const last = page.at(-1);
+      const versionByRepo = new Map<string, string>();
+      const items = page.map((row) => {
+        const ctx = repoContextById.get(row.repositoryId);
+        if (!ctx) {
+          throw new Error(`Missing repoContextById entry for repository ${row.repositoryId}`);
+        }
+        if (ctx.currentVersion) versionByRepo.set(row.repositoryId, ctx.currentVersion);
+        return toFeedItemFromContext(row, ctx, omitOnlyUnread ? false : undefined);
+      });
+      return {
+        items: await markNewerThanMine(items, versionByRepo),
+        nextCursor: hasMore && last ? encodeFeedCursor(last) : null,
+      };
+    }
+
+    const rows = await prisma.release.findMany({
+      where: { id: { in: pageIds } },
+      select: feedItemSelect(userId),
+    });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const page = pageIds.map((id) => byId.get(id)).filter((r): r is FeedRow => Boolean(r));
+    const last = page.at(-1);
+    return {
+      items: await markNewerThanMine(
+        page.map((row) => toFeedItem(row, omitOnlyUnread ? false : undefined)),
+        page,
+      ),
+      nextCursor: hasMore && last ? encodeFeedCursor(last) : null,
+    };
+  }
+
   const where = subscriptions
     ? buildFeedWhereForSubscriptions(userId, filters, subscriptions, {
         omitOnlyUnread,
@@ -622,6 +895,21 @@ export async function countUnread(
   filters: Partial<FeedFilters>,
   subscriptions?: readonly SubscriptionVisibility[],
 ): Promise<number> {
+  const searchTerm = filters.searchQuery?.trim();
+  if (searchTerm && hasRawSqlSupport()) {
+    const conditions = buildSearchConditions(userId, filters, subscriptions, { assumeUserStateExists: true });
+    if (!conditions) return 0;
+    const rows = await prisma.$queryRaw<Array<{ count: number }>>(
+      Prisma.sql`SELECT COUNT(*)::int AS "count"
+        FROM "UserReleaseState" urs
+        INNER JOIN "Release" r ON r."id" = urs."releaseId"
+        WHERE urs."userId" = ${userId}
+          AND urs."isRead" = false
+          AND ${Prisma.join(conditions, " AND ")}`,
+    );
+    return Number(rows[0]?.count ?? 0);
+  }
+
   const releaseWhere = subscriptions
     ? buildFeedWhereForSubscriptions(userId, filters, subscriptions, {
         omitOnlyUnread: true,
@@ -632,6 +920,30 @@ export async function countUnread(
   return prisma.userReleaseState.count({
     where: { userId, isRead: false, release: releaseWhere },
   });
+}
+
+/**
+ * Unread release ids matching a search query via the FTS `searchVector` path, or `null` when
+ * there is no search query or `$queryRaw` is unavailable (caller falls back to Prisma `updateMany`).
+ */
+export async function findSearchUnreadReleaseIds(
+  userId: string,
+  filters: Partial<FeedFilters>,
+  subscriptions?: readonly SubscriptionVisibility[],
+): Promise<string[] | null> {
+  const searchTerm = filters.searchQuery?.trim();
+  if (!searchTerm || !hasRawSqlSupport()) return null;
+  const conditions = buildSearchConditions(userId, filters, subscriptions, { assumeUserStateExists: true });
+  if (!conditions) return [];
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>(
+    Prisma.sql`SELECT r."id"
+      FROM "UserReleaseState" urs
+      INNER JOIN "Release" r ON r."id" = urs."releaseId"
+      WHERE urs."userId" = ${userId}
+        AND urs."isRead" = false
+        AND ${Prisma.join(conditions, " AND ")}`,
+  );
+  return rows.map((row) => row.id);
 }
 
 /** A single release with its changelog, or null if the user can't see it. */
@@ -1009,22 +1321,23 @@ export const TRACKED_REPOSITORY_SELECT = {
       backfillStatus: true,
       backfillNextPage: true,
       backfillTarget: true,
-      // GitHub Releases only: this is the release history count of the backfill status line.
-      _count: { select: { releases: { where: { isDraft: false, source: "RELEASE" } } } },
-      // The user-scoped loader adds visibility before limiting this relation.
-      releases: {
-        where: { isDraft: false, source: { in: ["RELEASE", "TAG"] } },
-        orderBy: [{ publishedAt: "desc" }, { id: "desc" }],
-        take: 1,
-        select: { id: true, tagName: true, semverType: true, publishedAt: true, isPrerelease: true, source: true },
-      },
     },
   },
 } satisfies Prisma.UserSubscriptionSelect;
 
+const FALLBACK_LATEST_RELEASE_SELECT = {
+  id: true,
+  tagName: true,
+  semverType: true,
+  publishedAt: true,
+  isPrerelease: true,
+  source: true,
+} satisfies Prisma.ReleaseSelect;
+
 export type TrackedRepositoryRow = Prisma.UserSubscriptionGetPayload<{ select: typeof TRACKED_REPOSITORY_SELECT }>;
+type FallbackReleaseRow = Prisma.ReleaseGetPayload<{ select: typeof FALLBACK_LATEST_RELEASE_SELECT }>;
 type LatestRow = { id: string; source: ReleaseSource; tagName: string; semverType: SemverType; publishedAt: Date };
-type LatestCommitRow = LatestRow & { repositoryId: string };
+type LatestRepoRow = LatestRow & { repositoryId: string };
 
 /** Most visible release / tag rows read per list to compute "N releases behind". */
 const VERSION_ROWS_CAP = 5000;
@@ -1034,19 +1347,26 @@ const VERSION_ROWS_CAP = 5000;
  * the repository settings page.
  */
 export function toTrackedRepository(
-  row: TrackedRepositoryRow,
-  extras: { oldestAt: Date | null; latestCommit: LatestRow | undefined; versionStatus: VersionStatus | null },
+  row: TrackedRepositoryRow & { repository: { releases?: FallbackReleaseRow[] } },
+  extras: {
+    oldestAt: Date | null;
+    releaseCount: number;
+    latestRelease?: LatestRow | undefined;
+    latestCommit: LatestRow | undefined;
+    versionStatus: VersionStatus | null;
+  },
 ): TrackedRepository {
-  const { _count, releases, backfillStatus, backfillNextPage, backfillTarget, ...repository } = row.repository;
+  const { releases, backfillStatus, backfillNextPage, backfillTarget, ...repository } = row.repository;
   // The latest release when releases are tracked, else (or when none matches yet) the latest matching commit.
   const latestRelease =
     row.trackMode === "NONE"
       ? undefined
-      : releases.find(
+      : (extras.latestRelease ??
+        releases?.find(
           (r) =>
             (row.includePrereleases || !r.isPrerelease) &&
             (r.source === "RELEASE" || row.trackMode === "TAGS_AND_COMMITS"),
-        );
+        ));
   const latestCommit = row.trackPaths ? extras.latestCommit : undefined;
   const latest = latestRelease ?? latestCommit;
   // The newest visible item of any kind ("Latest update" sort): a commit may be newer than the latest release.
@@ -1071,7 +1391,7 @@ export function toTrackedRepository(
     versionStatus: extras.versionStatus,
     repository: {
       ...repository,
-      releaseCount: _count.releases,
+      releaseCount: extras.releaseCount,
       history: {
         status: backfillStatus,
         hasMore: backfillNextPage !== null,
@@ -1095,31 +1415,38 @@ export function toTrackedRepository(
 /**
  * Tracked repositories of a user matching `where` (always scoped to `userId`, which `where` cannot
  * override), with the lookups that take one query per list rather than per row: oldest stored
- * release, latest matching commit and the "my version" status.
+ * release, release count, latest visible release/commit and the "my version" status.
  */
 export async function loadTrackedRepositories(
   userId: string,
   where: Prisma.UserSubscriptionWhereInput = {},
 ): Promise<TrackedRepository[]> {
-  const rows = await prisma.userSubscription.findMany({
+  const canUseRawSql = hasRawSqlSupport();
+  const rows = (await prisma.userSubscription.findMany({
     where: { ...where, userId },
-    select: {
-      ...TRACKED_REPOSITORY_SELECT,
-      repository: {
-        select: {
-          ...TRACKED_REPOSITORY_SELECT.repository.select,
-          releases: {
-            ...TRACKED_REPOSITORY_SELECT.repository.select.releases,
-            // Filter before take: excluded tags/prereleases must never crowd out
-            // the latest visible release, however many newer rows exist.
-            where: { AND: [visibleReleasesWhere(userId), { source: { in: ["RELEASE", "TAG"] } }] },
+    select: canUseRawSql
+      ? TRACKED_REPOSITORY_SELECT
+      : {
+          ...TRACKED_REPOSITORY_SELECT,
+          repository: {
+            select: {
+              ...TRACKED_REPOSITORY_SELECT.repository.select,
+              releases: {
+                // Filter before take: excluded tags/prereleases must never crowd out
+                // the latest visible release, however many newer rows exist.
+                where: { AND: [visibleReleasesWhere(userId), { source: { in: ["RELEASE", "TAG"] } }] },
+                orderBy: [{ publishedAt: "desc" }, { id: "desc" }],
+                take: 1,
+                select: FALLBACK_LATEST_RELEASE_SELECT,
+              },
+            },
           },
         },
-      },
-    },
-  });
+  })) as Array<TrackedRepositoryRow & { repository: { releases?: FallbackReleaseRow[] } }>;
   if (rows.length === 0) return [];
 
+  const allRepositoryIds = rows.map((row) => row.repository.id);
+  const releaseSubs = rows.filter((row) => row.trackMode !== "NONE");
   const pathRepositoryIds = rows.filter((row) => row.trackPaths).map((row) => row.repository.id);
   const versionSubs = rows.filter((row) => row.currentVersion && row.trackMode !== "NONE");
   const versionRepositoryIds = versionSubs.map((row) => row.repository.id);
@@ -1136,31 +1463,58 @@ export async function loadTrackedRepositories(
           })),
         )
       : null;
-  const canUseLateral =
-    pathRepositoryIds.length > 0 && typeof prisma.$queryRaw === "function" && typeof Prisma?.sql === "function";
-  const [oldest, latestCommits, versionRows] = await Promise.all([
+
+  const [releaseSummary, latestReleases, latestCommits, versionRows] = await Promise.all([
     prisma.release.groupBy({
       by: ["repositoryId"],
-      where: { repositoryId: { in: rows.map((row) => row.repository.id) }, isDraft: false, source: "RELEASE" },
+      where: { repositoryId: { in: allRepositoryIds }, isDraft: false, source: "RELEASE" },
       _min: { publishedAt: true },
+      _count: { _all: true },
     }),
+    canUseRawSql && releaseSubs.length > 0
+      ? prisma.$queryRaw<LatestRepoRow[]>(
+          Prisma.sql`SELECT latest."id", latest."repositoryId", latest."source", latest."tagName", latest."semverType", latest."publishedAt"
+            FROM unnest(
+              ${releaseSubs.map((row) => row.repository.id)}::text[],
+              ${releaseSubs.map((row) => row.includePrereleases)}::boolean[],
+              ${releaseSubs.map((row) => row.trackMode)}::text[]
+            ) AS s("repoId", "includePrereleases", "trackMode")
+            CROSS JOIN LATERAL (
+              SELECT r."id", r."repositoryId", r."source", r."tagName", r."semverType", r."publishedAt"
+              FROM "Release" r
+              WHERE r."isDraft" = false
+                AND r."repositoryId" = s."repoId"
+                AND (r."source" = 'RELEASE' OR (s."trackMode" = 'TAGS_AND_COMMITS' AND r."source" = 'TAG'))
+                AND (s."includePrereleases" OR r."isPrerelease" = false)
+              ORDER BY r."publishedAt" DESC, r."id" DESC
+              LIMIT 1
+            ) latest`,
+        )
+      : ([] as LatestRepoRow[]),
     // "Files / folders": one top-1 indexed LATERAL probe per repo instead of loading every commit into Node.
-    canUseLateral
-      ? prisma.$queryRaw<LatestCommitRow[]>(
+    canUseRawSql && pathRepositoryIds.length > 0
+      ? prisma.$queryRaw<LatestRepoRow[]>(
           Prisma.sql`SELECT latest."id", latest."repositoryId", latest."source", latest."tagName", latest."semverType", latest."publishedAt"
             FROM unnest(${pathRepositoryIds}::text[]) AS repo("id")
             CROSS JOIN LATERAL (
               SELECT r."id", r."repositoryId", r."source", r."tagName", r."semverType", r."publishedAt"
               FROM "Release" r
               INNER JOIN "UserReleaseState" urs ON urs."releaseId" = r."id" AND urs."userId" = ${userId}
-              WHERE r."repositoryId" = repo."id" AND r."source" = 'COMMIT'
+              WHERE r."isDraft" = false
+                AND r."repositoryId" = repo."id"
+                AND r."source" = 'COMMIT'
               ORDER BY r."publishedAt" DESC, r."id" DESC
               LIMIT 1
             ) latest`,
         )
       : pathRepositoryIds.length > 0
         ? prisma.release.findMany({
-            where: { repositoryId: { in: pathRepositoryIds }, source: "COMMIT", userStates: { some: { userId } } },
+            where: {
+              repositoryId: { in: pathRepositoryIds },
+              isDraft: false,
+              source: "COMMIT",
+              userStates: { some: { userId } },
+            },
             orderBy: [{ publishedAt: "desc" }, { id: "desc" }],
             distinct: ["repositoryId"],
             select: { id: true, repositoryId: true, source: true, tagName: true, semverType: true, publishedAt: true },
@@ -1181,7 +1535,10 @@ export async function loadTrackedRepositories(
         })
       : [],
   ]);
-  const oldestByRepo = new Map(oldest.map((r) => [r.repositoryId, r._min.publishedAt]));
+
+  const oldestByRepo = new Map(releaseSummary.map((r) => [r.repositoryId, r._min.publishedAt]));
+  const releaseCountByRepo = new Map(releaseSummary.map((r) => [r.repositoryId, r._count._all]));
+  const latestReleaseByRepo = new Map(latestReleases.map((r) => [r.repositoryId, r]));
   const latestCommitByRepo = new Map(latestCommits.map((r) => [r.repositoryId, r]));
   const versionRowsByRepo = new Map<string, Array<{ tagName: string; publishedAt: Date; semverType: SemverType }>>();
   for (const row of versionRows) {
@@ -1193,6 +1550,8 @@ export async function loadTrackedRepositories(
   return rows.map((row) =>
     toTrackedRepository(row, {
       oldestAt: oldestByRepo.get(row.repository.id) ?? null,
+      releaseCount: releaseCountByRepo.get(row.repository.id) ?? 0,
+      latestRelease: canUseRawSql ? latestReleaseByRepo.get(row.repository.id) : undefined,
       latestCommit: latestCommitByRepo.get(row.repository.id),
       versionStatus:
         row.currentVersion && row.trackMode !== "NONE"

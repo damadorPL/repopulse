@@ -149,6 +149,13 @@ export function workspaceFilePaths(
   return [...new Set([...paths, lockfilePath])].sort();
 }
 
+function sameTargets(stored: readonly string[], planned: readonly string[]): boolean {
+  if (stored.length !== planned.length) return false;
+  const sortedStored = stored.toSorted();
+  const sortedPlanned = planned.toSorted();
+  return sortedStored.every((target, index) => target === sortedPlanned[index]);
+}
+
 type GroupItem = PlannedDependency & {
   name: string;
   manifestPath: string;
@@ -322,7 +329,7 @@ async function runUpdate(
     snapshot = await github.fetchGitTree({
       owner: project.owner,
       name: project.name,
-      repositoryId: project.githubRepoId,
+      repositoryId: Number(project.githubRepoId),
       ...(cachedTree && project.lastScannedSha ? { knownCommitSha: project.lastScannedSha } : {}),
       octokit,
       ...(signal ? { signal } : {}),
@@ -337,7 +344,7 @@ async function runUpdate(
   if (snapshot.unchanged && cachedTree) {
     snapshot = { ...snapshot, entries: cachedTree.entries, truncated: cachedTree.truncated };
   } else if (deps.treeCache) {
-    await deps.treeCache.set(snapshot.repository.id, baseCommitSha, {
+    await deps.treeCache.set(BigInt(snapshot.repository.id), baseCommitSha, {
       entries: snapshot.entries,
       truncated: snapshot.truncated,
     });
@@ -615,6 +622,7 @@ async function runUpdate(
           where: intentWhere,
           create: { projectId: project.id, groupKey, commitSha, previousHeadSha },
           update: { commitSha, previousHeadSha },
+          select: { projectId: true },
         });
       },
     });
@@ -637,33 +645,47 @@ async function runUpdate(
 
   // Step 8: persist, SSE, notify.
   const at = now();
-  const saved = await prisma.dependencyPullRequest.upsert({
-    where: { projectId_groupKey: { projectId: project.id, groupKey } },
-    create: {
-      projectId: project.id,
-      groupKey,
-      branch,
-      number: pr.number,
-      htmlUrl: pr.htmlUrl,
-      state: "OPEN",
-      headSha,
-      targets,
-      openedAt: at,
-    },
-    update: {
-      branch,
-      number: pr.number,
-      htmlUrl: pr.htmlUrl,
-      state: "OPEN",
-      headSha,
-      targets,
-      closedAt: null,
-      ...(pr.created ? { openedAt: at } : {}),
-    },
-  });
-  await prisma.dependencyBranchWriteIntent.deleteMany({
-    where: { projectId: project.id, groupKey, OR: [{ commitSha: headSha }, { previousHeadSha: headSha }] },
-  });
+  const opened = pr.created || (recovered && !prRow);
+  const unchangedPr =
+    !committed &&
+    !opened &&
+    prRow?.state === "OPEN" &&
+    prRow.headSha === headSha &&
+    sameTargets(prRow.targets, targets);
+  const prId = unchangedPr
+    ? prRow.id
+    : (
+        await prisma.dependencyPullRequest.upsert({
+          where: { projectId_groupKey: { projectId: project.id, groupKey } },
+          create: {
+            projectId: project.id,
+            groupKey,
+            branch,
+            number: pr.number,
+            htmlUrl: pr.htmlUrl,
+            state: "OPEN",
+            headSha,
+            targets,
+            openedAt: at,
+          },
+          update: {
+            branch,
+            number: pr.number,
+            htmlUrl: pr.htmlUrl,
+            state: "OPEN",
+            headSha,
+            targets,
+            closedAt: null,
+            ...(pr.created ? { openedAt: at } : {}),
+          },
+          select: { id: true },
+        })
+      ).id;
+  if (intent || committed) {
+    await prisma.dependencyBranchWriteIntent.deleteMany({
+      where: { projectId: project.id, groupKey, OR: [{ commitSha: headSha }, { previousHeadSha: headSha }] },
+    });
+  }
   await publish(deps.redis, project.userId, {
     type: "DEPS_PULL_REQUEST_UPDATED",
     projectId: project.id,
@@ -675,9 +697,8 @@ async function runUpdate(
   });
   const previousTargets = prRow?.state === "OPEN" ? prRow.targets.toSorted().join("\n") : null;
   const newVersions = previousTargets !== targets.join("\n");
-  const opened = pr.created || (recovered && !prRow);
-  if (opened) await notifyPullRequestEvent(deps, project, saved.id, "opened", headSha);
-  else if (committed && newVersions) await notifyPullRequestEvent(deps, project, saved.id, "updated", headSha);
+  if (opened) await notifyPullRequestEvent(deps, project, prId, "opened", headSha);
+  else if (committed && newVersions) await notifyPullRequestEvent(deps, project, prId, "updated", headSha);
 
   const status = opened ? "OPENED" : committed ? "UPDATED" : "UNCHANGED";
   log.info(
@@ -704,7 +725,16 @@ async function markEdited(
   branch: string,
 ): Promise<DepsUpdateOutcome> {
   if (prRow.state !== "EDITED") {
-    await deps.prisma.dependencyPullRequest.update({ where: { id: prRow.id }, data: { state: "EDITED" } });
+    await deps.prisma.$transaction(async (tx) => {
+      await tx.dependencyPullRequest.update({
+        where: { id: prRow.id },
+        data: { state: "EDITED" },
+        select: { id: true },
+      });
+      await tx.dependencyBranchWriteIntent.deleteMany({
+        where: { projectId: project.id, groupKey: prRow.groupKey },
+      });
+    });
     await publish(deps.redis, project.userId, {
       type: "DEPS_PULL_REQUEST_UPDATED",
       projectId: project.id,
@@ -755,9 +785,15 @@ async function closeEmptyGroup(
     number: prRow.number,
     comment: EMPTY_GROUP_COMMENT,
   });
-  await deps.prisma.dependencyPullRequest.update({
-    where: { id: prRow.id },
-    data: { state: "CLOSED", closedAt: now() },
+  await deps.prisma.$transaction(async (tx) => {
+    await tx.dependencyPullRequest.update({
+      where: { id: prRow.id },
+      data: { state: "CLOSED", closedAt: now() },
+      select: { id: true },
+    });
+    await tx.dependencyBranchWriteIntent.deleteMany({
+      where: { projectId: project.id, groupKey: prRow.groupKey },
+    });
   });
   await publish(deps.redis, project.userId, {
     type: "DEPS_PULL_REQUEST_UPDATED",

@@ -16,11 +16,21 @@ import {
 } from "@repopulse/queue";
 import { startHealthServer, type HealthServer } from "./health.js";
 import { createLogger, errorMessage, log } from "./logger.js";
+import { processMaintenanceTick } from "./processors/maintenance.processor.js";
 import { processNotification } from "./processors/notification.processor.js";
 import { processReleaseBackfill } from "./processors/release-backfill.processor.js";
 import { processRepoPoll } from "./processors/repo-poll.processor.js";
 import { processSchedulerTick } from "./processors/scheduler.processor.js";
-import { closeQueues, createQueues, pollIntervalCron, registerSchedule, type Queues } from "./queues/index.js";
+import {
+  closeQueues,
+  createQueues,
+  MAINTENANCE_CRON,
+  MAINTENANCE_SCHEDULER_ID,
+  pollIntervalCron,
+  registerMaintenanceSchedule,
+  registerSchedule,
+  type Queues,
+} from "./queues/index.js";
 import { createWorkerRedis } from "./redis.js";
 
 /**
@@ -132,10 +142,20 @@ process.on("uncaughtException", (err) => {
 });
 
 function startWorkers(connection: Redis, q: Queues, backfillConfig: BackfillConfig): ManagedWorker[] {
-  const schedulerWorker = new Worker<SchedulerJobData, unknown, typeof JOB_NAMES.scan>(
+  const schedulerWorker = new Worker<
+    SchedulerJobData,
+    unknown,
+    typeof JOB_NAMES.scan | typeof MAINTENANCE_SCHEDULER_ID
+  >(
     QUEUE_NAMES.scheduler,
-    () =>
-      processSchedulerTick({ prisma, repoPollQueue: q.repoPollQueue, releaseBackfillQueue: q.releaseBackfillQueue }),
+    (job) =>
+      job.name === MAINTENANCE_SCHEDULER_ID
+        ? processMaintenanceTick({ prisma })
+        : processSchedulerTick({
+            prisma,
+            repoPollQueue: q.repoPollQueue,
+            releaseBackfillQueue: q.releaseBackfillQueue,
+          }),
     { connection, concurrency: 1, name: `repopulse-worker:${QUEUE_NAMES.scheduler}` },
   );
 
@@ -230,6 +250,8 @@ async function main(): Promise<void> {
   const cron = pollIntervalCron();
   await registerSchedule(queues.schedulerQueue, cron);
   log.info(`repo-scheduler registered with cron "${cron}"`);
+  await registerMaintenanceSchedule(queues.schedulerQueue);
+  log.info(`db-maintenance registered with cron "${MAINTENANCE_CRON}"`);
   log.info("ready");
 }
 

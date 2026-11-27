@@ -138,13 +138,13 @@ describe("pollRepoTags", () => {
     // The oldest tag in the list has no previous tag: its body shows the tagged commit.
     expect(String(db.inserted[2]!.bodyMarkdown)).toContain("### Tagged commit");
 
-    expect(result).toMatchObject({ received: 4, stored: 3, fresh: 2 });
+    expect(result).toMatchObject({ received: 4, stored: 3, fresh: 2, polledAt: now });
     expect(db.states).toEqual([
       { userId: "tagger", releaseId: "id-v1.4.0", isRead: false },
       { userId: "tagger", releaseId: "id-v1.3.0", isRead: false },
     ]);
     expect(result!.plan.notifications.map((n) => n.userId)).toEqual(["tagger", "tagger"]);
-    expect(db.repoUpdates).toEqual([{ lastTagsPolledAt: now }]);
+    expect(db.repoUpdates).toEqual([]);
   });
 
   it("treats every tag as new for a repository with nothing stored (capped per user)", async () => {
@@ -208,7 +208,14 @@ describe("pollRepoTags", () => {
       null,
     );
     expect(fetchTags.mock.calls.map(([p]) => p.accessToken)).toEqual(["t1", "t2"]);
-    expect(res).toEqual({ received: 0, stored: 0, fresh: 0, plan: { states: [], deliveries: [], notifications: [] } });
+    expect(res).toEqual({
+      received: 0,
+      stored: 0,
+      fresh: 0,
+      polledAt: expect.any(Date),
+      plan: { states: [], deliveries: [], notifications: [] },
+    });
+    expect(db.repoUpdates).toEqual([]);
     expect(db.prisma.release.findMany).not.toHaveBeenCalled();
 
     const all401 = vi.fn(async (_params: { accessToken?: string }) => {
@@ -242,6 +249,7 @@ describe("pollRepoTags", () => {
       received: 2,
       stored: 2,
       fresh: 0,
+      polledAt: expect.any(Date),
       plan: { states: [], deliveries: [], notifications: [] },
     });
     expect(db.states).toEqual([]);

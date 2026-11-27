@@ -201,6 +201,16 @@ if [ -n "${OLD_BACKUP}" ]; then
     chown postgres:postgres "${STAGING_PGDATA}/pg_hba.conf"
   fi
 
+  if [ "${OLD_VER}" = "16" ]; then
+    log "Rebuilding planner statistics for upgraded PostgreSQL 16 -> 19 cluster..."
+    gosu postgres "${PG19_BIN}/pg_ctl" -D "${STAGING_PGDATA}" \
+      -o "-c listen_addresses='' -k ${WORK_DIR}" \
+      -l "${WORK_DIR}/pg19-analyze.log" -w start
+    gosu postgres env PGPASSWORD="${POSTGRES_PASSWORD:-}" \
+      "${PG19_BIN}/vacuumdb" --all --analyze-in-stages --username="${PG_SUPERUSER}" --host="${WORK_DIR}"
+    gosu postgres "${PG19_BIN}/pg_ctl" -D "${STAGING_PGDATA}" -m fast -w stop
+  fi
+
   # Atomically activate the upgraded PG 19 cluster.
   rm -rf "${NEW_PGDATA}"
   mv "${STAGING_PGDATA}" "${NEW_PGDATA}"

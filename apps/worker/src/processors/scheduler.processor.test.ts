@@ -1,13 +1,29 @@
 import { describe, expect, it, vi } from "vitest";
-import { BACKFILL_SWEEP_BATCH, backfillSweepWhere, processSchedulerTick } from "./scheduler.processor.js";
+import {
+  BACKFILL_SWEEP_BATCH,
+  backfillSweepWhere,
+  ENQUEUE_BATCH_SIZE,
+  processSchedulerTick,
+} from "./scheduler.processor.js";
 
 function fakePrisma(due: string[], pendingBackfills: Array<{ id: string; backfillStatus: string }>) {
   return {
     repository: {
-      findMany: vi.fn(async (args: { where: unknown }) =>
-        args.where === undefined || JSON.stringify(args.where) === JSON.stringify(backfillSweepWhere())
-          ? pendingBackfills
-          : due.map((id) => ({ id })),
+      findMany: vi.fn(
+        async (args: { where: unknown; take?: number; skip?: number; cursor?: { id: string }; orderBy?: unknown }) => {
+          if (args.where === undefined || JSON.stringify(args.where) === JSON.stringify(backfillSweepWhere())) {
+            return pendingBackfills;
+          }
+          let items = due.map((id) => ({ id }));
+          if (args.cursor) {
+            const idx = items.findIndex((item) => item.id === args.cursor!.id);
+            items = idx === -1 ? [] : items.slice(idx + (args.skip ?? 0));
+          } else if (args.skip) {
+            items = items.slice(args.skip);
+          }
+          if (args.take !== undefined) items = items.slice(0, args.take);
+          return items;
+        },
       ),
       updateMany: vi.fn(async () => ({ count: 0 })),
     },
@@ -68,7 +84,7 @@ describe("processSchedulerTick backfill sweep", () => {
     expect(prisma.repository.updateMany).not.toHaveBeenCalled();
   });
 
-  it("enqueues > 500 due repositories in batches of 500", async () => {
+  it("enqueues > 500 due repositories via keyset cursor pagination in batches of 500", async () => {
     const dueIds = Array.from({ length: 505 }, (_, i) => `repo-${i + 1}`);
     const prisma = fakePrisma(dueIds, []);
     const repoPollQueue = { addBulk: vi.fn(async (_jobs: unknown[]) => []) };
@@ -78,9 +94,41 @@ describe("processSchedulerTick backfill sweep", () => {
 
     expect(result).toEqual({ due: 505, backfills: 0 });
     expect(repoPollQueue.addBulk).toHaveBeenCalledTimes(2);
-    expect(repoPollQueue.addBulk.mock.calls[0]![0]).toHaveLength(500);
+    expect(repoPollQueue.addBulk.mock.calls[0]![0]).toHaveLength(ENQUEUE_BATCH_SIZE);
     expect(repoPollQueue.addBulk.mock.calls[1]![0]).toHaveLength(5);
+    expect(prisma.repository.findMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        take: ENQUEUE_BATCH_SIZE,
+        orderBy: [{ lastPolledAt: { sort: "asc", nulls: "first" } }, { id: "asc" }],
+      }),
+    );
+    expect(prisma.repository.findMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        take: ENQUEUE_BATCH_SIZE,
+        cursor: { id: "repo-500" },
+        skip: 1,
+        orderBy: [{ lastPolledAt: { sort: "asc", nulls: "first" } }, { id: "asc" }],
+      }),
+    );
     expect(releaseBackfillQueue.addBulk).not.toHaveBeenCalled();
+  });
+
+  it("stops cleanly when due repositories are an exact multiple of ENQUEUE_BATCH_SIZE", async () => {
+    const dueIds = Array.from({ length: ENQUEUE_BATCH_SIZE }, (_, i) => `repo-${i + 1}`);
+    const prisma = fakePrisma(dueIds, []);
+    const repoPollQueue = { addBulk: vi.fn(async (_jobs: unknown[]) => []) };
+    const releaseBackfillQueue = { addBulk: vi.fn(async () => []) };
+
+    const result = await processSchedulerTick({ prisma: prisma as never, repoPollQueue, releaseBackfillQueue });
+
+    expect(result).toEqual({ due: ENQUEUE_BATCH_SIZE, backfills: 0 });
+    expect(repoPollQueue.addBulk).toHaveBeenCalledTimes(1);
+    expect(prisma.repository.findMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ cursor: { id: `repo-${ENQUEUE_BATCH_SIZE}` }, skip: 1 }),
+    );
   });
 
   it("does not fail the poll tick when the backfill sweep fails", async () => {
