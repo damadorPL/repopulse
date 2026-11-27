@@ -1,60 +1,76 @@
-# RepoPulse docs (agent-oriented)
+# RepoPulse Documentation
 
-> **Audience:** coding agents and new contributors. Each file is self-contained: it starts with a summary and the
-> files it covers, then lists rules (**MUST / MUST NOT**), then the details. Paths are relative to the repo root.
-> **Version documented:** 0.9.7.1 (see [`CHANGELOG.md`](../CHANGELOG.md)).
+> **Audience:** coding agents and contributors. Every file starts with a summary and links to related guides, then lists rules (**MUST / MUST NOT**) and technical details. Paths are relative to the repo root unless noted.
 
-RepoPulse is a self-hosted tracker for GitHub releases and changelogs. Users sign in with GitHub and subscribe to
-repositories. A background worker polls GitHub, stores new releases, marks them unread for every subscriber, pushes
-live updates over SSE and delivers notifications (Discord, Slack, ntfy, Gotify, email, custom webhooks). An optional
-Dependencies module checks the users' own repositories for outdated npm / Bun / PyPI dependencies and can open update
-pull requests through a GitHub App. It runs as a Turborepo + pnpm monorepo deployed with Docker Compose on Coolify.
+RepoPulse is a self-hosted tracker for GitHub releases and changelogs. Users sign in with GitHub and subscribe to repositories. A background worker polls GitHub, stores new releases, marks them unread for every subscriber, pushes live updates over SSE, and delivers notifications (Discord, Slack, ntfy, Gotify, email, custom webhooks). An optional Dependencies module checks users' own repositories for outdated npm, Bun, and PyPI dependencies and can open update pull requests through a GitHub App. It runs as a Turborepo + pnpm monorepo deployed with Docker Compose on Coolify.
 
-## Where to look
+## Documentation Index
+
+### Cross-Cutting Architecture & Standards
+
+| Document | Scope |
+| --- | --- |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | System overview, workspace DAG, processes, core data flows, and design decisions |
+| [CONTRACTS.md](./CONTRACTS.md) | `ActionResult`, SSE events, BullMQ queues, sandbox HTTP contract, webhooks, and Redis keys |
+| [CODING_STANDARDS.md](./CODING_STANDARDS.md) | Core invariants, TypeScript 7 / ESM rules, workspace boundaries, testing, and doc hygiene |
+
+### Applications (`docs/apps/`)
+
+| Document | Scope |
+| --- | --- |
+| [apps/web.md](./apps/web.md) | `@repopulse/web`: Next.js 16 App Router, RSC pages, Server Actions, route handlers, and UI |
+| [apps/worker.md](./apps/worker.md) | `@repopulse/worker`: BullMQ release scheduler, ETag poller, history backfill, and notifications |
+| [apps/deps-worker.md](./apps/deps-worker.md) | `@repopulse/deps-worker`: BullMQ dependency scanner, PR updater, and outbox notifier |
+| [apps/deps-sandbox.md](./apps/deps-sandbox.md) | `@repopulse/deps-sandbox`: isolated HTTP lockfile-regeneration server, tool pins, and egress |
+
+### Shared Packages (`docs/packages/`)
+
+| Document | Scope |
+| --- | --- |
+| [packages/db.md](./packages/db.md) | `@repopulse/db`: Prisma 7 schema, migrations, data semantics, singleton client, and token crypto |
+| [packages/deps.md](./packages/deps.md) | `@repopulse/deps`: pure manifest/lockfile parsers, registries, planner, rewrites, and sandbox contract |
+| [packages/github.md](./packages/github.md) | `@repopulse/github`: Octokit wrapper, SemVer classifier, ETag/GraphQL/commit polling, GitHub App, Git Data API |
+| [packages/notifications.md](./packages/notifications.md) | `@repopulse/notifications`: channel formatters, dispatchers, two-layer SSRF guard, and SMTP |
+| [packages/queue.md](./packages/queue.md) | `@repopulse/queue`: BullMQ queue factories, deduplication helpers, Redis/SSE contracts, health, and Pino logger |
+
+### Cross-Service Guides (`docs/guides/`)
+
+| Document | Scope |
+| --- | --- |
+| [guides/auth-and-access.md](./guides/auth-and-access.md) | Better Auth GitHub OAuth, super admin bootstrap, invite links, and GitHub App setup |
+| [guides/dependencies.md](./guides/dependencies.md) | End-to-end Dependencies module lifecycle, trust boundaries, webhooks, and limits |
+| [guides/recipes.md](./guides/recipes.md) | Step-by-step checklists for migrations, actions, settings, queues, SSE, channels, and ecosystems |
+
+### Operations (`docs/operations/`)
+
+| Document | Scope |
+| --- | --- |
+| [operations/configuration.md](./operations/configuration.md) | Environment variables, non-production `.env` loading, and `env:setup` / `env:sync` scripts |
+| [operations/deployment.md](./operations/deployment.md) | Coolify Docker Compose services, image builds, sandbox network hardening, and upgrades |
+| [operations/development.md](./operations/development.md) | First-run setup, workspace commands, CI verification, and git / release workflow |
+
+## Where to Look
 
 | If the task involves… | Read |
 | --- | --- |
-| The overall system, data flow, which process does what | [architecture.md](./architecture.md) |
-| Prisma models, migrations, invariants on rows | [data-model.md](./data-model.md) |
-| Next.js pages, Server Actions, `ActionResult`, UI components | [web-app.md](./web-app.md) |
-| BullMQ queues, polling, fan-out, backfill, the scheduler (release `worker`) | [worker.md](./worker.md) |
-| Dependency projects, `deps-worker`, `deps-sandbox`, `deps-egress`, update PRs, ecosystems | [dependencies.md](./dependencies.md) |
-| The public API of `@repopulse/db`, `github`, `queue`, `notifications`, `deps` | [packages.md](./packages.md) |
-| Notification channels, SSRF guard, SMTP settings, Send Test | [notifications.md](./notifications.md) |
-| GitHub sign-in, the super admin, registration, invites, the GitHub App | [auth-and-access.md](./auth-and-access.md) |
-| Environment variables, `env:setup` / `env:sync` | [configuration.md](./configuration.md) |
-| Local setup, commands, tests, gotchas, commit rules | [development.md](./development.md) |
-| Coolify / Docker Compose deployment, images, migrator | [deployment.md](./deployment.md) |
-| Step-by-step recipes (new migration, action, setting, job, channel, env var, dependency ecosystem) | [recipes.md](./recipes.md) |
+| Overall system, processes, or workspace graph | [ARCHITECTURE.md](./ARCHITECTURE.md) |
+| Shared payload, queue, SSE, webhook, or sandbox contracts | [CONTRACTS.md](./CONTRACTS.md) |
+| Non-negotiable rules, code style, testing, or gotchas | [CODING_STANDARDS.md](./CODING_STANDARDS.md) |
+| Prisma models, migrations, or query/state semantics | [packages/db.md](./packages/db.md) |
+| Next.js pages, Server Actions, or UI conventions | [apps/web.md](./apps/web.md) |
+| Release polling, fan-out, backfill, or scheduler | [apps/worker.md](./apps/worker.md) |
+| Dependency scans, PRs, sandbox, egress, or ecosystems | [guides/dependencies.md](./guides/dependencies.md) |
+| Notification channels, SSRF guard, SMTP, or Send Test | [packages/notifications.md](./packages/notifications.md) |
+| GitHub sign-in, super admin, invites, or GitHub App | [guides/auth-and-access.md](./guides/auth-and-access.md) |
+| Environment variables or `.env` scripts | [operations/configuration.md](./operations/configuration.md) |
+| Local commands, CI, or git workflow | [operations/development.md](./operations/development.md) |
+| Coolify / Docker Compose deployment or upgrades | [operations/deployment.md](./operations/deployment.md) |
+| Step-by-step implementation checklists | [guides/recipes.md](./guides/recipes.md) |
 
 Other sources:
 
-- [`CHANGELOG.md`](../CHANGELOG.md): what changed in each release (Keep a Changelog). **Update `## [Unreleased]`
-  with every user-visible change.**
-- [`PRD/`](../PRD/): the original product spec (`repopulse_master_prd_coolify_monorepo_spec.md`), one spec per slice
-  (`slice_0N_*.md`) and implementation summaries (`slice_0N_implementation_summary.md`). These are historical: where
-  they disagree with the code or these docs, the code wins.
-- [`apps/web/AGENTS.md`](../apps/web/AGENTS.md): the Next.js 16 warning, generated by `next dev`. Read the bundled
-  Next docs in `node_modules/next/dist/docs/` before using a Next API you are unsure about.
-
-## Ten rules that prevent most mistakes
-
-1. **Every user-scoped query filters by the signed-in user.** Get the user with `getCurrentUserOrThrow()` (actions) or
-   `requireUser()` (pages). Never trust an id from the client without checking that it belongs to that user.
-2. **Instance settings are super admin only.** Use `getSuperAdminOrThrow()` in actions and `requireSuperAdmin()` in
-   pages ([auth-and-access.md](./auth-and-access.md)).
-3. **Server Actions return `ActionResult<T>` and never throw to the client.** End them with
-   `catch (error) { return toActionError(error, "nameAction"); }` ([web-app.md](./web-app.md#server-actions)).
-4. **Every feed or unread query goes through `visibleReleasesWhere()`**, so the feed, the reader and the counters agree.
-5. **A missing `UserReleaseState` row means "read".** Exception: commit rows (`source = COMMIT`, "Files / folders")
-   are visible only *through* a state row, which records that the commit matched the user's watched paths (read or
-   unread). Only genuinely new releases get unread rows. History backfill
-   creates none.
-6. **Secrets stay encrypted and server-side.** GitHub tokens and the SMTP password go through
-   `encryptToken`/`decryptToken`. Never return them or a raw webhook URL to the browser (use `maskDestination`).
-7. **Webhook URLs pass the SSRF guard**: `validateWebhookUrl` at rule creation, and the guarded lookup at delivery.
-8. **Schema changes need a migration** in `packages/db/prisma/migrations/<timestamp>_<name>/migration.sql`. Never
-   edit a migration that has already shipped ([data-model.md](./data-model.md#migrations)).
-9. **Workspace packages are consumed through `dist/`** at runtime and in worker/web tests. After changing
-   `packages/*`, run `pnpm --filter "./packages/*" build` ([development.md](./development.md#gotchas)).
-10. **Pin exact dependency versions** (no `^`/`~`), as every `package.json` does.
+- [`AGENTS.md`](../AGENTS.md): root agent guidance and per-workspace `AGENTS.md` router.
+- [`apps/web/AGENTS.md`](../apps/web/AGENTS.md): includes the Next.js 16 bundled-docs notice maintained by `next dev`.
+- [`README.md`](../README.md): repository overview and quick start.
+- [`CHANGELOG.md`](../CHANGELOG.md): Keep a Changelog release history (**update `## [Unreleased]` with every user-visible change**).
+- [`PRD/`](../PRD/): historical product specs and implementation summaries (where they disagree with code or `docs/`, the code wins).

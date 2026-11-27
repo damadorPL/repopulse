@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.8.1] — 2026-11-27 — Docs hierarchy, AGENTS.md, and dependency updates
+
+### Added
+
+- **Per-workspace `AGENTS.md` files**: Added atomic `AGENTS.md` guides for `apps/{worker,deps-worker,deps-sandbox}` and `packages/{db,deps,github,notifications,queue}`, expanded root [`AGENTS.md`](./AGENTS.md) into a reference router, and refined [`apps/web/AGENTS.md`](./apps/web/AGENTS.md) while preserving the Next.js rules block.
+- **Documentation validation (`pnpm docs:check`)**: Added `scripts/check-docs.mjs` and wired it into `.github/workflows/ci.yml` to verify relative Markdown links and heading anchors, `AGENTS.md` line budgets and timeless hygiene, and per-workspace doc/agent coverage.
+
+### Changed
+
+- **Reorganized `docs/` hierarchy**: Restructured documentation into [`docs/README.md`](./docs/README.md), [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), [`docs/CONTRACTS.md`](./docs/CONTRACTS.md), [`docs/CODING_STANDARDS.md`](./docs/CODING_STANDARDS.md), `docs/apps/`, `docs/packages/`, `docs/guides/`, and `docs/operations/`.
+- Updated dependencies in `apps/web`:
+  - `lucide-react` 1.81.0 → 1.82.0
+  - `postcss` 8.5.33 → 8.5.34
+
 ## [0.9.8.0] — 2026-11-27 — Better Auth, Oxlint/Oxfmt, ESM, Vitest 5 & resilience
 
 ### Added
@@ -328,7 +342,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
   deploy. Existing notification rules get `events = [RELEASES]` and keep sending releases only.
 - Three new services in `docker-compose.coolify.yml`: `deps-worker`, `deps-sandbox` and `deps-egress`, plus the
   internal `deps_sandbox` network. After the first deploy, check that Coolify kept the network internal
-  ([docs/deployment.md](./docs/deployment.md#dependencies-services-network-and-hardening); the fallback is a host
+  ([docs/operations/deployment.md](./docs/operations/deployment.md#dependencies-services-network-and-hardening); the fallback is a host
   firewall rule).
 - Set **`DEPS_SANDBOX_TOKEN`** in Coolify (`openssl rand -hex 32`): `deps-sandbox` does not start without it.
   Optional: `DEPS_SANDBOX_URL`, `DEPS_SCAN_CRON`, `DEPS_SCAN_CONCURRENCY`, `DEPS_UPDATE_CONCURRENCY`,

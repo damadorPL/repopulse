@@ -15,9 +15,10 @@ Self-hostable GitHub release & changelog tracker — Turborepo + pnpm monorepo d
 | `packages/notifications` | Discord, Slack, ntfy, Gotify, SMTP email and custom-webhook formatters, `dispatchNotification()`, SSRF guard for webhook URLs                                    |
 | `packages/tsconfig`      | Shared TypeScript configs                                                                                                                                        |
 
-Documentation: [`docs/`](./docs/README.md) covers architecture, data model, web app, worker, dependencies, packages,
-notifications, auth, configuration, development, deployment and recipes, written for coding agents and contributors.
-[`AGENTS.md`](./AGENTS.md) is the agent entry point. Release history: [`CHANGELOG.md`](./CHANGELOG.md).
+Documentation: [`docs/`](./docs/README.md) is organized into root references (`ARCHITECTURE.md`, `CONTRACTS.md`,
+`CODING_STANDARDS.md`) plus [`docs/apps/`](./docs/apps/), [`docs/packages/`](./docs/packages/),
+[`docs/guides/`](./docs/guides/), and [`docs/operations/`](./docs/operations/). [`AGENTS.md`](./AGENTS.md) is the agent
+entry point, with atomic `AGENTS.md` guides in each app and package. Release history: [`CHANGELOG.md`](./CHANGELOG.md).
 
 ## Local development
 

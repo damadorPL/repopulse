@@ -47,6 +47,9 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
+      - name: Docs check
+        run: pnpm docs:check
+
       - name: Test
         env:
           TOKEN_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef

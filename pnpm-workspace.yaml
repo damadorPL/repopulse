@@ -52,8 +52,8 @@ minimumReleaseAgeExclude:
   - "@tailwindcss/oxide-win32-x64-msvc@4.3.5"
   - "@tailwindcss/oxide@4.3.5"
   - "@tailwindcss/postcss@4.3.5"
-  - lucide-react@1.81.0
-  - postcss@8.5.33
+  - lucide-react@1.81.0 || 1.82.0
+  - postcss@8.5.33 || 8.5.34
   - tailwindcss@4.3.5
   - bullmq@6.7.10
   - "@turbo/darwin-64@2.11.13"
