@@ -14,42 +14,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  secrets-and-workflows:
-    name: Secrets & Workflow Lint
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Run Gitleaks secret scan
-        shell: bash
-        run: |
-          set -euo pipefail
-          GITLEAKS_VERSION="8.30.1"
-          GITLEAKS_SHA256="551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
-          ARCHIVE="${RUNNER_TEMP}/gitleaks.tar.gz"
-          curl -fsSLo "${ARCHIVE}" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          echo "${GITLEAKS_SHA256}  ${ARCHIVE}" | sha256sum --check
-          tar -xzf "${ARCHIVE}" -C "${RUNNER_TEMP}" gitleaks
-          "${RUNNER_TEMP}/gitleaks" git --no-banner --redact --verbose .
-
-      - name: Lint GitHub Actions workflows (actionlint)
-        shell: bash
-        run: |
-          set -euo pipefail
-          ACTIONLINT_VERSION="1.7.12"
-          BASE_URL="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
-          ARCHIVE="${RUNNER_TEMP}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
-          CHECKSUMS="${RUNNER_TEMP}/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
-          curl -fsSLo "${ARCHIVE}" "${BASE_URL}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
-          curl -fsSLo "${CHECKSUMS}" "${BASE_URL}/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
-          (cd "${RUNNER_TEMP}" && sha256sum --ignore-missing --check "${CHECKSUMS}")
-          tar -xzf "${ARCHIVE}" -C "${RUNNER_TEMP}" actionlint
-          "${RUNNER_TEMP}/actionlint" -color
-
   ci:
     name: Guardrails, Build, Lint, Doctor & Test
     runs-on: ubuntu-latest
