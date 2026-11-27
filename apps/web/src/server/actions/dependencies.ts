@@ -428,25 +428,40 @@ export async function addDependencyProjectsAction(
 
     // GitHub before the transaction, so no DB connection is held during network I/O.
     const token = await loadGitHubToken(user, "addDependencyProjectsAction");
+    const resolved = await Promise.all(
+      refs.map(async (ref) => {
+        const outcome = await fetchRepository(ref, token);
+        if (!outcome.ok) {
+          return { ok: false as const, failure: { source: ref.label, message: outcome.message } };
+        }
+        if (outcome.repo.isPrivate) {
+          const access = await checkRepoAccess(user, outcome.repo, "read");
+          if (!access.ok) {
+            return {
+              ok: false as const,
+              failure: {
+                source: outcome.repo.fullName,
+                message: `${outcome.repo.fullName} is private: ${access.message}`,
+              },
+            };
+          }
+        }
+        return { ok: true as const, repo: outcome.repo };
+      }),
+    );
+
     const failed: AddDependencyProjectsResult["failed"] = [];
     const fetched: FetchedRepo[] = [];
-    for (const ref of refs) {
-      const outcome = await fetchRepository(ref, token);
-      if (!outcome.ok) {
-        failed.push({ source: ref.label, message: outcome.message });
+    const seenFetchedIds = new Set<number>();
+    for (const entry of resolved) {
+      if (!entry.ok) {
+        failed.push(entry.failure);
         continue;
       }
-      if (outcome.repo.isPrivate) {
-        const access = await checkRepoAccess(user, outcome.repo, "read");
-        if (!access.ok) {
-          failed.push({
-            source: outcome.repo.fullName,
-            message: `${outcome.repo.fullName} is private: ${access.message}`,
-          });
-          continue;
-        }
+      if (!seenFetchedIds.has(entry.repo.githubRepoId)) {
+        seenFetchedIds.add(entry.repo.githubRepoId);
+        fetched.push(entry.repo);
       }
-      if (!fetched.some((repo) => repo.githubRepoId === outcome.repo.githubRepoId)) fetched.push(outcome.repo);
     }
 
     if (updateMode !== "NOTIFY" && fetched.length === 1) {
@@ -481,28 +496,29 @@ export async function addDependencyProjectsAction(
             count,
           };
         }
-        const created: AddDependencyProjectsResult["added"] = [];
-        for (const repo of toCreate) {
-          const project = await tx.dependencyProject.create({
-            data: {
-              userId: user.id,
-              githubRepoId: BigInt(repo.githubRepoId),
-              owner: repo.owner,
-              name: repo.name,
-              fullName: repo.fullName,
-              defaultBranch: repo.defaultBranch,
-              isPrivate: repo.isPrivate,
-              repositoryId: repositoryIdByGithubId.get(repo.githubRepoId) ?? null,
-              updateMode,
-              notifyOnFirstScan,
-              scanStatus: "QUEUED",
-              nextScanAt: now,
-            },
-            select: { id: true, fullName: true },
-          });
-          if (updateMode !== "NOTIFY") await claimPrOwnership(tx, project.id, repo.githubRepoId);
-          created.push({ projectId: project.id, fullName: project.fullName });
-        }
+        const created = await Promise.all(
+          toCreate.map(async (repo) => {
+            const project = await tx.dependencyProject.create({
+              data: {
+                userId: user.id,
+                githubRepoId: BigInt(repo.githubRepoId),
+                owner: repo.owner,
+                name: repo.name,
+                fullName: repo.fullName,
+                defaultBranch: repo.defaultBranch,
+                isPrivate: repo.isPrivate,
+                repositoryId: repositoryIdByGithubId.get(repo.githubRepoId) ?? null,
+                updateMode,
+                notifyOnFirstScan,
+                scanStatus: "QUEUED",
+                nextScanAt: now,
+              },
+              select: { id: true, fullName: true },
+            });
+            if (updateMode !== "NOTIFY") await claimPrOwnership(tx, project.id, repo.githubRepoId);
+            return { projectId: project.id, fullName: project.fullName };
+          }),
+        );
         return { limit: false as const, created };
       });
       if (result.limit) {
@@ -516,21 +532,27 @@ export async function addDependencyProjectsAction(
 
     // After the commit, so the worker never runs against a project that is not there yet.
     let scansQueued = added.length > 0;
-    for (const project of added) {
-      try {
-        await enqueueScan(project.projectId, "add", user.id);
-      } catch (error) {
-        scansQueued = false;
-        console.warn(
-          `[addDependencyProjectsAction] could not queue the first scan of ${project.projectId}`,
-          error instanceof Error ? error.message : error,
-        );
-        // `nextScanAt = now`: the scheduler picks it up on its next run.
-        await prisma.dependencyProject.updateMany({
-          where: { id: project.projectId, userId: user.id, scanStatus: "QUEUED" },
-          data: { scanStatus: "IDLE" },
-        });
-      }
+    const queueFailures: string[] = [];
+    await Promise.all(
+      added.map(async (project) => {
+        try {
+          await enqueueScan(project.projectId, "add", user.id);
+        } catch (error) {
+          scansQueued = false;
+          console.warn(
+            `[addDependencyProjectsAction] could not queue the first scan of ${project.projectId}`,
+            error instanceof Error ? error.message : error,
+          );
+          queueFailures.push(project.projectId);
+        }
+      }),
+    );
+    if (queueFailures.length > 0) {
+      // `nextScanAt = now`: the scheduler picks it up on its next run.
+      await prisma.dependencyProject.updateMany({
+        where: { id: { in: queueFailures }, userId: user.id, scanStatus: "QUEUED" },
+        data: { scanStatus: "IDLE" },
+      });
     }
 
     if (added.length > 0) revalidateDependencies();
@@ -610,17 +632,18 @@ export async function updateDependencyProjectSettingsAction(
     if (rawRules !== undefined) {
       const rules = ignoreRulesSchema.safeParse(rawRules);
       if (!rules.success) return invalidInput(rules.error);
-      ignoreRules = rules.data.reduce<IgnoreRuleValue[]>(
-        (list, rule) =>
-          list.some((r) => sameIgnoreRule(r, rule))
-            ? list
-            : [...list, rule.versions ? { name: rule.name, versions: rule.versions } : { name: rule.name }],
-        [],
-      );
+      const deduped: IgnoreRuleValue[] = [];
+      for (const rule of rules.data) {
+        if (!deduped.some((r) => sameIgnoreRule(r, rule))) {
+          deduped.push(rule.versions ? { name: rule.name, versions: rule.versions } : { name: rule.name });
+        }
+      }
+      ignoreRules = deduped;
     }
     let manifestPaths: string[] | undefined;
     if (rawPaths !== undefined) {
       manifestPaths = [];
+      const seenPaths = new Set<string>();
       for (const raw of rawPaths) {
         if (raw.trim() === "") continue;
         const path = normalizeWatchedPath(raw);
@@ -629,7 +652,10 @@ export async function updateDependencyProjectSettingsAction(
             "INVALID_INPUT",
             `"${raw.slice(0, 60)}" is not a valid path. Use a path relative to the repository root.`,
           );
-        if (!manifestPaths.includes(path)) manifestPaths.push(path);
+        if (!seenPaths.has(path)) {
+          seenPaths.add(path);
+          manifestPaths.push(path);
+        }
       }
     }
 

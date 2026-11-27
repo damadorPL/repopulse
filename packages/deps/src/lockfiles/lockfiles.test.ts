@@ -107,7 +107,7 @@ describe("readPnpmLock", () => {
       "http://x/a.tgz",
       "https://x/a.tgz",
     ]) {
-      expect(stripPnpmVersionSuffix(protocol), protocol).toBeNull();
+      expect([protocol, stripPnpmVersionSuffix(protocol)]).toEqual([protocol, null]);
     }
   });
 

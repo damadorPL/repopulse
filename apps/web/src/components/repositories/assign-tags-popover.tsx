@@ -26,7 +26,9 @@ export function AssignTagsPopover({
   const [selected, setSelected] = useState<string[]>(assignedTagIds);
   const [pending, startTransition] = useTransition();
 
-  const changed = selected.length !== assignedTagIds.length || selected.some((id) => !assignedTagIds.includes(id));
+  const assignedTagIdSet = new Set(assignedTagIds);
+  const changed = selected.length !== assignedTagIds.length || selected.some((id) => !assignedTagIdSet.has(id));
+  const selectedSet = new Set(selected);
 
   function toggle(id: string, checked: boolean) {
     setSelected((current) => (checked ? [...current, id] : current.filter((t) => t !== id)));
@@ -70,7 +72,7 @@ export function AssignTagsPopover({
                 <Label key={tag.id} htmlFor={id} className="rounded-md px-1.5 py-1.5 font-normal hover:bg-accent">
                   <Checkbox
                     id={id}
-                    checked={selected.includes(tag.id)}
+                    checked={selectedSet.has(tag.id)}
                     onCheckedChange={(checked) => toggle(tag.id, checked === true)}
                   />
                   <TagDot color={tag.colorHex} />

@@ -1,12 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import {
-  createUrlSearchSyncState,
-  reconcileUrlSearchQuery,
-  recordUrlSearchPush,
-  type UrlSearchSyncState,
-} from "@/lib/url-search";
+import { createUrlSearchSyncState, reconcileUrlSearchQuery, type UrlSearchSyncState } from "@/lib/url-search";
 
 /**
  * Keeps a search input synchronized with URL query changes made externally (back/forward,
@@ -40,12 +35,12 @@ export function useUrlSearchSync(urlQuery: string) {
   function recordPush(rawQuery: string): string {
     const trimmed = rawQuery.trim();
     setSyncState((prev) => {
-      const nextSync: UrlSearchSyncState = {
+      const expected = prev.pendingPushes.at(-1) ?? prev.lastUrlQuery;
+      if (trimmed === expected) return prev;
+      return {
         lastUrlQuery: prev.lastUrlQuery,
-        pendingPushes: [...prev.pendingPushes],
+        pendingPushes: [...prev.pendingPushes, trimmed],
       };
-      recordUrlSearchPush(nextSync, rawQuery);
-      return nextSync;
     });
     return trimmed;
   }

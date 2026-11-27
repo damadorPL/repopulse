@@ -9,9 +9,9 @@ import { useReaderList } from "@/components/reader/reader-context";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { feedHref, SEMVER_TYPES, type FeedFilters, type FeedSort, type SemverTypeValue } from "@/lib/feed-filters";
+import { SEMVER_META } from "@/lib/semver-meta";
 import { cn } from "@/lib/utils";
 import { markAllReadAction } from "@/server/actions/release-state";
-import { SEMVER_META } from "./semver-badge";
 import { TagDot } from "./tag-pill";
 
 const ALL = "all";
@@ -95,7 +95,7 @@ export function FeedFilterBar({
               scroll={false}
               aria-current={filters.onlyUnread === option.unread ? "true" : undefined}
               className={cn(
-                "inline-flex items-center rounded px-3 text-sm text-muted-foreground transition-colors hover:text-foreground",
+                "inline-flex items-center rounded-sm px-3 text-sm text-muted-foreground transition-colors hover:text-foreground",
                 filters.onlyUnread === option.unread && "bg-secondary font-medium text-foreground shadow-xs",
               )}
             >

@@ -84,7 +84,9 @@ export function buildCommitMessage(commitPrefix: string, updates: readonly PrUpd
 }
 
 /** PR title = commit subject. */
-export const buildPrTitle = buildCommitMessage;
+export function buildPrTitle(commitPrefix: string, updates: readonly PrUpdate[]): string {
+  return buildCommitMessage(commitPrefix, updates);
+}
 
 /**
  * Inline code span that is safe for any content (GitHub never links mentions inside code), so dependency names

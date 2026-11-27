@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+
 @plugin "@tailwindcss/typography";
 
 /*
@@ -10,6 +11,7 @@
   &:where([data-theme="dark"], [data-theme="dark"] *) {
     @slot;
   }
+
   @media (prefers-color-scheme: dark) {
     &:where(:root:not([data-theme]), :root:not([data-theme]) *) {
       @slot;
@@ -43,6 +45,7 @@
   --sidebar-accent: oklch(0.94 0.002 286.32);
   --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
   --sidebar-border: oklch(0.92 0.004 286.32);
+
   /*
    * Activity grid (repository settings page): four steps of the primary color over the muted
    * background (level 0 is bg-muted). Derived from the tokens, so the dark theme follows on its own.
@@ -51,9 +54,7 @@
   --activity-2: color-mix(in oklch, var(--primary) 50%, var(--muted));
   --activity-3: color-mix(in oklch, var(--primary) 74%, var(--muted));
   --activity-4: var(--primary);
-}
 
-:root {
   @variant dark {
     color-scheme: dark;
     --background: oklch(0.141 0.005 285.823);
@@ -118,9 +119,11 @@
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground antialiased;
   }
+
   button:not(:disabled),
   [role="button"]:not(:disabled) {
     cursor: pointer;
@@ -132,10 +135,12 @@
   .changelog pre code.hljs {
     @apply bg-transparent p-0;
   }
+
   .hljs-comment,
   .hljs-quote {
     @apply text-zinc-500 italic dark:text-zinc-400;
   }
+
   .hljs-keyword,
   .hljs-selector-tag,
   .hljs-built_in,
@@ -143,12 +148,14 @@
   .hljs-meta .hljs-keyword {
     @apply text-rose-600 dark:text-rose-400;
   }
+
   .hljs-string,
   .hljs-regexp,
   .hljs-addition,
   .hljs-meta .hljs-string {
     @apply text-emerald-700 dark:text-emerald-400;
   }
+
   .hljs-number,
   .hljs-literal,
   .hljs-attr,
@@ -157,6 +164,7 @@
   .hljs-template-variable {
     @apply text-blue-700 dark:text-blue-400;
   }
+
   .hljs-title,
   .hljs-title.function_,
   .hljs-section,
@@ -165,9 +173,11 @@
   .hljs-selector-class {
     @apply text-violet-700 dark:text-violet-400;
   }
+
   .hljs-deletion {
     @apply text-red-700 dark:text-red-400;
   }
+
   .hljs-meta {
     @apply text-amber-700 dark:text-amber-400;
   }

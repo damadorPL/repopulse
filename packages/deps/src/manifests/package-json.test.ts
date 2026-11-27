@@ -53,8 +53,11 @@ describe("parsePackageJson", () => {
   it("keeps unsupported specs as UNSUPPORTED_SOURCE candidates", () => {
     for (const name of ["local", "alias", "gitdep", "any", "tagged"]) {
       const dependency = manifest.dependencies.find((d) => d.name === name);
-      expect(dependency?.supported, name).toBe(false);
-      expect(dependency?.unsupportedReason, name).toBeTruthy();
+      expect({ name, supported: dependency?.supported }).toEqual({ name, supported: false });
+      expect({ name, unsupportedReason: Boolean(dependency?.unsupportedReason) }).toEqual({
+        name,
+        unsupportedReason: true,
+      });
     }
   });
 

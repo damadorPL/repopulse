@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+set -eu
+
+if [ "${SKIP_PRECOMMIT_HOOK:-0}" = "1" ]; then
+  echo "[pre-commit] Skipping pre-commit checks (SKIP_PRECOMMIT_HOOK=1)."
+  exit 0
+fi
+
+echo "[pre-commit] Running coding & architectural guardrails on staged files..."
+node scripts/guardrails.ts --staged
+
+echo "[pre-commit] Checking documentation links & AGENTS.md hygiene..."
+node scripts/check-docs.mjs

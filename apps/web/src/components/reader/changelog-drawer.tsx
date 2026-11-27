@@ -26,8 +26,8 @@ export function ChangelogDrawer({ detail, children }: { detail: FeedItem | null;
   const { selectedId, isRead } = useReaderList();
   const { preview, loadedEntry, isLoadingDetail, closeRelease, setRead } = useReaderDrawer();
 
-  const ssrLoaded = detail !== null && detail.id === selectedId;
-  const clientLoaded = loadedEntry !== null && loadedEntry.detail.id === selectedId;
+  const ssrLoaded = detail?.id === selectedId;
+  const clientLoaded = loadedEntry?.detail.id === selectedId;
   const loaded = ssrLoaded || clientLoaded;
   const current: FeedItem | null = ssrLoaded
     ? detail
@@ -88,7 +88,7 @@ export function ChangelogDrawer({ detail, children }: { detail: FeedItem | null;
               <SheetTitle className="mt-4 text-xl leading-tight wrap-break-word">{current.title}</SheetTitle>
               <SheetDescription asChild>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                  <code className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
                     {current.tagName}
                   </code>
                   {current.source === "TAG" ? <TagSourceBadge /> : null}

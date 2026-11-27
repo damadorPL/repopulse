@@ -81,7 +81,9 @@ export function searchRepoPaths(index: RepoPathIndex, query: string, limit = 8):
     .replace(/^(\.\/|\/)+/, "")
     .toLowerCase();
   if (q === "") {
-    return (index.children.get("") ?? []).slice(0, limit).map((entry) => ({ ...entry, matchStart: -1 }));
+    return (index.children.get("") ?? [])
+      .slice(0, limit)
+      .map((entry) => ({ path: entry.path, kind: entry.kind, name: entry.name, matchStart: -1 }));
   }
 
   const scored: Array<{ entry: RepoPathEntry; score: number; matchStart: number; depth: number }> = [];
@@ -123,7 +125,9 @@ export function searchRepoPaths(index: RepoPathIndex, query: string, limit = 8):
       a.entry.path.length - b.entry.path.length ||
       a.entry.path.localeCompare(b.entry.path),
   );
-  return scored.slice(0, limit).map(({ entry, matchStart }) => ({ ...entry, matchStart }));
+  return scored
+    .slice(0, limit)
+    .map(({ entry, matchStart }) => ({ path: entry.path, kind: entry.kind, name: entry.name, matchStart }));
 }
 
 /**
@@ -132,4 +136,37 @@ export function searchRepoPaths(index: RepoPathIndex, query: string, limit = 8):
  */
 export function looksLikeRepository(input: string): boolean {
   return /^(https?:\/\/)?(www\.)?(github\.com\/)?[A-Za-z0-9-]+\/[A-Za-z0-9._-]+/.test(input.trim());
+}
+
+/** Extracts the repository name from slugs and GitHub URLs for the path browser root breadcrumb. */
+export function rootLabel(repo: string | null): string {
+  if (!repo) return "root";
+  const trimmed = repo.trim();
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const segments = new URL(trimmed).pathname.split("/").filter(Boolean);
+      return segments[1] || "root";
+    } catch {
+      return "root";
+    }
+  }
+  const colon = trimmed.indexOf(":");
+  const slug = colon !== -1 ? trimmed.slice(colon + 1) : trimmed;
+  const segments = slug.split("/").filter(Boolean);
+  const first = segments[0]?.toLowerCase();
+  if (first === "github.com" || first === "www.github.com") {
+    return segments[2] || "root";
+  }
+  return segments[1] || "root";
+}
+
+/**
+ * For a parent Dialog/Popover's `onEscapeKeyDown`: Radix listens for Escape on the document in the
+ * capture phase, before the picker sees it. Call `event.preventDefault()` when this returns true so
+ * the first Escape only closes the suggestion list.
+ */
+export function isExpandedCombobox(target: EventTarget | null): boolean {
+  const element = target as Partial<Element> | null;
+  if (typeof element?.getAttribute !== "function") return false;
+  return element.getAttribute("role") === "combobox" && element.getAttribute("aria-expanded") === "true";
 }

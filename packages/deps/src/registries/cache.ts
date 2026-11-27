@@ -150,7 +150,7 @@ async function readResponseTextWithLimit(response: Response, maxBytes: number): 
     return text;
   }
 
-  const reader = response.body.getReader();
+  const reader = (response.body as ReadableStream<Uint8Array>).getReader();
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
   try {

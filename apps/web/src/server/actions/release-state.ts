@@ -80,15 +80,20 @@ export async function markAllReadAction(
     const searchUnreadIds = await findSearchUnreadReleaseIds(user.id, parsed.data, context.subscriptionVisibility);
     if (searchUnreadIds !== null) {
       if (searchUnreadIds.length === 0) return ok({ count: 0 });
-      let count = 0;
       const readAt = new Date();
+      const batches: string[][] = [];
       for (let i = 0; i < searchUnreadIds.length; i += 5_000) {
-        const res = await prisma.userReleaseState.updateMany({
-          where: { userId: user.id, isRead: false, releaseId: { in: searchUnreadIds.slice(i, i + 5_000) } },
-          data: { isRead: true, readAt },
-        });
-        count += res.count;
+        batches.push(searchUnreadIds.slice(i, i + 5_000));
       }
+      const results = await Promise.all(
+        batches.map((ids) =>
+          prisma.userReleaseState.updateMany({
+            where: { userId: user.id, isRead: false, releaseId: { in: ids } },
+            data: { isRead: true, readAt },
+          }),
+        ),
+      );
+      const count = results.reduce((sum, res) => sum + res.count, 0);
       revalidatePath("/", "layout");
       return ok({ count });
     }

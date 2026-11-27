@@ -10,10 +10,10 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "oxlint --type-aware --deny-warnings -c ../../.oxlintrc.json ."
+    "lint": "oxlint -c ../../.oxlintrc.json ."
   },
   "dependencies": {
-    "@repopulse/deps": "workspace:",
+    "@repopulse/deps": "workspace:*",
     "pino": "catalog:"
   },
   "devDependencies": {

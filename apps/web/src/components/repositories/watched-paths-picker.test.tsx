@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { isExpandedCombobox, rootLabel, WatchedPathsPicker } from "./watched-paths-picker";
+import { isExpandedCombobox, rootLabel } from "@/lib/repo-paths";
+import { WatchedPathsPicker } from "./watched-paths-picker";
 
 vi.mock("@/server/actions/repositories", () => ({ listRepositoryPathsAction: vi.fn() }));
 

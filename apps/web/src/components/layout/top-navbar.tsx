@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { Suspense, useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { BellIcon, BellRingIcon, LogOutIcon, MenuIcon, PlusIcon, SearchIcon, ShieldIcon, XIcon } from "lucide-react";
@@ -28,11 +28,16 @@ function MobileMenuRouteWatcher({ onRouteChange }: { onRouteChange: () => void }
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const location = `${pathname}?${searchParams.toString()}`;
-  const [prevLocation, setPrevLocation] = useState(location);
-  if (location !== prevLocation) {
-    setPrevLocation(location);
-    onRouteChange();
-  }
+  const prevLocationRef = useRef(location);
+  const handleRouteChange = useEffectEvent(onRouteChange);
+
+  useEffect(() => {
+    if (location !== prevLocationRef.current) {
+      prevLocationRef.current = location;
+      handleRouteChange();
+    }
+  }, [location]);
+
   return null;
 }
 
@@ -56,8 +61,12 @@ export function TopNavbar({
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-40 flex h-14 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur supports-backdrop-filter:bg-background/70 md:gap-3 md:px-6">
-      {menuOpen ? <MobileMenuRouteWatcher onRouteChange={() => setMenuOpen(false)} /> : null}
+    <header className="sticky top-0 z-40 flex h-14 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur-sm supports-backdrop-filter:bg-background/70 md:gap-3 md:px-6">
+      {menuOpen ? (
+        <Suspense fallback={null}>
+          <MobileMenuRouteWatcher onRouteChange={() => setMenuOpen(false)} />
+        </Suspense>
+      ) : null}
       <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
         <SheetTrigger asChild>
           <Button variant="ghost" size="icon-sm" className="md:hidden" aria-label="Open menu">
@@ -70,7 +79,9 @@ export function TopNavbar({
         </SheetContent>
       </Sheet>
 
-      <SearchBox />
+      <Suspense fallback={<div className="h-9 w-full max-w-md" />}>
+        <SearchBox />
+      </Suspense>
 
       <div className="ml-auto flex items-center gap-1.5 md:gap-2">
         <UnreadBell totalUnread={activeTotalUnread} unreadByRepository={activeUnreadByRepository} />
@@ -192,7 +203,7 @@ function SearchBox() {
             setValue("");
             if (onFeed) navigate("", "replace");
           }}
-          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
           aria-label="Clear search"
         >
           <XIcon className="size-3.5" />

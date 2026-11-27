@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.8.6] — 2026-11-27 — Static analysis, guardrails & lint/codebase remediation
+
+### Added
+
+- **Static analysis, dependency hygiene & guardrails (`knip`, `sherif`, `react-doctor`, `stylelint`, `scripts/guardrails/`)**: Added `knip.ts` (`pnpm knip`, `pnpm knip:production`, `pnpm knip:strict`), `sherif` (`pnpm lint:manifests`), `react-doctor` (`doctor.config.json`, `pnpm doctor`), `stylelint` (`stylelint.config.mjs`, `pnpm lint:css`), RepoPulse guardrails (`scripts/guardrails.ts`, `pnpm check:guardrails` covering pinned versions, `$queryRawUnsafe`/`$executeRawUnsafe`, PEM private key leaks, migration naming/immutability, and workspace isolation), and a unified verification runner (`scripts/verify.ts`, `pnpm verify`) with script TypeScript config (`scripts/tsconfig.json`) and Vitest unit tests (`scripts/tests/`).
+- **Zero-dependency git pre-commit hook & CI hardening**: Added `.githooks/pre-commit` + `scripts/install-hooks.ts` (configured automatically via `prepare`) to run staged guardrails and `docs:check`. Added `gitleaks`, `actionlint`, `pnpm audit --audit-level=high`, all new static gates to `.github/workflows/ci.yml`, and `.github/workflows/react-doctor.yml` for PR reviews.
+
+### Changed
+
+- **Upgraded Oxlint rules & codebase remediation**: Enabled `.oxlintrc.json` `typeAware`, `denyWarnings`, `reportUnusedDisableDirectives`, `import/no-cycle`, `promise`, `jsx-a11y`, `eslint-plugin-better-tailwindcss`, `vitest`, strict `no-explicit-any`/`no-unsafe-*`, React 19 Compiler checks, and complete workspace/client-Zod boundary rules; fixed all lint, Stylelint (`globals.css`), React Doctor (accessibility, Suspense boundaries, Zod v4 APIs, `Set.has`, loop awaits/spreads), manifest (`@repopulse/deps` `workspace:*`), and Knip dead-code/unused-export findings across `apps/*` and `packages/*`.
+
 ## [0.9.8.5] — 2026-11-27 — PostgreSQL FTS, least-privilege role & query/lifecycle audit
 
 ### Changed

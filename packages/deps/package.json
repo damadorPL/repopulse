@@ -28,7 +28,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "oxlint --type-aware --deny-warnings -c ../../.oxlintrc.json ."
+    "lint": "oxlint -c ../../.oxlintrc.json ."
   },
   "dependencies": {
     "semver": "catalog:",

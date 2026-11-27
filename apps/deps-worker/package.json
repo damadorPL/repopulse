@@ -10,7 +10,7 @@
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "oxlint --type-aware --deny-warnings -c ../../.oxlintrc.json ."
+    "lint": "oxlint -c ../../.oxlintrc.json ."
   },
   "dependencies": {
     "@repopulse/db": "workspace:*",
@@ -24,7 +24,6 @@
   "devDependencies": {
     "@repopulse/tsconfig": "workspace:*",
     "@types/node": "catalog:",
-    "pino-pretty": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

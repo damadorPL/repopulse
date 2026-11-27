@@ -819,9 +819,21 @@ export function planPullRequests(
   options: { lockfileRegeneration: boolean },
 ): PlannedPullRequest[] {
   const manifests = new Map(project.manifests.map((m) => [m.id, m]));
-  const outdated = project.updates
-    .filter((u) => u.status === "OUTDATED" && u.targetVersion)
-    .map((u) => ({ ...u, manifestPath: u.manifestPath, level: u.level }));
+  const outdated: Array<PlanPullRequestsInput["updates"][number] & { targetVersion: string }> = [];
+  for (const u of project.updates) {
+    if (u.status === "OUTDATED" && u.targetVersion) {
+      outdated.push({
+        manifestId: u.manifestId,
+        manifestPath: u.manifestPath,
+        ecosystem: u.ecosystem,
+        name: u.name,
+        currentVersion: u.currentVersion,
+        targetVersion: u.targetVersion,
+        level: u.level,
+        status: u.status,
+      });
+    }
+  }
   const groups = groupUpdates(outdated, project.settings.groupMode, project.settings.maxOpenPrs);
   return groups.map((group) => {
     const groupManifests = [...new Set(group.updates.map((u) => u.manifestId))].flatMap((id) => {
@@ -856,7 +868,7 @@ export function planPullRequests(
         name: u.name,
         manifestPath: u.manifestPath,
         from: u.currentVersion,
-        to: u.targetVersion!,
+        to: u.targetVersion,
         level: u.level,
       })),
       lockfiles: capability.lockfiles,

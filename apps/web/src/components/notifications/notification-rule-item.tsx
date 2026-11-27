@@ -104,7 +104,7 @@ export function NotificationRuleItem({ rule }: { rule: NotificationRuleView }) {
         />
         <EditEventsButton rule={rule} label={label} />
         <Button variant="outline" size="sm" onClick={() => void test()} disabled={testing}>
-          {testing ? <LoaderCircleIcon className="animate-spin" /> : <SendIcon />}
+          {testing ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <SendIcon />}
           Send Test
         </Button>
         <DeleteRuleButton ruleId={rule.id} label={label} />
@@ -184,7 +184,7 @@ function EditEventsButton({ rule, label }: { rule: NotificationRuleView; label: 
             </Button>
           </DialogClose>
           <Button onClick={save} disabled={pending || events.length === 0}>
-            {pending ? <LoaderCircleIcon className="animate-spin" /> : null}
+            {pending ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : null}
             Save
           </Button>
         </DialogFooter>

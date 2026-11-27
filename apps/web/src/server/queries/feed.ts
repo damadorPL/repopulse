@@ -1035,12 +1035,16 @@ export const getUserFeedContext = cache(async (userId: string): Promise<UserFeed
 
   const tagById = new Map<string, TagPill>();
   const tags: UserFeedTagSummary[] = rawTags
-    .map(({ subscriptions: links, ...tag }) => {
-      tagById.set(tag.id, tag);
+    .map((row) => {
+      const tag: TagPill = { id: row.id, name: row.name, slug: row.slug, colorHex: row.colorHex };
+      tagById.set(row.id, tag);
       return {
-        ...tag,
-        repositoryCount: links.length,
-        subscriptionIds: links.map((link) => link.subscriptionId),
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        colorHex: row.colorHex,
+        repositoryCount: row.subscriptions.length,
+        subscriptionIds: row.subscriptions.map((link) => link.subscriptionId),
       };
     })
     .sort(byName);

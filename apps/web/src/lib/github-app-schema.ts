@@ -23,7 +23,7 @@ export type GitHubAppManifestInput = z.input<typeof githubAppManifestInput>;
 
 export const githubAppManualInput = z.strictObject({
   appId: z
-    .number("Enter the App ID (a number)")
+    .number({ error: "Enter the App ID (a number)" })
     .int("The App ID is a whole number")
     .positive("The App ID is a positive number")
     .max(2_147_483_647, "That App ID is too large"),

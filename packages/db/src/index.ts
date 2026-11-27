@@ -84,9 +84,6 @@ const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 export const prisma: PrismaClient = globalForPrisma.prisma ?? createPrismaClient();
 globalForPrisma.prisma = prisma;
 
-/** Alias matching the master PRD naming (`db`). */
-export const db = prisma;
-
 export * from "./generated/prisma/client.js";
 export { encryptToken, decryptToken } from "./crypto.js";
 export {

@@ -39,8 +39,8 @@ describe("readConfig", () => {
     expect(() => readConfig({ DEPS_SANDBOX_URL: "not a url" })).toThrow(/Invalid DEPS_SANDBOX_URL/);
     expect(() => readConfig({ DEPS_SANDBOX_URL: "ftp://sandbox:3003" })).toThrow(/DEPS_SANDBOX_URL must be http\(s\)/);
     for (const bad of ["0", "-1", "2.5", "abc"]) {
-      expect(() => readConfig({ DEPS_SCAN_CONCURRENCY: bad }), bad).toThrow(/Invalid DEPS_SCAN_CONCURRENCY/);
-      expect(() => readConfig({ DEPS_UPDATE_CONCURRENCY: bad }), bad).toThrow(/Invalid DEPS_UPDATE_CONCURRENCY/);
+      expect(() => readConfig({ DEPS_SCAN_CONCURRENCY: bad })).toThrow(/Invalid DEPS_SCAN_CONCURRENCY/);
+      expect(() => readConfig({ DEPS_UPDATE_CONCURRENCY: bad })).toThrow(/Invalid DEPS_UPDATE_CONCURRENCY/);
     }
   });
 });

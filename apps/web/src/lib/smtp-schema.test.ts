@@ -32,7 +32,10 @@ describe("SMTP settings validation", () => {
   it("rejects a missing host, a bad port and an unknown encryption mode", () => {
     expect(smtpSettingsInput.safeParse({ ...valid, host: " " }).success).toBe(false);
     for (const port of [0, 65536, 25.5, Number.NaN]) {
-      expect(smtpSettingsInput.safeParse({ ...valid, port }).success, String(port)).toBe(false);
+      expect({ port, success: smtpSettingsInput.safeParse({ ...valid, port }).success }).toEqual({
+        port,
+        success: false,
+      });
     }
     expect(smtpSettingsInput.safeParse({ ...valid, security: "ssl" }).success).toBe(false);
   });

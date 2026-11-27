@@ -62,6 +62,7 @@ const GROUPS: ReadonlyArray<{ title: string; keys: Key[] }> = [
 ];
 
 const numberFormat = new Intl.NumberFormat("en");
+const EMPTY_CANDIDATES: ReapplyCandidate[] = [];
 
 type Draft = Record<Key, string>;
 
@@ -71,7 +72,7 @@ function toDraft(settings: BackfillSettingView[]): Draft {
 
 export function BackfillSettingsForm({
   settings,
-  candidates = [],
+  candidates = EMPTY_CANDIDATES,
   reapplyCandidates,
 }: {
   settings: BackfillSettingView[];
@@ -241,7 +242,7 @@ export function BackfillSettingsForm({
             </Button>
           ) : null}
           <Button type="submit" size="sm" disabled={saving || !dirty}>
-            {saving ? <LoaderCircleIcon className="animate-spin" /> : <SaveIcon />}
+            {saving ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <SaveIcon />}
             {saving ? "Saving…" : "Save"}
           </Button>
         </div>
@@ -365,7 +366,7 @@ export function BackfillSettingsForm({
               Cancel
             </Button>
             <Button type="button" size="sm" onClick={reapply} disabled={reapplying}>
-              {reapplying ? <LoaderCircleIcon className="animate-spin" /> : null}
+              {reapplying ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : null}
               {reapplying ? "Queuing…" : "Re-run import"}
             </Button>
           </div>

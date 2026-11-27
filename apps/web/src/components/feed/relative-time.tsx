@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
@@ -72,25 +72,13 @@ function useIsClient(): boolean {
  */
 export function RelativeTime({ date, className }: { date: Date | string; className?: string }) {
   const isClient = useIsClient();
-  const [showLocalTitle, setShowLocalTitle] = useState(false);
   const value = typeof date === "string" ? new Date(date) : date;
   const iso = value.toISOString();
   const utcFallback = `${iso.slice(0, 16).replace("T", " ")} UTC`;
-  const title = isClient && showLocalTitle ? formatLocal(value, "PPpp") : utcFallback;
-
-  const revealLocal = () => {
-    if (!showLocalTitle) setShowLocalTitle(true);
-  };
+  const title = isClient ? formatLocal(value, "PPpp") : utcFallback;
 
   return (
-    <time
-      dateTime={iso}
-      title={title}
-      onMouseEnter={revealLocal}
-      onFocus={revealLocal}
-      className={cn("whitespace-nowrap", className)}
-      suppressHydrationWarning
-    >
+    <time dateTime={iso} title={title} className={cn("whitespace-nowrap", className)} suppressHydrationWarning>
       {formatRelativeTime(value)}
     </time>
   );

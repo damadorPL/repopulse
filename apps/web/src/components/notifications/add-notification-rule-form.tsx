@@ -223,7 +223,7 @@ export function AddNotificationRuleForm({
             (!isEmail && !destination.trim())
           }
         >
-          {pending ? <LoaderCircleIcon className="animate-spin" /> : <PlusIcon />}
+          {pending ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <PlusIcon />}
           {pending ? "Checking destination…" : "Add rule"}
         </Button>
         {limitReached ? (

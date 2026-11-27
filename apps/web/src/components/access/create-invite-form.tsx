@@ -103,7 +103,7 @@ export function CreateInviteForm() {
 
       <div>
         <Button type="submit" disabled={pending}>
-          {pending ? <LoaderCircleIcon className="animate-spin" /> : <LinkIcon />}
+          {pending ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <LinkIcon />}
           Create link
         </Button>
       </div>

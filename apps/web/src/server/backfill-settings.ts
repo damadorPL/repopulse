@@ -66,6 +66,7 @@ export function buildBackfillSettingsView(
     const envVar = BACKFILL_ENV_VARS[key];
     const fromEnv = envVar !== null && Boolean(env[envVar]?.trim());
     const override = overrides[key];
+    const limits = BACKFILL_LIMITS[key];
     return {
       key,
       value: effective[key],
@@ -74,7 +75,8 @@ export function buildBackfillSettingsView(
       fallbackSource: fromEnv ? "env" : "default",
       source: override !== null ? "admin" : fromEnv ? "env" : "default",
       envVar,
-      ...BACKFILL_LIMITS[key],
+      min: limits.min,
+      max: limits.max,
     };
   });
 }

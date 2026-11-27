@@ -4,9 +4,9 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCwIcon } from "lucide-react";
 import { toast } from "sonner";
-import { depsScanToastId } from "@/components/realtime/sse-listener";
-import { formatWait } from "@/components/repositories/sync-repo-button";
 import { Button } from "@/components/ui/button";
+import { formatWait } from "@/lib/format-wait";
+import { depsScanToastId } from "@/lib/toast-ids";
 import { cn } from "@/lib/utils";
 import { triggerDependencyScanAction } from "@/server/actions/dependencies";
 
@@ -62,7 +62,7 @@ export function CheckNowButton({
       aria-label={iconOnly ? label : undefined}
       title={iconOnly ? label : undefined}
     >
-      <RefreshCwIcon className={cn(spinning && "animate-spin")} />
+      <RefreshCwIcon className={cn(spinning && "motion-safe:animate-spin")} />
       {iconOnly ? null : busy ? "Checking…" : "Check now"}
     </Button>
   );

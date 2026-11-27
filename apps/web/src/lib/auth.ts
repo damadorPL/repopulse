@@ -35,8 +35,11 @@ const prismaWithTxTracking = new Proxy(prisma, {
         options?: Parameters<typeof prisma.$transaction>[1],
       ) => target.$transaction((tx) => txStorage.run(tx, () => fn(tx)), options);
     }
-    const value = Reflect.get(target, prop, target);
-    return typeof value === "function" ? value.bind(target) : value;
+    const value: unknown = Reflect.get(target, prop, target);
+    if (typeof value === "function") {
+      return (value as { bind(thisArg: object): unknown }).bind(target);
+    }
+    return value;
   },
 });
 
@@ -262,8 +265,11 @@ export const auth: BetterAuthInstance = new Proxy({} as BetterAuthInstance, {
       return undefined;
     }
     const instance = getAuth();
-    const value = Reflect.get(instance, prop, instance);
-    return typeof value === "function" ? value.bind(instance) : value;
+    const value: unknown = Reflect.get(instance, prop, instance);
+    if (typeof value === "function") {
+      return (value as { bind(thisArg: object): unknown }).bind(instance);
+    }
+    return value;
   },
   has(_target, prop) {
     if (prop === "then" || prop === "__esModule" || typeof prop === "symbol") {

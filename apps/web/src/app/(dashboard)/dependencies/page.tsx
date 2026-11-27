@@ -116,7 +116,7 @@ export default async function DependenciesPage({ searchParams }: PageProps<"/dep
             <SearchXIcon className="size-5" />
           </span>
           <h2 className="mt-4 font-medium">
-            No projects match <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm">{filters.q}</code>
+            No projects match <code className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-sm">{filters.q}</code>
           </h2>
           <Button variant="outline" asChild className="mt-5">
             <Link href={dependencyListHref({ sort: filters.sort })}>Clear search</Link>

@@ -134,7 +134,7 @@ export function dependencyHeadline(ctx: DependencyMessageContext): string {
     case "access_lost":
       return `${name}: dependency pull requests paused`;
     case "opened":
-    default:
+    case undefined:
       return `${name}: ${prLabel(ctx)} opened`;
   }
 }
@@ -151,7 +151,7 @@ export function dependencyIntro(ctx: DependencyMessageContext): string | null {
     case "updated":
       return title ? `New versions were pushed: ${title}` : "New versions were pushed to the pull request.";
     case "opened":
-    default:
+    case undefined:
       return title ?? null;
   }
 }

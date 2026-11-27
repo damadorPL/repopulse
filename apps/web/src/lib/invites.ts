@@ -6,7 +6,6 @@ export const INVITE_COOKIE = "repopulse_invite";
 export const INVITE_COOKIE_MAX_AGE_SECONDS = 60 * 60;
 
 export const INVITE_EXPIRY_DAYS = [1, 7, 30] as const;
-export type InviteExpiryDays = (typeof INVITE_EXPIRY_DAYS)[number];
 export const INVITE_NOTE_MAX_LENGTH = 80;
 /** Most pending (unused, unexpired) invites at once. */
 export const MAX_PENDING_INVITES = 50;

@@ -75,7 +75,7 @@ export function InviteItem({ invite }: { invite: InviteView }) {
         disabled={pending}
         aria-label={`${action} invite${invite.note ? ` “${invite.note}”` : ""}`}
       >
-        {pending ? <LoaderCircleIcon className="animate-spin" /> : <TrashIcon />}
+        {pending ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <TrashIcon />}
         {action}
       </Button>
     </li>

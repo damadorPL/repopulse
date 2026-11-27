@@ -1,5 +1,4 @@
 import {
-  DEPENDENCY_PROJECT_DEFAULTS,
   MAX_IGNORE_RULES,
   MAX_MANIFESTS_PER_PROJECT,
   MAX_OPEN_PRS_MAX,
@@ -40,10 +39,8 @@ export const DEPENDENCY_ECOSYSTEMS = ["NPM", "PYPI"] as const;
 export type DependencyEcosystemValue = (typeof DEPENDENCY_ECOSYSTEMS)[number];
 export type PackageManagerValue = "NPM" | "PNPM" | "BUN" | "YARN" | "PIP" | "PIP_TOOLS" | "UV" | "POETRY" | "NONE";
 export type DepsPrStateValue = "OPEN" | "MERGED" | "CLOSED" | "EDITED";
-export type DepsScanStatusValue = "IDLE" | "QUEUED" | "SCANNING" | "ERROR";
 
 export {
-  DEPENDENCY_PROJECT_DEFAULTS,
   MAX_IGNORE_RULES,
   MAX_MANIFESTS_PER_PROJECT,
   MAX_OPEN_PRS_MAX,
@@ -156,10 +153,6 @@ export const PR_STATE_LABELS: Record<DepsPrStateValue, string> = {
 
 export function updateModeLabel(mode: DepsUpdateModeValue): string {
   return UPDATE_MODE_OPTIONS.find((option) => option.value === mode)?.badge ?? mode;
-}
-
-export function isPrMode(mode: DepsUpdateModeValue): boolean {
-  return mode !== "NOTIFY";
 }
 
 export const COMMIT_PREFIX_MAX_LENGTH = 50;

@@ -38,7 +38,11 @@ export function NotTrackedState({ tags }: { tags: TagPill[] }) {
         </span>
         <h1 className="mt-4 font-medium">
           You don&apos;t track{" "}
-          {slug ? <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm">{slug}</code> : "this repository"}
+          {slug ? (
+            <code className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-sm">{slug}</code>
+          ) : (
+            "this repository"
+          )}
         </h1>
         <p className="mt-1 max-w-sm text-sm text-muted-foreground">
           Add it to see its releases in your feed and change its settings here.

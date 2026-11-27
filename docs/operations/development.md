@@ -1,6 +1,6 @@
 # Development
 
-> **Summary:** pnpm + Turborepo monorepo. Local PostgreSQL 19 and Redis 8 run in Docker (`docker-compose.dev.yml`); apps run on the host with `pnpm dev`. Before finishing any change, verify with `pnpm docs:check && pnpm --filter "./packages/*" build && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test` (plus `pnpm --filter @repopulse/web build` for web changes).
+> **Summary:** pnpm + Turborepo monorepo. Local PostgreSQL 19 and Redis 8 run in Docker (`docker-compose.dev.yml`); apps run on the host with `pnpm dev`. Before finishing any change, verify with `pnpm verify` (supports `--fix`, `--skip-build`, `--fail-fast`, and `--only <steps>`).
 >
 > **Related Docs:** [../CODING_STANDARDS.md](../CODING_STANDARDS.md) · [./configuration.md](./configuration.md) · [./deployment.md](./deployment.md)
 
@@ -20,13 +20,18 @@ The first GitHub account to sign in becomes the super admin. After pulling chang
 
 | Command | Does |
 | --- | --- |
+| `pnpm verify` | Run all static, build, typecheck, lint, css, knip, format, doctor, test, docs, and web build gates |
 | `pnpm dev` | All `dev` tasks (`web` `:3000`, `worker` `:3001`, `deps-worker` `:3002`, `deps-sandbox` `:3003`) |
 | `pnpm build` | Build every package and app (`db:generate` runs first) |
-| `pnpm typecheck` | `tsc --noEmit` everywhere (`web` runs `next typegen` first) |
-| `pnpm lint` | Oxlint (`--type-aware --deny-warnings`) across all workspaces and scripts |
+| `pnpm typecheck` / `pnpm typecheck:scripts` | `tsc --noEmit` everywhere (`web` runs `next typegen` first) and in `scripts/` |
+| `pnpm lint` / `pnpm lint:css` | Oxlint (`typeAware`, `denyWarnings`, `.oxlintrc.json`) and Stylelint (`stylelint.config.mjs`) |
+| `pnpm lint:manifests` | Sherif workspace `package.json` manifest hygiene check |
+| `pnpm knip` / `pnpm knip:strict` | Knip unused code/exports check and strict production dependency isolation |
+| `pnpm doctor` / `pnpm doctor:design` | React Doctor static audit on `apps/web` (`doctor.config.json`) |
+| `pnpm check:guardrails` | RepoPulse pinned-deps, SQL/secret safety, migration, and isolation guardrails |
 | `pnpm format` / `pnpm format:check` | Format / verify formatting with Oxfmt (`.oxfmtrc.json`) |
 | `pnpm docs:check` | Validate relative links, `#anchors`, `AGENTS.md` line budgets/hygiene, and workspace doc coverage |
-| `pnpm test` / `pnpm test:coverage` | Vitest 5 across all workspaces (with V8 coverage for `test:coverage`) |
+| `pnpm test` / `pnpm test:scripts` / `pnpm test:coverage` | Vitest 5 across all workspaces and `scripts/tests/` (with V8 coverage for `test:coverage`) |
 | `pnpm --filter <pkg> <script>` | Run a script in one workspace (e.g., `pnpm --filter @repopulse/worker test`) |
 | `pnpm --filter "./packages/*" build` | Rebuild workspace library `dist/` outputs (required before apps/tests pick up package edits) |
 | `pnpm db:generate` | Regenerate Prisma Client into `packages/db/src/generated` |
@@ -41,7 +46,7 @@ The first GitHub account to sign in becomes the super admin. After pulling chang
 
 Engineering rules, workspace boundaries, Next.js 16 / React 19 gotchas, Vitest mocking conventions, and error-redaction standards are consolidated in [../CODING_STANDARDS.md](../CODING_STANDARDS.md).
 
-GitHub Actions CI (`.github/workflows/ci.yml`) runs on `push` to `main` and `pull_request` (Node 26): `pnpm install --frozen-lockfile` → `pnpm db:generate` → `pnpm --filter "./packages/*" build` → `pnpm typecheck` → `pnpm lint` → `pnpm format:check` → `pnpm docs:check` → `pnpm test` → `pnpm --filter @repopulse/web build`.
+GitHub Actions CI (`.github/workflows/ci.yml` + `.github/workflows/react-doctor.yml`) runs on `push` to `main` and `pull_request`: `secrets-and-workflows` (`gitleaks` + `actionlint`), `ci` (`check:guardrails` → `lint:manifests` → `db:generate` → `packages/* build` → `typecheck` → `lint` → `lint:css` → `knip` → `knip:strict` → `format:check` → `docs:check` → `doctor` → `test` → `@repopulse/web build` → `pnpm audit --audit-level=high`), and React Doctor PR checks. Installing dependencies via `pnpm install` runs `prepare` (`scripts/install-hooks.ts`) to configure `core.hooksPath = .githooks` (running staged guardrails and `docs:check` before commits).
 
 ## Git & Release Workflow
 

@@ -165,11 +165,11 @@ function isGraphqlResponseError(error: unknown): error is GraphqlErrorLike {
 /** Converts GraphQL and HTTP errors into the same typed errors as the REST helpers. */
 function rethrowTagError(error: unknown, owner: string, name: string): never {
   if (isGraphqlResponseError(error)) {
-    const types = (error.errors ?? []).map((e) => e.type);
-    if (types.includes("RATE_LIMITED")) {
+    const types = new Set((error.errors ?? []).map((e) => e.type));
+    if (types.has("RATE_LIMITED")) {
       throw new GitHubRateLimitError(getRateLimitInfo(error.headers).resetAt ?? parseRetryAfter(error.headers));
     }
-    if (types.includes("NOT_FOUND")) throw new GitHubRepositoryNotFoundError(owner, name);
+    if (types.has("NOT_FOUND")) throw new GitHubRepositoryNotFoundError(owner, name);
   }
   const rateLimited = toRateLimitError(error);
   if (rateLimited) throw rateLimited;

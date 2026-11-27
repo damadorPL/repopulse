@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import Link from "next/link";
 import { InboxIcon, PlusIcon, SearchXIcon } from "lucide-react";
 import { FeedFilterBar } from "@/components/feed/feed-filter-bar";
@@ -67,76 +67,78 @@ export default async function ReleaseFeedPage({ searchParams }: PageProps<"/">) 
   const drawerItem = detail ? toDrawerItem(detail) : null;
 
   return (
-    <ReaderProvider initialDetail={drawerItem}>
-      <div className="mx-auto max-w-4xl space-y-5">
-        <div>
-          <h1 className="flex items-center gap-2.5 text-xl font-semibold tracking-tight">
-            {tag ? <TagDot color={tag.colorHex} className="size-3" /> : null}
-            {heading}
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {viewUnread > 0 ? `${viewUnread} unread` : "All caught up"}
-            {context.subscriptions.length > 0
-              ? ` · ${context.subscriptions.length} tracked repositor${context.subscriptions.length === 1 ? "y" : "ies"}`
-              : null}
-          </p>
+    <Suspense fallback={null}>
+      <ReaderProvider initialDetail={drawerItem}>
+        <div className="mx-auto max-w-4xl space-y-5">
+          <div>
+            <h1 className="flex items-center gap-2.5 text-xl font-semibold tracking-tight">
+              {tag ? <TagDot color={tag.colorHex} className="size-3" /> : null}
+              {heading}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {viewUnread > 0 ? `${viewUnread} unread` : "All caught up"}
+              {context.subscriptions.length > 0
+                ? ` · ${context.subscriptions.length} tracked repositor${context.subscriptions.length === 1 ? "y" : "ies"}`
+                : null}
+            </p>
+          </div>
+
+          <FeedFilterBar
+            filters={filters}
+            tag={tag}
+            repositoryName={repository?.fullName ?? null}
+            unreadInView={viewUnread > 0}
+          />
+
+          <ReleaseFeedList
+            key={key}
+            initialPage={page}
+            query={key}
+            emptyState={
+              context.subscriptions.length === 0 ? (
+                <EmptyState
+                  icon={<PlusIcon />}
+                  title="Track your first repository"
+                  description="Add a GitHub repository and its latest releases show up here, with changelogs and SemVer badges."
+                  action={
+                    <AddRepoModal
+                      tags={context.tags.map(({ id, name, slug, colorHex }) => ({ id, name, slug, colorHex }))}
+                    >
+                      <Button>
+                        <PlusIcon />
+                        Add repository
+                      </Button>
+                    </AddRepoModal>
+                  }
+                />
+              ) : filters.onlyUnread && !filtered && !tag && !repository ? (
+                <EmptyState
+                  icon={<InboxIcon />}
+                  title="Inbox zero"
+                  description="No unread releases. New ones appear here as they are published."
+                />
+              ) : (
+                <EmptyState
+                  icon={<SearchXIcon />}
+                  title="No releases match"
+                  description="Try another filter, or clear them to see everything."
+                  action={
+                    <Button variant="outline" asChild>
+                      <Link href={feedHref()}>Clear filters</Link>
+                    </Button>
+                  }
+                />
+              )
+            }
+          />
         </div>
 
-        <FeedFilterBar
-          filters={filters}
-          tag={tag}
-          repositoryName={repository?.fullName ?? null}
-          unreadInView={viewUnread > 0}
-        />
-
-        <ReleaseFeedList
-          key={key}
-          initialPage={page}
-          query={key}
-          emptyState={
-            context.subscriptions.length === 0 ? (
-              <EmptyState
-                icon={<PlusIcon />}
-                title="Track your first repository"
-                description="Add a GitHub repository and its latest releases show up here, with changelogs and SemVer badges."
-                action={
-                  <AddRepoModal
-                    tags={context.tags.map(({ id, name, slug, colorHex }) => ({ id, name, slug, colorHex }))}
-                  >
-                    <Button>
-                      <PlusIcon />
-                      Add repository
-                    </Button>
-                  </AddRepoModal>
-                }
-              />
-            ) : filters.onlyUnread && !filtered && !tag && !repository ? (
-              <EmptyState
-                icon={<InboxIcon />}
-                title="Inbox zero"
-                description="No unread releases. New ones appear here as they are published."
-              />
-            ) : (
-              <EmptyState
-                icon={<SearchXIcon />}
-                title="No releases match"
-                description="Try another filter, or clear them to see everything."
-                action={
-                  <Button variant="outline" asChild>
-                    <Link href={feedHref()}>Clear filters</Link>
-                  </Button>
-                }
-              />
-            )
-          }
-        />
-      </div>
-
-      {/* Only the rendered markdown crosses to the client; the raw body stays on the server. */}
-      <ChangelogDrawer detail={drawerItem}>
-        {detail ? <ChangelogMarkdown markdown={detail.bodyMarkdown} /> : null}
-      </ChangelogDrawer>
-    </ReaderProvider>
+        {/* Only the rendered markdown crosses to the client; the raw body stays on the server. */}
+        <ChangelogDrawer detail={drawerItem}>
+          {detail ? <ChangelogMarkdown markdown={detail.bodyMarkdown} /> : null}
+        </ChangelogDrawer>
+      </ReaderProvider>
+    </Suspense>
   );
 }
 

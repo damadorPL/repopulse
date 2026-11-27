@@ -171,6 +171,25 @@ export async function validateWebhookUrl(urlString: string, options: ValidateWeb
   return url;
 }
 
+async function resolveGuardedAddresses(
+  hostname: string,
+  familyOption: Parameters<LookupFunction>[1]["family"],
+  policy: InternalHostsPolicy,
+  resolveAll: ResolveAll,
+): Promise<LookupAddress[]> {
+  const resolved = await resolveAll(hostname);
+  const family = familyOption === "IPv4" ? 4 : familyOption === "IPv6" ? 6 : familyOption;
+  const addresses = family === 4 || family === 6 ? resolved.filter((a) => a.family === family) : resolved;
+  for (const { address } of addresses) {
+    const reason = blockReason(hostname, address, policy);
+    if (reason) throw new WebhookUrlError(reason);
+  }
+  if (addresses.length === 0) {
+    throw Object.assign(new Error(`getaddrinfo ENOTFOUND ${hostname}`), { code: "ENOTFOUND" });
+  }
+  return addresses;
+}
+
 /**
  * A `net` lookup function that resolves like `dns.lookup` but fails the connection when any
  * address is blocked. Handles both call shapes (`all: true` is used by Happy Eyeballs).
@@ -180,27 +199,20 @@ export function createGuardedLookup(
   resolveAll: ResolveAll = defaultResolveAll,
 ): LookupFunction {
   return (hostname, options, callback) => {
-    resolveAll(hostname).then(
-      (resolved) => {
-        const family = options.family === "IPv4" ? 4 : options.family === "IPv6" ? 6 : options.family;
-        const addresses = family === 4 || family === 6 ? resolved.filter((a) => a.family === family) : resolved;
-        for (const { address } of addresses) {
-          const reason = blockReason(hostname, address, policy);
-          if (reason) {
-            callback(new WebhookUrlError(reason), "", 0);
-            return;
-          }
-        }
-        const first = addresses[0];
-        if (!first) {
-          const error = Object.assign(new Error(`getaddrinfo ENOTFOUND ${hostname}`), { code: "ENOTFOUND" });
-          callback(error, "", 0);
-          return;
-        }
-        if (options.all) (callback as unknown as (err: null, addresses: LookupAddress[]) => void)(null, addresses);
-        else callback(null, first.address, first.family);
-      },
-      (error: NodeJS.ErrnoException) => callback(error, "", 0),
-    );
+    void (async () => {
+      let addresses: LookupAddress[];
+      try {
+        addresses = await resolveGuardedAddresses(hostname, options.family, policy, resolveAll);
+      } catch (error) {
+        callback(error as NodeJS.ErrnoException, "", 0);
+        return;
+      }
+      if (options.all) {
+        (callback as unknown as (err: null, addresses: LookupAddress[]) => void)(null, addresses);
+      } else {
+        const first = addresses[0]!;
+        callback(null, first.address, first.family);
+      }
+    })();
   };
 }

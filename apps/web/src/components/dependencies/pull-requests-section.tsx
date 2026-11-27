@@ -42,7 +42,7 @@ function CreatePrButton({ projectId, plan }: { projectId: string; plan: PlannedP
       onClick={create}
       disabled={pending || plan.disabledReason !== null}
     >
-      {pending ? <LoaderCircleIcon className="animate-spin" /> : <GitPullRequestIcon />}
+      {pending ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <GitPullRequestIcon />}
       {update ? "Update PR" : "Create PR"}
     </Button>
   );

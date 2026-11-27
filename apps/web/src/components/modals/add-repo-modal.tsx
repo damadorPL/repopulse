@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useTransition, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { CheckIcon, LoaderCircleIcon } from "lucide-react";
 import { toast } from "sonner";
 import { TagDot } from "@/components/feed/tag-pill";
-import { isExpandedCombobox, WatchedPathsPicker } from "@/components/repositories/watched-paths-picker";
+import { WatchedPathsPicker } from "@/components/repositories/watched-paths-picker";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -20,6 +20,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { feedHref } from "@/lib/feed-filters";
+import { isExpandedCombobox } from "@/lib/repo-paths";
 import {
   NOTHING_TRACKED_MESSAGE,
   PATHS_OPTION,
@@ -57,6 +58,7 @@ export function AddRepoModal({
   defaultRepo?: string;
 }) {
   const router = useRouter();
+  const repoInputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [repo, setRepo] = useState(defaultRepo);
   const [includePrereleases, setIncludePrereleases] = useState(false);
@@ -158,7 +160,13 @@ export function AddRepoModal({
       }}
     >
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent onEscapeKeyDown={(event) => isExpandedCombobox(event.target) && event.preventDefault()}>
+      <DialogContent
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          repoInputRef.current?.focus();
+        }}
+        onEscapeKeyDown={(event) => isExpandedCombobox(event.target) && event.preventDefault()}
+      >
         <form onSubmit={submit} className="grid gap-5">
           <DialogHeader>
             <DialogTitle>Track a repository</DialogTitle>
@@ -170,6 +178,7 @@ export function AddRepoModal({
           <div className="grid gap-2">
             <Label htmlFor="add-repo-input">Repository</Label>
             <Input
+              ref={repoInputRef}
               id="add-repo-input"
               value={repo}
               onChange={(e) => setRepo(e.target.value)}
@@ -177,7 +186,6 @@ export function AddRepoModal({
               autoComplete="off"
               spellCheck={false}
               required
-              autoFocus
               aria-invalid={error ? true : undefined}
               aria-describedby={error ? "add-repo-error" : undefined}
             />
@@ -270,26 +278,29 @@ export function AddRepoModal({
             <fieldset className="grid gap-2">
               <legend className="mb-2 text-sm font-medium">Tags</legend>
               <div className="flex flex-wrap gap-1.5">
-                {tags.map((tag) => {
-                  const selected = tagIds.includes(tag.id);
-                  return (
-                    <button
-                      key={tag.id}
-                      type="button"
-                      aria-pressed={selected}
-                      onClick={() => toggleTag(tag.id)}
-                      className={cn(
-                        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors",
-                        selected
-                          ? "border-foreground/40 bg-secondary font-medium"
-                          : "text-muted-foreground hover:bg-accent",
-                      )}
-                    >
-                      <TagDot color={tag.colorHex} />
-                      {tag.name}
-                    </button>
-                  );
-                })}
+                {(() => {
+                  const selectedTagIds = new Set(tagIds);
+                  return tags.map((tag) => {
+                    const selected = selectedTagIds.has(tag.id);
+                    return (
+                      <button
+                        key={tag.id}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => toggleTag(tag.id)}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors",
+                          selected
+                            ? "border-foreground/40 bg-secondary font-medium"
+                            : "text-muted-foreground hover:bg-accent",
+                        )}
+                      >
+                        <TagDot color={tag.colorHex} />
+                        {tag.name}
+                      </button>
+                    );
+                  });
+                })()}
               </div>
             </fieldset>
           ) : null}
@@ -301,7 +312,7 @@ export function AddRepoModal({
                 pending || !repo.trim() || !tracksAnything || (tracksPaths && paths.length === 0 && !pathsDraft.trim())
               }
             >
-              {pending ? <LoaderCircleIcon className="animate-spin" /> : null}
+              {pending ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : null}
               {pending ? (tracksReleases ? "Fetching releases…" : "Adding…") : "Add repository"}
             </Button>
           </DialogFooter>

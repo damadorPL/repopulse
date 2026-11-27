@@ -228,7 +228,7 @@ export async function pollRepoTags(
 
       result = await prisma.$transaction(async (tx) => {
         const created = await tx.release.createManyAndReturn({
-          data: rows.map((row) => ({ ...row, repositoryId: repo.id })),
+          data: rows.map((row) => Object.assign({}, row, { repositoryId: repo.id })),
           // (repositoryId, source, tagName) is unique; a concurrent poll may insert the same tags.
           skipDuplicates: true,
           select: STORED_RELEASE_SELECT,

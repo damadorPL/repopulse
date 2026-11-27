@@ -4,7 +4,7 @@ import { npmBumpRange, npmLowerBound, npmMaxSatisfying, npmSatisfies, npmUnsuppo
 describe("npmUnsupportedReason", () => {
   it("accepts semver ranges", () => {
     for (const spec of ["1.2.3", "^1.2.3", "~1.2", ">=1 <3", "1.x", "1 || 2", "1.2.3 - 2.0.0", "=1.0.0"]) {
-      expect(npmUnsupportedReason(spec), spec).toBeNull();
+      expect([spec, npmUnsupportedReason(spec)]).toEqual([spec, null]);
     }
   });
 
@@ -24,7 +24,7 @@ describe("npmUnsupportedReason", () => {
       "latest",
       "next",
     ]) {
-      expect(npmUnsupportedReason(spec), spec).not.toBeNull();
+      expect([spec, npmUnsupportedReason(spec) !== null]).toEqual([spec, true]);
     }
   });
 });

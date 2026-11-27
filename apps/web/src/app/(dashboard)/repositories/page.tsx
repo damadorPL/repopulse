@@ -41,6 +41,10 @@ export const metadata: Metadata = { title: "Tracked repositories · RepoPulse" }
 
 const compactNumber = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 
+function currentTimestampMs(): number {
+  return Date.now();
+}
+
 export default async function RepositoriesPage({ searchParams }: PageProps<"/repositories">) {
   const filters = parseRepoListFilters(await searchParams);
   const user = await requireUser();
@@ -52,7 +56,7 @@ export default async function RepositoriesPage({ searchParams }: PageProps<"/rep
   const unreadByRepo = new Map(dashboard.unreadByRepository.map((r) => [r.repositoryId, r.unreadCount]));
   const allTags = dashboard.tags.map(({ id, name, slug, colorHex }) => ({ id, name, slug, colorHex }));
   const shown = applyRepoListFilters(repositories, filters, unreadByRepo);
-  const now = Date.now();
+  const now = currentTimestampMs();
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
@@ -91,7 +95,7 @@ export default async function RepositoriesPage({ searchParams }: PageProps<"/rep
             {filters.q ? (
               <>
                 No repositories match{" "}
-                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm">{filters.q}</code>
+                <code className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-sm">{filters.q}</code>
               </>
             ) : (
               "No repositories match these filters"

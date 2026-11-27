@@ -19,7 +19,7 @@ export const smtpSettingsInput = z.object({
     .max(253, "The host name is too long")
     .refine(isValidSmtpHost, "Enter a host name such as smtp.example.com, without http:// or a port"),
   port: z
-    .number("Enter a port")
+    .number({ error: "Enter a port" })
     .int("Enter a whole number")
     .min(1, "Ports go from 1 to 65535")
     .max(65535, "Ports go from 1 to 65535"),

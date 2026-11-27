@@ -127,7 +127,7 @@ export class FakeTable {
   };
   findMany = async (args: { where?: Where; orderBy?: unknown; take?: number; cursor?: Where; skip?: number } = {}) => {
     let out = this.rows.filter((r) => matches(r, args.where));
-    const orders = Array.isArray(args.orderBy) ? args.orderBy : args.orderBy ? [args.orderBy] : [];
+    const orders = Array.isArray(args.orderBy) ? (args.orderBy as unknown[]) : args.orderBy ? [args.orderBy] : [];
     for (const order of [...orders].reverse()) {
       const [field, direction] = Object.entries(order as Record<string, unknown>)[0]!;
       const dir = (isPlainObject(direction) ? direction.sort : direction) === "desc" ? -1 : 1;

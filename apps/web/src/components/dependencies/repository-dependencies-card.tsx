@@ -6,10 +6,10 @@ import { useRouter } from "next/navigation";
 import { LoaderCircleIcon, PackageSearchIcon } from "lucide-react";
 import { toast } from "sonner";
 import { RelativeTime } from "@/components/feed/relative-time";
-import { depsScanToastId } from "@/components/realtime/sse-listener";
 import { Button } from "@/components/ui/button";
 import { dependencyProjectHref } from "@/lib/dependency-list-filters";
 import { formatOutdatedCounts, totalOutdated, type LevelCounts } from "@/lib/dependency-settings";
+import { depsScanToastId } from "@/lib/toast-ids";
 import { addDependencyProjectsAction } from "@/server/actions/dependencies";
 
 /**
@@ -93,7 +93,7 @@ export function RepositoryDependenciesCard({
         they are outdated.
       </p>
       <Button size="sm" onClick={add} disabled={pending}>
-        {pending ? <LoaderCircleIcon className="animate-spin" /> : <PackageSearchIcon />}
+        {pending ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <PackageSearchIcon />}
         Check this repository&apos;s dependencies
       </Button>
     </div>

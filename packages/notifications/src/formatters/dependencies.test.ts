@@ -121,7 +121,7 @@ describe("Discord", () => {
   });
 
   it("stays within Discord's description limit", () => {
-    const long = many(25).map((u) => ({ ...u, name: `${u.name}-${"x".repeat(200)}` }));
+    const long = many(25).map((u) => Object.assign({}, u, { name: `${u.name}-${"x".repeat(200)}` }));
     expect(formatDependencyDiscordPayload(digest(long)).embeds[0]!.description.length).toBeLessThanOrEqual(4096);
   });
 });
@@ -182,7 +182,7 @@ describe("ntfy / Gotify", () => {
   });
 
   it("ntfy: keeps the body under 4096 bytes", () => {
-    const long = many(25).map((u) => ({ ...u, name: `${u.name}-${"ü".repeat(200)}` }));
+    const long = many(25).map((u) => Object.assign({}, u, { name: `${u.name}-${"ü".repeat(200)}` }));
     expect(
       Buffer.byteLength(buildDependencyNtfyRequest(digest(long), "https://ntfy.sh/deps").body),
     ).toBeLessThanOrEqual(3800);

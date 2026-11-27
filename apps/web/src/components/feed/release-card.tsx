@@ -55,7 +55,7 @@ export const ReleaseCard = memo(function ReleaseCard({
         </div>
 
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
-          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{item.tagName}</code>
+          <code className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs">{item.tagName}</code>
           {item.source === "TAG" ? <TagSourceBadge /> : null}
           {item.source === "COMMIT" ? <CommitSourceBadge /> : <SemverBadge type={item.semverType} />}
           {showPrereleaseFlag ? <SemverBadge type="PRERELEASE" /> : null}
@@ -104,7 +104,7 @@ export const ReleaseCard = memo(function ReleaseCard({
           href={item.htmlUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="z-10 rounded p-1 text-muted-foreground opacity-0 outline-hidden transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/50 group-hover:opacity-100"
+          className="z-10 rounded-sm p-1 text-muted-foreground opacity-0 outline-hidden transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/50 group-hover:opacity-100"
           title="Open on GitHub"
         >
           <ExternalLinkIcon className="size-4" />

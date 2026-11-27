@@ -49,17 +49,6 @@ export function guardPrepareLockfile(text: string, path: string, prepare: () => 
   }
 }
 
-/** Runs a reader with the size guard and turns any failure into an empty result + warning. */
-export function guardLockfile(text: string, path: string, read: () => LockfileVersions): LockfileVersions {
-  const oversize = oversizeWarning(text, path);
-  if (oversize) return emptyLockfile(oversize);
-  try {
-    return read();
-  } catch (error) {
-    return emptyLockfile(parseFailureWarning(path, error));
-  }
-}
-
 /** Formats a scalar lockfile version field, returning `null` for missing or non-scalar values. */
 export function formatLockfileVersion(value: unknown): string | null {
   return typeof value === "string" || typeof value === "number" ? String(value) : null;

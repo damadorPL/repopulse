@@ -52,7 +52,7 @@ export function ChangelogMarkdown({ markdown, className }: { markdown: string; c
         "prose-headings:scroll-mt-4 prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline dark:prose-a:text-blue-400",
         "prose-pre:rounded-lg prose-pre:border prose-pre:bg-muted prose-pre:text-[13px] prose-pre:text-foreground prose-code:before:content-none prose-code:after:content-none",
         "prose-img:inline-block prose-img:my-1 prose-li:my-0.5 prose-table:text-xs",
-        "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-muted [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:font-normal",
+        "[&_:not(pre)>code]:rounded-sm [&_:not(pre)>code]:bg-muted [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:font-normal",
         "[&_details]:my-3 [&_details]:rounded-md [&_details]:border [&_details]:px-3 [&_details]:py-2 [&_summary]:cursor-pointer [&_summary]:font-medium",
         className,
       )}

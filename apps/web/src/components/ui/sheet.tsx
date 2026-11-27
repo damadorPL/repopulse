@@ -13,10 +13,6 @@ function SheetTrigger(props: ComponentProps<typeof SheetPrimitive.Trigger>) {
   return <SheetPrimitive.Trigger data-slot="sheet-trigger" {...props} />;
 }
 
-function SheetClose(props: ComponentProps<typeof SheetPrimitive.Close>) {
-  return <SheetPrimitive.Close data-slot="sheet-close" {...props} />;
-}
-
 function SheetOverlay({ className, ...props }: ComponentProps<typeof SheetPrimitive.Overlay>) {
   return (
     <SheetPrimitive.Overlay
@@ -71,10 +67,6 @@ function SheetContent({
   );
 }
 
-function SheetHeader({ className, ...props }: ComponentProps<"div">) {
-  return <div data-slot="sheet-header" className={cn("flex flex-col gap-1.5 p-4", className)} {...props} />;
-}
-
 function SheetTitle({ className, ...props }: ComponentProps<typeof SheetPrimitive.Title>) {
   return (
     <SheetPrimitive.Title
@@ -95,4 +87,4 @@ function SheetDescription({ className, ...props }: ComponentProps<typeof SheetPr
   );
 }
 
-export { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger };
+export { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger };

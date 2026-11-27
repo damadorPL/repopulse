@@ -16,10 +16,6 @@ export interface CreateLoggerOptions {
   destination?: DestinationStream;
 }
 
-export function errorMessage(err: unknown): string {
-  return err instanceof Error ? (err.stack ?? err.message) : String(err);
-}
-
 function resolveLogLevel(override?: string): string {
   return override ?? process.env.LOG_LEVEL ?? (process.env.NODE_ENV === "test" ? "silent" : "info");
 }

@@ -113,14 +113,18 @@ export async function reapplyBackfillSettingsAction(): Promise<ActionResult<{ qu
 
     // Best effort: the scheduler's sweep also picks up QUEUED repositories, a few per run.
     if (isRealtimeConfigured()) {
-      for (const repositoryId of ids) {
+      const enqueueSequentially = async (index: number): Promise<void> => {
+        const repositoryId = ids[index];
+        if (!repositoryId) return;
         try {
           await enqueueReleaseBackfill({ repositoryId, trigger: "sweep" }, RELEASE_BACKFILL_PRIORITY.automatic);
         } catch (error) {
           console.warn("[reapplyBackfillSettingsAction] could not queue the backfill; the scheduler sweep will", error);
-          break;
+          return;
         }
-      }
+        await enqueueSequentially(index + 1);
+      };
+      await enqueueSequentially(0);
     }
 
     revalidateBackfillSettings();

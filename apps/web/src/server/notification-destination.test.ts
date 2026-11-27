@@ -25,12 +25,12 @@ describe("normalizeDestination", () => {
   });
 
   it("rejects private, loopback and metadata addresses with a readable message", async () => {
-    for (const url of [
-      "http://127.0.0.1:8080",
-      "http://169.254.169.254/latest/meta-data/",
-      "https://internal.example/hook",
-    ]) {
-      const result = await normalizeDestination("CUSTOM_WEBHOOK", url, opts);
+    const results = await Promise.all(
+      ["http://127.0.0.1:8080", "http://169.254.169.254/latest/meta-data/", "https://internal.example/hook"].map(
+        (url) => normalizeDestination("CUSTOM_WEBHOOK", url, opts),
+      ),
+    );
+    for (const result of results) {
       expect(result).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
     }
   });

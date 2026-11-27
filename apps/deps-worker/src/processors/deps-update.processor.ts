@@ -394,12 +394,13 @@ async function runUpdate(
       item.selection.targetVersion !== null &&
       item.selection.newDeclared !== null,
   );
-  const items: GroupItem[] = planned.map((item) => ({
-    ...item,
-    name: item.dependency.name,
-    manifestPath: item.manifest.detected.path,
-    level: item.selection.level,
-  }));
+  const items: GroupItem[] = planned.map((item) =>
+    Object.assign({}, item, {
+      name: item.dependency.name,
+      manifestPath: item.manifest.detected.path,
+      level: item.selection.level,
+    }),
+  );
   const group = groupUpdates(items, project.groupMode, project.maxOpenPrs).find(
     (candidate) => candidate.groupKey === groupKey,
   );
@@ -765,7 +766,7 @@ async function closeEmptyGroup(
   prRow: PrRow,
   now: () => Date,
 ): Promise<DepsUpdateOutcome> {
-  if (!prRow || prRow.state !== "OPEN") return { status: "NOTHING_TO_DO" };
+  if (prRow?.state !== "OPEN") return { status: "NOTHING_TO_DO" };
   const intent = await deps.prisma.dependencyBranchWriteIntent.findUnique({
     where: { projectId_groupKey: { projectId: project.id, groupKey: prRow.groupKey } },
   });

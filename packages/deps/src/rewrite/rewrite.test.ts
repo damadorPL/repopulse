@@ -4,21 +4,20 @@ import { rewritePackageJson } from "./package-json.js";
 import { rewritePyproject } from "./pyproject.js";
 import { normalizeSha256Hashes, rewriteRequirements } from "./requirements.js";
 
-const expectCode = (fn: () => unknown, code: string): void => {
+const captureRewriteError = (fn: () => unknown): ManifestRewriteError => {
   try {
     fn();
   } catch (error) {
     expect(error).toBeInstanceOf(ManifestRewriteError);
-    expect((error as ManifestRewriteError).code).toBe(code);
-    return;
+    return error as ManifestRewriteError;
   }
   throw new Error("expected a ManifestRewriteError");
 };
 
 describe("common rewrite helpers", () => {
   it("applyReplacements rejects overlapping spans with VERIFY_FAILED", () => {
-    expectCode(
-      () =>
+    expect(
+      captureRewriteError(() =>
         applyReplacements(
           "abcdef",
           [
@@ -27,15 +26,21 @@ describe("common rewrite helpers", () => {
           ],
           "file.txt",
         ),
-      "VERIFY_FAILED",
-    );
+      ).code,
+    ).toBe("VERIFY_FAILED");
   });
 
   it("assertSafeSpec rejects empty/whitespace and control characters", () => {
-    expectCode(() => assertSafeSpec("   ", "package.json", /["\\]/), "INVALID_VALUE");
-    expectCode(() => assertSafeSpec("1.0.0\u0000", "package.json", /["\\]/), "INVALID_VALUE");
-    expectCode(() => assertSafeSpec("1.0.0\u001f", "package.json", /["\\]/), "INVALID_VALUE");
-    expectCode(() => assertSafeSpec("1.0.0\u007f", "package.json", /["\\]/), "INVALID_VALUE");
+    expect(captureRewriteError(() => assertSafeSpec("   ", "package.json", /["\\]/)).code).toBe("INVALID_VALUE");
+    expect(captureRewriteError(() => assertSafeSpec("1.0.0\u0000", "package.json", /["\\]/)).code).toBe(
+      "INVALID_VALUE",
+    );
+    expect(captureRewriteError(() => assertSafeSpec("1.0.0\u001f", "package.json", /["\\]/)).code).toBe(
+      "INVALID_VALUE",
+    );
+    expect(captureRewriteError(() => assertSafeSpec("1.0.0\u007f", "package.json", /["\\]/)).code).toBe(
+      "INVALID_VALUE",
+    );
   });
 });
 
@@ -53,26 +58,30 @@ describe("rewritePackageJson", () => {
   });
 
   it("rejects missing, stale and unsafe edits", () => {
-    expectCode(
-      () => rewritePackageJson(text, [{ name: "vue", kind: "PROD", group: "", from: "1", to: "2" }]),
-      "NOT_FOUND",
-    );
-    expectCode(
-      () => rewritePackageJson(text, [{ name: "react", kind: "PROD", group: "", from: "^18.0.0", to: "^19" }]),
-      "STALE",
-    );
-    expectCode(
-      () => rewritePackageJson(text, [{ name: "react", kind: "PROD", group: "", from: "^18.2.0", to: '1", "x": "y' }]),
-      "INVALID_VALUE",
-    );
+    expect(
+      captureRewriteError(() =>
+        rewritePackageJson(text, [{ name: "vue", kind: "PROD", group: "", from: "1", to: "2" }]),
+      ).code,
+    ).toBe("NOT_FOUND");
+    expect(
+      captureRewriteError(() =>
+        rewritePackageJson(text, [{ name: "react", kind: "PROD", group: "", from: "^18.0.0", to: "^19" }]),
+      ).code,
+    ).toBe("STALE");
+    expect(
+      captureRewriteError(() =>
+        rewritePackageJson(text, [{ name: "react", kind: "PROD", group: "", from: "^18.2.0", to: '1", "x": "y' }]),
+      ).code,
+    ).toBe("INVALID_VALUE");
   });
 
   it("refuses values with escapes", () => {
     const escaped = `{"dependencies":{"a":"\\u005e1.0.0"}}`;
-    expectCode(
-      () => rewritePackageJson(escaped, [{ name: "a", kind: "PROD", group: "", from: "^1.0.0", to: "^1.1.0" }]),
-      "NOT_REWRITABLE",
-    );
+    expect(
+      captureRewriteError(() =>
+        rewritePackageJson(escaped, [{ name: "a", kind: "PROD", group: "", from: "^1.0.0", to: "^1.1.0" }]),
+      ).code,
+    ).toBe("NOT_REWRITABLE");
   });
 });
 
@@ -133,37 +142,40 @@ describe("rewriteRequirements", () => {
 
   it("requires hashes for hashed lines and rejects stale / missing / unpinned", () => {
     const text = `a==1.0 --hash=sha256:${A}\nb\n`;
-    expectCode(
-      () => rewriteRequirements(text, [{ name: "a", kind: "PROD", group: "", from: "==1.0", to: "==1.1" }]),
-      "HASHES_REQUIRED",
-    );
-    expectCode(
-      () =>
+    expect(
+      captureRewriteError(() =>
+        rewriteRequirements(text, [{ name: "a", kind: "PROD", group: "", from: "==1.0", to: "==1.1" }]),
+      ).code,
+    ).toBe("HASHES_REQUIRED");
+    expect(
+      captureRewriteError(() =>
         rewriteRequirements(text, [{ name: "a", kind: "PROD", group: "", from: "==0.9", to: "==1.1", hashes: [B] }]),
-      "STALE",
-    );
-    expectCode(
-      () => rewriteRequirements(text, [{ name: "zzz", kind: "PROD", group: "", from: "", to: "==1" }]),
-      "NOT_FOUND",
-    );
-    expectCode(
-      () => rewriteRequirements(text, [{ name: "b", kind: "PROD", group: "", from: "", to: "==1" }]),
-      "NOT_REWRITABLE",
-    );
-    expectCode(
-      () =>
+      ).code,
+    ).toBe("STALE");
+    expect(
+      captureRewriteError(() =>
+        rewriteRequirements(text, [{ name: "zzz", kind: "PROD", group: "", from: "", to: "==1" }]),
+      ).code,
+    ).toBe("NOT_FOUND");
+    expect(
+      captureRewriteError(() =>
+        rewriteRequirements(text, [{ name: "b", kind: "PROD", group: "", from: "", to: "==1" }]),
+      ).code,
+    ).toBe("NOT_REWRITABLE");
+    expect(
+      captureRewriteError(() =>
         rewriteRequirements(text, [
           { name: "a", kind: "PROD", group: "", from: "==1.0", to: "==1.1 # x", hashes: [B] },
         ]),
-      "INVALID_VALUE",
-    );
-    expectCode(
-      () =>
+      ).code,
+    ).toBe("INVALID_VALUE");
+    expect(
+      captureRewriteError(() =>
         rewriteRequirements(text, [
           { name: "a", kind: "PROD", group: "", from: "==1.0", to: "==1.1", hashes: ["nothex"] },
         ]),
-      "INVALID_VALUE",
-    );
+      ).code,
+    ).toBe("INVALID_VALUE");
   });
 
   it("normalizes hashes", () => {
@@ -207,18 +219,21 @@ requests = { version = "^2.31", extras = ["socks"] }
   });
 
   it("rejects wrong groups, stale specs and quotes", () => {
-    expectCode(
-      () => rewritePyproject(text, [{ name: "pytest", kind: "GROUP", group: "test", from: ">=8", to: ">=9" }]),
-      "NOT_FOUND",
-    );
-    expectCode(
-      () => rewritePyproject(text, [{ name: "httpx", kind: "PROD", group: "", from: ">=0.1", to: ">=0.28" }]),
-      "STALE",
-    );
-    expectCode(
-      () => rewritePyproject(text, [{ name: "httpx", kind: "PROD", group: "", from: ">=0.27,<1", to: '>=1"' }]),
-      "INVALID_VALUE",
-    );
+    expect(
+      captureRewriteError(() =>
+        rewritePyproject(text, [{ name: "pytest", kind: "GROUP", group: "test", from: ">=8", to: ">=9" }]),
+      ).code,
+    ).toBe("NOT_FOUND");
+    expect(
+      captureRewriteError(() =>
+        rewritePyproject(text, [{ name: "httpx", kind: "PROD", group: "", from: ">=0.1", to: ">=0.28" }]),
+      ).code,
+    ).toBe("STALE");
+    expect(
+      captureRewriteError(() =>
+        rewritePyproject(text, [{ name: "httpx", kind: "PROD", group: "", from: ">=0.27,<1", to: '>=1"' }]),
+      ).code,
+    ).toBe("INVALID_VALUE");
   });
 
   it("updates duplicate dependencies in the same group and rejects escaped strings with NOT_REWRITABLE", () => {
@@ -231,9 +246,10 @@ requests = { version = "^2.31", extras = ["socks"] }
     );
 
     const escapedToml = `[project]\nname = "demo"\ndependencies = ["httpx\\u003e=0.27"]\n`;
-    expectCode(
-      () => rewritePyproject(escapedToml, [{ name: "httpx", kind: "PROD", group: "", from: ">=0.27", to: ">=0.28" }]),
-      "NOT_REWRITABLE",
-    );
+    expect(
+      captureRewriteError(() =>
+        rewritePyproject(escapedToml, [{ name: "httpx", kind: "PROD", group: "", from: ">=0.27", to: ">=0.28" }]),
+      ).code,
+    ).toBe("NOT_REWRITABLE");
   });
 });

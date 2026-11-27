@@ -72,7 +72,9 @@ export function DependencyListToolbar({
           className="pr-10 pl-8 [&::-webkit-search-cancel-button]:hidden"
         />
         <div className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-1">
-          {pending ? <LoaderCircleIcon className="size-3.5 animate-spin text-muted-foreground" aria-hidden /> : null}
+          {pending ? (
+            <LoaderCircleIcon className="size-3.5 motion-safe:animate-spin text-muted-foreground" aria-hidden />
+          ) : null}
           {query ? (
             <button
               type="button"
@@ -82,7 +84,7 @@ export function DependencyListToolbar({
                 if (urlQuery !== "") navigate({ q: "" });
                 inputRef.current?.focus();
               }}
-              className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+              className="rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
               aria-label="Clear search"
             >
               <XIcon className="size-3.5" />

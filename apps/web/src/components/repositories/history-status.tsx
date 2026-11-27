@@ -3,8 +3,8 @@
 import { useTransition } from "react";
 import { LoaderCircleIcon, RotateCcwClockIcon, TriangleExclamationPointIcon } from "lucide-react";
 import { toast } from "sonner";
-import { formatWait } from "@/components/repositories/sync-repo-button";
 import { Button } from "@/components/ui/button";
+import { formatWait } from "@/lib/format-wait";
 import { requestDeepBackfillAction } from "@/server/actions/backfill";
 import type { RepositoryHistory } from "@/server/queries/feed";
 
@@ -88,7 +88,7 @@ export function HistoryStatus({
     <div className={failed ? "flex items-center gap-1 text-amber-700 dark:text-amber-400" : "flex items-center gap-1"}>
       <dt className="sr-only">History</dt>
       {importing ? (
-        <LoaderCircleIcon className="size-3.5 animate-spin" aria-hidden />
+        <LoaderCircleIcon className="size-3.5 motion-safe:animate-spin" aria-hidden />
       ) : failed ? (
         <TriangleExclamationPointIcon className="size-3.5" aria-hidden />
       ) : (

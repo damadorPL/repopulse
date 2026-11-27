@@ -208,7 +208,7 @@ export async function pollRepoPaths(
     ]);
     const subscribers: PathSubscriber[] = allSubscribers
       .filter(tracksPaths)
-      .map((s) => ({ ...s, watchedPaths: normalizedPaths(s.watchedPaths) }))
+      .map((s) => Object.assign({}, s, { watchedPaths: normalizedPaths(s.watchedPaths) }))
       .filter((s) => s.watchedPaths.length > 0);
     if (!repository || subscribers.length === 0) return null;
 
@@ -324,7 +324,7 @@ export async function pollRepoPaths(
       const created: StoredCommit[] =
         rows.length > 0
           ? await tx.release.createManyAndReturn({
-              data: rows.map((row) => ({ ...row, repositoryId: repo.id })),
+              data: rows.map((row) => Object.assign({}, row, { repositoryId: repo.id })),
               // (repositoryId, source, tagName) is unique; a concurrent poll may insert the same commits.
               skipDuplicates: true,
               select: STORED_COMMIT_SELECT,
@@ -400,8 +400,8 @@ export async function pollRepoPaths(
       };
 
       const states = [
-        ...finalPlan.states.map((state) => ({ ...state, isRead: false })),
-        ...readStates.map((state) => ({ ...state, isRead: true })),
+        ...finalPlan.states.map((state) => Object.assign({}, state, { isRead: false })),
+        ...readStates.map((state) => Object.assign({}, state, { isRead: true })),
       ];
       if (states.length > 0) await createUserReleaseStatesInBatches(tx, states);
 

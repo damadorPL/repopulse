@@ -166,7 +166,7 @@ async function storeAndFanOut(
     const created =
       toInsert.length > 0
         ? await tx.release.createManyAndReturn({
-            data: toInsert.map((release) => ({ ...release, repositoryId })),
+            data: toInsert.map((release) => Object.assign({}, release, { repositoryId })),
             // A concurrent addRepositoryAction may insert the same rows.
             skipDuplicates: true,
             select: STORED_RELEASE_SELECT,

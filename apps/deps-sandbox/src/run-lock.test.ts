@@ -755,7 +755,7 @@ describe.skipIf(!npmCli)("runLock with the real npm", () => {
           },
         },
       );
-      expect(result.ok, JSON.stringify(result)).toBe(true);
+      expect(result).toMatchObject({ ok: true });
       if (result.ok) {
         const lock = JSON.parse(Buffer.from(result.lockfile.contentBase64, "base64").toString("utf8"));
         expect(lock.name).toBe("fixture");

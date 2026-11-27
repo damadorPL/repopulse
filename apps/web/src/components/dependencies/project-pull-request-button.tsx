@@ -34,7 +34,7 @@ function SingleGroupButton({
       disabled={pending || plan.disabledReason !== null}
       aria-label={`${isUpdate ? "Update" : "Create"} pull request for ${fullName}`}
     >
-      {pending ? <LoaderCircleIcon className="animate-spin" /> : <GitPullRequestIcon />}
+      {pending ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <GitPullRequestIcon />}
       {isUpdate ? "Update PR" : "Create PR"}
     </Button>
   );
@@ -142,7 +142,7 @@ export function ProjectPullRequestButton({
           disabled={pending}
           aria-label={`Pull requests for ${fullName}`}
         >
-          {pending ? <LoaderCircleIcon className="animate-spin" /> : <GitPullRequestIcon />}
+          {pending ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <GitPullRequestIcon />}
           {triggerLabel}
           <ChevronDownIcon className="size-3.5" aria-hidden />
         </Button>

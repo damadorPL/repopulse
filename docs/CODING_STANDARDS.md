@@ -20,12 +20,19 @@
 ## TypeScript, ESM & Workspace Boundaries
 
 - **TypeScript 7 & Native ESM:** All 5 code packages (`db`, `deps`, `github`, `notifications`, `queue`) and Node apps (`worker`, `deps-worker`, `deps-sandbox`) use `"type": "module"` and require explicit `.js` extensions on relative imports (`verbatimModuleSyntax`, `erasableSyntaxOnly`, `noUncheckedSideEffectImports`). Always use `import type` for type-only imports.
-- **Strict Oxlint (`oxlint --type-aware --deny-warnings`, `.oxlintrc.json`):**
-  - Enforces `typescript/consistent-type-imports`, `no-floating-promises`, `no-misused-promises`, `await-thenable`, `no-unnecessary-type-assertion`, `react/rules-of-hooks`, `react/exhaustive-deps`, and `no-unused-vars` (`_` prefix allowed).
-  - `apps/web/src/components/**/*.{ts,tsx}` **MUST NOT** import `@repopulse/db`. Pass plain serialized data from Server Components or call Server Actions.
+- **Strict Oxlint (`.oxlintrc.json`, `typeAware`, `denyWarnings`, `reportUnusedDisableDirectives: "error"`):**
+  - Enforces `typescript/consistent-type-imports`, `no-explicit-any`, `no-unsafe-*`, `switch-exhaustiveness-check`, `only-throw-error`, `return-await`, `no-floating-promises`, `no-misused-promises`, `await-thenable`, `import/no-cycle`, `oxc/no-accumulating-spread`, `oxc/no-map-spread`, `unicorn/*`, `react/*` (React 19 Compiler/hooks), `jsx-a11y/*`, `nextjs/*`, `eslint-plugin-better-tailwindcss` (Tailwind v4), `vitest/*` in tests, `no-console` in workers/sandbox, and `no-unused-vars` (`_` prefix allowed).
+  - `apps/web/src/components/**/*.{ts,tsx}` **MUST NOT** import `@repopulse/db`, `zod`, or `*-schema` modules. Pass plain serialized data from Server Components or call Server Actions.
   - `packages/notifications/src/**/*.ts` **MUST NOT** import `@repopulse/db` (keep inputs structural).
-  - `@repopulse/deps` **MUST NOT** depend on `@repopulse/db` or Octokit.
+  - `@repopulse/deps` **MUST NOT** depend on `@repopulse/db` or `@octokit/*`.
+  - `apps/worker` and `apps/deps-worker` **MUST NOT** import each other.
   - Browser-safe subpaths (`@repopulse/queue/events`, `@repopulse/notifications/channels`, `@repopulse/github/watched-paths`, `@repopulse/deps/limits`, `@repopulse/deps/sandbox-contract`) **MUST NOT** import `node:*`, `ioredis`, `bullmq`, `nodemailer`, or `@repopulse/db`.
+- **Static Quality Suite (`pnpm verify`):**
+  - **Stylelint (`stylelint.config.mjs`):** `pnpm lint:css` validates CSS and Tailwind v4 rules across `apps/**/*.css` and `packages/**/*.css`.
+  - **Sherif (`pnpm lint:manifests`):** validates workspace `package.json` hygiene and `workspace:*` protocols.
+  - **Knip (`knip.ts`):** `pnpm knip` (unused files/exports/types/deps with `treatConfigHintsAsErrors: true`) and `pnpm knip:strict` (strict production dependency isolation).
+  - **React Doctor (`doctor.config.json`):** `pnpm doctor` audits `apps/web` (`blocking: "error"`). Intentional overrides in `doctor.config.json` are limited to `webhook/route.ts` (HMAC verification in `handleGitHubAppWebhook`), `global-error.tsx` (intentional root error full-page reload link), and `email-settings.ts` / `notifications.ts` (bounded 10 s in-memory test-send cooldowns).
+  - **Guardrails (`scripts/guardrails.ts`):** `pnpm check:guardrails` (and `.githooks/pre-commit --staged`, installed via `pnpm prepare`) enforces pinned versions (`deps/pinned-versions`), no unsafe raw SQL (`security/no-raw-sql-unsafe`), no hardcoded PEM private keys (`security/no-hardcoded-secrets`), migration folder naming and immutability (`migrations/folder-naming`, `migrations/no-shipped-migration-edits`), and workspace isolation (`arch/workspace-dep-isolation`).
 - **Client-bundle Zod isolation (`apps/web`):** Keep Zod schemas in server-only `src/lib/*-schema.ts` modules (never imported by client components) so client chunks do not bundle Zod runtime code.
 - **Formatting:** Oxfmt (`.oxfmtrc.json` — double quotes, semicolons, trailing commas, `printWidth: 120`). Run `pnpm format` and verify with `pnpm format:check`.
 
@@ -51,7 +58,7 @@
 - Prefer small pure functions plus a thin I/O shell. Comments explain *why* (constraints, invariants), not *what*. Add concise JSDoc on exported functions and non-obvious fields.
 - User-facing copy: short, plain sentences, no exclamation marks, and state what to do next ("Save the SMTP settings first.").
 - Error redaction: never leak secrets, private keys, installation tokens, or raw webhook URLs to the browser or logs. Mask URLs, cap SMTP errors to the first line (≤ 200 chars), and keep `deps-sandbox` stderr tails out of PRs, SSE events, and notifications (BullMQ job logs only).
-- Cross-platform scripts: write scripts in Node.js (ESM `.mjs` in `scripts/`), never bash-only scripts, and use LF line endings.
+- Cross-platform scripts: write scripts in Node.js (`.ts` checked via `scripts/tsconfig.json` / `pnpm typecheck:scripts` and tested via `pnpm test:scripts`, or `.mjs` in `scripts/`), never bash-only scripts, and use LF line endings.
 
 ## Documentation & `AGENTS.md` Hygiene
 

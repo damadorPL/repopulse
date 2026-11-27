@@ -36,6 +36,10 @@ import { requireUser } from "@/server/session";
 
 const compactNumber = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 
+function isSnoozedUntil(snoozedUntil: Date | null): boolean {
+  return snoozedUntil !== null && snoozedUntil.getTime() > Date.now();
+}
+
 export async function generateMetadata({ params }: PageProps<"/repositories/[owner]/[name]">): Promise<Metadata> {
   const { owner, name } = await params;
   const slug = `${parseRepoSegment(owner) ?? owner}/${parseRepoSegment(name) ?? name}`;
@@ -145,7 +149,7 @@ export default async function RepositorySettingsPage({
     ...(settings.trackMode === "TAGS_AND_COMMITS" ? (["TAG"] as const) : []),
     ...(settings.trackPaths ? (["COMMIT"] as const) : []),
   ];
-  const snoozed = settings.snoozedUntil !== null && settings.snoozedUntil.getTime() > Date.now();
+  const snoozed = isSnoozedUntil(settings.snoozedUntil);
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">

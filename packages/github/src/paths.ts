@@ -165,13 +165,16 @@ export async function fetchCommitDetail(params: {
       ...requestOptions(params.signal),
     });
     const data = response.data as unknown as CommitDetailData;
-    const files = (data.files ?? []).map((file) => ({
-      filename: file.filename,
-      status: file.status,
-      additions: file.additions ?? 0,
-      deletions: file.deletions ?? 0,
-      ...(file.previous_filename ? { previousFilename: file.previous_filename } : {}),
-    }));
+    const files = (data.files ?? []).map((file) => {
+      const entry: CommitFileChange = {
+        filename: file.filename,
+        status: file.status,
+        additions: file.additions ?? 0,
+        deletions: file.deletions ?? 0,
+      };
+      if (file.previous_filename) entry.previousFilename = file.previous_filename;
+      return entry;
+    });
     return {
       sha: data.sha,
       stats: {

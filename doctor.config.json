@@ -1,0 +1,136 @@
+{
+  "$schema": "https://react.doctor/schema/config.json",
+  "rootDir": "apps/web",
+  "blocking": "error",
+  "adoptExistingLintConfig": true,
+  "categories": {
+    "Security": "error"
+  },
+  "ignore": {
+    "files": [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/.next/**",
+      "**/.turbo/**",
+      "**/coverage/**",
+      "packages/db/src/generated/**",
+      "apps/web/next-env.d.ts",
+      "next-env.d.ts"
+    ],
+    "overrides": [
+      {
+        "files": [
+          "src/app/**/layout.tsx",
+          "src/app/**/page.tsx",
+          "src/app/**/error.tsx",
+          "src/app/**/loading.tsx",
+          "src/app/**/not-found.tsx",
+          "apps/web/src/app/**/layout.tsx",
+          "apps/web/src/app/**/page.tsx",
+          "apps/web/src/app/**/error.tsx",
+          "apps/web/src/app/**/loading.tsx",
+          "apps/web/src/app/**/not-found.tsx"
+        ],
+        "rules": ["react-doctor/only-export-components"]
+      },
+      {
+        "files": ["src/app/api/github-app/webhook/route.ts", "apps/web/src/app/api/github-app/webhook/route.ts"],
+        "rules": ["react-doctor/webhook-signature-risk"]
+      },
+      {
+        "files": ["src/app/global-error.tsx", "apps/web/src/app/global-error.tsx"],
+        "rules": ["react-doctor/nextjs-no-a-element"]
+      },
+      {
+        "files": [
+          "src/server/actions/email-settings.ts",
+          "src/server/actions/notifications.ts",
+          "apps/web/src/server/actions/email-settings.ts",
+          "apps/web/src/server/actions/notifications.ts"
+        ],
+        "rules": ["react-doctor/server-no-mutable-module-state"]
+      },
+      {
+        "files": ["**/*.test.ts", "**/*.test.tsx", "apps/web/**/*.test.ts", "apps/web/**/*.test.tsx"],
+        "rules": [
+          "react-doctor/no-high-complexity-react-function",
+          "react-doctor/no-giant-component",
+          "react-doctor/only-export-components"
+        ]
+      }
+    ]
+  },
+  "rules": {
+    "react-hooks-js/todo": "off",
+    "react-doctor/no-ref-current-in-render": "error",
+    "react-doctor/no-impure-state-updater": "error",
+    "react-doctor/no-side-effect-in-state-updater-function": "error",
+    "react-doctor/effect-needs-cleanup": "error",
+    "react-doctor/effect-listener-cleanup-mismatch": "error",
+    "react-doctor/effect-listener-cleanup-reference-mismatch": "error",
+    "react-doctor/effect-observer-needs-disconnect": "error",
+    "react-doctor/effect-remove-listener-inline-handler": "error",
+    "react-doctor/no-hydration-branch-on-browser-global": "error",
+    "react-doctor/no-set-state-after-await-in-effect": "error",
+    "react-doctor/no-create-object-url-in-render": "error",
+    "react-doctor/no-adjust-state-on-prop-change": "error",
+    "react-doctor/no-reset-all-state-on-prop-change": "error",
+    "react-doctor/no-array-index-as-key": "error",
+    "react-doctor/no-pass-data-to-parent": "error",
+    "react-doctor/no-pass-live-state-to-parent": "error",
+    "react-doctor/no-prop-callback-in-effect": "error",
+    "react-doctor/no-initialize-state": "error",
+    "react-doctor/no-loading-flag-reset-outside-finally": "error",
+    "react-doctor/no-effect-chain": "error",
+    "react-doctor/no-derived-state": "error",
+    "react-doctor/prefer-use-effect-event": "error",
+    "react-doctor/no-prevent-default": "error",
+    "react-doctor/exhaustive-deps": "error",
+    "react-doctor/nextjs-async-client-component": "error",
+    "react-doctor/nextjs-async-dynamic-api-not-awaited": "error",
+    "react-doctor/nextjs-error-boundary-missing-use-client": "error",
+    "react-doctor/nextjs-global-error-missing-html-body": "error",
+    "react-doctor/nextjs-no-default-export-in-route-handler": "error",
+    "react-doctor/nextjs-no-head-import": "error",
+    "react-doctor/nextjs-no-script-in-head": "error",
+    "react-doctor/nextjs-no-side-effect-in-get-handler": "error",
+    "react-doctor/nextjs-no-client-side-redirect": "error",
+    "react-doctor/nextjs-no-use-search-params-without-suspense": "error",
+    "react-doctor/nextjs-no-a-element": "error",
+    "react-doctor/nextjs-no-redirect-in-try-catch": "error",
+    "react-doctor/nextjs-inline-script-missing-id": "error",
+    "react-doctor/nextjs-no-native-script": "error",
+    "react-doctor/nextjs-no-polyfill-script": "error",
+    "react-doctor/nextjs-no-css-link": "error",
+    "react-doctor/nextjs-no-font-link": "error",
+    "react-doctor/nextjs-no-google-analytics-script": "error",
+    "react-doctor/server-cache-with-object-literal": "error",
+    "react-doctor/no-fetch-in-effect": "warn",
+    "react-doctor/no-high-complexity-react-function": "warn",
+    "react-doctor/no-giant-component": "warn",
+    "react-doctor/only-export-components": "error",
+    "react-doctor/duplicate-jsx-subtree": "warn",
+    "react-doctor/iframe-missing-sandbox": "error",
+    "react-doctor/url-prefilled-privileged-action": "error",
+    "react-doctor/js-set-map-lookups": "error",
+    "react-doctor/rerender-state-only-in-handlers": "error",
+    "react-doctor/no-create-object-url-without-revoke": "error",
+    "react-doctor/async-await-in-loop": "error",
+    "react-doctor/prefer-dynamic-import": "error",
+    "react-doctor/rerender-memo-with-default-value": "error",
+    "react-doctor/rerender-lazy-state-init": "error",
+    "react-doctor/rendering-hydration-no-flicker": "error",
+    "react-doctor/jsx-no-constructed-context-values": "error",
+    "react-doctor/control-has-associated-label": "error",
+    "react-doctor/fieldset-requires-legend": "error",
+    "react-doctor/details-requires-summary": "error",
+    "react-doctor/empty-table-header": "error",
+    "react-doctor/no-aria-hidden-on-body": "error",
+    "react-doctor/no-duplicate-static-id-reference": "error",
+    "react-doctor/no-presentation-role-conflict": "error",
+    "react-doctor/no-ungated-tailwind-animation": "error",
+    "react-doctor/zod-v4-no-deprecated-error-apis": "error",
+    "react-doctor/zod-v4-no-deprecated-error-customization": "error",
+    "react-doctor/zod-v4-no-deprecated-schema-apis": "error"
+  }
+}

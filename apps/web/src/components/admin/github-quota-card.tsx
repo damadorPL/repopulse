@@ -49,7 +49,11 @@ export function GitHubQuotaCard({ initialQuota, minQuota }: { initialQuota: GitH
             </h3>
           </div>
           <Button type="button" variant="outline" size="sm" onClick={refresh} disabled={pending} className="gap-1.5">
-            {pending ? <LoaderCircleIcon className="size-3.5 animate-spin" /> : <RefreshCwIcon className="size-3.5" />}
+            {pending ? (
+              <LoaderCircleIcon className="size-3.5 motion-safe:animate-spin" />
+            ) : (
+              <RefreshCwIcon className="size-3.5" />
+            )}
             Retry
           </Button>
         </div>
@@ -110,7 +114,7 @@ export function GitHubQuotaCard({ initialQuota, minQuota }: { initialQuota: GitH
             title="Refresh GitHub API quota"
             aria-label="Refresh GitHub API quota"
           >
-            <RefreshCwIcon className={cn("size-3.5", pending && "animate-spin")} />
+            <RefreshCwIcon className={cn("size-3.5", pending && "motion-safe:animate-spin")} />
           </Button>
         </div>
       </div>

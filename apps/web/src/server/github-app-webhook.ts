@@ -37,17 +37,18 @@ export async function readBodyWithLimit(
   const reader = body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
-  for (;;) {
+  async function readNext(): Promise<Buffer> {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) return Buffer.concat(chunks, total);
     total += value.byteLength;
     if (total > limit) {
       await reader.cancel().catch(() => {});
       throw new PayloadTooLargeError();
     }
     chunks.push(value);
+    return readNext();
   }
-  return Buffer.concat(chunks, total);
+  return readNext();
 }
 
 const LOCK_AND_MANIFEST_FILES: ReadonlySet<string> = new Set([
@@ -106,8 +107,9 @@ export function changedPathsOfPush(payload: { commits?: unknown }): Set<string> 
 /** Whether a push touched a dependency file of a project (generic manifests / lockfiles, or its explicit paths). */
 export function pushTouchesProject(changed: Set<string> | null, manifestPaths: readonly string[]): boolean {
   if (changed === null) return true;
+  const explicit = new Set(manifestPaths);
   for (const path of changed) {
-    if (isDependencyFilePath(path) || manifestPaths.includes(path)) return true;
+    if (isDependencyFilePath(path) || explicit.has(path)) return true;
   }
   return false;
 }

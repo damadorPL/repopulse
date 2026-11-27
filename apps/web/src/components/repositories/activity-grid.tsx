@@ -14,6 +14,7 @@ import {
   monthLabels,
   type ActivityItem,
   type ActivitySource,
+  type DayBucket,
 } from "@/lib/activity-grid";
 import { feedHref } from "@/lib/feed-filters";
 import { cn } from "@/lib/utils";
@@ -78,7 +79,7 @@ export function ActivityGrid({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const filtered = source === "ALL" ? items : items.filter((item) => item.source === source);
-  const buckets = now ? bucketByLocalDay(filtered) : new Map();
+  const buckets = now ? bucketByLocalDay(filtered) : new Map<string, DayBucket>();
   const weeks = now ? buildWeeks(now) : [];
   const months = monthLabels(weeks);
   const thresholds = activityThresholds([...buckets.values()].map((b) => b.count));

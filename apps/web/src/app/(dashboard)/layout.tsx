@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { TopNavbar } from "@/components/layout/top-navbar";
 import { UnreadProvider } from "@/components/layout/unread-context";
@@ -11,13 +12,15 @@ export default async function DashboardLayout({ children }: LayoutProps<"/">) {
   const [data, dependencies] = await Promise.all([getDashboardData(user.id), getDepsSidebarInfo(user.id)]);
 
   const sidebar = (
-    <AppSidebar
-      tags={data.tags}
-      totalUnread={data.totalUnread}
-      repositoryCount={data.subscriptions.length}
-      isSuperAdmin={user.isSuperAdmin}
-      dependencies={dependencies}
-    />
+    <Suspense fallback={<div className="h-full" />}>
+      <AppSidebar
+        tags={data.tags}
+        totalUnread={data.totalUnread}
+        repositoryCount={data.subscriptions.length}
+        isSuperAdmin={user.isSuperAdmin}
+        dependencies={dependencies}
+      />
+    </Suspense>
   );
 
   return (

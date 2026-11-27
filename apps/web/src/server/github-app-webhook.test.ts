@@ -169,8 +169,13 @@ describe("handleGitHubAppWebhook: authentication", () => {
 
   it("answers 401 for a missing, malformed or wrong signature, and for a tampered body", async () => {
     const payload = push([{ modified: ["package.json"] }]);
-    for (const signature of [null, "", "sha1=abc", sign(JSON.stringify(payload), "another-secret-entirely")]) {
-      expect((await handleGitHubAppWebhook(delivery("push", payload, { signature }), deps)).status).toBe(401);
+    const badResults = await Promise.all(
+      [null, "", "sha1=abc", sign(JSON.stringify(payload), "another-secret-entirely")].map((signature) =>
+        handleGitHubAppWebhook(delivery("push", payload, { signature }), deps),
+      ),
+    );
+    for (const result of badResults) {
+      expect(result.status).toBe(401);
     }
     const tampered = delivery("push", payload, {
       signature: sign(JSON.stringify({ ...payload, ref: "refs/heads/dev" })),
@@ -189,10 +194,13 @@ describe("handleGitHubAppWebhook: authentication", () => {
   });
 
   it("answers 204 to ping and other events", async () => {
-    for (const event of ["ping", "installation", "issues", ""]) {
-      expect(
-        (await handleGitHubAppWebhook(delivery(event, { zen: "hi", repository: { id: REPO_ID } }), deps)).status,
-      ).toBe(204);
+    const results = await Promise.all(
+      ["ping", "installation", "issues", ""].map((event) =>
+        handleGitHubAppWebhook(delivery(event, { zen: "hi", repository: { id: REPO_ID } }), deps),
+      ),
+    );
+    for (const result of results) {
+      expect(result.status).toBe(204);
     }
     expect(enqueueScan).not.toHaveBeenCalled();
   });
@@ -237,14 +245,17 @@ describe("handleGitHubAppWebhook: push", () => {
 
   it("ignores other branches, tags, branch deletions and unknown repositories", async () => {
     const files = [{ modified: ["package.json"] }];
-    for (const extra of [
-      { ref: "refs/heads/feature" },
-      { ref: "refs/tags/v1.0.0" },
-      { deleted: true },
-      { repository: { id: 999 } },
-      { repository: null },
-    ]) {
-      expect((await handleGitHubAppWebhook(delivery("push", push(files, extra)), deps)).status).toBe(204);
+    const results = await Promise.all(
+      [
+        { ref: "refs/heads/feature" },
+        { ref: "refs/tags/v1.0.0" },
+        { deleted: true },
+        { repository: { id: 999 } },
+        { repository: null },
+      ].map((extra) => handleGitHubAppWebhook(delivery("push", push(files, extra)), deps)),
+    );
+    for (const result of results) {
+      expect(result.status).toBe(204);
     }
     expect(enqueueScan).not.toHaveBeenCalled();
   });

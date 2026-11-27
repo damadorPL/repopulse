@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { parseRealtimeEvent, type RealtimeEvent } from "@repopulse/queue/events";
 import { dependencyProjectHref } from "@/lib/dependency-list-filters";
 import { feedHref } from "@/lib/feed-filters";
+import { depsScanToastId, syncToastId } from "@/lib/toast-ids";
 
 type NewReleaseEvent = Extract<RealtimeEvent, { type: "NEW_RELEASE" }>;
 
@@ -14,19 +15,9 @@ const BATCH_WINDOW_MS = 500;
 /** Coalesce bursty sync/scan/backfill completion events into a single `router.refresh()`. */
 const REFRESH_COALESCE_MS = 400;
 
-/** Toast id shared with `SyncRepoButton`, so the outcome replaces the "Syncing…" toast. */
-export function syncToastId(repositoryId: string): string {
-  return `sync-${repositoryId}`;
-}
-
-/** Toast id of a dependency check, so a "Check now" button's loading toast is replaced by the outcome. */
-export function depsScanToastId(projectId: string): string {
-  return `deps-scan-${projectId}`;
-}
-
 /** Only GitHub links from the event are opened (the payload comes from our worker, but stay strict). */
 function isGitHubUrl(url: string | null): url is string {
-  return url !== null && url.startsWith("https://github.com/");
+  return url?.startsWith("https://github.com/") ?? false;
 }
 
 const PR_LABEL = {
@@ -56,7 +47,7 @@ export function SseListener() {
     let hasConnected = false;
 
     const triggerRefresh = () => {
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+      if (globalThis.document?.visibilityState === "hidden") {
         pendingRefresh = true;
         return;
       }

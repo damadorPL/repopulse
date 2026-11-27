@@ -152,7 +152,7 @@ function RowActions({
           {canIgnore && version ? (
             <button
               type="button"
-              className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-accent"
+              className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-accent"
               onClick={() => ignore(row.ecosystem === "PYPI" ? `==${version}` : version)}
               disabled={pending}
             >
@@ -163,7 +163,7 @@ function RowActions({
           {canIgnore ? (
             <button
               type="button"
-              className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-accent"
+              className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-accent"
               onClick={() => ignore()}
               disabled={pending}
             >
@@ -176,7 +176,7 @@ function RowActions({
               href={changelog}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent"
+              className="flex items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent"
             >
               <FileTextIcon className="size-4 text-muted-foreground" aria-hidden />
               Changelog
@@ -187,7 +187,7 @@ function RowActions({
             href={registryUrl(row.ecosystem, row.name)}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent"
+            className="flex items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent"
           >
             <ExternalLinkIcon className="size-4 text-muted-foreground" aria-hidden />
             {row.ecosystem === "NPM" ? "npm" : "PyPI"} page
@@ -195,7 +195,7 @@ function RowActions({
           {source && !tracked ? (
             <button
               type="button"
-              className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-accent"
+              className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-accent"
               onClick={track}
               disabled={pending}
             >

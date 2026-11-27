@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import {
   ChevronRightIcon,
   CornerLeftUpIcon,
@@ -21,6 +21,7 @@ import {
   buildRepoPathIndex,
   coveringPath,
   looksLikeRepository,
+  rootLabel,
   searchRepoPaths,
   type PathSuggestion,
   type RepoPathEntry,
@@ -53,27 +54,6 @@ function treeKey(repo: string): string {
       .toLowerCase()
       .replace(/\.git$/, ""),
   );
-}
-
-export function rootLabel(repo: string | null): string {
-  if (!repo) return "root";
-  const trimmed = repo.trim();
-  if (/^https?:\/\//i.test(trimmed)) {
-    try {
-      const segments = new URL(trimmed).pathname.split("/").filter(Boolean);
-      return segments[1] || "root";
-    } catch {
-      return "root";
-    }
-  }
-  const colon = trimmed.indexOf(":");
-  const slug = colon !== -1 ? trimmed.slice(colon + 1) : trimmed;
-  const segments = slug.split("/").filter(Boolean);
-  const first = segments[0]?.toLowerCase();
-  if (first === "github.com" || first === "www.github.com") {
-    return segments[2] || "root";
-  }
-  return segments[1] || "root";
 }
 
 /** One request per repository per few minutes, shared by every picker on the page. Failures aren't cached. */
@@ -134,19 +114,6 @@ function useRepoTree(repo: string | null, debounceMs: number): TreeState {
   return loaded?.key === key ? loaded.state : { status: "loading" };
 }
 
-// ---- Escape handling ---------------------------------------------------------------------
-
-/**
- * For a parent Dialog/Popover's `onEscapeKeyDown`: Radix listens for Escape on the document in the
- * capture phase, before the picker sees it. Call `event.preventDefault()` when this returns true so
- * the first Escape only closes the suggestion list.
- */
-export function isExpandedCombobox(target: EventTarget | null): boolean {
-  const element = target as Partial<Element> | null;
-  if (typeof element?.getAttribute !== "function") return false;
-  return element.getAttribute("role") === "combobox" && element.getAttribute("aria-expanded") === "true";
-}
-
 // ---- Picker ------------------------------------------------------------------------------
 
 function KindIcon({ kind, className }: { kind: RepoPathKind | undefined; className?: string }) {
@@ -203,12 +170,17 @@ export function WatchedPathsPicker({
   describedBy?: string;
 }) {
   const uid = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
   const listId = `${uid}-suggestions`;
   const browserId = `${uid}-browser`;
   const statusId = `${uid}-status`;
   const errorId = `${uid}-error`;
   const tree = useRepoTree(repo, debounceMs);
   const index = tree.status === "ready" ? tree.index : null;
+
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus();
+  }, [autoFocus]);
 
   const [listOpen, setListOpen] = useState(false);
   const [active, setActive] = useState(-1);
@@ -337,6 +309,7 @@ export function WatchedPathsPicker({
       case "Escape":
         if (showList) {
           event.preventDefault();
+          event.stopPropagation();
           setListOpen(false);
         }
         return;
@@ -346,6 +319,7 @@ export function WatchedPathsPicker({
   const shownError = localError ?? error ?? null;
   const children = index ? (index.children.get(folder) ?? []) : [];
   const folderSegments = folder ? folder.split("/") : [];
+  const pathSet = new Set(paths);
 
   return (
     <div className="grid gap-2">
@@ -368,7 +342,7 @@ export function WatchedPathsPicker({
                   <button
                     type="button"
                     onClick={() => changePaths(paths.filter((p) => p !== path))}
-                    className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
+                    className="rounded-sm p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
                     aria-label={`Stop watching ${path}`}
                   >
                     <XIcon className="size-3" />
@@ -384,6 +358,7 @@ export function WatchedPathsPicker({
         <div className="relative min-w-0 flex-1">
           <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
+            ref={inputRef}
             id={id}
             role="combobox"
             aria-autocomplete="list"
@@ -412,7 +387,6 @@ export function WatchedPathsPicker({
             }
             autoComplete="off"
             spellCheck={false}
-            autoFocus={autoFocus}
             className="h-8 pl-8 font-mono text-xs"
           />
         </div>
@@ -442,8 +416,6 @@ export function WatchedPathsPicker({
             const highlighted = position === active;
             const common = {
               id: `${listId}-${position}`,
-              role: "option" as const,
-              "aria-selected": highlighted,
               onMouseDown: (event: MouseEvent) => event.preventDefault(),
               onMouseMove: () => setActive(position),
               onClick: () => choose(option),
@@ -452,9 +424,11 @@ export function WatchedPathsPicker({
               return (
                 <li
                   key="raw"
+                  role="option"
+                  aria-selected={highlighted}
                   {...common}
                   className={cn(
-                    "flex cursor-pointer items-center gap-2 rounded px-2 py-1.5",
+                    "flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5",
                     highlighted && "bg-accent",
                   )}
                 >
@@ -470,10 +444,12 @@ export function WatchedPathsPicker({
             return (
               <li
                 key={suggestion.path}
+                role="option"
+                aria-selected={highlighted}
                 {...common}
                 aria-disabled={covered ? true : undefined}
                 className={cn(
-                  "flex cursor-pointer items-center gap-2 rounded px-2 py-1.5",
+                  "flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5",
                   highlighted && "bg-accent",
                   covered && "cursor-default opacity-60",
                 )}
@@ -504,7 +480,7 @@ export function WatchedPathsPicker({
             <button
               type="button"
               onClick={() => setFolder("")}
-              className={cn("rounded px-1 hover:bg-accent", folder === "" && "font-medium")}
+              className={cn("rounded-sm px-1 hover:bg-accent", folder === "" && "font-medium")}
             >
               {rootLabel(repo)}
             </button>
@@ -516,7 +492,7 @@ export function WatchedPathsPicker({
                   <button
                     type="button"
                     onClick={() => setFolder(path)}
-                    className={cn("rounded px-1 font-mono hover:bg-accent", path === folder && "font-medium")}
+                    className={cn("rounded-sm px-1 font-mono hover:bg-accent", path === folder && "font-medium")}
                     aria-current={path === folder ? "location" : undefined}
                   >
                     {segment}
@@ -531,7 +507,7 @@ export function WatchedPathsPicker({
                 <button
                   type="button"
                   onClick={() => setFolder(folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "")}
-                  className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-muted-foreground hover:bg-accent"
+                  className="flex w-full items-center gap-2 rounded-sm px-1.5 py-1 text-muted-foreground hover:bg-accent"
                 >
                   <CornerLeftUpIcon className="size-3.5" aria-hidden />
                   Up
@@ -539,10 +515,10 @@ export function WatchedPathsPicker({
               </li>
             ) : null}
             {children.slice(0, BROWSER_ROW_LIMIT).map((entry) => {
-              const selected = paths.includes(entry.path);
+              const selected = pathSet.has(entry.path);
               const covered = selected ? null : coveringPath(entry.path, paths);
               return (
-                <li key={entry.path} className="flex items-center gap-2 rounded px-1.5 py-1 hover:bg-accent">
+                <li key={entry.path} className="flex items-center gap-2 rounded-sm px-1.5 py-1 hover:bg-accent">
                   <Checkbox
                     checked={selected || covered !== null}
                     disabled={covered !== null || (!selected && atMax)}
@@ -590,7 +566,7 @@ export function WatchedPathsPicker({
           {tree.status === "idle" ? "Enter the repository to browse its files." : null}
           {tree.status === "loading" ? (
             <span className="inline-flex items-center gap-1.5">
-              <LoaderCircleIcon className="size-3 animate-spin" aria-hidden />
+              <LoaderCircleIcon className="size-3 motion-safe:animate-spin" aria-hidden />
               Loading files…
             </span>
           ) : null}

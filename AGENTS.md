@@ -16,12 +16,18 @@ Root guidance and reference router for coding agents working in **RepoPulse** (s
 ## 2. Common Commands
 
 ```sh
+pnpm verify                        # Run full static, build, lint, test, doctor, and docs gates
 pnpm docs:check                    # Validate markdown links, anchors, AGENTS.md hygiene & workspace coverage
+pnpm check:guardrails              # Run RepoPulse architectural, security, and migration guardrails
 pnpm --filter "./packages/*" build # Rebuild workspace packages' dist/ outputs
-pnpm typecheck                     # tsc --noEmit across all workspaces (runs next typegen in web)
+pnpm typecheck                     # tsc --noEmit across all workspaces and scripts/
 pnpm lint                          # oxlint --type-aware --deny-warnings (.oxlintrc.json)
+pnpm lint:css                      # Stylelint CSS & Tailwind v4 check
+pnpm lint:manifests                # Sherif workspace package.json hygiene check
+pnpm knip                          # Dead code, unused exports, and dependency check (knip:strict for prod deps)
+pnpm doctor                        # React Doctor static analysis on apps/web
 pnpm format:check                  # Verify Oxfmt formatting (run `pnpm format` to fix)
-pnpm test                          # Vitest across all workspaces
+pnpm test                          # Vitest across all workspaces and scripts/
 pnpm --filter @repopulse/web build # Production Next.js build (required for web changes)
 pnpm db:generate                   # Regenerate Prisma Client
 pnpm db:migrate:deploy             # Apply migrations to local DATABASE_URL
@@ -41,4 +47,4 @@ pnpm env:sync                      # Sync missing keys between .env.example and 
 
 - **Keep `AGENTS.md` Timeless & Lean:** Enforce `<= 120` lines root and `<= 60` lines per subpackage; never add changelogs, history sections, slice labels, version banners, or commit hashes.
 - **Docs & Changelog:** Update affected `docs/` files when behavior changes, and record user-visible changes, migrations, and env vars in `CHANGELOG.md` under `## [Unreleased]`.
-- **Verification & Git:** Verify changes with `pnpm docs:check && pnpm --filter "./packages/*" build && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test` (+ `@repopulse/web build` for web changes). Work on `main`; commit or push only when asked; never stage `.env*` files.
+- **Verification & Git:** Verify changes with `pnpm verify` (runs guardrails, manifests, packages build, typecheck, oxlint, stylelint, knip, knip:strict, format:check, react-doctor, tests, docs:check, and `@repopulse/web` build). Work on `main`; commit or push only when asked; never stage `.env*` files.

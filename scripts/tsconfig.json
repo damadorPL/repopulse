@@ -1,0 +1,12 @@
+{
+  "extends": "../packages/tsconfig/base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "types": ["node"]
+  },
+  "include": ["./**/*.ts", "../knip.ts"]
+}

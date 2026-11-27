@@ -271,14 +271,14 @@ export function SmtpSettingsForm({ settings, adminEmail }: { settings: SmtpSetti
 
         <div className="flex flex-wrap items-center gap-2">
           <Button type="submit" disabled={busy || !dirty}>
-            {saving ? <LoaderCircleIcon className="animate-spin" /> : <SaveIcon />}
+            {saving ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <SaveIcon />}
             {saved.enabled ? "Save changes" : "Turn on email"}
           </Button>
           {saved.enabled ? (
             confirmingRemove ? (
               <>
                 <Button type="button" variant="destructive" disabled={busy} onClick={remove}>
-                  {removing ? <LoaderCircleIcon className="animate-spin" /> : <PowerOffIcon />}
+                  {removing ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <PowerOffIcon />}
                   Remove SMTP settings
                 </Button>
                 <Button type="button" variant="ghost" disabled={busy} onClick={() => setConfirmingRemove(false)}>
@@ -324,7 +324,7 @@ export function SmtpSettingsForm({ settings, adminEmail }: { settings: SmtpSetti
             className="sm:max-w-sm"
           />
           <Button type="button" variant="outline" disabled={!saved.enabled || dirty || testing} onClick={sendTest}>
-            {testing ? <LoaderCircleIcon className="animate-spin" /> : <SendIcon />}
+            {testing ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <SendIcon />}
             Send test email
           </Button>
         </div>

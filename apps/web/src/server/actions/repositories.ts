@@ -22,7 +22,7 @@ import { subscriptionSettingsInput, type SubscriptionSettingsInput } from "@/lib
 import { NOTHING_TRACKED_MESSAGE, tracksSomething } from "@/lib/track-modes";
 import { validateWatchedPaths } from "@/lib/watched-paths";
 
-export type { ActionErrorCode, ActionResult } from "@/server/action-result";
+export type { ActionResult } from "@/server/action-result";
 
 export interface AddRepositoryResult {
   subscriptionId: string;
@@ -212,8 +212,12 @@ export async function addRepositoryAction(input: {
           select: REPOSITORY_IMPORT_SELECT,
         });
         if (releases.length > 0) {
+          const releaseRows: Array<(typeof releases)[number] & { repositoryId: string }> = [];
+          for (const release of releases) {
+            releaseRows.push({ ...release, repositoryId: repository.id });
+          }
           await tx.release.createMany({
-            data: releases.map((release) => ({ ...release, repositoryId: repository.id })),
+            data: releaseRows,
             skipDuplicates: true,
           });
         }

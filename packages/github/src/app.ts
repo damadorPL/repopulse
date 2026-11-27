@@ -215,7 +215,8 @@ export function rethrowAppError(error: unknown, notFound?: () => never): never {
       );
     }
     if (error.status === 404 && notFound) notFound();
-    throw error;
+    if (error instanceof Error) throw error;
+    throw Object.assign(new Error(`GitHub HTTP error ${error.status}`), error);
   }
   if (isKeyOrSigningError(error)) {
     throw new GitHubAppAuthError("Could not sign a GitHub App token with this private key.");

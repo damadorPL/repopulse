@@ -74,12 +74,18 @@ export async function syncCommitStates(
     ...plan.unread.map((releaseId) => ({ userId, releaseId, isRead: false })),
     ...plan.read.map((releaseId) => ({ userId, releaseId, isRead: true })),
   ];
+  const batches: Array<typeof seed> = [];
   for (let i = 0; i < seed.length; i += COMMIT_STATES_CREATE_BATCH) {
-    await tx.userReleaseState.createMany({
-      data: seed.slice(i, i + COMMIT_STATES_CREATE_BATCH),
-      skipDuplicates: true,
-    });
+    batches.push(seed.slice(i, i + COMMIT_STATES_CREATE_BATCH));
   }
+  await Promise.all(
+    batches.map((data) =>
+      tx.userReleaseState.createMany({
+        data,
+        skipDuplicates: true,
+      }),
+    ),
+  );
   return plan;
 }
 
@@ -88,5 +94,7 @@ export function needsPathImport(
   watchedPaths: readonly string[],
   repository: { polledPaths: string[]; lastPathsPolledAt: Date | null },
 ): boolean {
-  return repository.lastPathsPolledAt === null || watchedPaths.some((path) => !repository.polledPaths.includes(path));
+  if (repository.lastPathsPolledAt === null) return true;
+  const polled = new Set(repository.polledPaths);
+  return watchedPaths.some((path) => !polled.has(path));
 }

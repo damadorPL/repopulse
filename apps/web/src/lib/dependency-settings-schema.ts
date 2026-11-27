@@ -28,7 +28,6 @@ export const addSourceSchema = z.union([
   z.strictObject({ subscriptionId: idSchema }),
   z.strictObject({ repoUrlOrSlug: z.string().trim().min(1, "Enter a repository").max(500) }),
 ]);
-export type AddDependencySource = z.input<typeof addSourceSchema>;
 
 export const addDependencyProjectsInput = z.strictObject({
   sources: z

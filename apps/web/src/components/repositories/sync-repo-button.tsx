@@ -3,16 +3,11 @@
 import { useTransition, type ComponentProps } from "react";
 import { RefreshCwIcon } from "lucide-react";
 import { toast } from "sonner";
-import { syncToastId } from "@/components/realtime/sse-listener";
 import { Button } from "@/components/ui/button";
+import { formatWait } from "@/lib/format-wait";
+import { syncToastId } from "@/lib/toast-ids";
 import { cn } from "@/lib/utils";
 import { triggerManualRepoSyncAction } from "@/server/actions/sync";
-
-export function formatWait(seconds: number): string {
-  const minutes = Math.floor(seconds / 60);
-  const rest = seconds % 60;
-  return minutes > 0 ? `${minutes}m ${rest.toString().padStart(2, "0")}s` : `${rest}s`;
-}
 
 export function SyncRepoButton({
   repositoryId,
@@ -52,7 +47,7 @@ export function SyncRepoButton({
       title={iconOnly ? label : undefined}
       {...props}
     >
-      <RefreshCwIcon className={cn(pending && "animate-spin")} />
+      <RefreshCwIcon className={cn(pending && "motion-safe:animate-spin")} />
       {iconOnly ? null : pending ? "Syncing…" : label}
     </Button>
   );

@@ -73,7 +73,7 @@ export function ReleaseFeedList({
       {nextCursor ? (
         <div className="flex justify-center pt-2">
           <Button variant="outline" onClick={loadMore} disabled={loading}>
-            {loading ? <LoaderCircleIcon className="animate-spin" /> : null}
+            {loading ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : null}
             {loading ? "Loading…" : "Load more"}
           </Button>
         </div>

@@ -6,7 +6,7 @@ import { BotIcon, LayoutDashboardIcon, MailIcon, PackageIcon, RotateCcwClockIcon
 import { cn } from "@/lib/utils";
 
 /** The sections of the admin panel (super admin only). */
-export const ADMIN_SECTIONS = [
+const ADMIN_SECTIONS = [
   { href: "/admin", label: "Overview", icon: LayoutDashboardIcon, exact: true },
   { href: "/admin/access", label: "Access", icon: UsersIcon, exact: false },
   { href: "/admin/email", label: "Email (SMTP)", icon: MailIcon, exact: false },

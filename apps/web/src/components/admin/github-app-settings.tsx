@@ -218,7 +218,7 @@ export function CreateGitHubAppForm({ appBaseUrl, replaces }: { appBaseUrl: stri
         <ErrorText>{error}</ErrorText>
         <div>
           <Button type="submit" disabled={pending || redirecting}>
-            {pending || redirecting ? <LoaderCircleIcon className="animate-spin" /> : <PlusIcon />}
+            {pending || redirecting ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <PlusIcon />}
             {redirecting ? "Opening GitHub…" : "Create GitHub App"}
           </Button>
         </div>
@@ -348,7 +348,7 @@ export function ManualGitHubAppForm({ app }: { app: GitHubAppView }) {
       <ErrorText>{error}</ErrorText>
       <div>
         <Button type="submit" disabled={pending || !appId || !slug.trim() || !privateKey.trim()}>
-          {pending ? <LoaderCircleIcon className="animate-spin" /> : <SaveIcon />}
+          {pending ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <SaveIcon />}
           {pending ? "Checking with GitHub…" : "Save App"}
         </Button>
       </div>
@@ -392,7 +392,7 @@ export function RemoveGitHubAppButton() {
         {confirming ? (
           <>
             <Button type="button" variant="destructive" disabled={pending} onClick={remove}>
-              {pending ? <LoaderCircleIcon className="animate-spin" /> : <TrashIcon />}
+              {pending ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <TrashIcon />}
               Remove GitHub App
             </Button>
             <Button type="button" variant="ghost" disabled={pending} onClick={() => setConfirming(false)}>
@@ -505,7 +505,7 @@ export function GitHubAppWebhooksCard({ app, target }: { app: GitHubAppView; tar
           ) : null}
           <div className="flex flex-wrap gap-2">
             <Button type="button" disabled={pending || !app.keyReadable} onClick={() => enable(false)}>
-              {pending ? <LoaderCircleIcon className="animate-spin" /> : <WebhookIcon />}
+              {pending ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <WebhookIcon />}
               Enable webhooks
             </Button>
             {app.webhookSecretSaved ? (

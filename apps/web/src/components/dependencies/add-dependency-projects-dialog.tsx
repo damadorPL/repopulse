@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { LoaderCircleIcon, SearchIcon } from "lucide-react";
 import { toast } from "sonner";
 import { RepoAvatar } from "@/components/feed/repo-avatar";
-import { depsScanToastId } from "@/components/realtime/sse-listener";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -26,6 +25,7 @@ import {
   type AddDependencySource,
   type DepsUpdateModeValue,
 } from "@/lib/dependency-settings";
+import { depsScanToastId } from "@/lib/toast-ids";
 import { cn } from "@/lib/utils";
 import { addDependencyProjectsAction, type AddDependencyProjectsResult } from "@/server/actions/dependencies";
 import type { AddableSubscription } from "@/server/queries/dependencies";
@@ -101,20 +101,26 @@ export function AddDependencyProjectsDialog({
     });
   }
 
+  const selectedSet = new Set(selected);
   const visibleIds = filtered.map((s) => s.subscriptionId);
-  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.includes(id));
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedSet.has(id));
 
   function toggleAll(checked: boolean) {
     setError(null);
     if (!checked) {
-      setSelected((current) => current.filter((id) => !visibleIds.includes(id)));
+      const visibleSet = new Set(visibleIds);
+      setSelected((current) => current.filter((id) => !visibleSet.has(id)));
       return;
     }
     setSelected((current) => {
       const next = [...current];
+      const seen = new Set(current);
       for (const id of visibleIds) {
         if (next.length >= limit) break;
-        if (!next.includes(id)) next.push(id);
+        if (!seen.has(id)) {
+          seen.add(id);
+          next.push(id);
+        }
       }
       return next;
     });
@@ -220,7 +226,7 @@ export function AddDependencyProjectsDialog({
                   setError(null);
                 }}
                 className={cn(
-                  "rounded px-3 py-1.5 font-medium transition-colors",
+                  "rounded-sm px-3 py-1.5 font-medium transition-colors",
                   tab === value ? "bg-background shadow-xs" : "text-muted-foreground hover:text-foreground",
                 )}
               >
@@ -277,7 +283,7 @@ export function AddDependencyProjectsDialog({
                       </li>
                     ) : (
                       filtered.map((s) => {
-                        const checked = selected.includes(s.subscriptionId);
+                        const checked = selectedSet.has(s.subscriptionId);
                         const id = `${ids}-${s.subscriptionId}`;
                         return (
                           <li key={s.subscriptionId}>
@@ -333,14 +339,7 @@ export function AddDependencyProjectsDialog({
               const disabled = option.value !== "NOTIFY" && !prModesAvailable;
               const id = `${ids}-mode-${option.value}`;
               return (
-                <label
-                  key={option.value}
-                  htmlFor={id}
-                  className={cn(
-                    "flex items-start gap-2.5 text-sm",
-                    disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
-                  )}
-                >
+                <div key={option.value} className={cn("flex items-start gap-2.5 text-sm", disabled && "opacity-60")}>
                   <input
                     id={id}
                     type="radio"
@@ -349,32 +348,33 @@ export function AddDependencyProjectsDialog({
                     checked={effectiveMode === option.value}
                     disabled={disabled}
                     onChange={() => setUpdateMode(option.value)}
-                    className="mt-0.5 accent-primary"
+                    className={cn("mt-0.5 accent-primary", disabled && "cursor-not-allowed")}
                   />
-                  <span>
+                  <label htmlFor={id} className={cn("grid", disabled ? "cursor-not-allowed" : "cursor-pointer")}>
                     <span className="font-medium">{option.label}</span>
-                    <span className="block text-xs text-muted-foreground">
+                    <span className="text-xs text-muted-foreground">
                       {option.value === "NOTIFY" ? option.hint : disabled ? prModeHint : option.hint}
                     </span>
-                  </span>
-                </label>
+                  </label>
+                </div>
               );
             })}
           </fieldset>
 
-          <label className="flex items-start gap-2.5 text-sm">
+          <div className="flex items-start gap-2.5 text-sm">
             <Checkbox
+              id={`${ids}-notify-now`}
               checked={notifyNow}
               onCheckedChange={(checked) => setNotifyNow(checked === true)}
               className="mt-0.5"
             />
-            <span>
+            <label htmlFor={`${ids}-notify-now`} className="grid cursor-pointer">
               Notify about what is outdated now
-              <span className="block text-xs text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 Off: the first check fills the overview quietly, and only later updates are notified.
               </span>
-            </span>
-          </label>
+            </label>
+          </div>
 
           {error ? (
             <p role="alert" className="text-sm text-destructive">
@@ -394,7 +394,7 @@ export function AddDependencyProjectsDialog({
 
           <DialogFooter>
             <Button type="submit" disabled={pending || sourceCount === 0 || limit === 0}>
-              {pending ? <LoaderCircleIcon className="animate-spin" /> : null}
+              {pending ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : null}
               {pending ? "Adding…" : sourceCount > 1 ? `Add ${plural(sourceCount, "project")}` : "Add project"}
             </Button>
           </DialogFooter>

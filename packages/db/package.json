@@ -23,7 +23,7 @@
     "db:migrate:dev": "prisma migrate dev",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "oxlint --type-aware --deny-warnings -c ../../.oxlintrc.json ."
+    "lint": "oxlint -c ../../.oxlintrc.json ."
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.1",

@@ -47,8 +47,6 @@ interface ReaderDrawerContextValue {
   setRead: (releaseId: string, isRead: boolean, item?: FeedItem) => Promise<boolean>;
 }
 
-export type ReaderContextValue = ReaderListContextValue & ReaderDrawerContextValue;
-
 const ReaderListContext = createContext<ReaderListContextValue | null>(null);
 const ReaderDrawerContext = createContext<ReaderDrawerContextValue | null>(null);
 
@@ -190,8 +188,4 @@ export function useReaderDrawer(): ReaderDrawerContextValue {
   const value = useContext(ReaderDrawerContext);
   if (!value) throw new Error("useReaderDrawer must be used inside <ReaderProvider>");
   return value;
-}
-
-export function useReader(): ReaderContextValue {
-  return { ...useReaderList(), ...useReaderDrawer() };
 }

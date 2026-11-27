@@ -270,7 +270,7 @@ export async function processReleaseBackfill(
         const { count } = await prisma.release.createMany({
           data: plan.insert
             .filter((r) => !tagRowByName.has(r.tagName))
-            .map((release) => ({ ...release, repositoryId })),
+            .map((release) => Object.assign({}, release, { repositoryId })),
           skipDuplicates: true,
         });
         added += count;
@@ -293,7 +293,7 @@ export async function processReleaseBackfill(
     if (error instanceof DelayedError) throw error;
 
     if (error instanceof GitHubRateLimitError) {
-      return await pauseUntil(error.resetAt, "GitHub rate limit exceeded");
+      return pauseUntil(error.resetAt, "GitHub rate limit exceeded");
     }
 
     if (error instanceof GitHubRepositoryNotFoundError) {

@@ -305,8 +305,9 @@ describe("selectTarget", () => {
 describe("ignore rules", () => {
   it("validates patterns", () => {
     for (const ok of ["react", "@types/*", "*-plugin", "*eslint*", "*", "zope.interface"])
-      expect(isValidIgnorePattern(ok), ok).toBe(true);
-    for (const bad of ["", "re*ct", "**", "a b", "@types/**x"]) expect(isValidIgnorePattern(bad), bad).toBe(false);
+      expect([ok, isValidIgnorePattern(ok)]).toEqual([ok, true]);
+    for (const bad of ["", "re*ct", "**", "a b", "@types/**x"])
+      expect([bad, isValidIgnorePattern(bad)]).toEqual([bad, false]);
   });
 
   it("matches globs (PyPI names normalized)", () => {
@@ -411,7 +412,7 @@ describe("groupCapability", () => {
       { path: "requirements.in", packageManager: "PIP_TOOLS" as const, lockfilePath: "requirements.txt" },
     ]) {
       const capability = groupCapability([manifest], { lockfileRegeneration: true });
-      expect(capability.canCreatePr, manifest.packageManager).toBe(false);
+      expect([manifest.packageManager, capability.canCreatePr]).toEqual([manifest.packageManager, false]);
       expect(capability.reason).toMatch(/check only|binary/);
     }
   });

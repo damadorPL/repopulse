@@ -4,7 +4,7 @@ import { useId, useState, useTransition, type FormEvent, type ReactNode } from "
 import { useRouter } from "next/navigation";
 import { LoaderCircleIcon, PlusIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
-import { isExpandedCombobox, WatchedPathsPicker } from "@/components/repositories/watched-paths-picker";
+import { WatchedPathsPicker } from "@/components/repositories/watched-paths-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -159,8 +159,9 @@ export function DependencySettingsForm({
   };
 
   const prMode = form.updateMode !== "NOTIFY";
+  const manifestPathSet = new Set(form.manifestPaths);
   const suggestions = [...new Set([...detectedManifests, ...MANIFEST_PATH_SUGGESTIONS])]
-    .filter((path) => !form.manifestPaths.includes(path))
+    .filter((path) => !manifestPathSet.has(path))
     .slice(0, 8);
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -363,23 +364,17 @@ export function DependencySettingsForm({
         htmlFor={`${id}-paths`}
         hint={`Empty: every package.json, pyproject.toml and requirements file is detected. At most ${MAX_MANIFESTS_PER_PROJECT}.`}
       >
-        <div
-          onKeyDown={(event) => {
-            if (event.key === "Escape" && isExpandedCombobox(event.target)) event.stopPropagation();
+        <WatchedPathsPicker
+          id={`${id}-paths`}
+          repo={fullName}
+          paths={form.manifestPaths}
+          onPathsChange={(paths) => set("manifestPaths", paths)}
+          draft={pathsDraft}
+          onDraftChange={(draft) => {
+            setPathsDraft(draft);
+            setError(null);
           }}
-        >
-          <WatchedPathsPicker
-            id={`${id}-paths`}
-            repo={fullName}
-            paths={form.manifestPaths}
-            onPathsChange={(paths) => set("manifestPaths", paths)}
-            draft={pathsDraft}
-            onDraftChange={(draft) => {
-              setPathsDraft(draft);
-              setError(null);
-            }}
-          />
-        </div>
+        />
         {suggestions.length > 0 ? (
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
             <span className="text-muted-foreground">Add:</span>
@@ -406,7 +401,7 @@ export function DependencySettingsForm({
       ) : null}
       <div>
         <Button type="submit" size="sm" disabled={pending}>
-          {pending ? <LoaderCircleIcon className="animate-spin" /> : null}
+          {pending ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : null}
           {pending ? "Saving…" : "Save settings"}
         </Button>
       </div>
@@ -532,7 +527,7 @@ export function IgnoreRulesEditor({ projectId, rules }: { projectId: string; rul
             />
           </div>
           <Button type="submit" size="sm" variant="outline" disabled={pending}>
-            {pending ? <LoaderCircleIcon className="animate-spin" /> : <PlusIcon />}
+            {pending ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <PlusIcon />}
             Add rule
           </Button>
         </form>

@@ -23,7 +23,7 @@ export function registryConfigPaths(path: string, ecosystem: DependencyEcosystem
 function publicRegistry(value: unknown, ecosystem: DependencyEcosystem): boolean {
   if (typeof value !== "string") return false;
   const url = URL.parse(value.trim().replace(/^["']|["']$/g, ""));
-  if (!url || url.protocol !== "https:" || url.port || url.username || url.password || url.search || url.hash) {
+  if (url?.protocol !== "https:" || url.port || url.username || url.password || url.search || url.hash) {
     return false;
   }
   const path = url.pathname.replace(/\/+$/, "");

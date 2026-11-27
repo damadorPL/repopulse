@@ -58,15 +58,15 @@ describe("loadConfig", () => {
       loadConfig({ DEPS_SANDBOX_TOKEN: TOKEN, PORT: "4000", DEPS_SANDBOX_TIMEOUT_MS: "5000", DEPS_EGRESS_PROXY: "" }),
     ).toMatchObject({ port: 4000, timeoutMs: 5000, proxy: null });
     for (const badPort of ["-1", "65536", "abc", "3.14"]) {
-      expect(() => loadConfig({ DEPS_SANDBOX_TOKEN: TOKEN, PORT: badPort }), badPort).toThrow(/Invalid PORT/);
+      expect(() => loadConfig({ DEPS_SANDBOX_TOKEN: TOKEN, PORT: badPort })).toThrow(/Invalid PORT/);
     }
     for (const badTimeout of ["abc", "999", "3600001"]) {
-      expect(() => loadConfig({ DEPS_SANDBOX_TOKEN: TOKEN, DEPS_SANDBOX_TIMEOUT_MS: badTimeout }), badTimeout).toThrow(
+      expect(() => loadConfig({ DEPS_SANDBOX_TOKEN: TOKEN, DEPS_SANDBOX_TIMEOUT_MS: badTimeout })).toThrow(
         /Invalid DEPS_SANDBOX_TIMEOUT_MS/,
       );
     }
     for (const badProxy of ["socks5://x:1", "https://proxy:3128", "not-a-url"]) {
-      expect(() => loadConfig({ DEPS_SANDBOX_TOKEN: TOKEN, DEPS_EGRESS_PROXY: badProxy }), badProxy).toThrow(
+      expect(() => loadConfig({ DEPS_SANDBOX_TOKEN: TOKEN, DEPS_EGRESS_PROXY: badProxy })).toThrow(
         /DEPS_EGRESS_PROXY must be an http:\/\/ URL/,
       );
     }

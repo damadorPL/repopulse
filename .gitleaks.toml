@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Synthetic PEM test fixtures and UI placeholder strings"
+regexes = [
+  '''-----BEGIN (?:RSA )?PR[I]VATE KEY-----(?:\\n|\n)(?:TOP-SECRET-MATERIAL|MIIEsecretsecret|key|…)(?:\\n|\n)-----END (?:RSA )?PR[I]VATE KEY-----''',
+  '''"-----BEGIN RSA PR[I]VATE KEY-----"''',
+]

@@ -57,16 +57,18 @@ export function parseRepoListFilters(params: RawParams): RepoListFilters {
   const q = read(params, REPO_LIST_PARAM.q);
   const sort = read(params, REPO_LIST_PARAM.sort);
   const tag = read(params, REPO_LIST_PARAM.tag);
-  const statuses = (read(params, REPO_LIST_PARAM.status) ?? "")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter((s): s is RepoListStatus => (REPO_LIST_STATUSES as readonly string[]).includes(s));
+  const statusSet = new Set(
+    (read(params, REPO_LIST_PARAM.status) ?? "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter((s): s is RepoListStatus => (REPO_LIST_STATUSES as readonly string[]).includes(s)),
+  );
   return {
     q: q ? q.slice(0, MAX_SEARCH_LENGTH) : undefined,
     sort: REPO_LIST_SORTS.find((s) => s === sort) ?? "name",
     tagSlug: tag && /^[A-Za-z0-9_-]{1,64}$/.test(tag) ? tag : undefined,
     // Canonical order, no duplicates, so equal filters give equal URLs.
-    statuses: REPO_LIST_STATUSES.filter((s) => statuses.includes(s)),
+    statuses: REPO_LIST_STATUSES.filter((s) => statusSet.has(s)),
   };
 }
 

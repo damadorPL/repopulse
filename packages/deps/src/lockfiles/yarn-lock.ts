@@ -79,7 +79,7 @@ export function prepareYarnLock(text: string, path = "yarn.lock"): PreparedLockf
         for (const { name } of dependencies) {
           if (versions.has(name)) continue;
           const found = byName.get(name);
-          if (found && found.size === 1) versions.set(name, [...found][0] as string);
+          if (found?.size === 1) versions.set(name, [...found][0] as string);
         }
         return { versions, formatVersion, warnings: [] };
       },
