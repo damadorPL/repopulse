@@ -10,7 +10,7 @@ import { buildFeedWhere, visibleReleasesWhere } from "@/server/queries/feed";
 
 const id = z.string().min(1).max(64);
 
-const toggleInput = z.object({ releaseId: id, isRead: z.boolean() });
+const toggleInput = z.object({ releaseId: id, isRead: z.boolean(), skipRevalidate: z.boolean().optional() });
 
 const markAllInput = z.object({
   tagSlug: id.optional(),
@@ -23,12 +23,13 @@ const markAllInput = z.object({
 export async function toggleReleaseReadAction(input: {
   releaseId: string;
   isRead: boolean;
+  skipRevalidate?: boolean;
 }): Promise<ActionResult<{ releaseId: string; isRead: boolean }>> {
   try {
     const user = await getCurrentUserOrThrow();
     const parsed = toggleInput.safeParse(input);
     if (!parsed.success) return invalidInput(parsed.error);
-    const { releaseId, isRead } = parsed.data;
+    const { releaseId, isRead, skipRevalidate } = parsed.data;
 
     // Only releases from the user's own subscriptions can get a state row.
     const release = await prisma.release.findFirst({
@@ -44,7 +45,9 @@ export async function toggleReleaseReadAction(input: {
       update: { isRead, readAt },
     });
 
-    revalidatePath("/", "layout");
+    if (!skipRevalidate) {
+      revalidatePath("/", "layout");
+    }
     return ok({ releaseId, isRead });
   } catch (error) {
     return toActionError(error, "toggleReleaseReadAction");

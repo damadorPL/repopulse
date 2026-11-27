@@ -1,5 +1,11 @@
 import { UnrecoverableError, type Job } from "bullmq";
-import { loadDepsEnabled, loadSmtpSettings, SmtpPasswordUnreadableError, type PrismaClient } from "@repopulse/db";
+import {
+  loadDepsEnabled,
+  loadSmtpSettings,
+  SmtpPasswordUnreadableError,
+  type DecryptedSmtpSettings,
+  type PrismaClient,
+} from "@repopulse/db";
 import { parseTarget } from "@repopulse/deps";
 import {
   dispatchDependencyNotification,
@@ -36,6 +42,8 @@ export interface DepsNotifyDeps {
   prisma: PrismaClient;
   /** Injected in tests. */
   dispatch?: typeof dispatchDependencyNotification;
+  loadDepsEnabled?: () => Promise<boolean>;
+  loadSmtp?: () => Promise<DecryptedSmtpSettings | null>;
   appBaseUrl?: string;
   signal?: AbortSignal;
 }
@@ -59,7 +67,8 @@ export async function processDepsNotify(job: Job<DepsNotifyJobData>, deps: DepsN
     log.info({ ...ctx, reason }, `rule ${data.ruleId} / project ${data.projectId} (${data.kind}): skipped (${reason})`);
     return { status: "SKIPPED", reason };
   };
-  if (!(await loadDepsEnabled(prisma))) return skip("DISABLED");
+  const enabled = deps.loadDepsEnabled ? await deps.loadDepsEnabled() : await loadDepsEnabled(prisma);
+  if (!enabled) return skip("DISABLED");
 
   const [rule, project] = await Promise.all([
     prisma.notificationRule.findUnique({
@@ -141,7 +150,7 @@ export async function processDepsNotify(job: Job<DepsNotifyJobData>, deps: DepsN
   const dispatch = deps.dispatch ?? dispatchDependencyNotification;
   const label = `${project.fullName} ${data.kind}${pullRequest ? ` (${pullRequest.event})` : ""} via ${rule.channel} (rule ${rule.id})`;
   try {
-    const smtp = rule.channel === "EMAIL_INSTANT" ? toSmtpConfig(await loadSmtp(prisma)) : null;
+    const smtp = rule.channel === "EMAIL_INSTANT" ? toSmtpConfig(await loadSmtp(prisma, deps.loadSmtp)) : null;
     const result = await dispatch(
       {
         project: {
@@ -181,9 +190,9 @@ export async function processDepsNotify(job: Job<DepsNotifyJobData>, deps: DepsN
 }
 
 /** A stored password that can't be decrypted won't fix itself on retry. */
-async function loadSmtp(prisma: PrismaClient) {
+async function loadSmtp(prisma: PrismaClient, loader?: () => Promise<DecryptedSmtpSettings | null>) {
   try {
-    return await loadSmtpSettings(prisma);
+    return await (loader ? loader() : loadSmtpSettings(prisma));
   } catch (error) {
     if (error instanceof SmtpPasswordUnreadableError)
       throw new NotificationDeliveryError(error.message, { permanent: true, cause: error });

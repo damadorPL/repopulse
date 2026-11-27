@@ -12,7 +12,7 @@ import {
 } from "@repopulse/github";
 import { RELEASE_BACKFILL_PRIORITY } from "@repopulse/queue";
 import { getCurrentUserOrThrow } from "@/lib/auth";
-import { fail, getGitHubToken, invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
+import { fail, invalidInput, loadGitHubToken, ok, toActionError, type ActionResult } from "@/server/action-result";
 import { enqueueReleaseBackfill } from "@/server/backfill-queue";
 import { needsPathImport, syncCommitStates } from "@/server/commit-states";
 import { isRealtimeConfigured } from "@/server/realtime";
@@ -179,7 +179,7 @@ export async function addRepositoryAction(input: {
     // Fetch from GitHub before opening the transaction so no DB connection is held during network I/O.
     const fetched =
       !existing || existing._count.releases === 0
-        ? await validateAndFetchRepo(owner, name, getGitHubToken(user, "addRepositoryAction"))
+        ? await validateAndFetchRepo(owner, name, await loadGitHubToken(user, "addRepositoryAction"))
         : null;
 
     const { result, repository: imported } = await prisma.$transaction(async (tx) => {
@@ -405,7 +405,7 @@ export async function listRepositoryPathsAction(input: { repoUrlOrSlug: string }
     const tree = await fetchRepoTree({
       owner,
       name,
-      accessToken: getGitHubToken(user, "listRepositoryPathsAction"),
+      accessToken: await loadGitHubToken(user, "listRepositoryPathsAction"),
       signal: AbortSignal.timeout(15_000),
     });
     return ok(tree);

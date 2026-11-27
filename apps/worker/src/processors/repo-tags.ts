@@ -10,6 +10,7 @@ import {
   type MappedTag,
 } from "@repopulse/github";
 import { createLogger } from "../logger.js";
+import { mapWithConcurrency } from "./concurrency.js";
 import {
   EMPTY_FAN_OUT_PLAN,
   planFanOut,
@@ -22,6 +23,7 @@ import type { TokenCandidate } from "./github-tokens.js";
 const log = createLogger("repo-tags");
 
 const GITHUB_REQUEST_TIMEOUT_MS = 30_000;
+const TAG_COMPARE_CONCURRENCY = 4;
 
 /** Columns the fan-out needs from a stored release or tag row. */
 export const STORED_RELEASE_SELECT = {
@@ -155,6 +157,7 @@ export async function pollRepoTags(
   candidates: TokenCandidate[],
   newestKnownAt: Date | null,
   jobSignal?: AbortSignal,
+  preloadedSubscribers?: () => Promise<SubscriberWithMode[]>,
 ): Promise<TagStepResult | null> {
   const { prisma } = deps;
   const now = () => deps.now?.() ?? new Date();
@@ -183,29 +186,34 @@ export async function pollRepoTags(
     // Bodies before the transaction: no DB connection held during network I/O. `tags` is newest
     // first, so the previous tag of tags[i] is tags[i + 1].
     const compare = deps.compare ?? compareCommits;
-    const rows: MappedTag[] = [];
+    const missingPairs: Array<{ tag: GitTag; previous: GitTag | undefined }> = [];
     for (const [index, tag] of tags.entries()) {
-      if (known.has(tag.name)) continue;
-      const previous = tags[index + 1];
-      let comparison: CompareResult | null = null;
-      if (previous) {
-        try {
-          comparison = await compare({
-            owner: repo.owner,
-            name: repo.name,
-            base: previous.name,
-            head: tag.name,
-            accessToken: token,
-            signal: requestSignal(jobSignal),
-          });
-        } catch (error) {
-          log.warn(
-            `${repo.fullName}: could not compare ${previous.name}...${tag.name}; storing ${tag.name} without commits (${String(error)})`,
-          );
-        }
-      }
-      rows.push(mapTag(tag, repo.htmlUrl, buildTagChangelog(tag, comparison)));
+      if (!known.has(tag.name)) missingPairs.push({ tag, previous: tags[index + 1] });
     }
+    const rows: MappedTag[] = await mapWithConcurrency(
+      missingPairs,
+      async ({ tag, previous }) => {
+        let comparison: CompareResult | null = null;
+        if (previous) {
+          try {
+            comparison = await compare({
+              owner: repo.owner,
+              name: repo.name,
+              base: previous.name,
+              head: tag.name,
+              accessToken: token,
+              signal: requestSignal(jobSignal),
+            });
+          } catch (error) {
+            log.warn(
+              `${repo.fullName}: could not compare ${previous.name}...${tag.name}; storing ${tag.name} without commits (${String(error)})`,
+            );
+          }
+        }
+        return mapTag(tag, repo.htmlUrl, buildTagChangelog(tag, comparison));
+      },
+      TAG_COMPARE_CONCURRENCY,
+    );
 
     const result = await prisma.$transaction(async (tx) => {
       const created =
@@ -221,7 +229,8 @@ export async function pollRepoTags(
       const fresh = selectFreshReleases(created, newestKnownAt);
       let plan = EMPTY_FAN_OUT_PLAN;
       if (fresh.length > 0) {
-        const subscribers = (await loadSubscribers(tx, repo.id)).filter(tracksTags);
+        const allSubscribers = preloadedSubscribers ? await preloadedSubscribers() : await loadSubscribers(tx, repo.id);
+        const subscribers = allSubscribers.filter(tracksTags);
         plan = planFanOut(subscribers, fresh);
         if (plan.states.length > 0) {
           await tx.userReleaseState.createMany({

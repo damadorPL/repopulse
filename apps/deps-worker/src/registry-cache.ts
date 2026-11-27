@@ -5,12 +5,14 @@ import {
   type RegistryCache,
   type RegistryCacheEntry,
 } from "@repopulse/deps";
+import type { GitTreeEntry } from "@repopulse/github";
 import type { Redis } from "@repopulse/queue";
 import { createLogger } from "./logger.js";
 
 const log = createLogger("deps-cache");
 
 type CacheRedis = Pick<Redis, "get" | "set">;
+type BlobCacheRedis = CacheRedis & Partial<Pick<Redis, "mget" | "pipeline">>;
 
 /**
  * Redis-backed {@link RegistryCache} (`deps:reg:<eco>:<name>`, body + ETag). Freshness is decided by
@@ -53,6 +55,8 @@ export function createRedisRegistryCache(redis: CacheRedis): RegistryCache {
 export interface BlobCache {
   get(sha: string): Promise<string | null>;
   set(sha: string, text: string): Promise<void>;
+  getMany?(shas: readonly string[]): Promise<Map<string, string>>;
+  setMany?(entries: ReadonlyArray<{ sha: string; text: string }>): Promise<void>;
 }
 
 /**
@@ -64,7 +68,23 @@ export interface LockfileCache {
   set(key: string, value: LockfileVersions): Promise<void>;
 }
 
+export interface CachedGitTree {
+  entries: GitTreeEntry[];
+  truncated: boolean;
+}
+
+/**
+ * Git tree snapshot cache keyed by `(githubRepoId, commitSha)` so scans whose default branch HEAD
+ * (`knownCommitSha`) has not moved skip `GET /git/trees/{sha}?recursive=1` completely.
+ */
+export interface TreeCache {
+  get(githubRepoId: number, commitSha: string): Promise<CachedGitTree | null>;
+  set(githubRepoId: number, commitSha: string, value: CachedGitTree): Promise<void>;
+}
+
 export const BLOB_CACHE_TTL_SECONDS = 7 * 24 * 3600;
+export const TREE_CACHE_TTL_SECONDS = 24 * 3600;
+export const MAX_TREE_CACHE_BYTES = 2 * 1024 * 1024;
 export const LOCKFILE_CACHE_VERSION = 2;
 
 export function lockfileCacheKey(
@@ -78,19 +98,87 @@ export function lockfileCacheKey(
   return `${lockfileSha}-${digest}`;
 }
 
-export function createRedisBlobCache(redis: CacheRedis): BlobCache {
+export function createRedisBlobCache(redis: BlobCacheRedis): BlobCache {
+  const get = async (sha: string): Promise<string | null> => {
+    try {
+      return await redis.get(`deps:blob:${sha}`);
+    } catch {
+      return null;
+    }
+  };
+  const set = async (sha: string, text: string): Promise<void> => {
+    if (text.length > MAX_MANIFEST_BYTES) return;
+    try {
+      await redis.set(`deps:blob:${sha}`, text, "EX", BLOB_CACHE_TTL_SECONDS);
+    } catch {
+      // best effort
+    }
+  };
+
   return {
-    async get(sha) {
+    get,
+    set,
+    async getMany(shas) {
+      const unique = [...new Set(shas)];
+      const hits = new Map<string, string>();
+      if (unique.length === 0) return hits;
       try {
-        return await redis.get(`deps:blob:${sha}`);
+        if (typeof redis.mget === "function") {
+          const values = await redis.mget(...unique.map((sha) => `deps:blob:${sha}`));
+          for (const [index, sha] of unique.entries()) {
+            const value = values[index];
+            if (typeof value === "string") hits.set(sha, value);
+          }
+          return hits;
+        }
+        const values = await Promise.all(unique.map((sha) => get(sha)));
+        for (const [index, sha] of unique.entries()) {
+          const value = values[index];
+          if (value !== null && value !== undefined) hits.set(sha, value);
+        }
+      } catch {
+        // best effort
+      }
+      return hits;
+    },
+    async setMany(entries) {
+      const eligible = entries.filter((entry) => entry.text.length <= MAX_MANIFEST_BYTES);
+      if (eligible.length === 0) return;
+      try {
+        if (typeof redis.pipeline === "function") {
+          const pipeline = redis.pipeline();
+          for (const entry of eligible) {
+            pipeline.set(`deps:blob:${entry.sha}`, entry.text, "EX", BLOB_CACHE_TTL_SECONDS);
+          }
+          await pipeline.exec();
+          return;
+        }
+        await Promise.all(eligible.map((entry) => set(entry.sha, entry.text)));
+      } catch {
+        // best effort
+      }
+    },
+  };
+}
+
+export function createRedisTreeCache(redis: CacheRedis): TreeCache {
+  return {
+    async get(githubRepoId, commitSha) {
+      try {
+        const raw = await redis.get(`deps:tree:${githubRepoId}:${commitSha}`);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as Partial<CachedGitTree>;
+        if (!Array.isArray(parsed.entries) || typeof parsed.truncated !== "boolean") return null;
+        return { entries: parsed.entries, truncated: parsed.truncated };
       } catch {
         return null;
       }
     },
-    async set(sha, text) {
-      if (text.length > MAX_MANIFEST_BYTES) return;
+    async set(githubRepoId, commitSha, value) {
       try {
-        await redis.set(`deps:blob:${sha}`, text, "EX", BLOB_CACHE_TTL_SECONDS);
+        const serialized = JSON.stringify(value);
+        if (Buffer.byteLength(serialized, "utf8") > MAX_TREE_CACHE_BYTES) return;
+        await redis.set(`deps:tree:${githubRepoId}:${commitSha}`, serialized, "EX", TREE_CACHE_TTL_SECONDS);
       } catch {
         // best effort
       }

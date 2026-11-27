@@ -603,6 +603,9 @@ describe("processRepoPoll release → tag promotion", () => {
       tags: { received: 1, stored: 1, fresh: 1 },
       paths: { paths: 1, received: 1, stored: 1, fresh: 1, imported: 0 },
     });
+    // loadSubscribers is shared across tag + path steps (1 subscriber query + 1 token query).
+    const subscriberLoads = prisma.userSubscription.findMany.mock.calls.filter(([args]) => "trackMode" in args.select);
+    expect(subscriberLoads).toHaveLength(1);
     // Preserves polledPaths when withPaths is true.
     expect(repoUpdates[0]).toEqual({ pollStatus: "POLLING" });
     expect(d.redis.publish).toHaveBeenCalledWith(

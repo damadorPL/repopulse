@@ -5,6 +5,7 @@ import {
   groupCapability,
   groupUpdates,
   isRegistryUnavailableError,
+  mapWithConcurrency,
   MAX_DEPENDENCIES_PER_PROJECT,
   parseTarget,
   type SemverType,
@@ -40,7 +41,7 @@ import {
 import { PRIVATE_WITHOUT_APP_MESSAGE, type GitHubAccess, type ReadCandidate } from "../github-access.js";
 import { defaultGitHubApi, type GitHubApi, type Octokit } from "../github-api.js";
 import { createLogger } from "../logger.js";
-import type { BlobCache, LockfileCache } from "../registry-cache.js";
+import type { BlobCache, LockfileCache, TreeCache } from "../registry-cache.js";
 import { flushNotificationOutbox, storeNotificationIntents } from "../notification-outbox.js";
 import {
   digestScanId,
@@ -87,6 +88,8 @@ export interface DepsScanDeps {
   registry: RegistryLookupFn;
   blobCache?: BlobCache | null;
   lockCache?: LockfileCache | null;
+  treeCache?: TreeCache | null;
+  loadDepsEnabled?: () => Promise<boolean>;
   /** `true` when the sandbox is configured (`DEPS_SANDBOX_TOKEN`): groups that need a lockfile may get PRs. */
   lockfileRegeneration: boolean;
   now?: () => Date;
@@ -125,6 +128,7 @@ async function fetchWithFallback(
   project: ProjectRow,
   candidates: ReadCandidate[],
   installationId: number | null,
+  knownCommitSha: string | null,
   signal: AbortSignal | undefined,
 ): Promise<{ snapshot: GitTreeSnapshot; candidate: ReadCandidate; octokit: Octokit }> {
   for (const [index, candidate] of candidates.entries()) {
@@ -134,6 +138,7 @@ async function fetchWithFallback(
         owner: project.owner,
         name: project.name,
         repositoryId: project.githubRepoId,
+        ...(knownCommitSha ? { knownCommitSha } : {}),
         octokit,
         ...(signal ? { signal } : {}),
       });
@@ -217,7 +222,8 @@ export async function processDepsScan(
   const { projectId, trigger } = job.data;
   const ctx = { queue: DEPS_QUEUE_NAMES.scan, jobId: job.id, projectId };
 
-  if (!(await loadDepsEnabled(prisma))) {
+  const enabled = deps.loadDepsEnabled ? await deps.loadDepsEnabled() : await loadDepsEnabled(prisma);
+  if (!enabled) {
     log.info(ctx, `project ${projectId}: dependency checks are disabled; scan skipped`);
     return { status: "SKIPPED", reason: "DISABLED" };
   }
@@ -271,17 +277,32 @@ export async function processDepsScan(
       return { status: "PRIVATE_WITHOUT_APP" };
     }
 
-    // Step 2: tree + metadata.
-    const { snapshot, candidate, octokit } = await fetchWithFallback(
+    // Step 2: tree + metadata (reuse cached Git tree when HEAD has not moved).
+    const cachedTree =
+      project.lastScannedSha && deps.treeCache
+        ? await deps.treeCache.get(project.githubRepoId, project.lastScannedSha)
+        : null;
+    const fetched = await fetchWithFallback(
       deps,
       github,
       project,
       access.candidates,
       access.installationId,
+      cachedTree ? project.lastScannedSha : null,
       signal,
     );
+    const { candidate, octokit } = fetched;
+    let { snapshot } = fetched;
     if (snapshot.repository.id !== project.githubRepoId)
       throw new GitHubRepositoryNotFoundError(project.owner, project.name);
+    if (snapshot.unchanged && cachedTree) {
+      snapshot = { ...snapshot, entries: cachedTree.entries, truncated: cachedTree.truncated };
+    } else if (snapshot.commitSha && deps.treeCache) {
+      await deps.treeCache.set(snapshot.repository.id, snapshot.commitSha, {
+        entries: snapshot.entries,
+        truncated: snapshot.truncated,
+      });
+    }
     if (snapshot.repository.isPrivate && candidate.source !== "app") {
       await prisma.dependencyProject.update({ where: { id: projectId }, data: { isPrivate: true } });
       await recordHandled(PRIVATE_WITHOUT_APP_MESSAGE, false);
@@ -353,31 +374,35 @@ export async function processDepsScan(
     const detectedPaths = analysis.manifests.map((m) => m.detected.path);
     await prisma.$transaction(async (tx) => {
       await tx.dependencyManifest.deleteMany({ where: { projectId, path: { notIn: detectedPaths } } });
-      const manifestIds = new Map<string, string>();
-      for (const [index, manifest] of analysis.manifests.entries()) {
-        const { detected } = manifest;
-        // Project-level warnings (manifest / dependency caps) are shown with the first manifest.
-        const warnings = index === 0 ? [...new Set([...analysis.warnings, ...manifest.warnings])] : manifest.warnings;
-        const data = {
-          ecosystem: detected.ecosystem,
-          packageManager: detected.packageManager,
-          lockfilePath: detected.lockfilePath,
-          workspaceRoot: detected.workspaceRoot,
-          blobSha: detected.blobSha ?? "",
-          dependencyCount: manifest.dependencies.length,
-          warnings,
-        };
-        const row = await tx.dependencyManifest.upsert({
-          where: { projectId_path: { projectId, path: detected.path } },
-          create: { projectId, path: detected.path, ...data },
-          update: data,
-          select: { id: true },
-        });
-        manifestIds.set(detected.path, row.id);
-      }
+      const manifestRows = await Promise.all(
+        analysis.manifests.map((manifest, index) => {
+          const { detected } = manifest;
+          // Project-level warnings (manifest / dependency caps) are shown with the first manifest.
+          const warnings = index === 0 ? [...new Set([...analysis.warnings, ...manifest.warnings])] : manifest.warnings;
+          const data = {
+            ecosystem: detected.ecosystem,
+            packageManager: detected.packageManager,
+            lockfilePath: detected.lockfilePath,
+            workspaceRoot: detected.workspaceRoot,
+            blobSha: detected.blobSha ?? "",
+            dependencyCount: manifest.dependencies.length,
+            warnings,
+          };
+          return tx.dependencyManifest
+            .upsert({
+              where: { projectId_path: { projectId, path: detected.path } },
+              create: { projectId, path: detected.path, ...data },
+              update: data,
+              select: { id: true },
+            })
+            .then((row) => [detected.path, row.id] as const);
+        }),
+      );
+      const manifestIds = new Map<string, string>(manifestRows);
 
       const keep = new Set<string>();
       const toCreate: Array<Record<string, unknown>> = [];
+      const toUpdate: Array<{ id: string; data: Record<string, unknown> }> = [];
       for (const item of planned) {
         const data = rowData(item);
         if (!data) continue;
@@ -401,12 +426,19 @@ export async function processDepsScan(
         }
         const sameTarget = existing.targetVersion === data.targetVersion;
         if (!sameTarget || rowChanged(existing, data)) {
-          await tx.dependencyUpdate.update({
-            where: { id: existing.id },
+          toUpdate.push({
+            id: existing.id,
             // Same target: keep firstSeenAt / notifiedAt. A new target is new news.
             data: { ...data, ...(sameTarget ? {} : { firstSeenAt: scannedAt, notifiedAt: null }) },
           });
         }
+      }
+      const UPDATE_BATCH_SIZE = 50;
+      for (let i = 0; i < toUpdate.length; i += UPDATE_BATCH_SIZE) {
+        const batch = toUpdate.slice(i, i + UPDATE_BATCH_SIZE);
+        await Promise.all(
+          batch.map((entry) => tx.dependencyUpdate.update({ where: { id: entry.id }, data: entry.data })),
+        );
       }
       const stale = [...existingByKey].filter(([key]) => !keep.has(key)).map(([, row]) => row.id);
       if (stale.length > 0) await tx.dependencyUpdate.deleteMany({ where: { id: { in: stale } } });
@@ -566,65 +598,73 @@ async function refreshPullRequests(
   });
   const manifestIdByPath = new Map(manifests.map((m) => [m.path, m.id]));
 
-  for (const pr of open) {
-    try {
-      const state = await github.getPullRequestState(octokit, project.owner, project.name, pr.number);
-      if (!state) continue;
-      const at = deps.now?.() ?? new Date();
-      let next: "MERGED" | "CLOSED" | "EDITED" | null = null;
-      if (state.state === "closed" && state.merged) {
-        await prisma.dependencyPullRequest.update({ where: { id: pr.id }, data: { state: "MERGED", closedAt: at } });
-        counts.merged++;
-        next = "MERGED";
-      } else if (state.state === "closed") {
-        await prisma.$transaction(async (tx) => {
-          await tx.dependencyPullRequest.update({ where: { id: pr.id }, data: { state: "CLOSED", closedAt: at } });
-          for (const target of pr.targets) {
-            const parsed = parseTarget(target);
-            const manifestId = parsed ? manifestIdByPath.get(parsed.manifestPath) : undefined;
-            if (!parsed || !manifestId) continue;
-            await tx.dependencyUpdate.updateMany({
-              where: { manifestId, name: parsed.name, targetVersion: parsed.version, status: "OUTDATED" },
-              data: { status: "DISMISSED" },
-            });
-          }
-        });
-        counts.closed++;
-        next = "CLOSED";
-      } else if (state.headSha !== pr.headSha) {
-        if (await updateInFlight(deps, project.id, pr.groupKey)) continue;
-        const intent = await prisma.dependencyBranchWriteIntent.findUnique({
-          where: { projectId_groupKey: { projectId: project.id, groupKey: pr.groupKey } },
-        });
-        // A bot push can succeed before its job exhausts retries on PR API / DB failures.
-        // Keep it eligible for automatic recovery; only the exact durable SHA is trusted.
-        if (intent?.commitSha === state.headSha || intent?.previousHeadSha === state.headSha) continue;
-        const changed = await prisma.dependencyPullRequest.updateMany({
-          where: { id: pr.id, state: "OPEN", headSha: pr.headSha },
-          data: { state: "EDITED" },
-        });
-        if (changed.count === 0) continue;
-        counts.edited++;
-        next = "EDITED";
-        await notifyPullRequestEvent(deps, project, pr.id, "edited", "edited");
+  const results = await mapWithConcurrency(
+    open,
+    async (pr) => {
+      try {
+        const state = await github.getPullRequestState(octokit, project.owner, project.name, pr.number);
+        if (!state) return null;
+        const at = deps.now?.() ?? new Date();
+        let next: "MERGED" | "CLOSED" | "EDITED" | null = null;
+        if (state.state === "closed" && state.merged) {
+          await prisma.dependencyPullRequest.update({ where: { id: pr.id }, data: { state: "MERGED", closedAt: at } });
+          next = "MERGED";
+        } else if (state.state === "closed") {
+          await prisma.$transaction(async (tx) => {
+            await tx.dependencyPullRequest.update({ where: { id: pr.id }, data: { state: "CLOSED", closedAt: at } });
+            for (const target of pr.targets) {
+              const parsed = parseTarget(target);
+              const manifestId = parsed ? manifestIdByPath.get(parsed.manifestPath) : undefined;
+              if (!parsed || !manifestId) continue;
+              await tx.dependencyUpdate.updateMany({
+                where: { manifestId, name: parsed.name, targetVersion: parsed.version, status: "OUTDATED" },
+                data: { status: "DISMISSED" },
+              });
+            }
+          });
+          next = "CLOSED";
+        } else if (state.headSha !== pr.headSha) {
+          if (await updateInFlight(deps, project.id, pr.groupKey)) return null;
+          const intent = await prisma.dependencyBranchWriteIntent.findUnique({
+            where: { projectId_groupKey: { projectId: project.id, groupKey: pr.groupKey } },
+          });
+          // A bot push can succeed before its job exhausts retries on PR API / DB failures.
+          // Keep it eligible for automatic recovery; only the exact durable SHA is trusted.
+          if (intent?.commitSha === state.headSha || intent?.previousHeadSha === state.headSha) return null;
+          const changed = await prisma.dependencyPullRequest.updateMany({
+            where: { id: pr.id, state: "OPEN", headSha: pr.headSha },
+            data: { state: "EDITED" },
+          });
+          if (changed.count === 0) return null;
+          next = "EDITED";
+          await notifyPullRequestEvent(deps, project, pr.id, "edited", "edited");
+        }
+        if (next) {
+          await publish(deps.redis, project.userId, {
+            type: "DEPS_PULL_REQUEST_UPDATED",
+            projectId: project.id,
+            fullName: project.fullName,
+            groupKey: pr.groupKey,
+            state: next,
+            number: pr.number,
+            htmlUrl: pr.htmlUrl,
+          });
+        }
+        return next;
+      } catch (error) {
+        log.warn(
+          { queue: DEPS_QUEUE_NAMES.scan, projectId: project.id, prNumber: pr.number, err: error },
+          `${project.fullName}: could not refresh PR #${pr.number}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return null;
       }
-      if (next) {
-        await publish(deps.redis, project.userId, {
-          type: "DEPS_PULL_REQUEST_UPDATED",
-          projectId: project.id,
-          fullName: project.fullName,
-          groupKey: pr.groupKey,
-          state: next,
-          number: pr.number,
-          htmlUrl: pr.htmlUrl,
-        });
-      }
-    } catch (error) {
-      log.warn(
-        { queue: DEPS_QUEUE_NAMES.scan, projectId: project.id, prNumber: pr.number, err: error },
-        `${project.fullName}: could not refresh PR #${pr.number}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
+    },
+    4,
+  );
+  for (const next of results) {
+    if (next === "MERGED") counts.merged++;
+    else if (next === "CLOSED") counts.closed++;
+    else if (next === "EDITED") counts.edited++;
   }
   return counts;
 }

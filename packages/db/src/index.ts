@@ -69,6 +69,8 @@ export * from "./generated/prisma/client.js";
 export { encryptToken, decryptToken } from "./crypto.js";
 export {
   BACKFILL_SETTINGS_SELECT,
+  createCachedLoader,
+  DEFAULT_SETTINGS_CACHE_TTL_MS,
   GITHUB_APP_SETTINGS_SELECT,
   GitHubAppKeyUnreadableError,
   INSTANCE_SETTINGS_ID,
@@ -80,6 +82,7 @@ export {
   SmtpPasswordUnreadableError,
   loadSmtpSettings,
   type BackfillSettingsOverrides,
+  type CachedLoaderOptions,
   type DecryptedGitHubAppSettings,
   type DecryptedSmtpSettings,
 } from "./instance-settings.js";

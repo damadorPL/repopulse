@@ -36,6 +36,7 @@ export function dueProjectsWhere(now: Date): Prisma.DependencyProjectWhereInput 
 export interface DepsSchedulerDeps {
   prisma: PrismaClient;
   scanQueue: Pick<DepsScanQueue, "addBulk">;
+  loadDepsEnabled?: () => Promise<boolean>;
   now?: () => Date;
 }
 
@@ -48,7 +49,8 @@ export type DepsSchedulerOutcome = { status: "DISABLED" } | { status: "OK"; due:
  * (Admin → Dependencies).
  */
 export async function processDepsSchedulerTick(deps: DepsSchedulerDeps): Promise<DepsSchedulerOutcome> {
-  if (!(await loadDepsEnabled(deps.prisma))) {
+  const enabled = deps.loadDepsEnabled ? await deps.loadDepsEnabled() : await loadDepsEnabled(deps.prisma);
+  if (!enabled) {
     log.info(
       { queue: DEPS_QUEUE_NAMES.scheduler },
       "dependency checks are disabled (Admin → Dependencies); nothing scheduled",

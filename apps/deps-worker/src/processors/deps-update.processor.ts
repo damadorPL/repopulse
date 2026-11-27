@@ -46,7 +46,7 @@ import {
 import type { GitHubAccess } from "../github-access.js";
 import { defaultGitHubApi, type GitHubApi, type Octokit } from "../github-api.js";
 import { createLogger } from "../logger.js";
-import type { BlobCache, LockfileCache } from "../registry-cache.js";
+import type { BlobCache, LockfileCache, TreeCache } from "../registry-cache.js";
 import {
   SandboxBusyError,
   SandboxLockError,
@@ -86,6 +86,8 @@ export interface DepsUpdateDeps {
   registry: RegistryLookupFn;
   blobCache?: BlobCache | null;
   lockCache?: LockfileCache | null;
+  treeCache?: TreeCache | null;
+  loadDepsEnabled?: () => Promise<boolean>;
   /** `null` = no sandbox configured: groups that need a lockfile are refused. */
   sandbox: SandboxClient | null;
   appBaseUrl?: string;
@@ -169,7 +171,8 @@ export async function processDepsUpdate(
   const ctx = { queue: DEPS_QUEUE_NAMES.update, jobId: job.id, projectId, groupKey };
   const now = () => deps.now?.() ?? new Date();
 
-  if (!(await loadDepsEnabled(prisma))) {
+  const enabled = deps.loadDepsEnabled ? await deps.loadDepsEnabled() : await loadDepsEnabled(prisma);
+  if (!enabled) {
     log.info(ctx, `project ${projectId}: dependency checks are disabled; update skipped`);
     return { status: "SKIPPED", reason: "DISABLED" };
   }
@@ -310,12 +313,17 @@ async function runUpdate(
   }
 
   // Step 2: default-branch head + tree, the group recomputed from stored rows and fresh registry data.
+  const cachedTree =
+    project.lastScannedSha && deps.treeCache
+      ? await deps.treeCache.get(project.githubRepoId, project.lastScannedSha)
+      : null;
   let snapshot;
   try {
     snapshot = await github.fetchGitTree({
       owner: project.owner,
       name: project.name,
       repositoryId: project.githubRepoId,
+      ...(cachedTree && project.lastScannedSha ? { knownCommitSha: project.lastScannedSha } : {}),
       octokit,
       ...(signal ? { signal } : {}),
     });
@@ -325,6 +333,15 @@ async function runUpdate(
     throw error;
   }
   if (!snapshot.commitSha) throw new Refusal(`${project.fullName} has no commits on its default branch.`);
+  const baseCommitSha = snapshot.commitSha;
+  if (snapshot.unchanged && cachedTree) {
+    snapshot = { ...snapshot, entries: cachedTree.entries, truncated: cachedTree.truncated };
+  } else if (deps.treeCache) {
+    await deps.treeCache.set(snapshot.repository.id, baseCommitSha, {
+      entries: snapshot.entries,
+      truncated: snapshot.truncated,
+    });
+  }
   const repo = snapshot.repository;
   const reader = createSnapshotReader(
     snapshot.entries,
@@ -587,7 +604,7 @@ async function runUpdate(
     const commit = await github.commitFiles(octokit, {
       owner: repo.owner,
       repo: repo.name,
-      baseSha: snapshot.commitSha,
+      baseSha: baseCommitSha,
       branch,
       files,
       message,

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { PrismaClient } from "@repopulse/db";
 import {
   fetchCommitDetail,
@@ -11,7 +12,9 @@ import {
   type MappedPathCommit,
   type PathCommitSummary,
 } from "@repopulse/github";
+import type { Redis } from "@repopulse/queue";
 import { createLogger } from "../logger.js";
+import { mapWithConcurrency } from "./concurrency.js";
 import { mergeFanOutPlans, planFanOut, type FanOutPlan, type StoredRelease } from "./fan-out.js";
 import type { TokenCandidate } from "./github-tokens.js";
 import { loadSubscribers, STORED_RELEASE_SELECT, type SubscriberWithMode } from "./repo-tags.js";
@@ -19,6 +22,13 @@ import { loadSubscribers, STORED_RELEASE_SELECT, type SubscriberWithMode } from 
 const log = createLogger("repo-paths");
 
 const GITHUB_REQUEST_TIMEOUT_MS = 30_000;
+const PATH_POLL_CONCURRENCY = 4;
+const PATH_ETAG_TTL_SECONDS = 7 * 24 * 3600;
+
+function pathEtagKey(repositoryId: string, path: string): string {
+  const digest = createHash("sha1").update(path).digest("hex");
+  return `repo:path-etag:${repositoryId}:${digest}`;
+}
 
 export interface PathPollTarget {
   id: string;
@@ -46,6 +56,7 @@ export interface PathStepResult {
 
 export interface PathStepDeps {
   prisma: PrismaClient;
+  redis?: Partial<Pick<Redis, "get" | "set">>;
   fetchCommits?: typeof fetchCommitsForPath;
   fetchDetail?: typeof fetchCommitDetail;
   now?: () => Date;
@@ -178,15 +189,16 @@ export async function pollRepoPaths(
   repo: PathPollTarget,
   candidates: TokenCandidate[],
   jobSignal?: AbortSignal,
+  preloadedSubscribers?: () => Promise<SubscriberWithMode[]>,
 ): Promise<PathStepResult | null> {
-  const { prisma } = deps;
+  const { prisma, redis } = deps;
   const now = () => deps.now?.() ?? new Date();
   const fetchCommits = deps.fetchCommits ?? fetchCommitsForPath;
   const fetchDetail = deps.fetchDetail ?? fetchCommitDetail;
   try {
     const [repository, allSubscribers] = await Promise.all([
       prisma.repository.findUnique({ where: { id: repo.id }, select: { polledPaths: true } }),
-      loadSubscribers(prisma, repo.id),
+      preloadedSubscribers ? preloadedSubscribers() : loadSubscribers(prisma, repo.id),
     ]);
     const subscribers: PathSubscriber[] = allSubscribers
       .filter(tracksPaths)
@@ -198,21 +210,64 @@ export async function pollRepoPaths(
     const polledBefore = new Set(repository.polledPaths);
     const newlyAdded = new Set(paths).difference(polledBefore);
 
-    // 1. Newest commits per path; each commit once, with every path that returned it.
-    const polled = new Map<string, PolledCommit>();
-    let tokenIndex = 0;
-    for (const path of paths) {
-      const result = await withTokenFallback(candidates, tokenIndex, (accessToken) =>
-        fetchCommits({ owner: repo.owner, name: repo.name, path, accessToken, signal: requestSignal(jobSignal) }),
+    // 1. Read cached ETags for already-polled paths, then fetch newest commits per path concurrently.
+    const etagByPath = new Map<string, string | null>();
+    if (redis?.get) {
+      await Promise.all(
+        paths.map(async (path) => {
+          if (newlyAdded.has(path)) return;
+          try {
+            const cached = await redis.get!(pathEtagKey(repo.id, path));
+            if (cached) etagByPath.set(path, cached);
+          } catch {
+            // Best-effort ETag lookup.
+          }
+        }),
       );
-      tokenIndex = result.index;
-      for (const summary of result.value) {
+    }
+
+    const polled = new Map<string, PolledCommit>();
+    const updatedEtags: Array<{ path: string; etag: string }> = [];
+    const fetchOnePath = (path: string, accessToken: string | undefined) => {
+      const etag = etagByPath.get(path) ?? undefined;
+      return fetchCommits({
+        owner: repo.owner,
+        name: repo.name,
+        path,
+        ...(etag ? { etag } : {}),
+        onEtag: (nextEtag) => {
+          if (nextEtag && nextEtag !== etag) updatedEtags.push({ path, etag: nextEtag });
+        },
+        accessToken,
+        signal: requestSignal(jobSignal),
+      });
+    };
+
+    // Resolve the first working token on paths[0], then fetch remaining paths with bounded concurrency.
+    const firstResult = await withTokenFallback(candidates, 0, (accessToken) => fetchOnePath(paths[0]!, accessToken));
+    const tokenIndex = firstResult.index;
+    const token = candidates[tokenIndex]?.token;
+    const restResults = await mapWithConcurrency(
+      paths.slice(1),
+      (path) => fetchOnePath(path, token),
+      PATH_POLL_CONCURRENCY,
+    );
+    const pathResults = [firstResult.value, ...restResults];
+    for (const [idx, path] of paths.entries()) {
+      for (const summary of pathResults[idx] ?? []) {
         const entry = polled.get(summary.sha) ?? { summary, matchedBy: new Set<string>() };
         entry.matchedBy.add(path);
         polled.set(summary.sha, entry);
       }
     }
-    const token = candidates[tokenIndex]?.token;
+
+    if (redis?.set && updatedEtags.length > 0) {
+      await Promise.all(
+        updatedEtags.map(({ path, etag }) =>
+          redis.set!(pathEtagKey(repo.id, path), etag, "EX", PATH_ETAG_TTL_SECONDS).catch(() => undefined),
+        ),
+      );
+    }
 
     // 2. Which are stored already. Queried by short SHA too: it is the unique key, so a different
     // commit with the same short SHA (vanishingly rare) could never be inserted and is skipped.
@@ -234,26 +289,31 @@ export async function pollRepoPaths(
 
     // 3. File details of the unknown commits, before the transaction (no connection held during
     // network I/O). A failed detail stores the commit without files; a rate limit skips the step.
-    const rows: MappedPathCommit[] = [];
-    for (const [sha, { summary, matchedBy }] of polled) {
-      if (storedBySha.has(sha) || takenShortShas.has(sha.slice(0, 7))) continue;
-      let detail: CommitDetail | null = null;
-      try {
-        detail = await fetchDetail({
-          owner: repo.owner,
-          name: repo.name,
-          ref: sha,
-          accessToken: token,
-          signal: requestSignal(jobSignal),
-        });
-      } catch (error) {
-        if (error instanceof GitHubRateLimitError) throw error;
-        log.warn(
-          `${repo.fullName}: could not read the files of commit ${sha.slice(0, 7)}; storing it without them (${String(error)})`,
-        );
-      }
-      rows.push(mapPathCommit(summary, detail, [...matchedBy].sort()));
-    }
+    const unknownCommits = [...polled.entries()].filter(
+      ([sha]) => !storedBySha.has(sha) && !takenShortShas.has(sha.slice(0, 7)),
+    );
+    const rows: MappedPathCommit[] = await mapWithConcurrency(
+      unknownCommits,
+      async ([sha, { summary, matchedBy }]) => {
+        let detail: CommitDetail | null = null;
+        try {
+          detail = await fetchDetail({
+            owner: repo.owner,
+            name: repo.name,
+            ref: sha,
+            accessToken: token,
+            signal: requestSignal(jobSignal),
+          });
+        } catch (error) {
+          if (error instanceof GitHubRateLimitError) throw error;
+          log.warn(
+            `${repo.fullName}: could not read the files of commit ${sha.slice(0, 7)}; storing it without them (${String(error)})`,
+          );
+        }
+        return mapPathCommit(summary, detail, [...matchedBy].sort());
+      },
+      PATH_POLL_CONCURRENCY,
+    );
 
     const result = await prisma.$transaction(async (tx) => {
       const created: StoredCommit[] =
@@ -269,18 +329,22 @@ export async function pollRepoPaths(
 
       // A stored commit found through a path it does not list yet (a newly watched path, or its
       // file list was missing or truncated): record the path, so seeding on add matches it.
+      const pathUpdates: Promise<unknown>[] = [];
       for (const [sha, row] of storedBySha) {
         const matchedBy = polled.get(sha)?.matchedBy;
         if (!matchedBy) continue;
         const missing = [...matchedBy].filter((path) => !row.changedPaths.includes(path));
         if (missing.length === 0) continue;
         row.changedPaths = [...row.changedPaths, ...missing];
-        await tx.release.update({
-          where: { id: row.id },
-          data: { changedPaths: row.changedPaths },
-          select: { id: true },
-        });
+        pathUpdates.push(
+          tx.release.update({
+            where: { id: row.id },
+            data: { changedPaths: row.changedPaths },
+            select: { id: true },
+          }),
+        );
       }
+      if (pathUpdates.length > 0) await Promise.all(pathUpdates);
 
       const commits = [...polled].flatMap(([sha, { matchedBy }]) => {
         const stored = storedBySha.get(sha);

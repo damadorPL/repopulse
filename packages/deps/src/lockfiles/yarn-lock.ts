@@ -1,7 +1,7 @@
 /** `yarn.lock` reader: classic (v1, custom format) and Berry (YAML with `resolution`). Check only. */
 import { parse as parseYaml } from "yaml";
 import { isRecord } from "../util.js";
-import { formatLockfileVersion, guardLockfile, type LockfileVersions } from "./common.js";
+import { formatLockfileVersion, guardPrepareLockfile, type LockfileVersions, type PreparedLockfile } from "./common.js";
 
 /** Splits a lock key `"name@range"` / `"name@npm:range"` into name and range. */
 function splitDescriptor(descriptor: string): { name: string; range: string } | null {
@@ -32,17 +32,9 @@ function parseClassic(text: string): Map<string, string> {
   return resolved;
 }
 
-/**
- * Resolved versions of the given direct dependencies. Yarn keys entries by `name@range`, so the declared ranges
- * of the manifest are needed (`declared` = `[{ name, range }]`).
- */
-export function readYarnLock(
-  text: string,
-  declared: ReadonlyArray<{ name: string; range: string }>,
-  path = "yarn.lock",
-): LockfileVersions {
-  return guardLockfile(text, path, () => {
-    const versions = new Map<string, string>();
+/** Parses `yarn.lock` once and indexes descriptors by name for O(1) lookup across workspace manifests. */
+export function prepareYarnLock(text: string, path = "yarn.lock"): PreparedLockfile {
+  return guardPrepareLockfile(text, path, () => {
     const isBerry = /^__metadata:/m.test(text);
     const byDescriptor = new Map<string, string>();
     let formatVersion: string;
@@ -62,21 +54,50 @@ export function readYarnLock(
       formatVersion = "classic";
       for (const [descriptor, version] of parseClassic(text)) byDescriptor.set(descriptor, version);
     }
-    for (const { name, range } of declared) {
-      const version = byDescriptor.get(`${name}@${range}`) ?? byDescriptor.get(`${name}@npm:${range}`);
-      if (version) versions.set(name, version);
-    }
-    // Fallback: a single entry for the name (range spelled differently, e.g. normalized by Berry).
-    for (const { name } of declared) {
-      if (versions.has(name)) continue;
-      const found = new Set<string>();
-      for (const [descriptor, version] of byDescriptor) {
-        const parts = splitDescriptor(descriptor);
-        if (parts?.name === name && !/^(?:workspace|patch|portal|link|file|git|https?):/.test(parts.range))
-          found.add(version);
+
+    // Pre-index registry versions by package name for O(1) fallback lookup.
+    const byName = new Map<string, Set<string>>();
+    for (const [descriptor, version] of byDescriptor) {
+      const parts = splitDescriptor(descriptor);
+      if (!parts || /^(?:workspace|patch|portal|link|file|git|https?):/.test(parts.range)) continue;
+      let set = byName.get(parts.name);
+      if (!set) {
+        set = new Set<string>();
+        byName.set(parts.name, set);
       }
-      if (found.size === 1) versions.set(name, [...found][0] as string);
+      set.add(version);
     }
-    return { versions, formatVersion, warnings: [] };
+
+    return {
+      readFor(_importer, dependencies) {
+        const versions = new Map<string, string>();
+        for (const { name, declared } of dependencies) {
+          const version = byDescriptor.get(`${name}@${declared}`) ?? byDescriptor.get(`${name}@npm:${declared}`);
+          if (version) versions.set(name, version);
+        }
+        // Fallback: a single entry for the name (range spelled differently, e.g. normalized by Berry).
+        for (const { name } of dependencies) {
+          if (versions.has(name)) continue;
+          const found = byName.get(name);
+          if (found && found.size === 1) versions.set(name, [...found][0] as string);
+        }
+        return { versions, formatVersion, warnings: [] };
+      },
+    };
   });
+}
+
+/**
+ * Resolved versions of the given direct dependencies. Yarn keys entries by `name@range`, so the declared ranges
+ * of the manifest are needed (`declared` = `[{ name, range }]`).
+ */
+export function readYarnLock(
+  text: string,
+  declared: ReadonlyArray<{ name: string; range: string }>,
+  path = "yarn.lock",
+): LockfileVersions {
+  return prepareYarnLock(text, path).readFor(
+    "",
+    declared.map((d) => ({ name: d.name, declared: d.range })),
+  );
 }

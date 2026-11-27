@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encryptToken } from "./crypto.js";
 import {
+  createCachedLoader,
   GitHubAppKeyUnreadableError,
   loadBackfillOverrides,
   loadDepsEnabled,
@@ -219,5 +220,54 @@ describe("loadDepsEnabled", () => {
     await expect(loadDepsEnabled(client(null))).resolves.toBe(false);
     await expect(loadDepsEnabled(client({ depsEnabled: false }))).resolves.toBe(false);
     await expect(loadDepsEnabled(client({ depsEnabled: true }))).resolves.toBe(true);
+  });
+});
+
+describe("createCachedLoader", () => {
+  it("caches within TTL, expires after TTL, and supports invalidate()", async () => {
+    let time = 1_000;
+    let count = 0;
+    const cached = createCachedLoader(async () => `v${++count}`, { ttlMs: 15_000, now: () => time });
+
+    await expect(cached()).resolves.toBe("v1");
+    time += 10_000;
+    await expect(cached()).resolves.toBe("v1");
+    expect(count).toBe(1);
+
+    time += 5_000;
+    await expect(cached()).resolves.toBe("v2");
+    expect(count).toBe(2);
+
+    cached.invalidate();
+    await expect(cached()).resolves.toBe("v3");
+    expect(count).toBe(3);
+  });
+
+  it("deduplicates concurrent calls and never caches errors", async () => {
+    let count = 0;
+    let resolveFirst!: (value: string) => void;
+    const loader = vi
+      .fn<() => Promise<string>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<string>((resolve) => {
+            count++;
+            resolveFirst = resolve;
+          }),
+      )
+      .mockRejectedValueOnce(new Error("transient"))
+      .mockImplementationOnce(async () => `ok-${++count}`);
+
+    const cached = createCachedLoader(loader, { ttlMs: 15_000 });
+    const p1 = cached();
+    const p2 = cached();
+    resolveFirst("first");
+    await expect(Promise.all([p1, p2])).resolves.toEqual(["first", "first"]);
+    expect(loader).toHaveBeenCalledTimes(1);
+
+    cached.invalidate();
+    await expect(cached()).rejects.toThrow("transient");
+    await expect(cached()).resolves.toBe("ok-2");
+    expect(loader).toHaveBeenCalledTimes(3);
   });
 });

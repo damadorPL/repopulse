@@ -547,4 +547,34 @@ describe("processDepsScan", () => {
     expect(await processDepsScan(scanJob(), deps)).toEqual({ status: "PRIVATE_WITHOUT_APP" });
     expect(prisma.dependencyProject.rows[0]!.isPrivate).toBe(true);
   });
+
+  it("reuses cached Git tree when knownCommitSha matches and skips downloading entries", async () => {
+    const { deps, prisma, github } = setup();
+    const treeStore = new Map<string, { entries: unknown[]; truncated: boolean }>();
+    const treeCache = {
+      get: vi.fn(async (id: number, sha: string) => (treeStore.get(`${id}:${sha}`) as never) ?? null),
+      set: vi.fn(async (id: number, sha: string, val: { entries: unknown[]; truncated: boolean }) => {
+        treeStore.set(`${id}:${sha}`, val);
+      }),
+    };
+    const scanDeps = { ...deps, treeCache };
+
+    // First scan populates treeCache with lastScannedSha.
+    expect(await processDepsScan(scanJob(), scanDeps)).toMatchObject({ status: "SCANNED" });
+    const headSha = prisma.dependencyProject.rows[0]!.lastScannedSha as string;
+    expect(treeCache.set).toHaveBeenCalledWith(42, headSha, expect.objectContaining({ truncated: false }));
+
+    // Second scan passes knownCommitSha and receives unchanged: true with empty entries -> hydrates from treeCache.
+    const origFetch = github.raw.fetchGitTree;
+    github.raw.fetchGitTree = vi.fn(async (params: { knownCommitSha?: string | null; owner: string; name: string }) => {
+      const snap = await origFetch(params);
+      if (params.knownCommitSha === snap.commitSha) {
+        return { ...snap, entries: [], unchanged: true };
+      }
+      return snap;
+    });
+    expect(await processDepsScan(scanJob(), scanDeps)).toMatchObject({ status: "SCANNED" });
+    expect(treeCache.get).toHaveBeenCalledWith(42, headSha);
+    expect(github.raw.fetchGitTree).toHaveBeenCalledWith(expect.objectContaining({ knownCommitSha: headSha }));
+  });
 });

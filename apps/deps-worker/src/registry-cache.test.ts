@@ -5,7 +5,10 @@ import {
   createRedisBlobCache,
   createRedisLockfileCache,
   createRedisRegistryCache,
+  createRedisTreeCache,
   lockfileCacheKey,
+  MAX_TREE_CACHE_BYTES,
+  TREE_CACHE_TTL_SECONDS,
 } from "./registry-cache.js";
 
 function fakeRedis() {
@@ -88,5 +91,73 @@ describe("createRedisLockfileCache & lockfileCacheKey", () => {
     expect(await cache.get("corrupt")).toBeNull();
     redis.get.mockRejectedValueOnce(new Error("err"));
     expect(await cache.get("k1")).toBeNull();
+  });
+});
+
+describe("createRedisBlobCache batching & createRedisTreeCache", () => {
+  it("supports mget/pipeline batching on BlobCache", async () => {
+    const store = new Map<string, string>();
+    const mget = vi.fn(async (...keys: string[]) => keys.map((k) => store.get(k) ?? null));
+    const piped: Array<[string, string, string, number]> = [];
+    const pipeline = vi.fn(() => ({
+      set(k: string, v: string, m: string, ttl: number) {
+        piped.push([k, v, m, ttl]);
+        store.set(k, v);
+      },
+      exec: vi.fn(async () => []),
+    }));
+    const redis = {
+      get: vi.fn(async (k: string) => store.get(k) ?? null),
+      set: vi.fn(async (k: string, v: string) => {
+        store.set(k, v);
+        return "OK" as const;
+      }),
+      mget,
+      pipeline,
+    };
+    const cache = createRedisBlobCache(redis as never);
+    await cache.setMany?.([
+      { sha: "s1", text: "a" },
+      { sha: "s2", text: "b" },
+      { sha: "big", text: "x".repeat(MAX_MANIFEST_BYTES + 1) },
+    ]);
+    expect(pipeline).toHaveBeenCalledTimes(1);
+    expect(piped).toHaveLength(2);
+
+    const hits = await cache.getMany?.(["s1", "s2", "s1", "missing"]);
+    expect(mget).toHaveBeenCalledWith("deps:blob:s1", "deps:blob:s2", "deps:blob:missing");
+    expect(hits).toEqual(
+      new Map([
+        ["s1", "a"],
+        ["s2", "b"],
+      ]),
+    );
+  });
+
+  it("caches Git tree snapshots up to MAX_TREE_CACHE_BYTES", async () => {
+    const redis = fakeRedis();
+    const treeCache = createRedisTreeCache(redis as never);
+
+    await treeCache.set(42, "c1", {
+      entries: [{ path: "package.json", type: "blob", sha: "s1", size: 10 }],
+      truncated: false,
+    });
+    expect(redis.set).toHaveBeenCalledWith("deps:tree:42:c1", expect.any(String), "EX", TREE_CACHE_TTL_SECONDS);
+    expect(await treeCache.get(42, "c1")).toEqual({
+      entries: [{ path: "package.json", type: "blob", sha: "s1", size: 10 }],
+      truncated: false,
+    });
+
+    const huge = Array.from({ length: 40_000 }, (_, i) => ({
+      path: `packages/pkg-${i}/src/very-long-file-name-${i}.ts`,
+      type: "blob" as const,
+      sha: "a".repeat(40),
+      size: 100,
+    }));
+    expect(Buffer.byteLength(JSON.stringify({ entries: huge, truncated: false }), "utf8")).toBeGreaterThan(
+      MAX_TREE_CACHE_BYTES,
+    );
+    await treeCache.set(42, "huge", { entries: huge, truncated: false });
+    expect(await treeCache.get(42, "huge")).toBeNull();
   });
 });

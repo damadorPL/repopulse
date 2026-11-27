@@ -15,6 +15,10 @@ export interface LockfileVersions {
   warnings: string[];
 }
 
+export interface PreparedLockfile {
+  readFor(importer: string, dependencies: ReadonlyArray<{ name: string; declared: string }>): LockfileVersions;
+}
+
 export function emptyLockfile(warning?: string): LockfileVersions {
   return { versions: new Map(), formatVersion: null, warnings: warning ? [warning] : [] };
 }
@@ -31,6 +35,18 @@ export function oversizeWarning(text: string, path: string): string | null {
 export function parseFailureWarning(path: string, error: unknown): string {
   const detail = error instanceof Error ? error.message.split("\n")[0] : String(error);
   return `${path} could not be parsed (${detail}): current versions are taken from the declared ranges`;
+}
+
+/** Runs a lockfile parser once with the size guard and turns any failure into an empty PreparedLockfile + warning. */
+export function guardPrepareLockfile(text: string, path: string, prepare: () => PreparedLockfile): PreparedLockfile {
+  const oversize = oversizeWarning(text, path);
+  if (oversize) return { readFor: () => emptyLockfile(oversize) };
+  try {
+    return prepare();
+  } catch (error) {
+    const warning = parseFailureWarning(path, error);
+    return { readFor: () => emptyLockfile(warning) };
+  }
 }
 
 /** Runs a reader with the size guard and turns any failure into an empty result + warning. */

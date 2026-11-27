@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { BellIcon, BellRingIcon, LogOutIcon, MenuIcon, PlusIcon, SearchIcon, ShieldIcon, XIcon } from "lucide-react";
 import { RepoAvatar } from "@/components/feed/repo-avatar";
+import { useOptionalUnread } from "@/components/layout/unread-context";
 import { AddRepoModal } from "@/components/modals/add-repo-modal";
 import { ThemeSwitcher } from "@/components/theme/theme-switcher";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,9 @@ export function TopNavbar({
   /** Sidebar content, shown in a drawer below the `md` breakpoint. */
   sidebar: ReactNode;
 }) {
+  const unread = useOptionalUnread();
+  const activeTotalUnread = unread?.totalUnread ?? totalUnread;
+  const activeUnreadByRepository = unread?.unreadByRepository ?? unreadByRepository;
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -62,7 +66,7 @@ export function TopNavbar({
       <SearchBox />
 
       <div className="ml-auto flex items-center gap-1.5 md:gap-2">
-        <UnreadBell totalUnread={totalUnread} unreadByRepository={unreadByRepository} />
+        <UnreadBell totalUnread={activeTotalUnread} unreadByRepository={activeUnreadByRepository} />
 
         <AddRepoModal tags={tags}>
           <Button size="sm">

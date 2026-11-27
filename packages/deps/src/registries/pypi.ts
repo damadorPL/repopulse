@@ -111,7 +111,7 @@ export interface PypiFetchOptions extends RegistryFetchOptions {
 export async function fetchPypiPackage(name: string, options: PypiFetchOptions): Promise<RegistryLookup> {
   const normalized = normalizePypiName(name);
   if (!NORMALIZED_NAME.test(normalized)) return { found: false, reason: "Invalid PyPI project name" };
-  const simple = await cachedGet({
+  const simplePromise = cachedGet({
     registry: "pypi",
     url: `${PYPI_SIMPLE_URL}/${normalized}/`,
     accept: PYPI_SIMPLE_ACCEPT,
@@ -119,6 +119,26 @@ export async function fetchPypiPackage(name: string, options: PypiFetchOptions):
     options,
     derive: compactSimple(normalized),
   });
+  const metaPromise: Promise<string | null> =
+    options.includeProjectUrls !== false
+      ? cachedGet({
+          registry: "pypi",
+          url: `${PYPI_JSON_URL}/${normalized}/json`,
+          accept: "application/json",
+          key: registryCacheKey("pypi-meta", normalized),
+          options,
+          derive: compactJson,
+        }).then(
+          (meta) => (meta.found ? (JSON.parse(meta.body) as { sourceRepoUrl: string | null }).sourceRepoUrl : null),
+          (error) => {
+            if (!isRegistryUnavailableError(error)) throw error;
+            // The changelog link is optional: keep the versions.
+            return null;
+          },
+        )
+      : Promise.resolve(null);
+
+  const [simple, sourceRepoUrl] = await Promise.all([simplePromise, metaPromise]);
   if (!simple.found) return { found: false, reason: "Not on the public PyPI" };
   const index = JSON.parse(simple.body) as CompactSimple;
 
@@ -145,22 +165,5 @@ export async function fetchPypiPackage(name: string, options: PypiFetchOptions):
   }
   versions.sort((a, b) => comparePep440(a.version, b.version));
 
-  let sourceRepoUrl: string | null = null;
-  if (options.includeProjectUrls !== false) {
-    try {
-      const meta = await cachedGet({
-        registry: "pypi",
-        url: `${PYPI_JSON_URL}/${normalized}/json`,
-        accept: "application/json",
-        key: registryCacheKey("pypi-meta", normalized),
-        options,
-        derive: compactJson,
-      });
-      if (meta.found) sourceRepoUrl = (JSON.parse(meta.body) as { sourceRepoUrl: string | null }).sourceRepoUrl;
-    } catch (error) {
-      if (!isRegistryUnavailableError(error)) throw error;
-      // The changelog link is optional: keep the versions.
-    }
-  }
   return { found: true, package: { ecosystem: "PYPI", name: normalized, versions, latestTag: null, sourceRepoUrl } };
 }

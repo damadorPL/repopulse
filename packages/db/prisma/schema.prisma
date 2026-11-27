@@ -2,11 +2,12 @@ generator client {
   provider        = "prisma-client"
   output          = "../src/generated/prisma"
   moduleFormat    = "esm"
-  previewFeatures = ["relationJoins"]
+  previewFeatures = ["relationJoins", "postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
+  provider   = "postgresql"
+  extensions = [pg_trgm]
   // Prisma 7: connection URL lives in prisma.config.ts (CLI) and the PrismaPg adapter (runtime).
 }
 
@@ -245,6 +246,7 @@ model Repository {
 
   @@index([lastPolledAt, pollStatus])
   @@index([backfillStatus])
+  @@index([fullName(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
 model Release {
@@ -275,6 +277,9 @@ model Release {
   @@index([repositoryId, publishedAt(sort: Desc)])
   @@index([publishedAt(sort: Desc), id(sort: Desc)])
   @@index([repositoryId, source, publishedAt(sort: Desc)])
+  @@index([tagName(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([bodyMarkdown(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
 model UserSubscription {
@@ -318,6 +323,7 @@ model Tag {
   notificationRules NotificationRule[]
 
   @@unique([userId, slug])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
 model SubscriptionTag {

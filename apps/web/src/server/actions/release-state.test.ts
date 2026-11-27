@@ -23,6 +23,7 @@ vi.mock("@repopulse/github", () => ({
   InvalidRepositoryInputError: class extends Error {},
 }));
 
+const { revalidatePath } = await import("next/cache");
 const { buildFeedWhere, visibleReleasesWhere } = await import("@/server/queries/feed");
 const { markAllReadAction, toggleReleaseReadAction } = await import("./release-state");
 
@@ -60,6 +61,12 @@ describe("toggleReleaseReadAction", () => {
       create: { userId: "u1", releaseId: "rel1", isRead: false, readAt: null },
       update: { isRead: false, readAt: null },
     });
+    expect(revalidatePath).toHaveBeenCalledTimes(2);
+
+    vi.mocked(revalidatePath).mockClear();
+    const skipped = await toggleReleaseReadAction({ releaseId: "rel1", isRead: true, skipRevalidate: true });
+    expect(skipped).toEqual({ ok: true, data: { releaseId: "rel1", isRead: true } });
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 });
 

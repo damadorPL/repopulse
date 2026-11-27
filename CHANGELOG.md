@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.8.3] — 2026-11-27 — End-to-end performance optimization
+
+### Performance
+
+- **Database & `@repopulse/db`**: Added migration `20261127143000_performance_indexes` enabling `pg_trgm` GIN trigram indexes (`Repository.fullName`, `Release.tagName`, `Release.title`, `Release.bodyMarkdown`, `Tag.name`), case-insensitive `LOWER("fullName")` indexes on `Repository` and `DependencyProject`, and a partial unread index on `UserReleaseState`. Added `createCachedLoader` (`DEFAULT_SETTINGS_CACHE_TTL_MS = 15_000`) for single-flight TTL caching of instance settings in workers.
+- **`@repopulse/github` & `@repopulse/deps`**: Added conditional `onEtag` reporting in `fetchCommitsForPath`, single-parse `prepareLockfile` shared across workspace manifests with an O(1) fallback index in `yarn-lock`, concurrent `/simple/` + `/pypi/<name>/json` fetching in the PyPI client, and removed duplicate JSON parsing of cached npm `time` documents.
+- **Web (`apps/web`)**: Removed the redundant `User` database query in `getCurrentUserOrThrow` (lazy-loading encrypted GitHub tokens only at GitHub call sites), flattened feed/dashboard/unread queries via subscription-derived `repositoryId` buckets (`visibleReleasesWhereForSubscriptions` / `buildFeedWhereForSubscriptions`), combined `/dependencies` page queries (`getDependenciesListData`), replaced full-page RSC drawer navigation/mark-read revalidation with `getReleaseDrawerAction` + shallow `window.history.pushState` + optimistic `UnreadProvider`, added 400 ms trailing debounce on `SseListener` refreshes, deferred filter updates and cached date formatters, and enabled `content-visibility: auto` on feed cards and outdated dependency rows.
+- **Release Worker (`apps/worker`)**: Parallelized tag comparisons and path commit/detail fetches with bounded concurrency (`4`), added 7-day Redis conditional ETag caching (`repo:path-etag:...`) for path polling, ran tag and path polling concurrently with shared subscriber loading and batched DB updates, and wrapped SMTP/backfill settings loaders in 15 s TTL caches.
+- **Dependencies Worker (`apps/deps-worker`)**: Added Redis snapshot tree caching (`deps:tree:...`, 24 h TTL) with `knownCommitSha` short-circuiting, batched Redis `MGET`/pipeline reads and writes in `BlobCache`, single-parse lockfile reuse per snapshot, parallelized manifest upserts and chunked `DependencyUpdate` batches, bounded concurrency (`4`) for open PR status refreshes, and 15 s TTL caching for module/GitHub App/SMTP settings loaders.
+
 ## [0.9.8.2] — 2026-11-27 — SMTP transport cache & docs slugifier cleanup
 
 ### Fixed

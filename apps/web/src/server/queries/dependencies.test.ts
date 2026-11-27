@@ -55,13 +55,66 @@ describe("getDependencyProjects", () => {
         scanError: null,
         repository: { avatarUrl: "https://a/x.png" },
         manifests: [{ packageManager: "PNPM" }, { packageManager: "PNPM" }, { packageManager: "UV" }],
+        updates: [
+          {
+            manifestId: "m1",
+            name: "a",
+            currentVersion: "1.0.0",
+            targetVersion: "2.0.0",
+            level: "MAJOR",
+            status: "OUTDATED",
+          },
+          {
+            manifestId: "m1",
+            name: "b",
+            currentVersion: "1.0.0",
+            targetVersion: "2.0.0",
+            level: "MAJOR",
+            status: "OUTDATED",
+          },
+          {
+            manifestId: "m1",
+            name: "c",
+            currentVersion: "1.0.0",
+            targetVersion: "1.0.1",
+            level: "PATCH",
+            status: "OUTDATED",
+          },
+          {
+            manifestId: "m1",
+            name: "d",
+            currentVersion: "1.0.0",
+            targetVersion: "1.0.1",
+            level: null,
+            status: "OUTDATED",
+          },
+          {
+            manifestId: "m1",
+            name: "e",
+            currentVersion: "1.0.0",
+            targetVersion: "1.0.1",
+            level: null,
+            status: "OUTDATED",
+          },
+          {
+            manifestId: "m1",
+            name: "f",
+            currentVersion: "1.0.0",
+            targetVersion: "1.0.1",
+            level: null,
+            status: "OUTDATED",
+          },
+          {
+            manifestId: "m1",
+            name: "g",
+            currentVersion: "1.0.0",
+            targetVersion: "1.0.1",
+            level: null,
+            status: "OUTDATED",
+          },
+        ],
         pullRequests: [],
       },
-    ]);
-    prisma.dependencyUpdate.groupBy.mockResolvedValue([
-      { projectId: "p1", level: "MAJOR", _count: { _all: 2 } },
-      { projectId: "p1", level: "PATCH", _count: { _all: 1 } },
-      { projectId: "p1", level: null, _count: { _all: 4 } },
     ]);
     prisma.userSubscription.findMany.mockResolvedValue([{ repositoryId: "r1" }]);
 
@@ -69,9 +122,7 @@ describe("getDependencyProjects", () => {
     expect(prisma.dependencyProject.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { userId: "u1" } }),
     );
-    expect(prisma.dependencyUpdate.groupBy).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { status: "OUTDATED", project: { userId: "u1" } } }),
-    );
+    expect(prisma.dependencyUpdate.groupBy).not.toHaveBeenCalled();
     expect(prisma.userSubscription.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: "u1" } }));
     expect(project).toMatchObject({
       packageManagers: ["PNPM", "UV"],
@@ -204,6 +255,47 @@ describe("getAddableSubscriptions", () => {
       where: { userId: "u1" },
       select: { githubRepoId: true },
     });
+  });
+
+  it("getDependenciesListData fetches projects and addable subscriptions in a single pass", async () => {
+    prisma.dependencyProject.findMany.mockResolvedValue([
+      {
+        id: "p1",
+        githubRepoId: 1,
+        owner: "b",
+        name: "one",
+        fullName: "b/one",
+        isPrivate: false,
+        repositoryId: "r1",
+        updateMode: "NOTIFY",
+        lastScannedAt: null,
+        scanStatus: "IDLE",
+        scanError: null,
+        prOwnership: null,
+        repository: null,
+        manifests: [],
+        updates: [],
+        pullRequests: [],
+      },
+    ]);
+    prisma.userSubscription.findMany.mockResolvedValue([
+      {
+        id: "s1",
+        repositoryId: "r1",
+        repository: { githubRepoId: 1, fullName: "b/one", description: null, avatarUrl: null },
+      },
+      {
+        id: "s2",
+        repositoryId: "r2",
+        repository: { githubRepoId: 2, fullName: "a/two", description: "d", avatarUrl: null },
+      },
+    ]);
+    const listData = await queries.getDependenciesListData("u1");
+    expect(prisma.dependencyProject.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.userSubscription.findMany).toHaveBeenCalledTimes(1);
+    expect(listData.projects).toHaveLength(1);
+    expect(listData.projects[0]?.tracked).toBe(true);
+    expect(listData.addable).toEqual([{ subscriptionId: "s2", fullName: "a/two", description: "d", avatarUrl: null }]);
   });
 });
 

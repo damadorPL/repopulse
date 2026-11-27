@@ -1,5 +1,5 @@
 import { Worker } from "bullmq";
-import { loadGitHubAppSettings, prisma } from "@repopulse/db";
+import { createCachedLoader, loadDepsEnabled, loadGitHubAppSettings, loadSmtpSettings, prisma } from "@repopulse/db";
 import { fetchRegistryPackage } from "@repopulse/deps";
 import { closeSmtpTransports } from "@repopulse/notifications";
 import {
@@ -25,7 +25,12 @@ import { processDepsSchedulerTick } from "./processors/deps-scheduler.processor.
 import { processDepsUpdate } from "./processors/deps-update.processor.js";
 import { closeQueues, createQueues, registerSchedule, type DepsQueues } from "./queues.js";
 import { createWorkerRedis } from "./redis.js";
-import { createRedisBlobCache, createRedisLockfileCache, createRedisRegistryCache } from "./registry-cache.js";
+import {
+  createRedisBlobCache,
+  createRedisLockfileCache,
+  createRedisRegistryCache,
+  createRedisTreeCache,
+} from "./registry-cache.js";
 import { createSandboxClient } from "./sandbox-client.js";
 
 /**
@@ -131,10 +136,15 @@ async function main(): Promise<void> {
   if (!sandbox)
     log.warn("DEPS_SANDBOX_TOKEN is not set: update pull requests that need a regenerated lockfile are refused");
 
-  const access = new GitHubAccess({ loadApp: () => loadGitHubAppSettings(prisma) });
+  const loadDepsEnabledCached = createCachedLoader(() => loadDepsEnabled(prisma));
+  const loadGitHubAppSettingsCached = createCachedLoader(() => loadGitHubAppSettings(prisma));
+  const loadSmtpSettingsCached = createCachedLoader(() => loadSmtpSettings(prisma));
+
+  const access = new GitHubAccess({ loadApp: loadGitHubAppSettingsCached });
   const registryCache = createRedisRegistryCache(connection);
   const blobCache = createRedisBlobCache(connection);
   const lockCache = createRedisLockfileCache(connection);
+  const treeCache = createRedisTreeCache(connection);
   const registry: RegistryLookupFn = (ecosystem, name, signal) =>
     fetchRegistryPackage(ecosystem, name, { fetch, cache: registryCache, ...(signal ? { signal } : {}) });
   // Updates revalidate every registry entry (ETag), so a PR never sets a version the policy rejects now.
@@ -143,7 +153,7 @@ async function main(): Promise<void> {
 
   const schedulerWorker = new Worker<DepsSchedulerJobData, unknown, typeof DEPS_JOB_NAMES.schedule>(
     DEPS_QUEUE_NAMES.scheduler,
-    () => processDepsSchedulerTick({ prisma, scanQueue: q.scanQueue }),
+    () => processDepsSchedulerTick({ prisma, scanQueue: q.scanQueue, loadDepsEnabled: loadDepsEnabledCached }),
     { connection, concurrency: 1, name: `repopulse-deps-worker:${DEPS_QUEUE_NAMES.scheduler}` },
   );
   const scanWorker = new Worker<DepsScanJobData, unknown, typeof DEPS_JOB_NAMES.scan>(
@@ -161,6 +171,8 @@ async function main(): Promise<void> {
           registry,
           blobCache,
           lockCache,
+          treeCache,
+          loadDepsEnabled: loadDepsEnabledCached,
           lockfileRegeneration: sandbox !== null,
         },
         signal,
@@ -188,6 +200,8 @@ async function main(): Promise<void> {
           registry: freshRegistry,
           blobCache,
           lockCache,
+          treeCache,
+          loadDepsEnabled: loadDepsEnabledCached,
           sandbox,
         },
         signal,
@@ -202,7 +216,13 @@ async function main(): Promise<void> {
   );
   const notifyWorker = new Worker<DepsNotifyJobData, unknown, typeof DEPS_JOB_NAMES.notify>(
     DEPS_QUEUE_NAMES.notify,
-    (job, _token, signal) => processDepsNotify(job, { prisma, ...(signal ? { signal } : {}) }),
+    (job, _token, signal) =>
+      processDepsNotify(job, {
+        prisma,
+        loadDepsEnabled: loadDepsEnabledCached,
+        loadSmtp: loadSmtpSettingsCached,
+        ...(signal ? { signal } : {}),
+      }),
     {
       connection,
       name: `repopulse-deps-worker:${DEPS_QUEUE_NAMES.notify}`,

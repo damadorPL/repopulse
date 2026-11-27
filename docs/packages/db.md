@@ -89,3 +89,4 @@ import { loadDepsEnabled, loadGitHubAppSettings } from "@repopulse/db";
 | `loadSmtpSettings(client)`, `SMTP_SETTINGS_SELECT`, `SmtpPasswordUnreadableError` | Reads & decrypts SMTP config (`null` if unconfigured; throws on unreadable password) |
 | `loadGitHubAppSettings(client)`, `GITHUB_APP_SETTINGS_SELECT`, `DecryptedGitHubAppSettings`, `GitHubAppKeyUnreadableError` | Reads & decrypts GitHub App config (`null` unless id, slug, and key are all set) |
 | `loadDepsEnabled(client)` | Admin → Dependencies switch (`false` without a row) |
+| `createCachedLoader(load, ttlMs?)`, `DEFAULT_SETTINGS_CACHE_TTL_MS` | In-memory TTL + single-flight cache wrapper (default 15 s) for worker settings reads |

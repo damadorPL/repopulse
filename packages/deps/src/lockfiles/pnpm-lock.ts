@@ -1,7 +1,7 @@
 /** `pnpm-lock.yaml` reader (v6 – v9 importer layout, plus the older `specifiers` layout and pnpm 11+ multi-document streams). */
 import { parseAllDocuments } from "yaml";
 import { isRecord } from "../util.js";
-import { formatLockfileVersion, guardLockfile, type LockfileVersions } from "./common.js";
+import { formatLockfileVersion, guardPrepareLockfile, type LockfileVersions, type PreparedLockfile } from "./common.js";
 
 const DEPENDENCY_KEYS = ["dependencies", "devDependencies", "optionalDependencies"] as const;
 const MAX_PNPM_LOCK_DOCUMENTS = 10;
@@ -16,13 +16,9 @@ export function stripPnpmVersionSuffix(version: string): string | null {
   return underscore === -1 ? withoutPeers : withoutPeers.slice(0, underscore);
 }
 
-/**
- * Resolved versions of the direct dependencies of `importer` (path relative to the lockfile directory; `"."` or
- * `""` = root). Lockfiles without `importers` (single project, pnpm < 7) are read from the top level.
- * Multi-document lockfiles (pnpm 11+ boot/env doc followed by the project lockfile) read the final document.
- */
-export function readPnpmLock(text: string, importer = ".", path = "pnpm-lock.yaml"): LockfileVersions {
-  return guardLockfile(text, path, () => {
+/** Parses `pnpm-lock.yaml` once and allows reading any importer without re-parsing YAML. */
+export function preparePnpmLock(text: string, path = "pnpm-lock.yaml"): PreparedLockfile {
+  return guardPrepareLockfile(text, path, () => {
     const docs = parseAllDocuments(text, { uniqueKeys: false });
     if (docs.length === 0) throw new Error("not a YAML mapping");
     if (docs.length > MAX_PNPM_LOCK_DOCUMENTS) throw new Error("too many YAML documents");
@@ -35,27 +31,42 @@ export function readPnpmLock(text: string, importer = ".", path = "pnpm-lock.yam
     }
     const data = parsedDocs[parsedDocs.length - 1]!;
     const formatVersion = formatLockfileVersion(data.lockfileVersion);
-    const importerKey = importer === "" ? "." : importer;
-    let entry: unknown;
-    if (isRecord(data.importers)) entry = data.importers[importerKey];
-    else if (importerKey === ".") entry = data;
-    const versions = new Map<string, string>();
-    if (isRecord(entry)) {
-      for (const key of DEPENDENCY_KEYS) {
-        const section = entry[key];
-        if (!isRecord(section)) continue;
-        for (const [name, value] of Object.entries(section)) {
-          const raw =
-            typeof value === "string"
-              ? value
-              : isRecord(value) && typeof value.version === "string"
-                ? value.version
-                : null;
-          const version = raw === null ? null : stripPnpmVersionSuffix(raw);
-          if (version) versions.set(name, version);
+    const importers = isRecord(data.importers) ? data.importers : null;
+
+    return {
+      readFor(importer) {
+        const importerKey = importer === "" ? "." : importer;
+        let entry: unknown;
+        if (importers) entry = importers[importerKey];
+        else if (importerKey === ".") entry = data;
+        const versions = new Map<string, string>();
+        if (isRecord(entry)) {
+          for (const key of DEPENDENCY_KEYS) {
+            const section = entry[key];
+            if (!isRecord(section)) continue;
+            for (const [name, value] of Object.entries(section)) {
+              const raw =
+                typeof value === "string"
+                  ? value
+                  : isRecord(value) && typeof value.version === "string"
+                    ? value.version
+                    : null;
+              const version = raw === null ? null : stripPnpmVersionSuffix(raw);
+              if (version) versions.set(name, version);
+            }
+          }
         }
-      }
-    }
-    return { versions, formatVersion, warnings: [] };
+        return { versions, formatVersion, warnings: [] };
+      },
+    };
   });
+}
+
+/**
+ * Resolved versions of the direct dependencies of `importer` (path relative to the lockfile directory; `"."` or
+ * `""` = root). Lockfiles without `importers` (single project, pnpm < 7) are read from the top level.
+ * Multi-document lockfiles (pnpm 11+ boot/env doc followed by the project lockfile) read the final document.
+ */
+export function readPnpmLock(text: string, importer = ".", path = "pnpm-lock.yaml"): LockfileVersions {
+  return preparePnpmLock(text, path).readFor(importer, []);
 }

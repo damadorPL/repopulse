@@ -267,23 +267,28 @@ export const auth: BetterAuthInstance = new Proxy({} as BetterAuthInstance, {
 });
 
 /**
- * Returns the signed-in user's DB row, or throws {@link UnauthorizedError}.
- * Memoized per request so multiple callers in one render/action share one query.
+ * Returns the signed-in user's DB row from the Better Auth session without a second `User` query.
+ * Memoized per request so multiple callers in one render/action share one session lookup.
+ * Encrypted GitHub OAuth tokens are loaded lazily via `loadGitHubToken()` only when needed.
  */
 export const getCurrentUserOrThrow = cache(async (): Promise<DbUser> => {
   const requestHeaders = await headers();
   const session = await auth.api.getSession({ headers: requestHeaders });
-  const userId = session?.user?.id;
-  if (!userId) {
+  const sessionUser = session?.user;
+  if (!sessionUser?.id) {
     throw new UnauthorizedError();
   }
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    omit: { githubAccessTokenEncrypted: false },
-  });
-  if (!user) {
-    // Valid cookie but the row is gone (e.g. DB reset) — treat as signed out.
-    throw new UnauthorizedError();
-  }
-  return user;
+  return {
+    id: sessionUser.id,
+    email: sessionUser.email,
+    emailVerified: Boolean(sessionUser.emailVerified),
+    name: sessionUser.name ?? null,
+    avatarUrl: sessionUser.image ?? null,
+    githubId: String(sessionUser.githubId ?? ""),
+    githubLogin: sessionUser.githubLogin ?? null,
+    isSuperAdmin: Boolean(sessionUser.isSuperAdmin),
+    githubAccessTokenEncrypted: null,
+    createdAt: sessionUser.createdAt instanceof Date ? sessionUser.createdAt : new Date(sessionUser.createdAt),
+    updatedAt: sessionUser.updatedAt instanceof Date ? sessionUser.updatedAt : new Date(sessionUser.updatedAt),
+  };
 });

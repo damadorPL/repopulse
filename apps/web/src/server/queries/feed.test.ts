@@ -16,12 +16,14 @@ vi.mock("@repopulse/db", () => ({ prisma }));
 const {
   afterCursorWhere,
   buildFeedWhere,
+  buildFeedWhereForSubscriptions,
   decodeFeedCursor,
   encodeFeedCursor,
   getDashboardData,
   getReleaseDetail,
   getReleaseFeed,
   visibleReleasesWhere,
+  visibleReleasesWhereForSubscriptions,
 } = await import("./feed");
 
 const USER = "user_1";
@@ -268,5 +270,84 @@ describe("getDashboardData", () => {
       { id: "t1", name: "Core", slug: "core", colorHex: "#EF4444", repositoryCount: 2, unreadCount: 4 },
     ]);
     expect(data.unreadByRepository.map((r) => r.repositoryId)).toEqual(["repo1", "repo2"]);
+  });
+
+  it("uses flat repositoryId buckets and short-circuits when user has no subscriptions", async () => {
+    prisma.tag.findMany.mockResolvedValueOnce([]);
+    prisma.userSubscription.findMany.mockResolvedValueOnce([]);
+    const empty = await getDashboardData(USER);
+    expect(empty.totalUnread).toBe(0);
+    expect(prisma.release.groupBy).not.toHaveBeenCalled();
+
+    prisma.tag.findMany.mockResolvedValueOnce([
+      { id: "t1", name: "Core", slug: "core", colorHex: "#EF4444", subscriptions: [{ subscriptionId: "sub1" }] },
+    ]);
+    prisma.userSubscription.findMany.mockResolvedValueOnce([
+      {
+        id: "sub1",
+        repositoryId: "repo1",
+        includePrereleases: false,
+        trackMode: "TAGS_AND_COMMITS",
+        trackPaths: true,
+        repository: { fullName: "acme/web", avatarUrl: null },
+        tags: [{ tagId: "t1" }],
+      },
+    ]);
+    prisma.release.groupBy.mockResolvedValueOnce([{ repositoryId: "repo1", _count: { _all: 2 } }]);
+
+    const data = await getDashboardData(USER);
+    expect(data.subscriptionVisibility).toEqual([
+      {
+        repositoryId: "repo1",
+        includePrereleases: false,
+        trackMode: "TAGS_AND_COMMITS",
+        trackPaths: true,
+        tagSlugs: ["core"],
+      },
+    ]);
+    expect(prisma.release.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          AND: [
+            visibleReleasesWhereForSubscriptions(USER, data.subscriptionVisibility),
+            { userStates: { some: { userId: USER, isRead: false } } },
+          ],
+        },
+      }),
+    );
+  });
+});
+
+describe("visibleReleasesWhereForSubscriptions & buildFeedWhereForSubscriptions", () => {
+  it("buckets subscriptions into flat repositoryId IN lists and short-circuits empty/unmatched views", () => {
+    const subs = [
+      {
+        repositoryId: "r1",
+        includePrereleases: false,
+        trackMode: "RELEASES" as const,
+        trackPaths: false,
+        tagSlugs: ["core"],
+      },
+      {
+        repositoryId: "r2",
+        includePrereleases: true,
+        trackMode: "TAGS_AND_COMMITS" as const,
+        trackPaths: true,
+        tagSlugs: ["infra"],
+      },
+    ];
+    expect(visibleReleasesWhereForSubscriptions(USER, [])).toBeNull();
+    expect(buildFeedWhereForSubscriptions(USER, { tagSlug: "missing" }, subs)).toBeNull();
+
+    const filtered = buildFeedWhereForSubscriptions(USER, { tagSlug: "core", onlyUnread: true }, subs);
+    expect(filtered).toEqual({
+      AND: [
+        {
+          isDraft: false,
+          OR: [{ source: "RELEASE", isPrerelease: false, repositoryId: { in: ["r1"] } }],
+        },
+        { userStates: { some: { userId: USER, isRead: false } } },
+      ],
+    });
   });
 });

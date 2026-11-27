@@ -23,11 +23,19 @@ import { useReader } from "./reader-context";
  * preview with a skeleton body.
  */
 export function ChangelogDrawer({ detail, children }: { detail: FeedItem | null; children?: ReactNode }) {
-  const { selectedId, preview, isNavigating, closeRelease, isRead, setRead } = useReader();
+  const { selectedId, preview, loadedEntry, isLoadingDetail, closeRelease, isRead, setRead } = useReader();
 
-  const loaded = detail !== null && detail.id === selectedId;
-  const current: FeedItem | null = loaded ? detail : preview?.id === selectedId ? preview : null;
-  const notFound = selectedId !== null && !current && !isNavigating;
+  const ssrLoaded = detail !== null && detail.id === selectedId;
+  const clientLoaded = loadedEntry !== null && loadedEntry.detail.id === selectedId;
+  const loaded = ssrLoaded || clientLoaded;
+  const current: FeedItem | null = ssrLoaded
+    ? detail
+    : clientLoaded
+      ? loadedEntry.detail
+      : preview?.id === selectedId
+        ? preview
+        : null;
+  const notFound = selectedId !== null && !current && !isLoadingDetail;
   const read = current ? isRead(current) : true;
 
   // Auto-mark as read once per open (not again after "Mark as unread" while the drawer stays
@@ -36,7 +44,7 @@ export function ChangelogDrawer({ detail, children }: { detail: FeedItem | null;
   const markReadOnOpen = useEffectEvent((item: FeedItem) => {
     if (autoMarked.current.has(item.id)) return;
     autoMarked.current.add(item.id);
-    if (!isRead(item)) void setRead(item.id, true);
+    if (!isRead(item)) void setRead(item.id, true, item);
   });
   useEffect(() => {
     if (selectedId === null) autoMarked.current.clear();
@@ -49,7 +57,7 @@ export function ChangelogDrawer({ detail, children }: { detail: FeedItem | null;
   async function toggleRead() {
     if (!current) return;
     setToggling(true);
-    await setRead(current.id, !read);
+    await setRead(current.id, !read, current);
     setToggling(false);
   }
 
@@ -117,7 +125,9 @@ export function ChangelogDrawer({ detail, children }: { detail: FeedItem | null;
               </div>
             </header>
 
-            <div className="flex-1 overflow-y-auto px-5 py-5">{loaded ? children : <BodySkeleton />}</div>
+            <div className="flex-1 overflow-y-auto px-5 py-5">
+              {ssrLoaded ? children : clientLoaded ? loadedEntry.content : loaded ? children : <BodySkeleton />}
+            </div>
           </>
         ) : notFound ? (
           <div className="p-6">

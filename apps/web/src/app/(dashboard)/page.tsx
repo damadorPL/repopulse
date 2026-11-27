@@ -29,10 +29,9 @@ export default async function ReleaseFeedPage({ searchParams }: PageProps<"/">) 
   const releaseId = parseReleaseParam(params);
   const user = await requireUser();
 
-  const [page, detail, dashboard] = await Promise.all([
-    getReleaseFeed({ userId: user.id, ...filters }),
-    releaseId ? getReleaseDetail(user.id, releaseId) : Promise.resolve(null),
+  const [dashboard, detail] = await Promise.all([
     getDashboardData(user.id),
+    releaseId ? getReleaseDetail(user.id, releaseId) : Promise.resolve(null),
   ]);
 
   const tag = filters.tagSlug ? (dashboard.tags.find((t) => t.slug === filters.tagSlug) ?? null) : null;
@@ -42,22 +41,28 @@ export default async function ReleaseFeedPage({ searchParams }: PageProps<"/">) 
 
   const heading = tag?.name ?? repository?.fullName ?? (filters.onlyUnread ? "Unread releases" : "All releases");
   const filtered = Boolean(filters.semverType || filters.searchQuery);
+  const needsExactUnreadCount = filtered || Boolean(filters.tagSlug && filters.repositoryId);
+  const [page, countedUnread] = await Promise.all([
+    getReleaseFeed({ userId: user.id, ...filters, subscriptions: dashboard.subscriptionVisibility }),
+    needsExactUnreadCount ? countUnread(user.id, filters, dashboard.subscriptionVisibility) : Promise.resolve(0),
+  ]);
+
   // Tag-only / repo-only / unfiltered counts come precomputed with the sidebar data; any
   // narrower combination gets its own count.
-  const viewUnread =
-    filtered || (filters.tagSlug && filters.repositoryId)
-      ? await countUnread(user.id, filters)
-      : tag
-        ? tag.unreadCount
-        : repository
-          ? (dashboard.unreadByRepository.find((r) => r.repositoryId === repository.repositoryId)?.unreadCount ?? 0)
-          : filters.tagSlug || filters.repositoryId
-            ? 0 // unknown tag / untracked repo
-            : dashboard.totalUnread;
+  const viewUnread = needsExactUnreadCount
+    ? countedUnread
+    : tag
+      ? tag.unreadCount
+      : repository
+        ? (dashboard.unreadByRepository.find((r) => r.repositoryId === repository.repositoryId)?.unreadCount ?? 0)
+        : filters.tagSlug || filters.repositoryId
+          ? 0 // unknown tag / untracked repo
+          : dashboard.totalUnread;
   const key = feedFiltersKey(filters);
+  const drawerItem = detail ? toDrawerItem(detail) : null;
 
   return (
-    <ReaderProvider>
+    <ReaderProvider initialDetail={drawerItem}>
       <div className="mx-auto max-w-4xl space-y-5">
         <div>
           <h1 className="flex items-center gap-2.5 text-xl font-semibold tracking-tight">
@@ -121,7 +126,7 @@ export default async function ReleaseFeedPage({ searchParams }: PageProps<"/">) 
       </div>
 
       {/* Only the rendered markdown crosses to the client; the raw body stays on the server. */}
-      <ChangelogDrawer detail={detail ? toDrawerItem(detail) : null}>
+      <ChangelogDrawer detail={drawerItem}>
         {detail ? <ChangelogMarkdown markdown={detail.bodyMarkdown} /> : null}
       </ChangelogDrawer>
     </ReaderProvider>

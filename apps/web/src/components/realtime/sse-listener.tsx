@@ -11,6 +11,8 @@ type NewReleaseEvent = Extract<RealtimeEvent, { type: "NEW_RELEASE" }>;
 
 /** NEW_RELEASE events arriving within this window are shown as one toast and one refresh. */
 const BATCH_WINDOW_MS = 500;
+/** Coalesce bursty sync/scan/backfill completion events into a single `router.refresh()`. */
+const REFRESH_COALESCE_MS = 400;
 
 /** Toast id shared with `SyncRepoButton`, so the outcome replaces the "Syncing…" toast. */
 export function syncToastId(repositoryId: string): string {
@@ -49,9 +51,16 @@ export function SseListener() {
     const source = new EventSource("/api/events/stream");
     let pending: NewReleaseEvent[] = [];
     let flushTimer: ReturnType<typeof setTimeout> | undefined;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     let hasConnected = false;
 
-    const refresh = () => router.refresh();
+    const refresh = () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        refreshTimer = undefined;
+        router.refresh();
+      }, REFRESH_COALESCE_MS);
+    };
 
     const flushReleases = () => {
       flushTimer = undefined;
@@ -168,6 +177,7 @@ export function SseListener() {
     return () => {
       source.close();
       if (flushTimer) clearTimeout(flushTimer);
+      if (refreshTimer) clearTimeout(refreshTimer);
     };
   }, [router]);
 

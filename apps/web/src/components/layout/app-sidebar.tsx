@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { TagDot } from "@/components/feed/tag-pill";
 import { AppVersionLink } from "@/components/layout/app-version-link";
+import { useOptionalUnread } from "@/components/layout/unread-context";
 import { ManageTagsModal } from "@/components/modals/manage-tags-modal";
 import { Button } from "@/components/ui/button";
 import { feedHref, parseFeedFilters } from "@/lib/feed-filters";
@@ -81,6 +82,9 @@ export function AppSidebar({
   /** The super admin also sees the admin panel (instance settings: access, email, release history). */
   isSuperAdmin?: boolean;
 }) {
+  const unread = useOptionalUnread();
+  const activeTags = unread?.tags ?? tags;
+  const activeTotalUnread = unread?.totalUnread ?? totalUnread;
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const onFeed = pathname === "/";
@@ -101,7 +105,7 @@ export function AppSidebar({
           href="/"
           active={onFeed && unfiltered && !filters.onlyUnread}
           icon={<ActivityIcon />}
-          badge={<CountBadge count={totalUnread} accent />}
+          badge={<CountBadge count={activeTotalUnread} accent />}
         >
           All Releases
         </NavLink>
@@ -135,8 +139,8 @@ export function AppSidebar({
       <div className="grid gap-1">
         <div className="flex items-center justify-between px-2">
           <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Tags</h2>
-          {tags.length > 0 ? (
-            <ManageTagsModal tags={tags}>
+          {activeTags.length > 0 ? (
+            <ManageTagsModal tags={activeTags}>
               <Button variant="ghost" size="icon-sm" className="size-6" aria-label="Manage tags">
                 <Settings2Icon className="size-3.5" />
               </Button>
@@ -145,7 +149,7 @@ export function AppSidebar({
         </div>
 
         <div className="grid gap-0.5">
-          {tags.map((tag) => (
+          {activeTags.map((tag) => (
             <NavLink
               key={tag.id}
               href={feedHref({ tagSlug: tag.slug, onlyUnread: filters.onlyUnread })}
@@ -158,7 +162,7 @@ export function AppSidebar({
           ))}
         </div>
 
-        <ManageTagsModal tags={tags}>
+        <ManageTagsModal tags={activeTags}>
           <button
             type="button"
             className="flex h-8 items-center gap-2.5 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"

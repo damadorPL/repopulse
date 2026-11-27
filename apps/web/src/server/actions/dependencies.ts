@@ -54,8 +54,8 @@ import {
 import { normalizeWatchedPath } from "@/lib/watched-paths";
 import {
   fail,
-  getGitHubToken,
   invalidInput,
+  loadGitHubToken,
   isUniqueConstraintError,
   ok,
   toActionError,
@@ -402,7 +402,7 @@ export async function addDependencyProjectsAction(
     }
 
     // GitHub before the transaction, so no DB connection is held during network I/O.
-    const token = getGitHubToken(user, "addDependencyProjectsAction");
+    const token = await loadGitHubToken(user, "addDependencyProjectsAction");
     const failed: AddDependencyProjectsResult["failed"] = [];
     const fetched: FetchedRepo[] = [];
     for (const ref of refs) {

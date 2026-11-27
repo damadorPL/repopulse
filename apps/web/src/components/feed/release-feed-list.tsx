@@ -65,7 +65,7 @@ export function ReleaseFeedList({
     <div className="space-y-2">
       <ul className="space-y-2" aria-label="Releases">
         {items.map((item) => (
-          <li key={item.id}>
+          <li key={item.id} className="[content-visibility:auto] [contain-intrinsic-size:auto_112px]">
             <ReleaseCard item={item} isRead={isRead(item)} isActive={item.id === selectedId} onOpen={openRelease} />
           </li>
         ))}

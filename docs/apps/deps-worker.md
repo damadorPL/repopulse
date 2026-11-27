@@ -15,7 +15,7 @@
 | Durable notification outbox (`storeNotificationIntents`, 5 s flusher) | `apps/deps-worker/src/notification-outbox.ts` |
 | Read / write credentials (App installation tokens, OAuth fallback) | `apps/deps-worker/src/github-access.ts` |
 | Shared scan / update analysis (read tree, parse, registry lookup, plan) | `apps/deps-worker/src/analysis.ts` |
-| Redis caches (registry, blobs, lockfile reads) | `apps/deps-worker/src/registry-cache.ts` |
+| Redis caches (registry, batched blobs, snapshots trees, lockfile reads) | `apps/deps-worker/src/registry-cache.ts` |
 | Sandbox HTTP client + `validateLockfile` | `apps/deps-worker/src/sandbox-client.ts` |
 | Processors | `apps/deps-worker/src/processors/deps-{scheduler,scan,update,notify}.processor.ts`, `notify-jobs.ts` |
 
@@ -42,10 +42,10 @@ Queue specs (`DEPS_QUEUE_NAMES`) are documented in [../CONTRACTS.md](../CONTRACT
 
 1. Skip if module is off or project is gone. Mark `SCANNING`.
 2. Resolve read credentials (`GitHubAccess.readAccess`): App installation token (`contents: read`, `pull_requests: read`, scoped to the repository) → owner's OAuth token (public repos) → anonymous. Private repo without App → `scanError = "Install the GitHub App to check private repositories"`, `ERROR`, no retry. Private repos always re-check owner's `read` permission; lost access sets `ERROR`, switches PR mode to `NOTIFY`, and releases PR ownership.
-3. `fetchGitTree` (metadata by `githubRepoId` so renames are followed; head SHA; recursive tree with blob SHAs) → `detectManifests` → read blobs (cached 7 days in Redis `deps:blob:<sha>`, `deps:lockread:<key>`, skipping unchanged manifests' raw fetches while still re-parsing).
+3. `fetchGitTree` (metadata by `githubRepoId` so renames are followed; head SHA; recursive tree with blob SHAs, short-circuited via `knownCommitSha` + 24 h Redis `deps:tree:<repoId>:<sha>` cache) → `detectManifests` → read blobs (batched via Redis `MGET`/pipeline 7-day `deps:blob:<sha>`, `deps:lockread:<key>`, single-parse `prepareLockfile` shared across workspace manifests).
 4. Check ancestor registry config first (custom registries or repo sources become `UNSUPPORTED_SOURCE`; unreadable config fails closed without leaking URLs/credentials). Look up each distinct `(ecosystem, name)` once (≤ 8 in flight), run `selectTarget` per dependency (max 1,000 dependencies; warning beyond).
-5. Single DB transaction: upsert `DependencyManifest` rows (vanished ones cascade), upsert/delete `DependencyUpdate` rows (keeping `firstSeenAt` / `notifiedAt` while `targetVersion` is unchanged; resetting both on new target), store project-level warnings on first manifest, refresh `fullName`, `defaultBranch`, `isPrivate`, `lastScannedSha`, set `nextScanAt = now + scanIntervalHours`, `IDLE`, `errorCount = 0`. Store `DependencyNotificationOutbox` intents in the same transaction when marking digest rows notified (first scan marks notified silently unless `notifyOnFirstScan`).
-6. Refresh open PRs (`getPullRequestState`): merged → `MERGED`; closed → `CLOSED` + targets `DISMISSED`; head ≠ `headSha` → `EDITED` (notified once), unless matching a persisted `DependencyBranchWriteIntent` or an active/waiting update job for that group.
+5. Single DB transaction: upsert `DependencyManifest` rows (parallelized; vanished ones cascade), upsert/delete `DependencyUpdate` rows (chunked updates of 50; keeping `firstSeenAt` / `notifiedAt` while `targetVersion` is unchanged; resetting both on new target), store project-level warnings on first manifest, refresh `fullName`, `defaultBranch`, `isPrivate`, `lastScannedSha`, set `nextScanAt = now + scanIntervalHours`, `IDLE`, `errorCount = 0`. Store `DependencyNotificationOutbox` intents in the same transaction when marking digest rows notified (first scan marks notified silently unless `notifyOnFirstScan`).
+6. Refresh open PRs (`getPullRequestState`, bounded concurrency 4): merged → `MERGED`; closed → `CLOSED` + targets `DISMISSED`; head ≠ `headSha` → `EDITED` (notified once), unless matching a persisted `DependencyBranchWriteIntent` or an active/waiting update job for that group.
 7. After commit: publish SSE `DEPS_SCAN_COMPLETED`, flush outbox, and if `AUTO_PR` + App installed, queue `deps-update` for groups (within `maxOpenPrs`) whose planned targets differ from the open PR's `targets` or whose open PR now has no planned updates (closes PR). `EDITED` PRs are left alone.
 8. Errors: GitHub rate limit → `scanQueue.rateLimit()` + `Worker.RateLimitError()`. 404 → `ERROR`, `errorCount++` (after 5 failures, next scan in 7 days; manual "Check now" always works). Transient errors rethrow; final attempt records `ERROR` and reschedules ≤ 6 h. Manual scans publish `DEPS_SCAN_FAILED`.
 
@@ -65,6 +65,6 @@ Queue specs (`DEPS_QUEUE_NAMES`) are documented in [../CONTRACTS.md](../CONTRACT
 
 ## Lifecycle & Testing
 
-- Startup: health server (`:3002`) → `prisma.$connect()` → Redis → `startHeartbeat` (`deps:worker:heartbeat`, every 30 s, 90 s TTL) → `startNotificationOutbox` → 4 BullMQ workers (`lockDuration: 120_000` on scan/update) → `registerSchedule`.
+- Startup: health server (`:3002`) → `prisma.$connect()` → Redis → `startHeartbeat` (`deps:worker:heartbeat`, every 30 s, 90 s TTL) → `startNotificationOutbox` → 4 BullMQ workers (`lockDuration: 120_000` on scan/update; `loadDepsEnabled`, `loadGitHubAppSettings`, and `loadSmtpSettings` wrapped in 15 s `createCachedLoader` caches) → `registerSchedule`.
 - `SIGTERM`/`SIGINT`: stops heartbeat and outbox flusher, calls `worker.cancelAllJobs("shutdown")`, drains workers, closes SMTP transports, queues, health server, Redis, and Prisma within 25 s.
 - Tests pass fake dependencies (`prisma`, `redis`, `sandbox`, `github`, etc.) to processors; rebuild `packages/*` before running worker tests.

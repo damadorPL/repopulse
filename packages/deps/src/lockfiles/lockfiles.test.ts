@@ -12,7 +12,7 @@ import {
   YARN_BERRY,
   YARN_CLASSIC,
 } from "./fixtures.test-data.js";
-import { readLockfile } from "./index.js";
+import { prepareLockfile, readLockfile } from "./index.js";
 import { readPackageLock } from "./package-lock.js";
 import { readPnpmLock, stripPnpmVersionSuffix } from "./pnpm-lock.js";
 import { readPoetryLock } from "./poetry-lock.js";
@@ -373,5 +373,38 @@ describe("readLockfile", () => {
     });
     expect(unknown.versions.size).toBe(0);
     expect(unknown.warnings).toEqual(["custom.lock: unknown lockfile format"]);
+  });
+
+  it("prepareLockfile parses once and matches readLockfile across workspace importers", () => {
+    const pnpmPrepared = prepareLockfile({
+      packageManager: "PNPM",
+      lockfilePath: "pnpm-lock.yaml",
+      text: PNPM_LOCK_V9,
+    });
+    expect(pnpmPrepared.readFor("", []).versions).toEqual(
+      readLockfile({
+        packageManager: "PNPM",
+        lockfilePath: "pnpm-lock.yaml",
+        text: PNPM_LOCK_V9,
+        importer: "",
+        dependencies: [],
+      }).versions,
+    );
+    expect(pnpmPrepared.readFor("apps/web", []).versions).toEqual(
+      readLockfile({
+        packageManager: "PNPM",
+        lockfilePath: "pnpm-lock.yaml",
+        text: PNPM_LOCK_V9,
+        importer: "apps/web",
+        dependencies: [],
+      }).versions,
+    );
+
+    const yarnPrepared = prepareLockfile({
+      packageManager: "YARN",
+      lockfilePath: "yarn.lock",
+      text: YARN_CLASSIC,
+    });
+    expect(yarnPrepared.readFor("", [{ name: "lodash", declared: "^4.17.21" }]).versions.get("lodash")).toBe("4.17.21");
   });
 });

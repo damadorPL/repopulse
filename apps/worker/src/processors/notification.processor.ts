@@ -1,5 +1,10 @@
 import { UnrecoverableError, type Job } from "bullmq";
-import { loadSmtpSettings, SmtpPasswordUnreadableError, type PrismaClient } from "@repopulse/db";
+import {
+  loadSmtpSettings,
+  SmtpPasswordUnreadableError,
+  type DecryptedSmtpSettings,
+  type PrismaClient,
+} from "@repopulse/db";
 import {
   dispatchNotification,
   isDeliverableChannel,
@@ -35,6 +40,7 @@ export interface NotificationDeps {
   prisma: PrismaClient;
   /** Injected in tests. */
   dispatch?: typeof dispatchNotification;
+  loadSmtp?: () => Promise<DecryptedSmtpSettings | null>;
   signal?: AbortSignal;
 }
 
@@ -116,7 +122,7 @@ export async function processNotification(
   const dispatch = deps.dispatch ?? dispatchNotification;
   const label = `${release.repository.fullName} ${release.tagName} via ${rule.channel} (rule ${ruleId})`;
   try {
-    const smtp = rule.channel === "EMAIL_INSTANT" ? toSmtpConfig(await loadSmtp(deps.prisma)) : null;
+    const smtp = rule.channel === "EMAIL_INSTANT" ? toSmtpConfig(await loadSmtp(deps.prisma, deps.loadSmtp)) : null;
     const result = await dispatch(
       { rule, release, repository: release.repository, user },
       { smtp, ...(deps.signal ? { signal: deps.signal } : {}) },
@@ -150,9 +156,9 @@ export async function processNotification(
 }
 
 /** A stored password that can't be decrypted won't fix itself on retry. */
-async function loadSmtp(prisma: PrismaClient) {
+async function loadSmtp(prisma: PrismaClient, loader?: () => Promise<DecryptedSmtpSettings | null>) {
   try {
-    return await loadSmtpSettings(prisma);
+    return await (loader ? loader() : loadSmtpSettings(prisma));
   } catch (error) {
     if (error instanceof SmtpPasswordUnreadableError) {
       throw new NotificationDeliveryError(error.message, { permanent: true, cause: error });

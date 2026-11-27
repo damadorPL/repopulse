@@ -225,6 +225,31 @@ describe("fetchCommitsForPath", () => {
     expect(seenHeaders).toEqual(['"abc"']);
     expect(seenSince).toEqual(["2026-10-01T00:00:00Z"]);
   });
+
+  it("reports response ETag via onEtag on 200 and leaves it untouched on 304", async () => {
+    const onEtag200 = vi.fn();
+    const fetch200 = mockFetch(() => json([], { headers: { etag: 'W/"new-etag"' } }));
+    await fetchCommitsForPath({
+      owner: "acme",
+      name: "widget",
+      path: "packages/db",
+      onEtag: onEtag200,
+      octokit: createOctokit({ fetch: fetch200 }),
+    });
+    expect(onEtag200).toHaveBeenCalledWith('W/"new-etag"');
+
+    const onEtag304 = vi.fn();
+    const fetch304 = mockFetch(() => new Response(null, { status: 304 }));
+    await fetchCommitsForPath({
+      owner: "acme",
+      name: "widget",
+      path: "packages/db",
+      etag: 'W/"old"',
+      onEtag: onEtag304,
+      octokit: createOctokit({ fetch: fetch304 }),
+    });
+    expect(onEtag304).not.toHaveBeenCalled();
+  });
 });
 
 describe("fetchCommitDetail", () => {

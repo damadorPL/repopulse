@@ -117,6 +117,7 @@ export async function fetchCommitsForPath(params: {
   first?: number;
   since?: string;
   etag?: string | null;
+  onEtag?: (etag: string | null) => void;
   accessToken?: string | null;
   octokit?: Octokit;
   signal?: AbortSignal;
@@ -133,6 +134,8 @@ export async function fetchCommitsForPath(params: {
       ...(params.etag ? { headers: { "If-None-Match": params.etag } } : {}),
       ...requestOptions(params.signal),
     });
+    const etag = typeof response.headers.etag === "string" ? response.headers.etag : null;
+    params.onEtag?.(etag);
     return (response.data as unknown as CommitListItem[]).map(mapCommitListItem);
   } catch (error) {
     if (isGitHubHttpError(error) && error.status === 304) return [];

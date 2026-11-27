@@ -486,4 +486,28 @@ describe("snapshot reader, lockCache, truncated trees, capDependencies, and pars
     expect(badAnalysis.manifests[0]!.warnings[0]).toMatch(/could not be parsed/);
     expect(lockCache.set).not.toHaveBeenCalled();
   });
+
+  it("uses BlobCache getMany/setMany in createSnapshotReader", async () => {
+    const entries = [
+      { path: "a.json", type: "blob" as const, sha: "sha-a", size: 10 },
+      { path: "b.json", type: "blob" as const, sha: "sha-b", size: 10 },
+    ];
+    const readBlobs = vi.fn(async (refs: { path: string; sha: string }[]) =>
+      refs.map((r) => ({ path: r.path, sha: r.sha, size: 2, content: "{}", oversize: false })),
+    );
+    const blobCache = {
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => undefined),
+      getMany: vi.fn(async () => new Map([["sha-a", '{"name":"a"}']])),
+      setMany: vi.fn(async () => undefined),
+    };
+    const reader = createSnapshotReader(entries, readBlobs, blobCache);
+    const out = await reader.readMany(["a.json", "b.json"]);
+    expect(blobCache.getMany).toHaveBeenCalledWith(["sha-a", "sha-b"]);
+    expect(readBlobs).toHaveBeenCalledTimes(1);
+    expect(readBlobs.mock.calls[0]![0]).toEqual([{ path: "b.json", sha: "sha-b", size: 10 }]);
+    expect(blobCache.setMany).toHaveBeenCalledWith([{ sha: "sha-b", text: "{}" }]);
+    expect(out.get("a.json")).toBe('{"name":"a"}');
+    expect(out.get("b.json")).toBe("{}");
+  });
 });

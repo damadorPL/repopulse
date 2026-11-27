@@ -1,5 +1,5 @@
 import { Worker } from "bullmq";
-import { loadBackfillOverrides, prisma } from "@repopulse/db";
+import { createCachedLoader, loadBackfillOverrides, loadSmtpSettings, prisma } from "@repopulse/db";
 import { closeSmtpTransports } from "@repopulse/notifications";
 import {
   applyBackfillOverrides,
@@ -29,14 +29,16 @@ import { createWorkerRedis } from "./redis.js";
  * before exiting with code 0.
  */
 
+const loadBackfillOverridesCached = createCachedLoader(() => loadBackfillOverrides(prisma));
+const loadSmtpSettingsCached = createCachedLoader(() => loadSmtpSettings(prisma));
+
 /**
- * The environment settings with the super admin's overrides (Admin → Release history), read for
- * every backfill job so changes apply without a restart. Falls back to the environment when the
- * settings can't be read.
+ * The environment settings with the super admin's overrides (Admin → Release history), cached
+ * briefly (15s) so changes apply without a restart while avoiding per-job DB reads.
  */
 async function currentBackfillConfig(base: BackfillConfig): Promise<BackfillConfig> {
   try {
-    return applyBackfillOverrides(base, await loadBackfillOverrides(prisma));
+    return applyBackfillOverrides(base, await loadBackfillOverridesCached());
   } catch (err) {
     log.warn(`could not read the release history settings, using the environment: ${errorMessage(err)}`);
     return base;
@@ -157,7 +159,8 @@ function startWorkers(connection: Redis, q: Queues, backfillConfig: BackfillConf
 
   const notificationWorker = new Worker<NotificationJobData, unknown, typeof JOB_NAMES.notify>(
     QUEUE_NAMES.notification,
-    (job, _token, signal) => processNotification(job, { prisma, ...(signal ? { signal } : {}) }),
+    (job, _token, signal) =>
+      processNotification(job, { prisma, loadSmtp: loadSmtpSettingsCached, ...(signal ? { signal } : {}) }),
     {
       connection,
       name: `repopulse-worker:${QUEUE_NAMES.notification}`,

@@ -8,16 +8,17 @@ class GitHubRepositoryNotFoundError extends Error {}
 class GitHubRateLimitError extends Error {}
 
 const decryptToken = vi.fn();
+const findUniqueUser = vi.fn();
 
 vi.mock("@/lib/auth", () => ({ UnauthorizedError, ForbiddenError }));
-vi.mock("@repopulse/db", () => ({ decryptToken }));
+vi.mock("@repopulse/db", () => ({ decryptToken, prisma: { user: { findUnique: findUniqueUser } } }));
 vi.mock("@repopulse/github", () => ({
   InvalidRepositoryInputError,
   GitHubRepositoryNotFoundError,
   GitHubRateLimitError,
 }));
 
-const { fail, getGitHubToken, invalidInput, isUniqueConstraintError, ok, toActionError } =
+const { fail, getGitHubToken, invalidInput, isUniqueConstraintError, loadGitHubToken, ok, toActionError } =
   await import("./action-result");
 
 beforeEach(() => {
@@ -81,15 +82,34 @@ describe("toActionError", () => {
 
 describe("getGitHubToken", () => {
   it("returns undefined on null or corrupt ciphertext and returns plaintext when readable", () => {
-    expect(getGitHubToken({ id: "u1", githubAccessTokenEncrypted: null } as never, "test")).toBeUndefined();
+    expect(getGitHubToken({ id: "u1", githubAccessTokenEncrypted: null }, "test")).toBeUndefined();
     expect(decryptToken).not.toHaveBeenCalled();
 
     decryptToken.mockImplementationOnce(() => {
       throw new Error("bad key");
     });
-    expect(getGitHubToken({ id: "u1", githubAccessTokenEncrypted: "corrupt" } as never, "test")).toBeUndefined();
+    expect(getGitHubToken({ id: "u1", githubAccessTokenEncrypted: "corrupt" }, "test")).toBeUndefined();
 
     decryptToken.mockReturnValueOnce("ghp_plain");
-    expect(getGitHubToken({ id: "u1", githubAccessTokenEncrypted: "enc" } as never, "test")).toBe("ghp_plain");
+    expect(getGitHubToken({ id: "u1", githubAccessTokenEncrypted: "enc" }, "test")).toBe("ghp_plain");
+  });
+});
+
+describe("loadGitHubToken", () => {
+  it("uses already-present ciphertext without querying and lazily queries when null", async () => {
+    decryptToken.mockReturnValueOnce("ghp_inline");
+    await expect(loadGitHubToken({ id: "u1", githubAccessTokenEncrypted: "enc1" }, "test")).resolves.toBe("ghp_inline");
+    expect(findUniqueUser).not.toHaveBeenCalled();
+
+    findUniqueUser.mockResolvedValueOnce({ githubAccessTokenEncrypted: "enc2" });
+    decryptToken.mockReturnValueOnce("ghp_db");
+    await expect(loadGitHubToken({ id: "u2", githubAccessTokenEncrypted: null }, "test")).resolves.toBe("ghp_db");
+    expect(findUniqueUser).toHaveBeenCalledWith({
+      where: { id: "u2" },
+      select: { githubAccessTokenEncrypted: true },
+    });
+
+    findUniqueUser.mockResolvedValueOnce(null);
+    await expect(loadGitHubToken({ id: "u3", githubAccessTokenEncrypted: null }, "test")).resolves.toBeUndefined();
   });
 });

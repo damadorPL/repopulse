@@ -101,84 +101,58 @@ export interface DependencyProjectListItem {
   tracked: boolean;
 }
 
-export async function getDependencyProjects(userId: string): Promise<DependencyProjectListItem[]> {
-  const [projects, counts, subscriptions] = await Promise.all([
-    prisma.dependencyProject.findMany({
-      where: { userId },
-      orderBy: { fullName: "asc" },
-      select: {
-        id: true,
-        githubRepoId: true,
-        owner: true,
-        name: true,
-        fullName: true,
-        isPrivate: true,
-        repositoryId: true,
-        updateMode: true,
-        groupMode: true,
-        maxOpenPrs: true,
-        lastScannedAt: true,
-        scanStatus: true,
-        scanError: true,
-        prOwnership: { select: { projectId: true } },
-        repository: { select: { avatarUrl: true } },
-        manifests: { select: { id: true, path: true, ecosystem: true, packageManager: true, lockfilePath: true } },
-        updates: {
-          where: { status: "OUTDATED" },
-          orderBy: [{ name: "asc" }, { kind: "asc" }],
-          select: {
-            manifestId: true,
-            name: true,
-            currentVersion: true,
-            targetVersion: true,
-            level: true,
-            status: true,
-          },
-        },
-        pullRequests: {
-          orderBy: { openedAt: "asc" },
-          select: { id: true, number: true, htmlUrl: true, groupKey: true, state: true },
-        },
-      },
-    }),
-    prisma.dependencyUpdate.groupBy({
-      by: ["projectId", "level"],
-      where: { status: "OUTDATED", project: { userId } },
-      _count: { _all: true },
-    }),
-    prisma.userSubscription.findMany({ where: { userId }, select: { repositoryId: true } }),
-  ]);
-
-  const unownedRepoIds = [
-    ...new Set(
-      projects
-        .filter(
-          (project) =>
-            project.updateMode !== "NOTIFY" && !project.prOwnership && typeof project.githubRepoId === "number",
-        )
-        .map((project) => project.githubRepoId),
-    ),
-  ];
-  const owners =
-    unownedRepoIds.length > 0
-      ? await prisma.dependencyPrOwner.findMany({
-          where: { githubRepoId: { in: unownedRepoIds } },
-          select: {
-            githubRepoId: true,
-            projectId: true,
-            project: { select: { user: { select: { githubLogin: true, name: true } } } },
-          },
-        })
-      : [];
+/**
+ * Shared projection + hydration for `getDependencyProjects` and `getDependenciesListData`.
+ */
+function buildDependencyProjectListItems(
+  projects: Array<{
+    id: string;
+    githubRepoId: number;
+    owner: string;
+    name: string;
+    fullName: string;
+    isPrivate: boolean;
+    repositoryId: string | null;
+    updateMode: DepsUpdateMode;
+    groupMode: DepsGroupMode;
+    maxOpenPrs: number;
+    lastScannedAt: Date | null;
+    scanStatus: DepsScanStatus;
+    scanError: string | null;
+    prOwnership: { projectId: string } | null;
+    repository: { avatarUrl: string | null } | null;
+    manifests: Array<{
+      id: string;
+      path: string;
+      ecosystem: DependencyEcosystem;
+      packageManager: PackageManager;
+      lockfilePath: string | null;
+    }>;
+    updates: Array<{
+      manifestId: string;
+      name: string;
+      currentVersion: string | null;
+      targetVersion: string | null;
+      level: SemverType | null;
+      status: DependencyUpdateStatus;
+    }>;
+    pullRequests: Array<{
+      id: string;
+      number: number;
+      htmlUrl: string;
+      groupKey: string;
+      state: DepsPrState;
+    }>;
+  }>,
+  owners: Array<{
+    githubRepoId: number;
+    projectId: string;
+    project: { user: { githubLogin: string | null; name: string | null } };
+  }>,
+  trackedRepoIds: ReadonlySet<string>,
+): DependencyProjectListItem[] {
   const ownerByRepoId = new Map(owners.map((owner) => [owner.githubRepoId, owner]));
 
-  const tracked = new Set(subscriptions.map((s) => s.repositoryId));
-  const outdated = new Map<string, LevelCounts>();
-  for (const row of counts) {
-    const entry = outdated.get(row.projectId) ?? emptyCounts();
-    addLevel(entry, row.level, row._count._all);
-    outdated.set(row.projectId, entry);
-  }
   return projects.map((project) => {
     const manifestById = new Map(project.manifests.map((m) => [m.id ?? m.packageManager, m]));
     const ownerRecord = project.prOwnership ? null : ownerByRepoId.get(project.githubRepoId);
@@ -189,6 +163,10 @@ export async function getDependencyProjects(userId: string): Promise<DependencyP
           ? { kind: "self" }
           : { kind: "other", ownerName: userDisplayName(ownerRecord.project.user) }
         : { kind: "none" };
+    const outdated = emptyCounts();
+    for (const u of project.updates ?? []) {
+      addLevel(outdated, u.level, 1);
+    }
     return {
       id: project.id,
       owner: project.owner,
@@ -197,7 +175,7 @@ export async function getDependencyProjects(userId: string): Promise<DependencyP
       avatarUrl: ownerAvatar(project.owner, project.repository?.avatarUrl),
       isPrivate: project.isPrivate,
       packageManagers: [...new Set(project.manifests.map((m) => m.packageManager))].sort(),
-      outdated: outdated.get(project.id) ?? emptyCounts(),
+      outdated,
       openPullRequests: project.pullRequests
         .filter((pr) => (pr.state ?? "OPEN") === "OPEN")
         .map((pr) => ({ id: pr.id, number: pr.number, htmlUrl: pr.htmlUrl, groupKey: pr.groupKey })),
@@ -234,9 +212,131 @@ export async function getDependencyProjects(userId: string): Promise<DependencyP
       lastScannedAt: project.lastScannedAt,
       scanStatus: project.scanStatus,
       scanError: project.scanError,
-      tracked: project.repositoryId !== null && tracked.has(project.repositoryId),
+      tracked: project.repositoryId !== null && trackedRepoIds.has(project.repositoryId),
     };
   });
+}
+
+async function fetchPrOwnersForProjects(
+  projects: ReadonlyArray<{
+    updateMode: DepsUpdateMode;
+    prOwnership: { projectId: string } | null;
+    githubRepoId: number;
+  }>,
+) {
+  const unownedRepoIds = [
+    ...new Set(
+      projects
+        .filter(
+          (project) =>
+            project.updateMode !== "NOTIFY" && !project.prOwnership && typeof project.githubRepoId === "number",
+        )
+        .map((project) => project.githubRepoId),
+    ),
+  ];
+  return unownedRepoIds.length > 0
+    ? prisma.dependencyPrOwner.findMany({
+        where: { githubRepoId: { in: unownedRepoIds } },
+        select: {
+          githubRepoId: true,
+          projectId: true,
+          project: { select: { user: { select: { githubLogin: true, name: true } } } },
+        },
+      })
+    : [];
+}
+
+const DEPENDENCY_PROJECT_LIST_SELECT = {
+  id: true,
+  githubRepoId: true,
+  owner: true,
+  name: true,
+  fullName: true,
+  isPrivate: true,
+  repositoryId: true,
+  updateMode: true,
+  groupMode: true,
+  maxOpenPrs: true,
+  lastScannedAt: true,
+  scanStatus: true,
+  scanError: true,
+  prOwnership: { select: { projectId: true } },
+  repository: { select: { avatarUrl: true } },
+  manifests: { select: { id: true, path: true, ecosystem: true, packageManager: true, lockfilePath: true } },
+  updates: {
+    where: { status: "OUTDATED" as const },
+    orderBy: [{ name: "asc" as const }, { kind: "asc" as const }],
+    select: {
+      manifestId: true,
+      name: true,
+      currentVersion: true,
+      targetVersion: true,
+      level: true,
+      status: true,
+    },
+  },
+  pullRequests: {
+    orderBy: { openedAt: "asc" as const },
+    select: { id: true, number: true, htmlUrl: true, groupKey: true, state: true },
+  },
+};
+
+export async function getDependencyProjects(userId: string): Promise<DependencyProjectListItem[]> {
+  const [projects, subscriptions] = await Promise.all([
+    prisma.dependencyProject.findMany({
+      where: { userId },
+      orderBy: { fullName: "asc" },
+      select: DEPENDENCY_PROJECT_LIST_SELECT,
+    }),
+    prisma.userSubscription.findMany({ where: { userId }, select: { repositoryId: true } }),
+  ]);
+
+  const owners = await fetchPrOwnersForProjects(projects);
+  const tracked = new Set(subscriptions.map((s) => s.repositoryId));
+  return buildDependencyProjectListItems(projects, owners, tracked);
+}
+
+/**
+ * Combined loader for `/dependencies`: fetches `dependencyProject` and `userSubscription` once each
+ * instead of querying both tables separately for the list and the "Add projects" dialog.
+ */
+export async function getDependenciesListData(userId: string): Promise<{
+  projects: DependencyProjectListItem[];
+  addable: AddableSubscription[];
+}> {
+  const [projects, subscriptions] = await Promise.all([
+    prisma.dependencyProject.findMany({
+      where: { userId },
+      orderBy: { fullName: "asc" },
+      select: DEPENDENCY_PROJECT_LIST_SELECT,
+    }),
+    prisma.userSubscription.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        repositoryId: true,
+        repository: { select: { githubRepoId: true, fullName: true, description: true, avatarUrl: true } },
+      },
+    }),
+  ]);
+
+  const owners = await fetchPrOwnersForProjects(projects);
+  const tracked = new Set(subscriptions.map((s) => s.repositoryId));
+  const taken = new Set(projects.map((p) => p.githubRepoId));
+  const addable: AddableSubscription[] = subscriptions
+    .filter((s) => !taken.has(s.repository.githubRepoId))
+    .map((s) => ({
+      subscriptionId: s.id,
+      fullName: s.repository.fullName,
+      description: s.repository.description,
+      avatarUrl: s.repository.avatarUrl,
+    }))
+    .sort((a, b) => a.fullName.localeCompare(b.fullName, undefined, { sensitivity: "base" }));
+
+  return {
+    projects: buildDependencyProjectListItems(projects, owners, tracked),
+    addable,
+  };
 }
 
 export interface AddableSubscription {
@@ -563,7 +663,12 @@ export type AppRepoStatus =
  * numeric account id can be resolved with the viewer's token.
  */
 export const getAppRepoStatus = cache(
-  async (owner: string, name: string, githubRepoId: number, accessToken?: string): Promise<AppRepoStatus> => {
+  async (
+    owner: string,
+    name: string,
+    githubRepoId: number,
+    accessToken?: string | (() => Promise<string | undefined>),
+  ): Promise<AppRepoStatus> => {
     const credentials = await loadAppCredentials();
     if (credentials.state === "not_configured") return { state: "not_configured" };
     if (credentials.state === "unreadable") {
@@ -583,7 +688,8 @@ export const getAppRepoStatus = cache(
     }
     let targetId: number | undefined;
     try {
-      const octokit = createOctokit({ accessToken, fetch: timedFetch(5_000) });
+      const resolvedToken = typeof accessToken === "function" ? await accessToken() : accessToken;
+      const octokit = createOctokit({ accessToken: resolvedToken, fetch: timedFetch(5_000) });
       targetId = (await octokit.rest.users.getByUsername({ username: owner })).data.id;
     } catch {
       targetId = undefined;

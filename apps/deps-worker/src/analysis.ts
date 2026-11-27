@@ -12,6 +12,7 @@ import {
   parsePyproject,
   parseRequirements,
   parseRequirementsTree,
+  prepareLockfile,
   readLockfile,
   REGISTRY_CONCURRENCY,
   registryConfigPaths,
@@ -23,6 +24,7 @@ import {
   type IgnoreRule,
   type LockfileVersions,
   type ParsedDependency,
+  type PreparedLockfile,
   type RegistryLookup,
   type RegistryVersion,
   type TargetSelection,
@@ -64,7 +66,7 @@ export function createSnapshotReader(
   let downloaded = 0;
 
   const fetchMissing = async (paths: readonly string[], maxBytes: number): Promise<void> => {
-    const refs: Array<{ path: string; sha: string; size: number | null }> = [];
+    const toLookup: Array<{ path: string; sha: string; size: number | null }> = [];
     for (const path of paths) {
       if (memo.has(path)) continue;
       const entry = blobs.get(path);
@@ -72,16 +74,46 @@ export function createSnapshotReader(
         memo.set(path, null);
         continue;
       }
-      const cached = blobCache && maxBytes <= MAX_MANIFEST_BYTES ? await blobCache.get(entry.sha) : null;
-      if (cached !== null) memo.set(path, cached);
-      else refs.push({ path, sha: entry.sha, size: entry.size });
+      toLookup.push({ path, sha: entry.sha, size: entry.size });
     }
+    if (toLookup.length === 0) return;
+
+    const refs: Array<{ path: string; sha: string; size: number | null }> = [];
+    if (blobCache && maxBytes <= MAX_MANIFEST_BYTES) {
+      if (blobCache.getMany) {
+        const hits = await blobCache.getMany(toLookup.map((item) => item.sha));
+        for (const item of toLookup) {
+          const cached = hits.get(item.sha);
+          if (cached !== undefined) memo.set(item.path, cached);
+          else refs.push(item);
+        }
+      } else {
+        const values = await Promise.all(toLookup.map((item) => blobCache.get(item.sha)));
+        for (const [index, item] of toLookup.entries()) {
+          const cached = values[index];
+          if (cached !== null && cached !== undefined) memo.set(item.path, cached);
+          else refs.push(item);
+        }
+      }
+    } else {
+      refs.push(...toLookup);
+    }
+
     if (refs.length === 0) return;
     downloaded += refs.length;
+    const toCache: Array<{ sha: string; text: string }> = [];
     for (const result of await readBlobs(refs, maxBytes)) {
       memo.set(result.path, result.content);
-      if (result.content !== null && blobCache && result.content.length <= MAX_MANIFEST_BYTES)
-        await blobCache.set(result.sha, result.content);
+      if (result.content !== null && blobCache && result.content.length <= MAX_MANIFEST_BYTES) {
+        toCache.push({ sha: result.sha, text: result.content });
+      }
+    }
+    if (blobCache && toCache.length > 0) {
+      if (blobCache.setMany) {
+        await blobCache.setMany(toCache);
+      } else {
+        await Promise.all(toCache.map((item) => blobCache.set(item.sha, item.text)));
+      }
     }
   };
 
@@ -152,6 +184,7 @@ async function readCurrentVersions(
   dependencies: ReadonlyArray<{ name: string; declared: string }>,
   reader: SnapshotReader,
   lockCache: LockfileCache | null | undefined,
+  preparedLockfiles: Map<string, PreparedLockfile>,
 ): Promise<LockfileVersions | null> {
   const lockfilePath = manifest.lockfilePath;
   if (!lockfilePath || manifest.packageManager === "PIP" || manifest.packageManager === "NONE") return null;
@@ -169,17 +202,22 @@ async function readCurrentVersions(
     const cached = await lockCache.get(key);
     if (cached) return cached;
   }
-  const text = await reader.read(lockfilePath, MAX_LOCKFILE_BYTES);
-  if (text === null) {
-    return {
-      versions: new Map(),
-      formatVersion: null,
-      warnings: [
-        `${lockfilePath} could not be read (larger than 20 MiB?): current versions are taken from the declared ranges`,
-      ],
-    };
+  let prepared = preparedLockfiles.get(lockfilePath);
+  if (!prepared) {
+    const text = await reader.read(lockfilePath, MAX_LOCKFILE_BYTES);
+    if (text === null) {
+      return {
+        versions: new Map(),
+        formatVersion: null,
+        warnings: [
+          `${lockfilePath} could not be read (larger than 20 MiB?): current versions are taken from the declared ranges`,
+        ],
+      };
+    }
+    prepared = prepareLockfile({ packageManager: manifest.packageManager, lockfilePath, text });
+    preparedLockfiles.set(lockfilePath, prepared);
   }
-  const result = readLockfile({ ...input, text });
+  const result = prepared.readFor(manifest.lockfileImporter, dependencies);
   if (key && lockCache && result.warnings.length === 0) await lockCache.set(key, result);
   return result;
 }
@@ -219,6 +257,7 @@ export async function analyzeProject(params: {
   const registryFiles = new Map(configPaths.map((path) => [path, configTexts.get(path) ?? null]));
 
   const manifests: AnalyzedManifest[] = [];
+  const preparedLockfiles = new Map<string, PreparedLockfile>();
   for (const detected of resolved.manifests) {
     const manifestWarnings = [...detected.warnings];
     let parsed: ParsedDependency[] = [];
@@ -296,6 +335,7 @@ export async function analyzeProject(params: {
       list.map((d) => ({ name: d.name, declared: d.declared })),
       reader,
       params.lockCache,
+      preparedLockfiles,
     );
     if (lock) manifestWarnings.push(...lock.warnings);
 

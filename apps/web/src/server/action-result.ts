@@ -1,5 +1,6 @@
+import { cache } from "react";
 import type { z } from "zod";
-import { decryptToken, type User as DbUser } from "@repopulse/db";
+import { decryptToken, prisma, type User as DbUser } from "@repopulse/db";
 import { GitHubRateLimitError, GitHubRepositoryNotFoundError, InvalidRepositoryInputError } from "@repopulse/github";
 import { ForbiddenError, UnauthorizedError } from "@/lib/auth";
 
@@ -52,7 +53,10 @@ export function toActionError(error: unknown, action: string): ActionResult<neve
 }
 
 /** Returns the user's GitHub token, or undefined (unauthenticated, 60 req/h) if it can't be decrypted. */
-export function getGitHubToken(user: DbUser, action: string): string | undefined {
+export function getGitHubToken(
+  user: Pick<DbUser, "id" | "githubAccessTokenEncrypted">,
+  action: string,
+): string | undefined {
   if (!user.githubAccessTokenEncrypted) return undefined;
   try {
     return decryptToken(user.githubAccessTokenEncrypted);
@@ -61,4 +65,26 @@ export function getGitHubToken(user: DbUser, action: string): string | undefined
     console.warn(`[${action}] could not decrypt GitHub token for user ${user.id}`, error);
     return undefined;
   }
+}
+
+const fetchUserEncryptedToken = cache(async (userId: string): Promise<string | null> => {
+  const row = await prisma.user?.findUnique?.({
+    where: { id: userId },
+    select: { githubAccessTokenEncrypted: true },
+  });
+  return row?.githubAccessTokenEncrypted ?? null;
+});
+
+/**
+ * Lazily loads and decrypts the user's GitHub OAuth token when an action or page actually talks to GitHub,
+ * avoiding a `User` DB lookup on normal dashboard requests.
+ */
+export async function loadGitHubToken(
+  user: Pick<DbUser, "id" | "githubAccessTokenEncrypted">,
+  action: string,
+): Promise<string | undefined> {
+  if (user.githubAccessTokenEncrypted) return getGitHubToken(user, action);
+  const encrypted = await fetchUserEncryptedToken(user.id);
+  if (!encrypted) return undefined;
+  return getGitHubToken({ id: user.id, githubAccessTokenEncrypted: encrypted }, action);
 }

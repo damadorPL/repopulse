@@ -247,12 +247,17 @@ export async function processReleaseBackfill(
           select: { id: true, tagName: true },
         });
         const tagRowByName = new Map(tagRows.map((r) => [r.tagName, r.id]));
-        for (const release of plan.insert.filter((r) => tagRowByName.has(r.tagName))) {
-          await prisma.release.update({
-            where: { id: tagRowByName.get(release.tagName)! },
-            data: { ...release, source: "RELEASE", tagSha: null },
-          });
-          added += 1;
+        const toPromote = plan.insert.filter((r) => tagRowByName.has(r.tagName));
+        if (toPromote.length > 0) {
+          await Promise.all(
+            toPromote.map((release) =>
+              prisma.release.update({
+                where: { id: tagRowByName.get(release.tagName)! },
+                data: { ...release, source: "RELEASE", tagSha: null },
+              }),
+            ),
+          );
+          added += toPromote.length;
         }
         // Idempotent through the (repositoryId, githubReleaseId) unique key. No UserReleaseState rows.
         const { count } = await prisma.release.createMany({

@@ -423,6 +423,46 @@ describe("pollRepoPaths", () => {
       await pollRepoPaths({ prisma: db.prisma as never, fetchCommits: commitsByPath({ docs: [] }) }, REPO, []),
     ).toBeNull();
   });
+
+  it("caches and sends path ETags for already-polled paths and skips ETags for newly added paths", async () => {
+    const db = fakePrisma({
+      polledPaths: ["docs"],
+      subscribers: [{ userId: "u1", trackMode: "NONE", trackPaths: true, watchedPaths: ["docs", "src"] }],
+    });
+    const etagStore = new Map<string, string>();
+    const redis = {
+      get: vi.fn(async (key: string) => etagStore.get(key) ?? null),
+      set: vi.fn(async (key: string, val: string) => {
+        etagStore.set(key, val);
+        return "OK" as const;
+      }),
+    };
+    const seenCalls: Array<{ path: string; etag?: string | null }> = [];
+    const fetchCommits = vi.fn(
+      async (p: { path: string; etag?: string | null; onEtag?: (etag: string | null) => void }) => {
+        seenCalls.push({ path: p.path, etag: p.etag });
+        p.onEtag?.(`etag-${p.path}`);
+        return [];
+      },
+    );
+
+    // First run: docs is already polled (no cached ETag yet), src is newlyAdded (no ETag read).
+    await pollRepoPaths({ prisma: db.prisma as never, redis, fetchCommits }, REPO, TOKENS);
+    expect(redis.get).toHaveBeenCalledTimes(1);
+    expect(seenCalls.find((c) => c.path === "docs")?.etag).toBeUndefined();
+    expect(seenCalls.find((c) => c.path === "src")?.etag).toBeUndefined();
+    expect(redis.set).toHaveBeenCalledTimes(2);
+
+    // Second run: both docs and src are in polledPaths -> both pass cached ETags.
+    seenCalls.length = 0;
+    const db2 = fakePrisma({
+      polledPaths: ["docs", "src"],
+      subscribers: [{ userId: "u1", trackMode: "NONE", trackPaths: true, watchedPaths: ["docs", "src"] }],
+    });
+    await pollRepoPaths({ prisma: db2.prisma as never, redis, fetchCommits }, REPO, TOKENS);
+    expect(seenCalls.find((c) => c.path === "docs")?.etag).toBe("etag-docs");
+    expect(seenCalls.find((c) => c.path === "src")?.etag).toBe("etag-src");
+  });
 });
 
 describe("planPathFanOut", () => {

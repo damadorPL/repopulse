@@ -17,7 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { dependencyListHrefFrom } from "@/lib/dependency-list-filters";
 import { PACKAGE_MANAGER_LABELS, updateModeLabel, type LevelCounts } from "@/lib/dependency-settings";
 import { repositorySettingsHref } from "@/lib/repo-list-filters";
-import { getGitHubToken } from "@/server/action-result";
+import { loadGitHubToken } from "@/server/action-result";
 import {
   isDepsEnabled,
   lockfileRegenerationAvailable,
@@ -163,11 +163,8 @@ export default async function DependencyProjectPage({
   }
 
   // Start slow external / Redis status queries eagerly so primary page chrome streams immediately.
-  const appPromise = getAppRepoStatus(
-    project.owner,
-    project.name,
-    project.githubRepoId,
-    getGitHubToken(user, "DependencyProjectPage"),
+  const appPromise = getAppRepoStatus(project.owner, project.name, project.githubRepoId, () =>
+    loadGitHubToken(user, "DependencyProjectPage"),
   );
   const workerPromise = readDepsWorkerStatus();
   const outdated: LevelCounts = { major: 0, minor: 0, patch: 0, other: 0 };

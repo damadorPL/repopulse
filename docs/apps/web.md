@@ -59,7 +59,7 @@ File → exported actions:
 | `sync.ts` | `triggerManualRepoSyncAction` (→ `QUEUED` / `COOLDOWN`) |
 | `backfill.ts` | `requestDeepBackfillAction` ("Load older releases"; step, cooldown, and hard cap from `getBackfillConfig()`) |
 | `backfill-settings.ts` | `saveBackfillSettingsAction`, `reapplyBackfillSettingsAction` (super admin; helpers in `server/backfill-settings.ts`) |
-| `feed.ts` | `loadMoreReleasesAction` |
+| `feed.ts` | `loadMoreReleasesAction`, `getReleaseDrawerAction` |
 | `release-state.ts` | `toggleReleaseReadAction`, `markAllReadAction` |
 | `tags.ts` | `createTagAction`, `updateTagAction`, `deleteTagAction`, `assignTagsAction` |
 | `notifications.ts` | `createNotificationRuleAction` (with `events`), `toggleNotificationRuleAction`, `updateNotificationRuleEventsAction`, `deleteNotificationRuleAction`, `sendTestNotificationAction` |
@@ -112,11 +112,11 @@ Client usage pattern: call the action in `startTransition`, show `toast` from `s
 | --- | --- |
 | `session.ts` | `requireUser()` (redirects to `/login`), `requireSuperAdmin()` (404 for non-admins), `getSuperAdminOrThrow()` (throws `ForbiddenError`) |
 | `action-result.ts` | `ok`, `fail`, `invalidInput`, `toActionError`, `isUniqueConstraintError`, `getGitHubToken(user)` (decrypts, `undefined` on failure) |
-| `queries/feed.ts` | `visibleReleasesWhere`, `buildFeedWhere`, `getReleaseFeed` (keyset; sets `newerThanMine` / `isMyVersion`), `countUnread`, `getReleaseDetail`, `getDashboardData` (sidebar, unread counts), `getTrackedRepositories` / `loadTrackedRepositories` / `toTrackedRepository` |
+| `queries/feed.ts` | `visibleReleasesWhere`, `visibleReleasesWhereForSubscriptions`, `buildFeedWhere`, `buildFeedWhereForSubscriptions`, `getReleaseFeed` (keyset; sets `newerThanMine` / `isMyVersion`), `countUnread`, `getReleaseDetail`, `getDashboardData` (sidebar, unread counts), `getTrackedRepositories` / `loadTrackedRepositories` / `toTrackedRepository` |
 | `queries/repository-settings.ts` | `getRepositorySettings(userId, owner, name)` (`null` unless subscribed), `getRepositoryActivity(userId, repositoryId)` (newest 5,000 of last 371 days through `visibleReleasesWhere`) |
 | `queries/notifications.ts` | `getNotificationRules` (masked), `MAX_NOTIFICATION_RULES = 25` |
 | `queries/access.ts` | `getInvites` (newest 100), `getMemberCount` |
-| `queries/dependencies.ts` | `getDependencyProjects`, `getAddableSubscriptions`, `getDependencyProject(userId, owner, name)` (`null` unless user's), `getDependencyProjectForRepository`, `getAppRepoStatus` (≤ 2 GitHub calls per render), `checkRepoAccess(user, repo, "read" \| "write")`, `loadAppCredentials`, `planPullRequests`, `planListPullRequests` |
+| `queries/dependencies.ts` | `getDependencyProjects`, `getDependenciesListData`, `getAddableSubscriptions`, `getDependencyProject(userId, owner, name)` (`null` unless user's), `getDependencyProjectForRepository`, `getAppRepoStatus` (≤ 2 GitHub calls per render), `checkRepoAccess(user, repo, "read" \| "write")`, `loadAppCredentials`, `planPullRequests`, `planListPullRequests` |
 | `queries/github-app.ts` | `getGitHubAppView` (never key or secret), `isGitHubAppConfigured` |
 | `deps-status.ts` | `isDepsEnabled` (per request), `getDepsSidebarInfo`, `readDepsWorkerStatus` (Redis heartbeat), `getDepsAdminView` |
 | `github-app.ts`, `github-app-webhook.ts`, `deps-webhook-queue.ts` | Manifest state cookie and callback; webhook verification and routing; webhook `deps-scan` producer |
@@ -130,7 +130,7 @@ Client usage pattern: call the action in `startTransition`, show `toast` from `s
 
 ## Auth in the app
 
-`lib/auth.ts` exports `auth`, `getCurrentUserOrThrow()` (cached per request with React `cache`), `UnauthorizedError`, and `ForbiddenError`. Better Auth stores database sessions (carrying `userId`) via Prisma and encrypts GitHub tokens onto `User.githubAccessTokenEncrypted`. See [../guides/auth-and-access.md](../guides/auth-and-access.md).
+`lib/auth.ts` exports `auth`, `getCurrentUserOrThrow()` (cached per request with React `cache`, constructed from Better Auth's live session user without an extra `User` DB query), `UnauthorizedError`, and `ForbiddenError`. Better Auth stores database sessions (carrying `userId`) via Prisma and encrypts GitHub tokens onto `User.githubAccessTokenEncrypted` (loaded lazily only at GitHub call sites). See [../guides/auth-and-access.md](../guides/auth-and-access.md).
 
 ## UI conventions
 
@@ -144,9 +144,9 @@ Client usage pattern: call the action in `startTransition`, show `toast` from `s
 - `/repositories` search params (`lib/repo-list-filters.ts`): `q` (≤ 200 chars), `sort` (`name` default, `-name`, `added`, `-added`, `updated`, `synced`, `unread`, `stars`; pinned first), `tag` (slug), `status` (`unread`, `error`, `paths`, `pinned`), filtered on the server (`applyRepoListFilters`).
 - Activity grid (`ActivityGrid`, `ActivityStats`, `lib/activity-grid.ts`) buckets timestamps by local browser day after mount using `--activity-1..4`.
 - "My version" (`lib/version-compare.ts`): compares visible `RELEASE` / `TAG` rows published after the matching `tagName`, falling back to SemVer comparison.
-- Release notes render server-side via `ChangelogMarkdown` (`rehype-sanitize`). Never use `dangerouslySetInnerHTML` with release content.
+- Release notes render server-side via `ChangelogMarkdown` (`rehype-sanitize`). Clicking a feed item fetches sanitized drawer content via `getReleaseDrawerAction` with client-side caching and shallow `window.history.pushState` URL sync (keeping SSR for direct `?release=<id>` loads), while `UnreadProvider` updates unread counts optimistically. Never use `dangerouslySetInnerHTML` with release content.
 - Instance-admin navigation (`components/layout/app-sidebar.tsx` **Instance** group and `top-navbar.tsx`) is gated by `isSuperAdmin`.
-- Dependencies: sidebar shows **Dependencies** (with outdated-projects count) only when the module is on. `SseListener` handles `DEPS_SCAN_COMPLETED`, `DEPS_SCAN_FAILED`, and `DEPS_PULL_REQUEST_UPDATED` (toast + `router.refresh()`).
+- Dependencies: sidebar shows **Dependencies** (with outdated-projects count) only when the module is on. `SseListener` handles `DEPS_SCAN_COMPLETED`, `DEPS_SCAN_FAILED`, and `DEPS_PULL_REQUEST_UPDATED` (toast + 400 ms debounced `router.refresh()`).
 
 ## Tests
 

@@ -27,7 +27,7 @@ import {
 } from "@/lib/dependency-list-filters";
 import { PACKAGE_MANAGER_LABELS, updateModeLabel } from "@/lib/dependency-settings";
 import { isDepsEnabled, lockfileRegenerationAvailable, readDepsWorkerStatus } from "@/server/deps-status";
-import { getAddableSubscriptions, getDependencyProjects, planListPullRequests } from "@/server/queries/dependencies";
+import { getDependenciesListData, planListPullRequests } from "@/server/queries/dependencies";
 import { isGitHubAppConfigured } from "@/server/queries/github-app";
 import { requireUser } from "@/server/session";
 
@@ -51,9 +51,8 @@ export default async function DependenciesPage({ searchParams }: PageProps<"/dep
     );
   }
 
-  const [projects, addable, appConfigured, worker] = await Promise.all([
-    getDependencyProjects(user.id),
-    getAddableSubscriptions(user.id),
+  const [{ projects, addable }, appConfigured, worker] = await Promise.all([
+    getDependenciesListData(user.id),
     isGitHubAppConfigured(),
     readDepsWorkerStatus(),
   ]);

@@ -8,6 +8,17 @@ const emptySubscribe = () => () => {};
 const getClientTrue = () => true;
 const getServerFalse = () => false;
 
+const INTL_FORMATTERS: Record<string, Intl.DateTimeFormat> = {
+  PPpp: new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" }),
+  PPp: new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }),
+  PP: new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }),
+};
+
+function formatLocal(value: Date, pattern: string): string {
+  const formatter = INTL_FORMATTERS[pattern];
+  return formatter ? formatter.format(value) : format(value, pattern);
+}
+
 function useIsClient(): boolean {
   return useSyncExternalStore(emptySubscribe, getClientTrue, getServerFalse);
 }
@@ -21,7 +32,7 @@ export function RelativeTime({ date, className }: { date: Date | string; classNa
   const isClient = useIsClient();
   const value = typeof date === "string" ? new Date(date) : date;
   const iso = value.toISOString();
-  const title = isClient ? format(value, "PPpp") : `${iso.slice(0, 16).replace("T", " ")} UTC`;
+  const title = isClient ? formatLocal(value, "PPpp") : `${iso.slice(0, 16).replace("T", " ")} UTC`;
 
   return (
     <time dateTime={iso} title={title} className={cn("whitespace-nowrap", className)} suppressHydrationWarning>
@@ -46,7 +57,7 @@ export function LocalDateTime({
   const isClient = useIsClient();
   const value = typeof date === "string" ? new Date(date) : date;
   const iso = value.toISOString();
-  const label = isClient ? format(value, pattern) : `${iso.slice(0, 16).replace("T", " ")} UTC`;
+  const label = isClient ? formatLocal(value, pattern) : `${iso.slice(0, 16).replace("T", " ")} UTC`;
   return (
     <time dateTime={iso} className={cn("whitespace-nowrap", className)} suppressHydrationWarning>
       {label}

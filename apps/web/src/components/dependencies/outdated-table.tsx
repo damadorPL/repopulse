@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useDeferredValue, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { BanIcon, EllipsisIcon, ExternalLinkIcon, FileTextIcon, RssIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -90,13 +90,16 @@ function RowActions({
   projectId,
   row,
   tracked,
+  onUnauthorized,
+  onTracked,
 }: {
   projectId: string;
   row: DependencyUpdateView;
   /** The dependency's source repository is already tracked (or unknown). */
   tracked: boolean;
+  onUnauthorized: () => void;
+  onTracked: () => void;
 }) {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const version = row.targetVersion ?? row.latestVersion;
@@ -104,7 +107,7 @@ function RowActions({
   const source = githubRepoFromUrl(row.sourceRepoUrl);
 
   function handle(code: string, message: string) {
-    if (code === "UNAUTHORIZED") router.push("/login");
+    if (code === "UNAUTHORIZED") onUnauthorized();
     toast.error(message);
   }
 
@@ -132,7 +135,7 @@ function RowActions({
       if (!result.ok) return handle(result.error.code, result.error.message);
       setOpen(false);
       toast.success(`Tracking the releases of ${result.data.fullName}`);
-      router.refresh();
+      onTracked();
     });
   }
 
@@ -223,10 +226,12 @@ export function OutdatedTable({
   minReleaseAgeDays: number;
   trackedFullNames: string[];
 }) {
+  const router = useRouter();
   const [filters, setFilters] = useState<UpdateTableFilters>({});
+  const deferredFilters = useDeferredValue(filters);
   const tracked = new Set(trackedFullNames);
   const ecosystems = [...new Set(manifests.map((m) => m.ecosystem))];
-  const shown = filterUpdateRows(rows, filters);
+  const shown = filterUpdateRows(rows, deferredFilters);
   const byManifest = manifests
     .map((manifest) => ({
       manifest,
@@ -236,6 +241,8 @@ export function OutdatedTable({
     }))
     .filter((group) => group.rows.length > 0);
 
+  const onUnauthorized = () => router.push("/login");
+  const onTracked = () => router.refresh();
   const set = (patch: Partial<UpdateTableFilters>) => setFilters((current) => ({ ...current, ...patch }));
   const active = Boolean(filters.level || filters.kind || filters.ecosystem || filters.status || filters.q);
 
@@ -326,7 +333,7 @@ export function OutdatedTable({
                   const explanation = statusExplanation(row, minReleaseAgeDays);
                   const source = githubRepoFromUrl(row.sourceRepoUrl);
                   return (
-                    <tr key={row.id} className="align-top">
+                    <tr key={row.id} className="align-top [content-visibility:auto] [contain-intrinsic-size:auto_48px]">
                       <td className="px-3 py-2">
                         <a
                           href={registryUrl(row.ecosystem, row.name)}
@@ -371,6 +378,8 @@ export function OutdatedTable({
                           projectId={projectId}
                           row={row}
                           tracked={!source || tracked.has(source.fullName.toLowerCase())}
+                          onUnauthorized={onUnauthorized}
+                          onTracked={onTracked}
                         />
                       </td>
                     </tr>

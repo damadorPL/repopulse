@@ -32,6 +32,7 @@ import {
   STORED_RELEASE_SELECT,
   tracksReleases,
   tracksTags,
+  type SubscriberWithMode,
   type TagStepResult,
 } from "./repo-tags.js";
 
@@ -65,7 +66,7 @@ export type RepoPollOutcome =
 
 export interface RepoPollDeps {
   prisma: PrismaClient;
-  redis: Pick<Redis, "publish">;
+  redis: Pick<Redis, "publish"> & Partial<Pick<Redis, "get" | "set">>;
   repoPollQueue: Pick<Queue<RepoPollJobData>, "rateLimit">;
   notificationQueue: Pick<Queue<NotificationJobData>, "addBulk">;
   poll?: typeof pollRepoReleases;
@@ -126,6 +127,7 @@ async function storeAndFanOut(
   releases: MappedRelease[],
   etag: string | null,
   polledAt: Date,
+  onSubscribersLoaded?: (subscribers: SubscriberWithMode[]) => void,
 ): Promise<{ stored: number; promoted: number; fresh: number; plan: FanOutPlan }> {
   return prisma.$transaction(async (tx) => {
     // Tag rows are dated by their commit, so only GitHub Releases define what counts as new here.
@@ -167,16 +169,18 @@ async function storeAndFanOut(
             select: STORED_RELEASE_SELECT,
           })
         : [];
-    const promoted = [];
-    for (const release of toPromote) {
-      promoted.push(
-        await tx.release.update({
-          where: { id: tagRowByName.get(release.tagName)! },
-          data: { ...release, source: "RELEASE", tagSha: null },
-          select: STORED_RELEASE_SELECT,
-        }),
-      );
-    }
+    const promoted =
+      toPromote.length > 0
+        ? await Promise.all(
+            toPromote.map((release) =>
+              tx.release.update({
+                where: { id: tagRowByName.get(release.tagName)! },
+                data: { ...release, source: "RELEASE", tagSha: null },
+                select: STORED_RELEASE_SELECT,
+              }),
+            ),
+          )
+        : [];
 
     const newestKnownAt = newestKnown?.publishedAt ?? null;
     const fresh = selectFreshReleases(created, newestKnownAt);
@@ -185,7 +189,9 @@ async function storeAndFanOut(
 
     if (fresh.length > 0 || freshPromoted.length > 0) {
       // Paths-only subscribers (`trackMode: NONE`) never see GitHub Releases.
-      const subscribers = (await loadSubscribers(tx, repositoryId)).filter(tracksReleases);
+      const allSubscribers = await loadSubscribers(tx, repositoryId);
+      onSubscribersLoaded?.(allSubscribers);
+      const subscribers = allSubscribers.filter(tracksReleases);
       plan = mergeFanOutPlans(
         planFanOut(subscribers, fresh),
         // Tag-mode subscribers already received these as tags.
@@ -368,6 +374,12 @@ export async function processRepoPoll(
       : null;
     const result = await pollWithFallback(repo, candidates, deps.poll ?? pollRepoReleases, signal);
 
+    let cachedSubscribersPromise: Promise<SubscriberWithMode[]> | null = null;
+    const getSubscribers = () => {
+      cachedSubscribersPromise ??= loadSubscribers(prisma, repositoryId);
+      return cachedSubscribersPromise;
+    };
+
     let releaseStep: Awaited<ReturnType<typeof storeAndFanOut>> | null = null;
     if (result.status === "NOT_MODIFIED") {
       await prisma.repository.update({
@@ -379,7 +391,9 @@ export async function processRepoPoll(
         `${repo.fullName}: HTTP 304 Not Modified${quota(result.rateLimitRemaining)}`,
       );
     } else {
-      releaseStep = await storeAndFanOut(prisma, repositoryId, result.releases, result.etag, now());
+      releaseStep = await storeAndFanOut(prisma, repositoryId, result.releases, result.etag, now(), (subs) => {
+        cachedSubscribersPromise = Promise.resolve(subs);
+      });
       log.info(
         {
           ...ctx,
@@ -398,25 +412,35 @@ export async function processRepoPoll(
     }
 
     // After the release step, so a tag whose Release arrived in this poll is not stored twice.
-    const tagStep: TagStepResult | null = withTags
-      ? await pollRepoTags(
-          { prisma, fetchTags: deps.fetchTags, compare: deps.compare, now },
-          repo,
-          candidates,
-          newestBefore,
-          signal,
-        )
-      : null;
+    // Tag and path steps operate on disjoint Release sources and Repository columns, so run concurrently.
+    const [tagStep, pathStep]: [TagStepResult | null, PathStepResult | null] = await Promise.all([
+      withTags
+        ? pollRepoTags(
+            { prisma, fetchTags: deps.fetchTags, compare: deps.compare, now },
+            repo,
+            candidates,
+            newestBefore,
+            signal,
+            getSubscribers,
+          )
+        : Promise.resolve(null),
+      withPaths
+        ? pollRepoPaths(
+            {
+              prisma,
+              redis: deps.redis,
+              fetchCommits: deps.fetchPathCommits,
+              fetchDetail: deps.fetchCommitDetail,
+              now,
+            },
+            repo,
+            candidates,
+            signal,
+            getSubscribers,
+          )
+        : Promise.resolve(null),
+    ]);
     const tags = tagStep ? { tags: { received: tagStep.received, stored: tagStep.stored, fresh: tagStep.fresh } } : {};
-    // Best effort too: commits touching watched paths ("Files / folders", Slice 06).
-    const pathStep: PathStepResult | null = withPaths
-      ? await pollRepoPaths(
-          { prisma, fetchCommits: deps.fetchPathCommits, fetchDetail: deps.fetchCommitDetail, now },
-          repo,
-          candidates,
-          signal,
-        )
-      : null;
     const stepOutcomes: TagOutcome = { ...tags, ...(pathStep ? { paths: pathStep.counts } : {}) };
 
     const plan = mergeFanOutPlans(

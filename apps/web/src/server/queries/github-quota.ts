@@ -40,6 +40,16 @@ export async function getGitHubQuotaView(
     let login = adminUser.githubLogin;
 
     if (!token) {
+      const adminRow = await prisma.user?.findUnique?.({
+        where: { id: adminUser.id },
+        select: { githubAccessTokenEncrypted: true },
+      });
+      if (adminRow?.githubAccessTokenEncrypted) {
+        token = resolveToken({ ...adminUser, githubAccessTokenEncrypted: adminRow.githubAccessTokenEncrypted });
+      }
+    }
+
+    if (!token) {
       const subscriber = await prisma.user.findFirst({
         where: { githubAccessTokenEncrypted: { not: null } },
         select: { githubAccessTokenEncrypted: true, githubLogin: true },

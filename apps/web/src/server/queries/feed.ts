@@ -80,6 +80,15 @@ export interface GetReleaseFeedParams extends Partial<FeedFilters> {
   userId: string;
   cursor?: string | null;
   limit?: number;
+  subscriptions?: readonly SubscriptionVisibility[];
+}
+
+export interface SubscriptionVisibility {
+  repositoryId: string;
+  includePrereleases: boolean;
+  trackMode: TrackMode;
+  trackPaths: boolean;
+  tagSlugs: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +150,110 @@ export function buildFeedWhere(userId: string, filters: Partial<FeedFilters>): P
     // Case-insensitive substring match (ILIKE) over repo names, release tag/title, changelog
     // bodies and the user's tag names. Fine at self-hosted scale; a pg_trgm / tsvector index
     // is the upgrade path if feeds grow large.
+    const contains = { contains: q, mode: "insensitive" } as const;
+    and.push({
+      OR: [
+        { tagName: contains },
+        { title: contains },
+        { bodyMarkdown: contains },
+        { repository: { fullName: contains } },
+        { repository: { subscriptions: { some: { userId, tags: { some: { tag: { name: contains } } } } } } },
+      ],
+    });
+  }
+
+  return { AND: and };
+}
+
+/**
+ * Subscription-resolved equivalent of {@link visibleReleasesWhere}: buckets the user's already-loaded
+ * subscriptions into flat `repositoryId IN (...)` lists so PostgreSQL avoids 5 correlated `EXISTS`
+ * subqueries per row. Returns `null` when no subscription can match any visible row.
+ */
+export function visibleReleasesWhereForSubscriptions(
+  userId: string,
+  subscriptions: readonly SubscriptionVisibility[],
+): Prisma.ReleaseWhereInput | null {
+  const releaseStable: string[] = [];
+  const releaseAll: string[] = [];
+  const tagStable: string[] = [];
+  const tagAll: string[] = [];
+  const commitStable: string[] = [];
+  const commitAll: string[] = [];
+
+  for (const sub of subscriptions) {
+    if (sub.trackMode === "RELEASES" || sub.trackMode === "TAGS_AND_COMMITS") {
+      if (sub.includePrereleases) releaseAll.push(sub.repositoryId);
+      else releaseStable.push(sub.repositoryId);
+    }
+    if (sub.trackMode === "TAGS_AND_COMMITS") {
+      if (sub.includePrereleases) tagAll.push(sub.repositoryId);
+      else tagStable.push(sub.repositoryId);
+    }
+    if (sub.trackPaths) {
+      if (sub.includePrereleases) commitAll.push(sub.repositoryId);
+      else commitStable.push(sub.repositoryId);
+    }
+  }
+
+  const branches: Prisma.ReleaseWhereInput[] = [];
+  if (releaseStable.length > 0) {
+    branches.push({ source: "RELEASE", isPrerelease: false, repositoryId: { in: releaseStable } });
+  }
+  if (releaseAll.length > 0) {
+    branches.push({ source: "RELEASE", repositoryId: { in: releaseAll } });
+  }
+  if (tagStable.length > 0) {
+    branches.push({ source: "TAG", isPrerelease: false, repositoryId: { in: tagStable } });
+  }
+  if (tagAll.length > 0) {
+    branches.push({ source: "TAG", repositoryId: { in: tagAll } });
+  }
+  if (commitStable.length > 0) {
+    branches.push({
+      source: "COMMIT",
+      isPrerelease: false,
+      repositoryId: { in: commitStable },
+      userStates: { some: { userId } },
+    });
+  }
+  if (commitAll.length > 0) {
+    branches.push({
+      source: "COMMIT",
+      repositoryId: { in: commitAll },
+      userStates: { some: { userId } },
+    });
+  }
+
+  if (branches.length === 0) return null;
+  return { isDraft: false, OR: branches };
+}
+
+/**
+ * Subscription-resolved equivalent of {@link buildFeedWhere}. Returns `null` when no subscription matches
+ * the requested `tagSlug` / `repositoryId` or tracking visibility.
+ */
+export function buildFeedWhereForSubscriptions(
+  userId: string,
+  filters: Partial<FeedFilters>,
+  subscriptions: readonly SubscriptionVisibility[],
+): Prisma.ReleaseWhereInput | null {
+  let matching = subscriptions;
+  if (filters.tagSlug) {
+    matching = matching.filter((sub) => sub.tagSlugs.includes(filters.tagSlug!));
+  }
+  if (filters.repositoryId) {
+    matching = matching.filter((sub) => sub.repositoryId === filters.repositoryId);
+  }
+  const visibility = visibleReleasesWhereForSubscriptions(userId, matching);
+  if (!visibility) return null;
+
+  const and: Prisma.ReleaseWhereInput[] = [visibility];
+  if (filters.onlyUnread) and.push({ userStates: { some: { userId, isRead: false } } });
+  if (filters.semverType) and.push({ semverType: filters.semverType });
+
+  const q = filters.searchQuery?.trim();
+  if (q) {
     const contains = { contains: q, mode: "insensitive" } as const;
     and.push({
       OR: [
@@ -295,13 +408,17 @@ export function afterCursorWhere(
 
 /** Cursor-paginated release feed, newest first by default. */
 export async function getReleaseFeed(params: GetReleaseFeedParams): Promise<FeedPage> {
-  const { userId, cursor, limit = FEED_PAGE_SIZE, ...filters } = params;
+  const { userId, cursor, limit = FEED_PAGE_SIZE, subscriptions, ...filters } = params;
   const take = Math.min(Math.max(limit, 1), 100);
   const direction = filters.sort === "oldest" ? "asc" : "desc";
   const after = cursor ? decodeFeedCursor(cursor) : null;
   if (cursor && !after) return { items: [], nextCursor: null };
 
-  const where = buildFeedWhere(userId, filters);
+  const where = subscriptions
+    ? buildFeedWhereForSubscriptions(userId, filters, subscriptions)
+    : buildFeedWhere(userId, filters);
+  if (!where) return { items: [], nextCursor: null };
+
   const rows = await prisma.release.findMany({
     where: after ? { AND: [where, afterCursorWhere(after, direction)] } : where,
     // `id` breaks ties between releases published in the same millisecond (keeps cursors stable).
@@ -320,8 +437,16 @@ export async function getReleaseFeed(params: GetReleaseFeedParams): Promise<Feed
 }
 
 /** Unread releases matching a filter (for views narrowed by SemVer type or search). */
-export async function countUnread(userId: string, filters: Partial<FeedFilters>): Promise<number> {
-  return prisma.release.count({ where: buildFeedWhere(userId, { ...filters, onlyUnread: true }) });
+export async function countUnread(
+  userId: string,
+  filters: Partial<FeedFilters>,
+  subscriptions?: readonly SubscriptionVisibility[],
+): Promise<number> {
+  const where = subscriptions
+    ? buildFeedWhereForSubscriptions(userId, { ...filters, onlyUnread: true }, subscriptions)
+    : buildFeedWhere(userId, { ...filters, onlyUnread: true });
+  if (!where) return 0;
+  return prisma.release.count({ where });
 }
 
 /** A single release with its changelog, or null if the user can't see it. */
@@ -366,6 +491,7 @@ export interface SubscriptionSummary {
 export interface DashboardData {
   tags: SidebarTag[];
   subscriptions: SubscriptionSummary[];
+  subscriptionVisibility: SubscriptionVisibility[];
   totalUnread: number;
   /** Repositories with unread releases, most unread first. */
   unreadByRepository: UnreadByRepository[];
@@ -377,7 +503,7 @@ export interface DashboardData {
  * with several tags counts towards each of them. Memoized per request (layout + page share it).
  */
 export const getDashboardData = cache(async (userId: string): Promise<DashboardData> => {
-  const [tags, subscriptions, unreadGroups] = await Promise.all([
+  const [tags, subscriptions] = await Promise.all([
     prisma.tag.findMany({
       where: { userId },
       select: { id: true, name: true, slug: true, colorHex: true, subscriptions: { select: { subscriptionId: true } } },
@@ -387,16 +513,47 @@ export const getDashboardData = cache(async (userId: string): Promise<DashboardD
       select: {
         id: true,
         repositoryId: true,
+        includePrereleases: true,
+        trackMode: true,
+        trackPaths: true,
         repository: { select: { fullName: true, avatarUrl: true } },
         tags: { select: { tagId: true } },
       },
     }),
-    prisma.release.groupBy({
-      by: ["repositoryId"],
-      where: { AND: [visibleReleasesWhere(userId), { userStates: { some: { userId, isRead: false } } }] },
-      _count: { _all: true },
-    }),
   ]);
+
+  const tagSlugById = new Map(tags.map((t) => [t.id, t.slug]));
+  const hasVisibilityFields = subscriptions.every(
+    (s) =>
+      typeof s.trackMode === "string" && typeof s.includePrereleases === "boolean" && typeof s.trackPaths === "boolean",
+  );
+  const subscriptionVisibility: SubscriptionVisibility[] = hasVisibilityFields
+    ? subscriptions.map((s) => ({
+        repositoryId: s.repositoryId,
+        includePrereleases: s.includePrereleases,
+        trackMode: s.trackMode,
+        trackPaths: s.trackPaths,
+        tagSlugs: s.tags.flatMap((t) => {
+          const slug = tagSlugById.get(t.tagId);
+          return slug ? [slug] : [];
+        }),
+      }))
+    : [];
+
+  const visibilityWhere =
+    subscriptions.length === 0
+      ? null
+      : hasVisibilityFields
+        ? visibleReleasesWhereForSubscriptions(userId, subscriptionVisibility)
+        : visibleReleasesWhere(userId);
+
+  const unreadGroups = visibilityWhere
+    ? await prisma.release.groupBy({
+        by: ["repositoryId"],
+        where: { AND: [visibilityWhere, { userStates: { some: { userId, isRead: false } } }] },
+        _count: { _all: true },
+      })
+    : [];
 
   const unreadByRepoId = new Map(unreadGroups.map((group) => [group.repositoryId, group._count._all]));
   const unreadBySubscriptionId = new Map(subscriptions.map((s) => [s.id, unreadByRepoId.get(s.repositoryId) ?? 0]));
@@ -429,6 +586,7 @@ export const getDashboardData = cache(async (userId: string): Promise<DashboardD
         tagIds: s.tags.map((t) => t.tagId),
       }))
       .sort((a, b) => a.fullName.localeCompare(b.fullName)),
+    subscriptionVisibility,
     totalUnread: unreadByRepository.reduce((sum, r) => sum + r.unreadCount, 0),
     unreadByRepository,
   };

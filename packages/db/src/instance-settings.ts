@@ -176,3 +176,53 @@ export async function loadDepsEnabled(client: Pick<PrismaClient, "instanceSettin
   });
   return row?.depsEnabled ?? false;
 }
+
+/** Default TTL for in-memory worker settings caches (changes in Admin apply within 15s without restart). */
+export const DEFAULT_SETTINGS_CACHE_TTL_MS = 15_000;
+
+export interface CachedLoaderOptions {
+  ttlMs?: number;
+  now?: () => number;
+}
+
+/**
+ * Wraps an async settings loader with a short-TTL in-memory cache and single-flight deduplication so bursts of
+ * concurrent worker jobs share one DB read + decryption. Rejected promises are never cached.
+ */
+export function createCachedLoader<T>(
+  load: () => Promise<T>,
+  options: CachedLoaderOptions = {},
+): (() => Promise<T>) & { invalidate(): void } {
+  const ttlMs = options.ttlMs ?? DEFAULT_SETTINGS_CACHE_TTL_MS;
+  const now = options.now ?? Date.now;
+  let cached: { value: T; expiresAt: number } | null = null;
+  let inFlight: Promise<T> | null = null;
+  let generation = 0;
+
+  const fn = async (): Promise<T> => {
+    if (cached && now() < cached.expiresAt) return cached.value;
+    if (inFlight) return inFlight;
+
+    const currentGeneration = generation;
+    const promise = load()
+      .then((value) => {
+        if (generation === currentGeneration && ttlMs > 0) {
+          cached = { value, expiresAt: now() + ttlMs };
+        }
+        return value;
+      })
+      .finally(() => {
+        if (inFlight === promise) inFlight = null;
+      });
+    inFlight = promise;
+    return promise;
+  };
+
+  fn.invalidate = () => {
+    generation += 1;
+    cached = null;
+    inFlight = null;
+  };
+
+  return fn;
+}
