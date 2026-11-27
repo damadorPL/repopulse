@@ -117,6 +117,7 @@ model Session {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([expiresAt])
 }
 
 model Account {
@@ -148,6 +149,7 @@ model Verification {
   updatedAt  DateTime @updatedAt
 
   @@index([identifier])
+  @@index([expiresAt])
 }
 
 /// Instance-wide settings: a single row with `id = 1`; a missing row means the defaults.
@@ -617,6 +619,6 @@ model DependencyNotificationOutbox {
   createdAt DateTime          @default(now())
   project   DependencyProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  @@index([createdAt])
+  @@index([createdAt, id])
   @@index([projectId])
 }

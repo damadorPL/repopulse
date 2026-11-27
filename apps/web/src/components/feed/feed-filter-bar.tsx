@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCheckIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
-import { useReader } from "@/components/reader/reader-context";
+import { useReaderList } from "@/components/reader/reader-context";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { feedHref, SEMVER_TYPES, type FeedFilters, type FeedSort, type SemverTypeValue } from "@/lib/feed-filters";
@@ -30,10 +30,14 @@ export function FeedFilterBar({
   unreadInView: boolean;
 }) {
   const router = useRouter();
-  const { resetReadOverrides } = useReader();
+  const { resetReadOverrides } = useReaderList();
   const [marking, startMarking] = useTransition();
+  const [navigating, startNavigating] = useTransition();
 
-  const go = (next: Partial<FeedFilters>) => router.push(feedHref({ ...filters, ...next }), { scroll: false });
+  const go = (next: Partial<FeedFilters>) =>
+    startNavigating(() => {
+      router.push(feedHref({ ...filters, ...next }), { scroll: false });
+    });
 
   function markAllRead() {
     startMarking(async () => {
@@ -78,7 +82,7 @@ export function FeedFilterBar({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2" aria-busy={navigating || undefined}>
         <div role="group" aria-label="Read status" className="inline-flex h-8 rounded-md border p-0.5">
           {[
             { label: "All", unread: false },
@@ -87,6 +91,7 @@ export function FeedFilterBar({
             <Link
               key={option.label}
               href={feedHref({ ...filters, onlyUnread: option.unread })}
+              prefetch={false}
               scroll={false}
               aria-current={filters.onlyUnread === option.unread ? "true" : undefined}
               className={cn(
@@ -103,7 +108,7 @@ export function FeedFilterBar({
           value={filters.semverType ?? ALL}
           onValueChange={(value) => go({ semverType: value === ALL ? undefined : (value as SemverTypeValue) })}
         >
-          <SelectTrigger aria-label="Release type" className="min-w-36">
+          <SelectTrigger aria-label="Release type" className={cn("min-w-36", navigating && "opacity-70")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -117,7 +122,7 @@ export function FeedFilterBar({
         </Select>
 
         <Select value={filters.sort} onValueChange={(value) => go({ sort: value as FeedSort })}>
-          <SelectTrigger aria-label="Sort order" className="min-w-32">
+          <SelectTrigger aria-label="Sort order" className={cn("min-w-32", navigating && "opacity-70")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -138,6 +143,7 @@ export function FeedFilterBar({
             <Link
               key={chip.key}
               href={feedHref({ ...filters, ...chip.clear })}
+              prefetch={false}
               scroll={false}
               className="inline-flex max-w-full items-center gap-1.5 rounded-full border bg-secondary/60 py-0.5 pl-2.5 pr-1.5 text-xs hover:bg-secondary"
             >
@@ -149,6 +155,7 @@ export function FeedFilterBar({
           {chips.length > 1 ? (
             <Link
               href={feedHref({ onlyUnread: filters.onlyUnread, sort: filters.sort })}
+              prefetch={false}
               scroll={false}
               className="text-xs text-muted-foreground hover:text-foreground hover:underline"
             >

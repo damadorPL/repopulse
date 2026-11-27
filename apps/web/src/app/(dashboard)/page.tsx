@@ -16,6 +16,7 @@ import {
   getDashboardData,
   getReleaseDetail,
   getReleaseFeed,
+  getUserFeedContext,
   type FeedItem,
   type ReleaseDetail,
 } from "@/server/queries/feed";
@@ -29,35 +30,39 @@ export default async function ReleaseFeedPage({ searchParams }: PageProps<"/">) 
   const releaseId = parseReleaseParam(params);
   const user = await requireUser();
 
-  const [dashboard, detail] = await Promise.all([
-    getDashboardData(user.id),
+  const [context, detail] = await Promise.all([
+    getUserFeedContext(user.id),
     releaseId ? getReleaseDetail(user.id, releaseId) : Promise.resolve(null),
   ]);
 
-  const tag = filters.tagSlug ? (dashboard.tags.find((t) => t.slug === filters.tagSlug) ?? null) : null;
+  const tag = filters.tagSlug ? (context.tags.find((t) => t.slug === filters.tagSlug) ?? null) : null;
   const repository = filters.repositoryId
-    ? (dashboard.subscriptions.find((s) => s.repositoryId === filters.repositoryId) ?? null)
+    ? (context.subscriptions.find((s) => s.repositoryId === filters.repositoryId) ?? null)
     : null;
 
   const heading = tag?.name ?? repository?.fullName ?? (filters.onlyUnread ? "Unread releases" : "All releases");
   const filtered = Boolean(filters.semverType || filters.searchQuery);
   const needsExactUnreadCount = filtered || Boolean(filters.tagSlug && filters.repositoryId);
-  const [page, countedUnread] = await Promise.all([
-    getReleaseFeed({ userId: user.id, ...filters, subscriptions: dashboard.subscriptionVisibility }),
-    needsExactUnreadCount ? countUnread(user.id, filters, dashboard.subscriptionVisibility) : Promise.resolve(0),
+  const [page, viewUnread] = await Promise.all([
+    getReleaseFeed({
+      userId: user.id,
+      ...filters,
+      subscriptions: context.subscriptionVisibility,
+      repoContextById: context.repoContextById,
+    }),
+    needsExactUnreadCount
+      ? countUnread(user.id, filters, context.subscriptionVisibility)
+      : !tag && !repository && (filters.tagSlug || filters.repositoryId)
+        ? Promise.resolve(0) // unknown tag / untracked repo
+        : getDashboardData(user.id).then((dashboard) =>
+            tag
+              ? (dashboard.tags.find((t) => t.id === tag.id)?.unreadCount ?? 0)
+              : repository
+                ? (dashboard.unreadByRepository.find((r) => r.repositoryId === repository.repositoryId)?.unreadCount ??
+                  0)
+                : dashboard.totalUnread,
+          ),
   ]);
-
-  // Tag-only / repo-only / unfiltered counts come precomputed with the sidebar data; any
-  // narrower combination gets its own count.
-  const viewUnread = needsExactUnreadCount
-    ? countedUnread
-    : tag
-      ? tag.unreadCount
-      : repository
-        ? (dashboard.unreadByRepository.find((r) => r.repositoryId === repository.repositoryId)?.unreadCount ?? 0)
-        : filters.tagSlug || filters.repositoryId
-          ? 0 // unknown tag / untracked repo
-          : dashboard.totalUnread;
   const key = feedFiltersKey(filters);
   const drawerItem = detail ? toDrawerItem(detail) : null;
 
@@ -71,8 +76,8 @@ export default async function ReleaseFeedPage({ searchParams }: PageProps<"/">) 
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {viewUnread > 0 ? `${viewUnread} unread` : "All caught up"}
-            {dashboard.subscriptions.length > 0
-              ? ` · ${dashboard.subscriptions.length} tracked repositor${dashboard.subscriptions.length === 1 ? "y" : "ies"}`
+            {context.subscriptions.length > 0
+              ? ` · ${context.subscriptions.length} tracked repositor${context.subscriptions.length === 1 ? "y" : "ies"}`
               : null}
           </p>
         </div>
@@ -89,13 +94,15 @@ export default async function ReleaseFeedPage({ searchParams }: PageProps<"/">) 
           initialPage={page}
           query={key}
           emptyState={
-            dashboard.subscriptions.length === 0 ? (
+            context.subscriptions.length === 0 ? (
               <EmptyState
                 icon={<PlusIcon />}
                 title="Track your first repository"
                 description="Add a GitHub repository and its latest releases show up here, with changelogs and SemVer badges."
                 action={
-                  <AddRepoModal tags={dashboard.tags}>
+                  <AddRepoModal
+                    tags={context.tags.map(({ id, name, slug, colorHex }) => ({ id, name, slug, colorHex }))}
+                  >
                     <Button>
                       <PlusIcon />
                       Add repository

@@ -25,7 +25,7 @@
 
 - **MUST** guard every instance-settings page with `await requireSuperAdmin()` (non-admins get a 404) and every instance-settings action with `await getSuperAdminOrThrow()` (throws `ForbiddenError`, which `toActionError` maps to `FORBIDDEN`).
 - **MUST NOT** gate only in the UI. Hiding the sidebar link is cosmetic; the server checks are the security boundary.
-- **MUST NOT** put the GitHub token (or anything secret) in the session cookie or JWT. Only the Better Auth database session reference is stored in the cookie; encrypted OAuth tokens live on `User.githubAccessTokenEncrypted`.
+- **MUST NOT** put the GitHub token (or anything secret) in the session cookie or JWT. Better Auth stores only signed non-secret session/profile data in its short-lived cookie cache (`maxAge: 30` s) alongside the database session reference; encrypted OAuth tokens live strictly on `User.githubAccessTokenEncrypted`.
 - **MUST NOT** return the App private key or webhook secret to the browser (the view exposes only "key saved" / boolean flags), or log installation tokens or JWTs. Store them with `encryptToken`.
 - **MUST** check the user's own collaborator permission before any repository access through the App (`getCollaboratorPermission` with the installation token): RepoPulse never takes the installation's word for who may use it.
 - **MUST** store only `hashInviteToken(token)` (SHA-256). The raw token is returned once by `createInviteAction`.
@@ -41,7 +41,7 @@
      - An invite cookie with a usable token → atomically claims the invite (`updateMany … usedAt: null, expiresAt > now`, expect count 1) and links `usedById` on `account.create.before` (stale invites fall back to public registration or redirect to `/login?error=InviteInvalid`).
      - Otherwise → allowed only if `publicRegistration`, else `/login?error=InviteRequired`.
 3. `databaseHooks.account.create.before` / `update` encrypts the GitHub token onto `User.githubAccessTokenEncrypted` and clears plaintext tokens from `Account`.
-4. `getCurrentUserOrThrow()` (React `cache`, once per request) reads `auth.api.getSession({ headers })` and loads the `User` row (with `omit: { githubAccessTokenEncrypted: false }`). A missing row counts as signed out.
+4. `getCurrentUserOrThrow()` (React `cache`, once per request) reads `auth.api.getSession({ headers })` (served from Better Auth's signed 30 s cookie cache when valid, otherwise verifying against PostgreSQL) and constructs the user row without extra queries. A missing session counts as signed out.
 
 The email falls back to `<githubId>+<login>@users.noreply.github.com` when GitHub returns none, so `User.email` is never empty.
 

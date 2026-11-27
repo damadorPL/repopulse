@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const tx = {
   invite: { updateMany: vi.fn() },
-  user: { count: vi.fn() },
+  user: { findFirst: vi.fn() },
   instanceSettings: { findUnique: vi.fn() },
   $executeRaw: vi.fn(),
 };
@@ -19,7 +19,7 @@ const { admitNewGitHubUser, findUsableInvite, INVITE_INVALID_REDIRECT, INVITE_RE
 const { generateInviteToken, hashInviteToken } = await import("./invite-tokens");
 
 function setup({ users = 3, open = true } = {}) {
-  tx.user.count.mockResolvedValue(users);
+  tx.user.findFirst.mockResolvedValue(users > 0 ? { id: "u1" } : null);
   tx.instanceSettings.findUnique.mockResolvedValue({ publicRegistration: open });
 }
 
@@ -37,7 +37,7 @@ describe("admitNewGitHubUser", () => {
       isSuperAdmin: true,
       claimedInviteTokenHash: null,
     });
-    expect(tx.$executeRaw).toHaveBeenCalledBefore(tx.user.count);
+    expect(tx.$executeRaw).toHaveBeenCalledBefore(tx.user.findFirst);
   });
 
   it("admits only one bootstrap admin when initial callbacks overlap", async () => {
@@ -56,7 +56,7 @@ describe("admitNewGitHubUser", () => {
       previous = result.then(() => undefined);
       return result;
     });
-    tx.user.count.mockImplementation(async () => userCount);
+    tx.user.findFirst.mockImplementation(async () => (userCount > 0 ? { id: "u1" } : null));
 
     const results = await Promise.all([admitNewGitHubUser(undefined), admitNewGitHubUser(undefined)]);
     expect(results).toEqual([

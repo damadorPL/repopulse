@@ -237,7 +237,7 @@ async function main(): Promise<void> {
   workers = [register(schedulerWorker), register(scanWorker), register(updateWorker), register(notifyWorker)];
 
   stopHeartbeat = startHeartbeat(connection, sandboxProbe);
-  stopNotificationOutbox = startNotificationOutbox(prisma, q.notifyQueue);
+  stopNotificationOutbox = startNotificationOutbox(prisma, q.notifyQueue, loadDepsEnabledCached);
   await registerSchedule(q.schedulerQueue, config.scanCron);
   log.info(
     `deps-scheduler registered with cron "${config.scanCron}"; scan concurrency ${config.scanConcurrency}, ` +

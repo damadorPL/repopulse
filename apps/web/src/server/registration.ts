@@ -3,7 +3,7 @@ import { isWellFormedInviteToken } from "@/lib/invites";
 import { hashInviteToken } from "@/server/invite-tokens";
 
 export interface RegistrationDbClient {
-  user: Pick<Prisma.TransactionClient["user"], "count">;
+  user: Pick<Prisma.TransactionClient["user"], "findFirst">;
   instanceSettings: Pick<Prisma.TransactionClient["instanceSettings"], "findUnique">;
   invite: Pick<Prisma.TransactionClient["invite"], "updateMany">;
   $executeRaw: (query: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>;
@@ -44,7 +44,7 @@ async function runAdmissionInTx(
   // Serialize bootstrap across web processes: two initial OAuth callbacks must not
   // both observe an empty instance and acquire administrator privileges.
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(724512, 1)`;
-  if ((await tx.user.count()) === 0) {
+  if ((await tx.user.findFirst({ select: { id: true } })) === null) {
     return { admitted: true, isSuperAdmin: true, claimedInviteTokenHash: null };
   }
 

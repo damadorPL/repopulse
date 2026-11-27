@@ -9,6 +9,7 @@ const prisma = {
   },
   tag: { findMany: vi.fn() },
   userSubscription: { findMany: vi.fn() },
+  userReleaseState: { findMany: vi.fn(), count: vi.fn() },
 };
 
 vi.mock("@repopulse/db", () => ({ prisma }));
@@ -17,11 +18,13 @@ const {
   afterCursorWhere,
   buildFeedWhere,
   buildFeedWhereForSubscriptions,
+  countUnread,
   decodeFeedCursor,
   encodeFeedCursor,
   getDashboardData,
   getReleaseDetail,
   getReleaseFeed,
+  getUserFeedContext,
   visibleReleasesWhere,
   visibleReleasesWhereForSubscriptions,
 } = await import("./feed");
@@ -124,11 +127,13 @@ describe("keyset feed cursor", () => {
     },
   );
 
-  it("continues strictly after the cursor row in either direction (no skip: 1)", () => {
+  it("continues strictly after the cursor row in either direction with an outer bound (no skip: 1)", () => {
     expect(afterCursorWhere(row, "desc")).toEqual({
+      publishedAt: { lte: row.publishedAt },
       OR: [{ publishedAt: { lt: row.publishedAt } }, { publishedAt: row.publishedAt, id: { lt: row.id } }],
     });
     expect(afterCursorWhere(row, "asc")).toEqual({
+      publishedAt: { gte: row.publishedAt },
       OR: [{ publishedAt: { gt: row.publishedAt } }, { publishedAt: row.publishedAt, id: { gt: row.id } }],
     });
   });
@@ -181,13 +186,18 @@ describe("getReleaseFeed", () => {
     });
     const r3 = makeFeedRow({ id: "rel0", tagName: "v0.9.0", publishedAt: new Date("2026-10-01T00:00:00Z") });
 
-    // 1st call: feed rows (limit clamped to 2 -> take 3). 2nd call: anchor rows for markNewerThanMine.
+    // 1st call: feed rows (limit clamped to 2 -> take 3). 2nd call: anchor rows for markNewerThanMine (flat SAOP).
     prisma.release.findMany
       .mockResolvedValueOnce([r1, r2, r3])
       .mockResolvedValueOnce([{ repositoryId: "repo1", tagName: "v1.0.0", publishedAt: r2.publishedAt }]);
 
     const page = await getReleaseFeed({ userId: USER, limit: 2 });
     expect(prisma.release.findMany.mock.calls[0]![0]).toMatchObject({ take: 3 });
+    expect(prisma.release.findMany.mock.calls[1]![0].where).toEqual({
+      repositoryId: { in: ["repo1"] },
+      source: { in: ["RELEASE", "TAG"] },
+      tagName: { in: expect.arrayContaining(["v1.0.0"]) },
+    });
     expect(page.nextCursor).toBe(encodeFeedCursor(r2));
     expect(page.items).toHaveLength(2);
     expect(page.items[0]).toMatchObject({
@@ -259,9 +269,11 @@ describe("getDashboardData", () => {
         tags: [{ tagId: "t1" }],
       },
     ]);
-    prisma.release.groupBy.mockResolvedValueOnce([
-      { repositoryId: "repo1", _count: { _all: 3 } },
-      { repositoryId: "repo2", _count: { _all: 1 } },
+    prisma.userReleaseState.findMany.mockResolvedValueOnce([
+      { release: { repositoryId: "repo1" } },
+      { release: { repositoryId: "repo1" } },
+      { release: { repositoryId: "repo1" } },
+      { release: { repositoryId: "repo2" } },
     ]);
 
     const data = await getDashboardData(USER);
@@ -277,7 +289,7 @@ describe("getDashboardData", () => {
     prisma.userSubscription.findMany.mockResolvedValueOnce([]);
     const empty = await getDashboardData(USER);
     expect(empty.totalUnread).toBe(0);
-    expect(prisma.release.groupBy).not.toHaveBeenCalled();
+    expect(prisma.userReleaseState.findMany).not.toHaveBeenCalled();
 
     prisma.tag.findMany.mockResolvedValueOnce([
       { id: "t1", name: "Core", slug: "core", colorHex: "#EF4444", subscriptions: [{ subscriptionId: "sub1" }] },
@@ -293,7 +305,10 @@ describe("getDashboardData", () => {
         tags: [{ tagId: "t1" }],
       },
     ]);
-    prisma.release.groupBy.mockResolvedValueOnce([{ repositoryId: "repo1", _count: { _all: 2 } }]);
+    prisma.userReleaseState.findMany.mockResolvedValueOnce([
+      { release: { repositoryId: "repo1" } },
+      { release: { repositoryId: "repo1" } },
+    ]);
 
     const data = await getDashboardData(USER);
     expect(data.subscriptionVisibility).toEqual([
@@ -303,18 +318,156 @@ describe("getDashboardData", () => {
         trackMode: "TAGS_AND_COMMITS",
         trackPaths: true,
         tagSlugs: ["core"],
+        fullName: "acme/web",
+        tagNames: ["Core"],
       },
     ]);
-    expect(prisma.release.groupBy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          AND: [
-            visibleReleasesWhereForSubscriptions(USER, data.subscriptionVisibility),
-            { userStates: { some: { userId: USER, isRead: false } } },
-          ],
+    expect(prisma.userReleaseState.findMany).toHaveBeenCalledWith({
+      where: {
+        userId: USER,
+        isRead: false,
+        release: visibleReleasesWhereForSubscriptions(USER, data.subscriptionVisibility, {
+          assumeUserStateExists: true,
+        }),
+      },
+      select: { release: { select: { repositoryId: true } } },
+    });
+  });
+});
+
+describe("getUserFeedContext & flat feed queries", () => {
+  it("hydrates flat feed queries from repoContextById and drives unread views via userReleaseState", async () => {
+    prisma.tag.findMany.mockResolvedValueOnce([
+      { id: "t1", name: "Core", slug: "core", colorHex: "#EF4444", subscriptions: [{ subscriptionId: "sub1" }] },
+    ]);
+    prisma.userSubscription.findMany.mockResolvedValueOnce([
+      {
+        id: "sub1",
+        repositoryId: "repo1",
+        includePrereleases: false,
+        trackMode: "RELEASES",
+        trackPaths: false,
+        currentVersion: null,
+        repository: {
+          id: "repo1",
+          owner: "acme",
+          name: "web",
+          fullName: "acme/web",
+          avatarUrl: null,
+          htmlUrl: "https://github.com/acme/web",
         },
+        tags: [{ tagId: "t1" }],
+      },
+    ]);
+
+    const ctx = await getUserFeedContext(USER);
+    expect(ctx.repoContextById.get("repo1")).toMatchObject({
+      subscriptionId: "sub1",
+      repository: { fullName: "acme/web" },
+      tags: [{ id: "t1", name: "Core", slug: "core", colorHex: "#EF4444" }],
+    });
+
+    // All-releases feed with repoContextById skips repository/tag relation joins.
+    prisma.release.findMany.mockResolvedValueOnce([
+      {
+        id: "rel1",
+        repositoryId: "repo1",
+        source: "RELEASE",
+        tagName: "v1.0.0",
+        title: "v1.0.0",
+        htmlUrl: "https://github.com/acme/web/releases/tag/v1.0.0",
+        isPrerelease: false,
+        semverType: "MAJOR",
+        publishedAt: new Date("2026-11-01T00:00:00.000Z"),
+        userStates: [{ isRead: false }],
+      },
+    ]);
+    const page = await getReleaseFeed({
+      userId: USER,
+      subscriptions: ctx.subscriptionVisibility,
+      repoContextById: ctx.repoContextById,
+    });
+    expect(page.items[0]).toMatchObject({
+      id: "rel1",
+      subscriptionId: "sub1",
+      repository: { fullName: "acme/web" },
+      isRead: false,
+    });
+    expect(prisma.release.findMany.mock.calls[0]![0].select).not.toHaveProperty("repository");
+
+    // Unread feed drives from userReleaseState.findMany using the partial unread index.
+    prisma.userReleaseState.findMany.mockResolvedValueOnce([
+      {
+        release: {
+          id: "rel2",
+          repositoryId: "repo1",
+          source: "RELEASE",
+          tagName: "v1.1.0",
+          title: "v1.1.0",
+          htmlUrl: "https://github.com/acme/web/releases/tag/v1.1.0",
+          isPrerelease: false,
+          semverType: "MINOR",
+          publishedAt: new Date("2026-11-02T00:00:00.000Z"),
+        },
+      },
+    ]);
+    const unreadPage = await getReleaseFeed({
+      userId: USER,
+      onlyUnread: true,
+      subscriptions: ctx.subscriptionVisibility,
+      repoContextById: ctx.repoContextById,
+    });
+    expect(unreadPage.items[0]).toMatchObject({ id: "rel2", isRead: false, repository: { fullName: "acme/web" } });
+    expect(prisma.userReleaseState.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: [{ release: { publishedAt: "desc" } }, { release: { id: "desc" } }],
       }),
     );
+
+    // countUnread queries userReleaseState.count without EXISTS semi-joins.
+    prisma.userReleaseState.count.mockResolvedValueOnce(5);
+    await expect(countUnread(USER, { searchQuery: "acme" }, ctx.subscriptionVisibility)).resolves.toBe(5);
+    expect(prisma.userReleaseState.count).toHaveBeenCalledWith({
+      where: {
+        userId: USER,
+        isRead: false,
+        release: buildFeedWhereForSubscriptions(USER, { searchQuery: "acme" }, ctx.subscriptionVisibility, {
+          omitOnlyUnread: true,
+          assumeUserStateExists: true,
+        }),
+      },
+    });
+  });
+
+  it("narrows search filters with fullName/tagNames to single-table Release OR clauses", () => {
+    const subs = [
+      {
+        repositoryId: "r1",
+        includePrereleases: false,
+        trackMode: "RELEASES" as const,
+        trackPaths: false,
+        tagSlugs: ["core"],
+        fullName: "acme/web",
+        tagNames: ["Core UI"],
+      },
+      {
+        repositoryId: "r2",
+        includePrereleases: false,
+        trackMode: "RELEASES" as const,
+        trackPaths: false,
+        tagSlugs: ["ops"],
+        fullName: "other/api",
+        tagNames: ["Backend"],
+      },
+    ];
+    const where = buildFeedWhereForSubscriptions(USER, { searchQuery: "acme" }, subs);
+    const searchClause = (where!.AND as unknown[])[1] as { OR: unknown[] };
+    expect(searchClause.OR).toEqual([
+      { tagName: { contains: "acme", mode: "insensitive" } },
+      { title: { contains: "acme", mode: "insensitive" } },
+      { bodyMarkdown: { contains: "acme", mode: "insensitive" } },
+      { repositoryId: { in: ["r1"] } },
+    ]);
   });
 });
 
@@ -344,10 +497,15 @@ describe("visibleReleasesWhereForSubscriptions & buildFeedWhereForSubscriptions"
       AND: [
         {
           isDraft: false,
-          OR: [{ source: "RELEASE", isPrerelease: false, repositoryId: { in: ["r1"] } }],
+          source: "RELEASE",
+          isPrerelease: false,
+          repositoryId: { in: ["r1"] },
         },
         { userStates: { some: { userId: USER, isRead: false } } },
       ],
     });
+
+    const repoFiltered = buildFeedWhereForSubscriptions(USER, { repositoryId: "r2" }, subs);
+    expect(repoFiltered?.AND).toContainEqual({ repositoryId: "r2" });
   });
 });

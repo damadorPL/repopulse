@@ -11,7 +11,7 @@ vi.mock("@repopulse/db", () => ({ prisma }));
 vi.mock("@/server/backfill-settings", () => ({ getBackfillConfig: vi.fn(async () => ({ hardCap: 1000 })) }));
 
 const { getRepositoryActivity, getRepositorySettings, parseRepoSegment } = await import("./repository-settings");
-const { visibleReleasesWhere } = await import("./feed");
+const { visibleReleasesWhere, visibleReleasesWhereForSubscriptions } = await import("./feed");
 
 const USER = "user_1";
 
@@ -183,7 +183,11 @@ describe("getRepositorySettings", () => {
     const settings = await getRepositorySettings(USER, "vercel", "next.js");
     expect(settings?.versionStatus).toEqual({ behind: 2, major: 1, matched: true });
     const versionQuery = prisma.release.findMany.mock.calls.find(([args]) => "take" in args && args.take === 5000)?.[0];
-    expect(versionQuery.where.AND[0]).toEqual(visibleReleasesWhere(USER, { repositoryId: { in: ["repo_1"] } }));
+    expect(versionQuery.where.AND[0]).toEqual(
+      visibleReleasesWhereForSubscriptions(USER, [
+        { repositoryId: "repo_1", includePrereleases: false, trackMode: "RELEASES", trackPaths: false, tagSlugs: [] },
+      ]),
+    );
   });
 });
 
@@ -193,8 +197,10 @@ describe("getRepositoryActivity", () => {
     prisma.release.findMany.mockResolvedValue([
       { id: "r1", publishedAt: new Date("2026-10-20T00:00:00Z"), source: "RELEASE", semverType: "MAJOR" },
     ]);
-    prisma.release.count.mockResolvedValue(42);
-    prisma.release.aggregate.mockResolvedValue({ _min: { publishedAt: new Date("2024-01-01T00:00:00Z") } });
+    prisma.release.aggregate.mockResolvedValue({
+      _count: { _all: 42 },
+      _min: { publishedAt: new Date("2024-01-01T00:00:00Z") },
+    });
 
     const activity = await getRepositoryActivity(USER, "repo_1", now);
 
@@ -205,7 +211,12 @@ describe("getRepositoryActivity", () => {
         take: 5001,
       }),
     );
-    expect(prisma.release.count).toHaveBeenCalledWith({ where: visible });
+    expect(prisma.release.aggregate).toHaveBeenCalledWith({
+      where: visible,
+      _count: { _all: true },
+      _min: { publishedAt: true },
+    });
+    expect(prisma.release.count).not.toHaveBeenCalled();
     expect(activity).toEqual({
       items: [{ id: "r1", at: "2026-10-20T00:00:00.000Z", source: "RELEASE", semverType: "MAJOR" }],
       truncated: false,
@@ -214,7 +225,7 @@ describe("getRepositoryActivity", () => {
     });
   });
 
-  it("caps the items and flags truncation", async () => {
+  it("caps the items and flags truncation, using flat visibility when subscription is supplied", async () => {
     const rows = Array.from({ length: 5001 }, (_, i) => ({
       id: `r${i}`,
       publishedAt: new Date(Date.UTC(2026, 9, 1, 0, 0, i)),
@@ -222,9 +233,20 @@ describe("getRepositoryActivity", () => {
       semverType: "OTHER",
     }));
     prisma.release.findMany.mockResolvedValue(rows);
-    prisma.release.count.mockResolvedValue(9000);
-    prisma.release.aggregate.mockResolvedValue({ _min: { publishedAt: null } });
-    const activity = await getRepositoryActivity(USER, "repo_1");
+    prisma.release.aggregate.mockResolvedValue({ _count: { _all: 9000 }, _min: { publishedAt: null } });
+    const sub = {
+      repositoryId: "repo_1",
+      includePrereleases: false,
+      trackMode: "NONE" as const,
+      trackPaths: true,
+      tagSlugs: [],
+    };
+    const activity = await getRepositoryActivity(USER, "repo_1", new Date("2026-11-02T12:00:00Z"), sub);
+    expect(prisma.release.aggregate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { AND: [visibleReleasesWhereForSubscriptions(USER, [sub]), { repositoryId: "repo_1" }] },
+      }),
+    );
     expect(activity.items).toHaveLength(5000);
     expect(activity.truncated).toBe(true);
   });

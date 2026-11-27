@@ -75,7 +75,18 @@ export async function processDepsNotify(job: Job<DepsNotifyJobData>, deps: DepsN
       where: { id: data.ruleId },
       select: { id: true, userId: true, tagId: true, channel: true, destinationUrl: true, enabled: true, events: true },
     }),
-    prisma.dependencyProject.findUnique({ where: { id: data.projectId } }),
+    prisma.dependencyProject.findUnique({
+      where: { id: data.projectId },
+      select: {
+        id: true,
+        userId: true,
+        fullName: true,
+        owner: true,
+        name: true,
+        notificationLevel: true,
+        updateMode: true,
+      },
+    }),
   ]);
   if (!project) return skip("PROJECT_GONE");
   if (!rule || rule.userId !== project.userId) return skip("RULE_GONE");
@@ -86,11 +97,6 @@ export async function processDepsNotify(job: Job<DepsNotifyJobData>, deps: DepsN
   if (!isDeliverableChannel(rule.channel)) return skip("UNSUPPORTED_CHANNEL");
   if (project.notificationLevel === "NONE") return skip("NOTIFICATION_LEVEL");
 
-  const manifests = await prisma.dependencyManifest.findMany({
-    where: { projectId: project.id },
-    select: { id: true, path: true, ecosystem: true },
-  });
-  const manifestById = new Map(manifests.map((m) => [m.id, m]));
   let updates: DependencyUpdateInput[];
   let pullRequest: {
     event: "opened" | "updated" | "edited" | "access_lost";
@@ -99,9 +105,17 @@ export async function processDepsNotify(job: Job<DepsNotifyJobData>, deps: DepsN
   } | null = null;
 
   if (data.kind === "digest") {
-    const rows = await prisma.dependencyUpdate.findMany({
-      where: { projectId: project.id, id: { in: data.updateIds }, status: "OUTDATED" },
-    });
+    const [manifests, rows] = await Promise.all([
+      prisma.dependencyManifest.findMany({
+        where: { projectId: project.id },
+        select: { id: true, path: true, ecosystem: true },
+      }),
+      prisma.dependencyUpdate.findMany({
+        where: { projectId: project.id, id: { in: data.updateIds }, status: "OUTDATED" },
+        select: { manifestId: true, name: true, currentVersion: true, targetVersion: true, level: true },
+      }),
+    ]);
+    const manifestById = new Map(manifests.map((m) => [m.id, m]));
     updates = rows
       .filter((row) => row.targetVersion && passesDependencyNotificationLevel(project.notificationLevel, row.level))
       .flatMap((row) => {
@@ -122,16 +136,35 @@ export async function processDepsNotify(job: Job<DepsNotifyJobData>, deps: DepsN
     if (updates.length === 0) return skip("NOTHING_LEFT");
   } else {
     if (data.event !== "access_lost" && project.updateMode === "NOTIFY") return skip("MODE_CHANGED");
-    const pr = await prisma.dependencyPullRequest.findUnique({ where: { id: data.prId } });
+    const pr = await prisma.dependencyPullRequest.findUnique({
+      where: { id: data.prId },
+      select: { number: true, htmlUrl: true, targets: true },
+    });
     if (!pr && data.event !== "access_lost") return skip("PULL_REQUEST_GONE");
     updates = [];
-    if (pr) {
-      const rows = await prisma.dependencyUpdate.findMany({ where: { projectId: project.id } });
-      for (const target of pr.targets) {
+    if (pr && pr.targets.length > 0) {
+      const parsedTargets = pr.targets.flatMap((target) => {
         const parsed = parseTarget(target);
-        if (!parsed) continue;
-        const manifest = manifests.find((m) => m.path === parsed.manifestPath);
-        const row = rows.find((r) => r.name === parsed.name && manifest && r.manifestId === manifest.id);
+        return parsed ? [parsed] : [];
+      });
+      const targetNames = [...new Set(parsedTargets.map((t) => t.name))];
+      const [manifests, rows] = await Promise.all([
+        prisma.dependencyManifest.findMany({
+          where: { projectId: project.id },
+          select: { id: true, path: true, ecosystem: true },
+        }),
+        targetNames.length > 0
+          ? prisma.dependencyUpdate.findMany({
+              where: { projectId: project.id, name: { in: targetNames } },
+              select: { manifestId: true, name: true, currentVersion: true, level: true },
+            })
+          : [],
+      ]);
+      const manifestByPath = new Map(manifests.map((m) => [m.path, m]));
+      const rowByManifestAndName = new Map(rows.map((r) => [`${r.manifestId}\0${r.name}`, r]));
+      for (const parsed of parsedTargets) {
+        const manifest = manifestByPath.get(parsed.manifestPath);
+        const row = manifest ? rowByManifestAndName.get(`${manifest.id}\0${parsed.name}`) : undefined;
         updates.push({
           name: parsed.name,
           from: row?.currentVersion ?? null,
@@ -145,7 +178,10 @@ export async function processDepsNotify(job: Job<DepsNotifyJobData>, deps: DepsN
     pullRequest = { event: data.event, number: pr?.number ?? null, url: pr?.htmlUrl ?? null };
   }
 
-  const user = await prisma.user.findUnique({ where: { id: project.userId }, select: { email: true, name: true } });
+  const needsUserEmail = rule.channel === "EMAIL_INSTANT" && !rule.destinationUrl?.trim();
+  const user = needsUserEmail
+    ? await prisma.user.findUnique({ where: { id: project.userId }, select: { email: true, name: true } })
+    : null;
   const appBaseUrl = (deps.appBaseUrl ?? resolveAppBaseUrl()).replace(/\/+$/, "");
   const dispatch = deps.dispatch ?? dispatchDependencyNotification;
   const label = `${project.fullName} ${data.kind}${pullRequest ? ` (${pullRequest.event})` : ""} via ${rule.channel} (rule ${rule.id})`;

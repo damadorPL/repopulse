@@ -101,9 +101,23 @@ describe("processDepsNotify", () => {
       updates: [
         { name: "react", from: "18.2.0", to: "19.0.0", level: "MAJOR", manifest: "package.json", ecosystem: "NPM" },
       ],
-      user: { email: "dev@example.com" },
+      user: null,
     });
     expect(options).toMatchObject({ smtp: null, appBaseUrl: "https://pulse.example.com" });
+  });
+
+  it("loads user email only for EMAIL_INSTANT without an explicit destination", async () => {
+    const { deps, dispatch, prisma } = setup({ rule: { channel: "EMAIL_INSTANT", destinationUrl: null } });
+    prisma.instanceSettings.rows[0] = {
+      ...prisma.instanceSettings.rows[0],
+      smtpHost: "smtp.example.com",
+      smtpPort: 587,
+      smtpFrom: "noreply@example.com",
+      smtpUser: null,
+      smtpPasswordEncrypted: null,
+    };
+    await processDepsNotify(job(digest()), deps);
+    expect(dispatch.mock.calls[0]![0]).toMatchObject({ user: { email: "dev@example.com" } });
   });
 
   it("delivers PR events with the PR's targets", async () => {

@@ -6,7 +6,13 @@ import { ChangelogMarkdown } from "@/components/reader/changelog-markdown";
 import { getCurrentUserOrThrow } from "@/lib/auth";
 import { FEED_PAGE_SIZE, parseFeedFilters } from "@/lib/feed-filters";
 import { fail, invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
-import { getReleaseDetail, getReleaseFeed, type FeedItem, type FeedPage } from "@/server/queries/feed";
+import {
+  getReleaseDetail,
+  getReleaseFeed,
+  getUserFeedContext,
+  type FeedItem,
+  type FeedPage,
+} from "@/server/queries/feed";
 
 const drawerInput = z.object({
   releaseId: z.string().min(1).max(64),
@@ -48,9 +54,12 @@ export async function loadMoreReleasesAction(input: {
     const cursor = typeof input.cursor === "string" && input.cursor.length <= 100 ? input.cursor : null;
     if (!cursor) return ok({ items: [], nextCursor: null });
 
+    const context = await getUserFeedContext(user.id);
     const page = await getReleaseFeed({
       userId: user.id,
       ...parseFeedFilters(new URLSearchParams(query)),
+      subscriptions: context.subscriptionVisibility,
+      repoContextById: context.repoContextById,
       cursor,
       limit: FEED_PAGE_SIZE,
     });

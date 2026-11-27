@@ -215,33 +215,49 @@ export async function pollRepoTags(
       TAG_COMPARE_CONCURRENCY,
     );
 
-    const result = await prisma.$transaction(async (tx) => {
-      const created =
-        rows.length > 0
-          ? await tx.release.createManyAndReturn({
-              data: rows.map((row) => ({ ...row, repositoryId: repo.id })),
-              // (repositoryId, source, tagName) is unique; a concurrent poll may insert the same tags.
-              skipDuplicates: true,
-              select: STORED_RELEASE_SELECT,
-            })
-          : [];
+    let result: TagStepResult;
+    if (rows.length === 0) {
+      await prisma.repository.update({
+        where: { id: repo.id },
+        data: { lastTagsPolledAt: now() },
+        select: { id: true },
+      });
+      result = { received: tags.length, stored: 0, fresh: 0, plan: EMPTY_FAN_OUT_PLAN };
+    } else {
+      // Pre-resolve shared outer subscribers before opening `$transaction` so we never hold one pool
+      // connection while awaiting another.
+      const mayHaveFresh = rows.some((row) => newestKnownAt === null || row.publishedAt > newestKnownAt);
+      const resolvedSubscribers = mayHaveFresh && preloadedSubscribers ? await preloadedSubscribers() : undefined;
 
-      const fresh = selectFreshReleases(created, newestKnownAt);
-      let plan = EMPTY_FAN_OUT_PLAN;
-      if (fresh.length > 0) {
-        const allSubscribers = preloadedSubscribers ? await preloadedSubscribers() : await loadSubscribers(tx, repo.id);
-        const subscribers = allSubscribers.filter(tracksTags);
-        plan = planFanOut(subscribers, fresh);
-        if (plan.states.length > 0) {
-          await tx.userReleaseState.createMany({
-            data: plan.states.map((state) => ({ ...state, isRead: false })),
-            skipDuplicates: true,
-          });
+      result = await prisma.$transaction(async (tx) => {
+        const created = await tx.release.createManyAndReturn({
+          data: rows.map((row) => ({ ...row, repositoryId: repo.id })),
+          // (repositoryId, source, tagName) is unique; a concurrent poll may insert the same tags.
+          skipDuplicates: true,
+          select: STORED_RELEASE_SELECT,
+        });
+
+        const fresh = selectFreshReleases(created, newestKnownAt);
+        let plan = EMPTY_FAN_OUT_PLAN;
+        if (fresh.length > 0) {
+          const allSubscribers = resolvedSubscribers ?? (await loadSubscribers(tx, repo.id));
+          const subscribers = allSubscribers.filter(tracksTags);
+          plan = planFanOut(subscribers, fresh);
+          if (plan.states.length > 0) {
+            await tx.userReleaseState.createMany({
+              data: plan.states.map((state) => ({ ...state, isRead: false })),
+              skipDuplicates: true,
+            });
+          }
         }
-      }
-      await tx.repository.update({ where: { id: repo.id }, data: { lastTagsPolledAt: now() } });
-      return { received: tags.length, stored: created.length, fresh: fresh.length, plan };
-    });
+        await tx.repository.update({
+          where: { id: repo.id },
+          data: { lastTagsPolledAt: now() },
+          select: { id: true },
+        });
+        return { received: tags.length, stored: created.length, fresh: fresh.length, plan };
+      });
+    }
 
     log.info(
       `${repo.fullName}: ${result.received} tags received, ${result.stored} stored, ${result.fresh} new, ` +

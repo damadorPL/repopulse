@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.8.4] — 2026-11-27 — Covering indexes, session cookie cache, and query/pool audit
+
+### Performance
+
+- **Database covering & partial indexes (`@repopulse/db`)**: Added migrations `20261127153000_feed_covering_indexes` (covering `INCLUDE` partial indexes on non-draft `Release` rows and partial `OUTDATED` index on `DependencyUpdate`) and `20261127160000_audit_query_indexes` (Session/Verification `expiresAt` indexes, composite outbox `(createdAt, id)` index, and partial indexes for open PRs, pending backfills, and pending invites).
+- **30-second Better Auth session cookie cache (`apps/web`)**: Enabled Better Auth signed `session.cookieCache` (`maxAge: 30` s) in `apps/web/src/lib/auth.ts` so consecutive requests skip live PostgreSQL session lookups within the 30-second window (same-browser logout clears the cache immediately), and aligned `account.update.after` with the transaction context.
+- **Feed listing & database query audit fixes (`apps/web`)**: Added request-cached `getUserFeedContext` so `ReleaseFeedPage`, `getDashboardData`, `loadMoreReleasesAction`, and `markAllReadAction` run in parallel without per-row `Repository`/`UserSubscription`/`Tag` joins; aggregated dashboard unread counts in SQL (`$queryRaw` `GROUP BY` starting from `UserReleaseState`), replaced `loadTrackedRepositories` `distinct` commit scans with indexed `LATERAL` probes, added outer `publishedAt` bounds to `afterCursorWhere`, hoisted `repositoryId` in `buildFeedWhereForSubscriptions` and flattened `markNewerThanMine`, combined `getRepositoryActivity` `count` + `aggregate`, cached `isDepsEnabled` with 15 s TTL + generation guard, disabled automatic `<Link>` viewport prefetching (`prefetch={false}`) on dynamic dashboard links, split `ReaderContext` into list/drawer slices with memoized `ReleaseCard` and `TopNavbar` route watching, deferred `RelativeTime` `Intl.DateTimeFormat` formatting until hover/focus, and deferred background-tab SSE refreshes until the tab becomes visible.
+- **Worker query & connection-pool fixes (`apps/worker`, `apps/deps-worker`)**: Eliminated unindexed `OR` in `repo-paths`, added `source` filter to `storeAndFanOut` tag lookups and two-seek O(log N) `newestBefore` in `repo-poll`, resolved `preloadedSubscribers` outside `$transaction` in `repo-tags` (preventing pool deadlocks), bounded backfill tag promotions with concurrency `4` + `select: { id: true }`, batched `storeNotificationIntents` via `createMany({ skipDuplicates: true })`, eliminated redundant manifest/update/user fetches in `deps-scan` and `deps-notify`, and wired `loadDepsEnabledCached` into the `deps-worker` outbox flusher.
+
 ## [0.9.8.3] — 2026-11-27 — End-to-end performance optimization
 
 ### Performance

@@ -7,6 +7,13 @@ class ForbiddenError extends Error {}
 const currentUser = { id: "u1" };
 const getReleaseFeed = vi.fn();
 const getReleaseDetail = vi.fn();
+const feedContext = {
+  subscriptionVisibility: [
+    { repositoryId: "repo1", includePrereleases: false, trackMode: "RELEASES", trackPaths: false, tagSlugs: ["core"] },
+  ],
+  repoContextById: new Map(),
+};
+const getUserFeedContext = vi.fn(async () => feedContext);
 
 vi.mock("@/lib/auth", () => ({
   UnauthorizedError,
@@ -19,7 +26,7 @@ vi.mock("@repopulse/github", () => ({
   GitHubRepositoryNotFoundError: class extends Error {},
   InvalidRepositoryInputError: class extends Error {},
 }));
-vi.mock("@/server/queries/feed", () => ({ getReleaseFeed, getReleaseDetail }));
+vi.mock("@/server/queries/feed", () => ({ getReleaseFeed, getReleaseDetail, getUserFeedContext }));
 
 const { getCurrentUserOrThrow } = await import("@/lib/auth");
 const { getReleaseDrawerAction, loadMoreReleasesAction } = await import("./feed");
@@ -27,6 +34,7 @@ const { getReleaseDrawerAction, loadMoreReleasesAction } = await import("./feed"
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getCurrentUserOrThrow).mockResolvedValue(currentUser as never);
+  getUserFeedContext.mockResolvedValue(feedContext);
 });
 
 describe("loadMoreReleasesAction", () => {
@@ -67,6 +75,8 @@ describe("loadMoreReleasesAction", () => {
       semverType: "MAJOR",
       searchQuery: "breaking",
       sort: "oldest",
+      subscriptions: feedContext.subscriptionVisibility,
+      repoContextById: feedContext.repoContextById,
       cursor: "123.r1",
       limit: FEED_PAGE_SIZE,
     });

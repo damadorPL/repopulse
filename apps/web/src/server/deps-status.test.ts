@@ -21,6 +21,8 @@ const {
   countOutdatedDependencyProjects,
   getDepsAdminView,
   getDepsSidebarInfo,
+  invalidateDepsEnabledCache,
+  isDepsEnabled,
   lockfileRegenerationAvailable,
   parseDepsWorkerHeartbeat,
   readDepsWorkerStatus,
@@ -28,6 +30,7 @@ const {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  invalidateDepsEnabledCache();
 });
 
 describe("parseDepsWorkerHeartbeat", () => {
@@ -88,16 +91,24 @@ describe("countOutdatedDependencyProjects and getDepsSidebarInfo", () => {
     loadDepsEnabled.mockResolvedValueOnce(false);
     await expect(getDepsSidebarInfo("u1")).resolves.toEqual({ enabled: false, outdatedProjects: 0 });
 
+    // Cached true value is reused until invalidated.
+    invalidateDepsEnabledCache();
     loadDepsEnabled.mockResolvedValueOnce(true);
     prisma.dependencyProject.count.mockResolvedValueOnce(2);
     await expect(getDepsSidebarInfo("u2")).resolves.toEqual({ enabled: true, outdatedProjects: 2 });
+    await expect(isDepsEnabled()).resolves.toBe(true);
+    expect(loadDepsEnabled).toHaveBeenCalledTimes(2);
   });
 });
 
 describe("getDepsAdminView", () => {
   it("returns instance-wide numbers for the admin dependencies page", async () => {
-    prisma.instanceSettings.findUnique.mockResolvedValueOnce({ depsEnabled: true });
-    isGitHubAppConfigured.mockResolvedValueOnce(true);
+    prisma.instanceSettings.findUnique.mockResolvedValueOnce({
+      depsEnabled: true,
+      githubAppId: 123,
+      githubAppSlug: "repopulse-bot",
+      githubAppPrivateKeyEncrypted: "enc(pem)",
+    });
     prisma.dependencyProject.count.mockResolvedValueOnce(12).mockResolvedValueOnce(5);
     prisma.user.count.mockResolvedValueOnce(4);
     prisma.dependencyPullRequest.count.mockResolvedValueOnce(3);

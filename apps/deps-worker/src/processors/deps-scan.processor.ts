@@ -342,7 +342,7 @@ export async function processDepsScan(
 
     // Step 3: registries + policy.
     const [storedManifests, storedUpdates] = await Promise.all([
-      prisma.dependencyManifest.findMany({ where: { projectId } }),
+      prisma.dependencyManifest.findMany({ where: { projectId }, select: { id: true, path: true } }),
       prisma.dependencyUpdate.findMany({ where: { projectId } }),
     ]);
     const manifestPathById = new Map(storedManifests.map((m) => [m.id, m.path]));
@@ -372,7 +372,7 @@ export async function processDepsScan(
       }),
     );
     const detectedPaths = analysis.manifests.map((m) => m.detected.path);
-    await prisma.$transaction(async (tx) => {
+    const manifestIds = await prisma.$transaction(async (tx) => {
       await tx.dependencyManifest.deleteMany({ where: { projectId, path: { notIn: detectedPaths } } });
       const manifestRows = await Promise.all(
         analysis.manifests.map((manifest, index) => {
@@ -398,7 +398,7 @@ export async function processDepsScan(
             .then((row) => [detected.path, row.id] as const);
         }),
       );
-      const manifestIds = new Map<string, string>(manifestRows);
+      const idsByPath = new Map<string, string>(manifestRows);
 
       const keep = new Set<string>();
       const toCreate: Array<Record<string, unknown>> = [];
@@ -414,7 +414,7 @@ export async function processDepsScan(
         if (!existing) {
           toCreate.push({
             projectId,
-            manifestId: manifestIds.get(path)!,
+            manifestId: idsByPath.get(path)!,
             name: item.dependency.name,
             kind: item.dependency.kind,
             group: item.dependency.group,
@@ -437,7 +437,9 @@ export async function processDepsScan(
       for (let i = 0; i < toUpdate.length; i += UPDATE_BATCH_SIZE) {
         const batch = toUpdate.slice(i, i + UPDATE_BATCH_SIZE);
         await Promise.all(
-          batch.map((entry) => tx.dependencyUpdate.update({ where: { id: entry.id }, data: entry.data })),
+          batch.map((entry) =>
+            tx.dependencyUpdate.update({ where: { id: entry.id }, data: entry.data, select: { id: true } }),
+          ),
         );
       }
       const stale = [...existingByKey].filter(([key]) => !keep.has(key)).map(([, row]) => row.id);
@@ -459,7 +461,9 @@ export async function processDepsScan(
           scanError: null,
           errorCount: 0,
         },
+        select: { id: true },
       });
+      return idsByPath;
     }, TRANSACTION_OPTIONS);
     const current = {
       ...project,
@@ -470,10 +474,13 @@ export async function processDepsScan(
     };
 
     // Step 5: refresh open pull requests.
-    const prCounts = await refreshPullRequests(deps, github, octokit, current);
+    const prCounts = await refreshPullRequests(deps, github, octokit, current, manifestIds);
 
     // Step 6: SSE, digest, auto PRs.
-    const outdatedRows = await prisma.dependencyUpdate.findMany({ where: { projectId, status: "OUTDATED" } });
+    const outdatedRows = await prisma.dependencyUpdate.findMany({
+      where: { projectId, status: "OUTDATED" },
+      select: { id: true, manifestId: true, name: true, targetVersion: true, level: true, notifiedAt: true },
+    });
     const majors = outdatedRows.filter((row) => row.level === "MAJOR").length;
     await publish(deps.redis, project.userId, {
       type: "DEPS_SCAN_COMPLETED",
@@ -485,7 +492,7 @@ export async function processDepsScan(
     const digests = await queueDigest(deps, current, outdatedRows, firstScan, scannedAt);
     const autoUpdates =
       project.updateMode === "AUTO_PR" && access.installationId !== null
-        ? await queueAutoUpdates(deps, current, outdatedRows)
+        ? await queueAutoUpdates(deps, current, outdatedRows, analysis.manifests, manifestIds)
         : 0;
 
     const dependencies = analysis.manifests.reduce((sum, m) => sum + m.dependencies.length, 0);
@@ -587,16 +594,15 @@ async function refreshPullRequests(
   github: NonNullable<DepsScanDeps["github"]>,
   octokit: Octokit,
   project: CurrentProject,
+  manifestIdByPath: ReadonlyMap<string, string>,
 ): Promise<{ merged: number; closed: number; edited: number }> {
   const { prisma } = deps;
   const counts = { merged: 0, closed: 0, edited: 0 };
-  const open = await prisma.dependencyPullRequest.findMany({ where: { projectId: project.id, state: "OPEN" } });
-  if (open.length === 0) return counts;
-  const manifests = await prisma.dependencyManifest.findMany({
-    where: { projectId: project.id },
-    select: { id: true, path: true },
+  const open = await prisma.dependencyPullRequest.findMany({
+    where: { projectId: project.id, state: "OPEN" },
+    select: { id: true, groupKey: true, number: true, htmlUrl: true, headSha: true, targets: true },
   });
-  const manifestIdByPath = new Map(manifests.map((m) => [m.path, m.id]));
+  if (open.length === 0) return counts;
 
   const results = await mapWithConcurrency(
     open,
@@ -607,17 +613,27 @@ async function refreshPullRequests(
         const at = deps.now?.() ?? new Date();
         let next: "MERGED" | "CLOSED" | "EDITED" | null = null;
         if (state.state === "closed" && state.merged) {
-          await prisma.dependencyPullRequest.update({ where: { id: pr.id }, data: { state: "MERGED", closedAt: at } });
+          await prisma.dependencyPullRequest.update({
+            where: { id: pr.id },
+            data: { state: "MERGED", closedAt: at },
+            select: { id: true },
+          });
           next = "MERGED";
         } else if (state.state === "closed") {
+          const targetFilters = pr.targets.flatMap((target) => {
+            const parsed = parseTarget(target);
+            const manifestId = parsed ? manifestIdByPath.get(parsed.manifestPath) : undefined;
+            return parsed && manifestId ? [{ manifestId, name: parsed.name, targetVersion: parsed.version }] : [];
+          });
           await prisma.$transaction(async (tx) => {
-            await tx.dependencyPullRequest.update({ where: { id: pr.id }, data: { state: "CLOSED", closedAt: at } });
-            for (const target of pr.targets) {
-              const parsed = parseTarget(target);
-              const manifestId = parsed ? manifestIdByPath.get(parsed.manifestPath) : undefined;
-              if (!parsed || !manifestId) continue;
+            await tx.dependencyPullRequest.update({
+              where: { id: pr.id },
+              data: { state: "CLOSED", closedAt: at },
+              select: { id: true },
+            });
+            if (targetFilters.length > 0) {
               await tx.dependencyUpdate.updateMany({
-                where: { manifestId, name: parsed.name, targetVersion: parsed.version, status: "OUTDATED" },
+                where: { projectId: project.id, status: "OUTDATED", OR: targetFilters },
                 data: { status: "DISMISSED" },
               });
             }
@@ -669,7 +685,10 @@ async function refreshPullRequests(
   return counts;
 }
 
-type UpdateRow = Awaited<ReturnType<PrismaClient["dependencyUpdate"]["findMany"]>>[number];
+type OutdatedScanRow = Pick<
+  Awaited<ReturnType<PrismaClient["dependencyUpdate"]["findMany"]>>[number],
+  "id" | "manifestId" | "name" | "targetVersion" | "level" | "notifiedAt"
+>;
 
 /**
  * §3.11.1 digest: OUTDATED rows not yet notified, at or above the project's `notificationLevel`. `notifiedAt` is
@@ -679,7 +698,7 @@ type UpdateRow = Awaited<ReturnType<PrismaClient["dependencyUpdate"]["findMany"]
 async function queueDigest(
   deps: DepsScanDeps,
   project: CurrentProject,
-  outdated: UpdateRow[],
+  outdated: OutdatedScanRow[],
   firstScan: boolean,
   at: Date,
 ): Promise<number> {
@@ -722,15 +741,46 @@ async function queueDigest(
  * its open PR's, or that has no PR yet; and for open PRs whose group vanished (the job closes them). Requires the
  * project to own PRs for the repository; `EDITED` PRs are left alone.
  */
-async function queueAutoUpdates(deps: DepsScanDeps, project: CurrentProject, outdated: UpdateRow[]): Promise<number> {
+async function queueAutoUpdates(
+  deps: DepsScanDeps,
+  project: CurrentProject,
+  outdated: OutdatedScanRow[],
+  analyzedManifests: ReadonlyArray<{
+    detected: {
+      path: string;
+      ecosystem: "NPM" | "PYPI";
+      packageManager: "NPM" | "PNPM" | "BUN" | "YARN" | "PIP" | "PIP_TOOLS" | "UV" | "POETRY" | "NONE";
+      lockfilePath: string | null;
+    };
+  }>,
+  manifestIds: ReadonlyMap<string, string>,
+): Promise<number> {
   const { prisma } = deps;
   const ownership = await prisma.dependencyPrOwner.findUnique({ where: { projectId: project.id } });
   if (!ownership || ownership.githubRepoId !== project.githubRepoId) return 0;
-  const [manifests, prs] = await Promise.all([
-    prisma.dependencyManifest.findMany({ where: { projectId: project.id } }),
-    prisma.dependencyPullRequest.findMany({ where: { projectId: project.id } }),
-  ]);
-  const manifestById = new Map(manifests.map((m) => [m.id, m]));
+  const prs = await prisma.dependencyPullRequest.findMany({
+    where: { projectId: project.id },
+    select: { groupKey: true, state: true, targets: true },
+  });
+  const manifestById = new Map(
+    analyzedManifests.flatMap((m) => {
+      const id = manifestIds.get(m.detected.path);
+      return id
+        ? [
+            [
+              id,
+              {
+                id,
+                path: m.detected.path,
+                ecosystem: m.detected.ecosystem,
+                packageManager: m.detected.packageManager,
+                lockfilePath: m.detected.lockfilePath,
+              },
+            ] as const,
+          ]
+        : [];
+    }),
+  );
   const items = outdated.flatMap((row) => {
     const manifest = manifestById.get(row.manifestId);
     if (!manifest || !row.targetVersion) return [];

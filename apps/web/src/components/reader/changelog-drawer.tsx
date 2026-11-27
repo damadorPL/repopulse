@@ -15,7 +15,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
 import { Skeleton } from "@/components/ui/skeleton";
 import { feedHref } from "@/lib/feed-filters";
 import type { FeedItem } from "@/server/queries/feed";
-import { useReader } from "./reader-context";
+import { useReaderDrawer, useReaderList } from "./reader-context";
 
 /**
  * Slide-over changelog reader. `detail` + `children` (the sanitized markdown, rendered on the
@@ -23,7 +23,8 @@ import { useReader } from "./reader-context";
  * preview with a skeleton body.
  */
 export function ChangelogDrawer({ detail, children }: { detail: FeedItem | null; children?: ReactNode }) {
-  const { selectedId, preview, loadedEntry, isLoadingDetail, closeRelease, isRead, setRead } = useReader();
+  const { selectedId, isRead } = useReaderList();
+  const { preview, loadedEntry, isLoadingDetail, closeRelease, setRead } = useReaderDrawer();
 
   const ssrLoaded = detail !== null && detail.id === selectedId;
   const clientLoaded = loadedEntry !== null && loadedEntry.detail.id === selectedId;
@@ -72,6 +73,7 @@ export function ChangelogDrawer({ detail, children }: { detail: FeedItem | null;
                 <div className="min-w-0 text-sm">
                   <Link
                     href={feedHref({ repositoryId: current.repository.id })}
+                    prefetch={false}
                     className="block truncate font-medium hover:underline"
                   >
                     {current.repository.fullName}

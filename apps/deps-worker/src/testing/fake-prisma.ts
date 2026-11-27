@@ -143,9 +143,14 @@ export class FakeTable {
   };
   count = async (args: { where?: Where } = {}) => this.rows.filter((r) => matches(r, args.where)).length;
   create = async ({ data }: { data: Row }) => clone(this.create1(data));
-  createMany = async ({ data }: { data: Row[] }) => {
-    for (const item of data) this.create1(item);
-    return { count: data.length };
+  createMany = async ({ data, skipDuplicates }: { data: Row[]; skipDuplicates?: boolean }) => {
+    let count = 0;
+    for (const item of data) {
+      if (skipDuplicates && item.id !== undefined && this.rows.some((r) => r.id === item.id)) continue;
+      this.create1(item);
+      count += 1;
+    }
+    return { count };
   };
   update = async ({ where, data }: { where: Where; data: Row }) => {
     const row = this.rows.find((r) => matches(r, where));

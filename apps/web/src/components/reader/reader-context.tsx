@@ -1,8 +1,8 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import type { Route } from "next";
-import { usePathname, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { useOptionalUnread } from "@/components/layout/unread-context";
 import { PARAM } from "@/lib/feed-filters";
@@ -17,31 +17,40 @@ export interface DrawerEntry {
   content: ReactNode;
 }
 
+function currentHrefWithRelease(releaseId: string | null): Route {
+  const params = new URLSearchParams(window.location.search);
+  if (releaseId) params.set(PARAM.release, releaseId);
+  else params.delete(PARAM.release);
+  const query = params.toString();
+  return (query ? `${window.location.pathname}?${query}` : window.location.pathname) as Route;
+}
+
 /**
- * Client state shared by the feed list and the changelog drawer.
- *
- * The open release lives in the URL (`?release=<id>`). Direct page loads SSR the sanitized
- * changelog; clicking a card updates the URL shallowly (`history.pushState`) and loads the
- * sanitized HTML via a lightweight Server Action without re-rendering the full dashboard page.
- *
- * Read state is updated optimistically: `readOverrides` and `UnreadProvider` update immediately
- * without triggering a full-layout `router.refresh()`.
+ * Client state shared by the feed list and the changelog drawer, split into list vs drawer slices so
+ * async drawer loads (`preview`, `loadedEntry`, `isLoadingDetail`) do not re-render `ReleaseFeedList`
+ * or unrelated `ReleaseCard` rows.
  */
-interface ReaderContextValue {
+interface ReaderListContextValue {
   selectedId: string | null;
-  preview: FeedItem | null;
-  loadedEntry: DrawerEntry | null;
-  isLoadingDetail: boolean;
   openRelease: (item: FeedItem) => void;
-  closeRelease: () => void;
   isRead: (item: { id: string; isRead: boolean }) => boolean;
-  setRead: (releaseId: string, isRead: boolean, item?: FeedItem) => Promise<boolean>;
   resetReadOverrides: () => void;
   /** Bumped by `resetReadOverrides` (bulk read change) so lists can drop stale appended pages. */
   readEpoch: number;
 }
 
-const ReaderContext = createContext<ReaderContextValue | null>(null);
+interface ReaderDrawerContextValue {
+  preview: FeedItem | null;
+  loadedEntry: DrawerEntry | null;
+  isLoadingDetail: boolean;
+  closeRelease: () => void;
+  setRead: (releaseId: string, isRead: boolean, item?: FeedItem) => Promise<boolean>;
+}
+
+export type ReaderContextValue = ReaderListContextValue & ReaderDrawerContextValue;
+
+const ReaderListContext = createContext<ReaderListContextValue | null>(null);
+const ReaderDrawerContext = createContext<ReaderDrawerContextValue | null>(null);
 
 export function ReaderProvider({
   children,
@@ -50,7 +59,6 @@ export function ReaderProvider({
   children: ReactNode;
   initialDetail?: FeedItem | null;
 }) {
-  const pathname = usePathname();
   const searchParams = useSearchParams();
   const urlReleaseId = searchParams.get(PARAM.release);
   const unread = useOptionalUnread();
@@ -96,26 +104,19 @@ export function ReaderProvider({
     };
   }, [selectedId, hasSsrDetail, loadedEntry, hasFailed]);
 
-  function hrefWithRelease(releaseId: string | null): Route {
-    const params = new URLSearchParams(searchParams.toString());
-    if (releaseId) params.set(PARAM.release, releaseId);
-    else params.delete(PARAM.release);
-    const query = params.toString();
-    return (query ? `${pathname}?${query}` : pathname) as Route;
-  }
-
-  function openRelease(item: FeedItem) {
+  const openRelease = useCallback((item: FeedItem) => {
     setPreview(item);
-    window.history.pushState(null, "", hrefWithRelease(item.id));
-  }
+    window.history.pushState(null, "", currentHrefWithRelease(item.id));
+  }, []);
 
-  function closeRelease() {
-    window.history.pushState(null, "", hrefWithRelease(null));
-  }
+  const closeRelease = useCallback(() => {
+    window.history.pushState(null, "", currentHrefWithRelease(null));
+  }, []);
 
-  function isRead(item: { id: string; isRead: boolean }) {
-    return readOverrides[item.id] ?? item.isRead;
-  }
+  const isRead = useCallback(
+    (item: { id: string; isRead: boolean }) => readOverrides[item.id] ?? item.isRead,
+    [readOverrides],
+  );
 
   async function setRead(releaseId: string, nextIsRead: boolean, item?: FeedItem) {
     const targetItem =
@@ -150,30 +151,47 @@ export function ReaderProvider({
     return true;
   }
 
-  function resetReadOverrides() {
+  const resetReadOverrides = useCallback(() => {
     setReadOverrides({});
     setLoadedEntries({});
     setReadEpoch((epoch) => epoch + 1);
-  }
+  }, []);
 
-  const value: ReaderContextValue = {
+  const listValue: ReaderListContextValue = {
     selectedId,
-    preview,
-    loadedEntry,
-    isLoadingDetail,
     openRelease,
-    closeRelease,
     isRead,
-    setRead,
     resetReadOverrides,
     readEpoch,
   };
 
-  return <ReaderContext value={value}>{children}</ReaderContext>;
+  const drawerValue: ReaderDrawerContextValue = {
+    preview,
+    loadedEntry,
+    isLoadingDetail,
+    closeRelease,
+    setRead,
+  };
+
+  return (
+    <ReaderListContext value={listValue}>
+      <ReaderDrawerContext value={drawerValue}>{children}</ReaderDrawerContext>
+    </ReaderListContext>
+  );
+}
+
+export function useReaderList(): ReaderListContextValue {
+  const value = useContext(ReaderListContext);
+  if (!value) throw new Error("useReaderList must be used inside <ReaderProvider>");
+  return value;
+}
+
+export function useReaderDrawer(): ReaderDrawerContextValue {
+  const value = useContext(ReaderDrawerContext);
+  if (!value) throw new Error("useReaderDrawer must be used inside <ReaderProvider>");
+  return value;
 }
 
 export function useReader(): ReaderContextValue {
-  const value = useContext(ReaderContext);
-  if (!value) throw new Error("useReader must be used inside <ReaderProvider>");
-  return value;
+  return { ...useReaderList(), ...useReaderDrawer() };
 }

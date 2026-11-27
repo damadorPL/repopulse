@@ -60,8 +60,8 @@ Queue specs (`DEPS_QUEUE_NAMES`) are documented in [../CONTRACTS.md](../CONTRACT
 
 ### `deps-notify.processor.ts` & `notification-outbox.ts`
 
-- **Outbox (`notification-outbox.ts`):** `storeNotificationIntents` persists `DependencyNotificationOutbox` rows inside the scan/update transaction; `startNotificationOutbox` flushes up to 100 rows every 5 s via `queue.addBulk` (deterministic jobIds) and deletes rows only after BullMQ acknowledges enqueueing.
-- **`processDepsNotify`:** re-checks module switch, project, rule (enabled, owner, event, untagged, deliverable channel), notification level, and (for PR events) mode and PR existence; calls `dispatchDependencyNotification()`. Classifies errors like `apps/worker`'s notification processor.
+- **Outbox (`notification-outbox.ts`):** `storeNotificationIntents` persists `DependencyNotificationOutbox` rows inside the scan/update transaction (`createMany` with `skipDuplicates`); `startNotificationOutbox` checks cached `depsEnabled` and flushes up to 100 rows every 5 s via `queue.addBulk` (deterministic jobIds), deleting rows only after BullMQ acknowledges enqueueing.
+- **`processDepsNotify`:** re-checks module switch, project, rule (enabled, owner, event, untagged, deliverable channel), notification level, and (for PR events) mode and PR existence; fetches user email only for `EMAIL_INSTANT` rules without an explicit destination and calls `dispatchDependencyNotification()`. Classifies errors like `apps/worker`'s notification processor.
 
 ## Lifecycle & Testing
 

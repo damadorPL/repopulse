@@ -146,7 +146,7 @@ describe("addRepositoryAction", () => {
     prisma.repository.findFirst.mockResolvedValueOnce({
       ...baseRepoState,
       backfillStatus: "DONE",
-      _count: { releases: 5 },
+      releases: [{ id: "rel-existing" }],
     });
 
     const result = await addRepositoryAction({ repoUrlOrSlug: "acme/web", includePrereleases: false, tagIds: [] });

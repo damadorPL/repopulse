@@ -28,6 +28,7 @@ export function RepoAvatar({
       alt=""
       className={base}
       loading="lazy"
+      decoding="async"
       referrerPolicy="no-referrer"
     />
   );

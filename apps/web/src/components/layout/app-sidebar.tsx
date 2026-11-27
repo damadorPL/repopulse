@@ -54,6 +54,7 @@ function NavLink({
   return (
     <Link
       href={href}
+      prefetch={false}
       aria-current={active ? "page" : undefined}
       className={cn(
         "flex h-8 items-center gap-2.5 rounded-md px-2 text-sm text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg]:size-4 [&_svg]:shrink-0",
@@ -93,7 +94,7 @@ export function AppSidebar({
 
   return (
     <nav aria-label="Main" className="flex h-full flex-col gap-6 overflow-y-auto px-3 py-4">
-      <Link href="/" className="flex items-center gap-2 px-2 font-semibold tracking-tight">
+      <Link href="/" prefetch={false} className="flex items-center gap-2 px-2 font-semibold tracking-tight">
         <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
           <ActivityIcon className="size-4" />
         </span>

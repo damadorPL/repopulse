@@ -8,14 +8,11 @@ type OutboxClient = Pick<PrismaClient, "dependencyNotificationOutbox">;
 
 /** Call inside the transaction that records the event, before marking its updates notified. */
 export async function storeNotificationIntents(prisma: OutboxClient, jobs: DepsNotifyJobData[]): Promise<void> {
-  for (const data of jobs) {
-    const id = depsNotifyJobId(data);
-    await prisma.dependencyNotificationOutbox.upsert({
-      where: { id },
-      create: { id, projectId: data.projectId, payload: data },
-      update: {},
-    });
-  }
+  if (jobs.length === 0) return;
+  await prisma.dependencyNotificationOutbox.createMany({
+    data: jobs.map((data) => ({ id: depsNotifyJobId(data), projectId: data.projectId, payload: data as never })),
+    skipDuplicates: true,
+  });
 }
 
 /** A crash after enqueue is safe: retries use the same retained BullMQ job id. */
@@ -23,6 +20,7 @@ export async function flushNotificationOutbox(prisma: OutboxClient, queue: Notif
   const rows = await prisma.dependencyNotificationOutbox.findMany({
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     take: 100,
+    select: { id: true, payload: true },
   });
   if (rows.length === 0) return 0;
   await queue.addBulk(
@@ -37,13 +35,17 @@ export async function flushNotificationOutbox(prisma: OutboxClient, queue: Notif
 }
 
 /** Periodic recovery is independent of scans, including after a worker restart. */
-export function startNotificationOutbox(prisma: PrismaClient, queue: NotifyQueue): () => Promise<void> {
+export function startNotificationOutbox(
+  prisma: PrismaClient,
+  queue: NotifyQueue,
+  loadEnabled: () => Promise<boolean> = () => loadDepsEnabled(prisma),
+): () => Promise<void> {
   let stopped = false;
   let running: Promise<void> | undefined;
   const tick = () => {
     if (stopped || running) return;
     running = (async () => {
-      if (await loadDepsEnabled(prisma)) await flushNotificationOutbox(prisma, queue);
+      if (await loadEnabled()) await flushNotificationOutbox(prisma, queue);
     })()
       .catch((error: unknown) => {
         log.error("could not flush notification intents; retrying on the next tick", error);

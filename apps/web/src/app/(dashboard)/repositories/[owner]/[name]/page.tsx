@@ -30,7 +30,7 @@ import { repoListHrefFrom } from "@/lib/repo-list-filters";
 import { formatVersionStatus } from "@/lib/version-compare";
 import { isDepsEnabled } from "@/server/deps-status";
 import { getDependencyProjectForRepository } from "@/server/queries/dependencies";
-import { getDashboardData } from "@/server/queries/feed";
+import { getDashboardData, type SubscriptionVisibility } from "@/server/queries/feed";
 import { getRepositoryActivity, getRepositorySettings, parseRepoSegment } from "@/server/queries/repository-settings";
 import { requireUser } from "@/server/session";
 
@@ -73,13 +73,15 @@ async function RepositoryActivityContent({
   repositoryId,
   sources,
   tracksReleases,
+  subscription,
 }: {
   userId: string;
   repositoryId: string;
   sources: ActivitySource[];
   tracksReleases: boolean;
+  subscription: SubscriptionVisibility;
 }) {
-  const activity = await getRepositoryActivity(userId, repositoryId);
+  const activity = await getRepositoryActivity(userId, repositoryId, undefined, subscription);
   return (
     <div className="space-y-5">
       <ActivityStats items={activity.items} />
@@ -268,6 +270,13 @@ export default async function RepositorySettingsPage({
             repositoryId={repo.id}
             sources={sources}
             tracksReleases={tracksReleases}
+            subscription={{
+              repositoryId: repo.id,
+              includePrereleases: settings.includePrereleases,
+              trackMode: settings.trackMode,
+              trackPaths: settings.trackPaths,
+              tagSlugs: [],
+            }}
           />
         </Suspense>
       </Section>

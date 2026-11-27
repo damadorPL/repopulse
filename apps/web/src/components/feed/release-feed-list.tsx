@@ -3,7 +3,7 @@
 import { useState, useTransition, type ReactNode } from "react";
 import { LoaderCircleIcon } from "lucide-react";
 import { toast } from "sonner";
-import { useReader } from "@/components/reader/reader-context";
+import { useReaderList } from "@/components/reader/reader-context";
 import { Button } from "@/components/ui/button";
 import { loadMoreReleasesAction } from "@/server/actions/feed";
 import type { FeedItem, FeedPage } from "@/server/queries/feed";
@@ -25,7 +25,7 @@ export function ReleaseFeedList({
   query: string;
   emptyState: ReactNode;
 }) {
-  const { selectedId, openRelease, isRead, readEpoch } = useReader();
+  const { selectedId, openRelease, isRead, readEpoch } = useReaderList();
   // Appended pages; discarded after a bulk read change (their read flags would be stale).
   const [extra, setExtra] = useState<{ epoch: number; items: FeedItem[]; cursor: string | null | undefined }>({
     epoch: readEpoch,

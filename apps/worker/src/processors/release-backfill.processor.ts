@@ -18,6 +18,7 @@ import {
 } from "@repopulse/queue";
 import { createLogger } from "../logger.js";
 import { effectiveTarget, maxAgeCutoff, planBackfillPage, targetStop, type BackfillStop } from "./backfill-plan.js";
+import { mapWithConcurrency } from "./concurrency.js";
 import { tokenCandidates, type TokenCandidate } from "./github-tokens.js";
 
 const log = createLogger("release-backfill");
@@ -145,7 +146,7 @@ export async function processReleaseBackfill(
   if (!row) return { status: "SKIPPED", reason: "REPOSITORY_GONE" };
   const repo: BackfillTarget = row;
   const setStatus = (data: Parameters<PrismaClient["repository"]["update"]>[0]["data"]) =>
-    prisma.repository.update({ where: { id: repositoryId }, data });
+    prisma.repository.update({ where: { id: repositoryId }, data, select: { id: true } });
 
   if (row._count.subscriptions === 0) {
     // Nobody left to import for. The next "Add repository" re-queues it and resumes from backfillNextPage.
@@ -249,13 +250,15 @@ export async function processReleaseBackfill(
         const tagRowByName = new Map(tagRows.map((r) => [r.tagName, r.id]));
         const toPromote = plan.insert.filter((r) => tagRowByName.has(r.tagName));
         if (toPromote.length > 0) {
-          await Promise.all(
-            toPromote.map((release) =>
+          await mapWithConcurrency(
+            toPromote,
+            (release) =>
               prisma.release.update({
                 where: { id: tagRowByName.get(release.tagName)! },
                 data: { ...release, source: "RELEASE", tagSha: null },
+                select: { id: true },
               }),
-            ),
+            4,
           );
           added += toPromote.length;
         }

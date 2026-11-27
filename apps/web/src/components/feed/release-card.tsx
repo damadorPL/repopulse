@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { ExternalLinkIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { FeedItem } from "@/server/queries/feed";
@@ -9,7 +10,7 @@ import { SemverBadge } from "./semver-badge";
 import { CommitSourceBadge, TagSourceBadge } from "./source-badge";
 import { TagPill } from "./tag-pill";
 
-export function ReleaseCard({
+export const ReleaseCard = memo(function ReleaseCard({
   item,
   isRead,
   isActive,
@@ -112,4 +113,4 @@ export function ReleaseCard({
       </div>
     </article>
   );
-}
+});

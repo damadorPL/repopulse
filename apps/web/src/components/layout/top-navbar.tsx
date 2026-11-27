@@ -20,6 +20,22 @@ import type { TagPill, UnreadByRepository } from "@/server/queries/feed";
 
 const SEARCH_DEBOUNCE_MS = 300;
 
+/**
+ * Watches route transitions only while the mobile menu sheet is open so `TopNavbar` itself does not
+ * subscribe to `useSearchParams()` and re-render whenever `?release=` toggles.
+ */
+function MobileMenuRouteWatcher({ onRouteChange }: { onRouteChange: () => void }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const location = `${pathname}?${searchParams.toString()}`;
+  const [prevLocation, setPrevLocation] = useState(location);
+  if (location !== prevLocation) {
+    setPrevLocation(location);
+    onRouteChange();
+  }
+  return null;
+}
+
 export function TopNavbar({
   user,
   tags,
@@ -37,20 +53,11 @@ export function TopNavbar({
   const unread = useOptionalUnread();
   const activeTotalUnread = unread?.totalUnread ?? totalUnread;
   const activeUnreadByRepository = unread?.unreadByRepository ?? unreadByRepository;
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
   const [menuOpen, setMenuOpen] = useState(false);
-
-  // Close the mobile menu after navigating.
-  const location = `${pathname}?${searchParams.toString()}`;
-  const [prevLocation, setPrevLocation] = useState(location);
-  if (location !== prevLocation) {
-    setPrevLocation(location);
-    setMenuOpen(false);
-  }
 
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur supports-backdrop-filter:bg-background/70 md:gap-3 md:px-6">
+      {menuOpen ? <MobileMenuRouteWatcher onRouteChange={() => setMenuOpen(false)} /> : null}
       <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
         <SheetTrigger asChild>
           <Button variant="ghost" size="icon-sm" className="md:hidden" aria-label="Open menu">
@@ -96,7 +103,7 @@ export function TopNavbar({
             </div>
             <PopoverClose asChild>
               <Button asChild variant="ghost" size="sm" className="w-full justify-start">
-                <Link href="/settings/notifications">
+                <Link href="/settings/notifications" prefetch={false}>
                   <BellRingIcon />
                   Notification settings
                 </Link>
@@ -105,7 +112,7 @@ export function TopNavbar({
             {user.isSuperAdmin ? (
               <PopoverClose asChild>
                 <Button asChild variant="ghost" size="sm" className="w-full justify-start">
-                  <Link href="/admin">
+                  <Link href="/admin" prefetch={false}>
                     <ShieldIcon />
                     Admin panel
                   </Link>
@@ -231,6 +238,7 @@ function UnreadBell({
               <li key={repo.repositoryId}>
                 <Link
                   href={feedHref({ repositoryId: repo.repositoryId, onlyUnread: true })}
+                  prefetch={false}
                   onClick={() => setOpen(false)}
                   className="flex items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-accent"
                 >
@@ -248,6 +256,7 @@ function UnreadBell({
           <div className="border-t p-1">
             <Link
               href={feedHref({ onlyUnread: true })}
+              prefetch={false}
               onClick={() => setOpen(false)}
               className="block rounded-md px-3 py-2 text-center text-sm font-medium hover:bg-accent"
             >

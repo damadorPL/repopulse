@@ -49,19 +49,10 @@ function fakePrisma(options: {
       }),
     },
     release: {
-      findMany: vi.fn(
-        async ({
-          where,
-        }: {
-          where: { source: string; OR: [{ tagSha: { in: string[] } }, { tagName: { in: string[] } }] };
-        }) => {
-          expect(where.source).toBe("COMMIT");
-          const [{ tagSha }, { tagName }] = where.OR;
-          return (options.stored ?? [])
-            .filter((r) => tagSha.in.includes(r.tagSha) || tagName.in.includes(r.tagName))
-            .map(toStored);
-        },
-      ),
+      findMany: vi.fn(async ({ where }: { where: { source: string; tagName: { in: string[] } } }) => {
+        expect(where.source).toBe("COMMIT");
+        return (options.stored ?? []).filter((r) => where.tagName.in.includes(r.tagName)).map(toStored);
+      }),
       createManyAndReturn: vi.fn(async ({ data }: { data: Array<Record<string, unknown>> }) => {
         inserted.push(...data);
         return data.map((row) => ({

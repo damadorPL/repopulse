@@ -173,12 +173,12 @@ export async function addRepositoryAction(input: {
     // GitHub slugs are case-insensitive ("CoolLabsIO/Coolify" === "coollabsio/coolify").
     const existing = await prisma.repository.findFirst({
       where: { fullName: { equals: `${owner}/${name}`, mode: "insensitive" } },
-      select: { ...REPOSITORY_IMPORT_SELECT, _count: { select: { releases: true } } },
+      select: { ...REPOSITORY_IMPORT_SELECT, releases: { take: 1, select: { id: true } } },
     });
 
     // Fetch from GitHub before opening the transaction so no DB connection is held during network I/O.
     const fetched =
-      !existing || existing._count.releases === 0
+      !existing || existing.releases.length === 0
         ? await validateAndFetchRepo(owner, name, await loadGitHubToken(user, "addRepositoryAction"))
         : null;
 
@@ -212,7 +212,7 @@ export async function addRepositoryAction(input: {
           });
         }
       } else {
-        const { _count, ...state } = existing!;
+        const { releases: _releases, ...state } = existing!;
         repository = state;
       }
 

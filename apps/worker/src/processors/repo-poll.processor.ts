@@ -150,7 +150,11 @@ async function storeAndFanOut(
     const sameTag =
       missing.length > 0
         ? await tx.release.findMany({
-            where: { repositoryId, tagName: { in: missing.map((r) => r.tagName) } },
+            where: {
+              repositoryId,
+              source: { in: ["RELEASE", "TAG"] },
+              tagName: { in: missing.map((r) => r.tagName) },
+            },
             select: { id: true, tagName: true, source: true },
           })
         : [];
@@ -211,6 +215,7 @@ async function storeAndFanOut(
     await tx.repository.update({
       where: { id: repositoryId },
       data: { lastEtag: etag, lastPolledAt: polledAt, pollStatus: "IDLE", errorCount: 0 },
+      select: { id: true },
     });
 
     return { stored: created.length, promoted: promoted.length, fresh: fresh.length + freshPromoted.length, plan };
@@ -234,7 +239,11 @@ async function recordFailure(
     select: { errorCount: true },
   });
   if (errorCount >= MAX_ERROR_COUNT) {
-    await prisma.repository.update({ where: { id: repositoryId }, data: { pollStatus: "ERROR" } });
+    await prisma.repository.update({
+      where: { id: repositoryId },
+      data: { pollStatus: "ERROR" },
+      select: { id: true },
+    });
   }
   return errorCount;
 }
@@ -355,6 +364,7 @@ export async function processRepoPoll(
     // Nobody watches paths any more: forget them, so a path watched again later is imported quietly
     // instead of notifying its subscriber about everything committed in between.
     data: { pollStatus: "POLLING", ...(!withPaths && polledPaths.length > 0 ? { polledPaths: [] } : {}) },
+    select: { id: true },
   });
 
   try {
@@ -363,14 +373,24 @@ export async function processRepoPoll(
     const candidates = await tokenCandidates(prisma, repositoryId, requestedByUserId);
     // Tags are new when newer than every release or tag row stored before this poll. Commit rows
     // (Slice 06) are far more frequent and would push genuinely new tags into read history.
+    // Two separate 1-row seeks hit Release_repositoryId_source_publishedAt_idx directly.
     const newestBefore = withTags
-      ? ((
-          await prisma.release.findFirst({
-            where: { repositoryId, source: { in: ["RELEASE", "TAG"] } },
+      ? await Promise.all([
+          prisma.release.findFirst({
+            where: { repositoryId, source: "RELEASE" },
             orderBy: { publishedAt: "desc" },
             select: { publishedAt: true },
-          })
-        )?.publishedAt ?? null)
+          }),
+          prisma.release.findFirst({
+            where: { repositoryId, source: "TAG" },
+            orderBy: { publishedAt: "desc" },
+            select: { publishedAt: true },
+          }),
+        ]).then(([latestRelease, latestTag]) => {
+          if (!latestRelease) return latestTag?.publishedAt ?? null;
+          if (!latestTag) return latestRelease.publishedAt;
+          return latestRelease.publishedAt >= latestTag.publishedAt ? latestRelease.publishedAt : latestTag.publishedAt;
+        })
       : null;
     const result = await pollWithFallback(repo, candidates, deps.poll ?? pollRepoReleases, signal);
 
@@ -385,6 +405,7 @@ export async function processRepoPoll(
       await prisma.repository.update({
         where: { id: repositoryId },
         data: { lastPolledAt: now(), pollStatus: "IDLE", errorCount: 0 },
+        select: { id: true },
       });
       log.info(
         { ...ctx, repository: repo.fullName, rateLimitRemaining: result.rateLimitRemaining },
@@ -433,7 +454,7 @@ export async function processRepoPoll(
               fetchDetail: deps.fetchCommitDetail,
               now,
             },
-            repo,
+            { ...repo, polledPaths },
             candidates,
             signal,
             getSubscribers,
@@ -472,7 +493,11 @@ export async function processRepoPoll(
   } catch (error) {
     if (error instanceof GitHubRateLimitError) {
       const delayMs = rateLimitDelayMs(error.resetAt, now());
-      await prisma.repository.update({ where: { id: repositoryId }, data: { pollStatus: "IDLE" } });
+      await prisma.repository.update({
+        where: { id: repositoryId },
+        data: { pollStatus: "IDLE" },
+        select: { id: true },
+      });
       // Pause the whole queue until the quota resets; the job goes back to waiting
       // without consuming an attempt.
       await deps.repoPollQueue.rateLimit(delayMs);

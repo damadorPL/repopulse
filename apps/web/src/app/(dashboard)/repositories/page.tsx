@@ -114,11 +114,12 @@ export default async function RepositoriesPage({ searchParams }: PageProps<"/rep
                   <RepoAvatar src={repo.avatarUrl} name={repo.name} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <Link href={settingsHref} className="truncate font-medium hover:underline">
+                      <Link href={settingsHref} prefetch={false} className="truncate font-medium hover:underline">
                         {repo.fullName}
                       </Link>
                       <Link
                         href={feedHref({ repositoryId: repo.id })}
+                        prefetch={false}
                         className="text-muted-foreground hover:text-foreground"
                         aria-label={`${repo.fullName} in the feed`}
                         title="Open in feed"
@@ -172,6 +173,7 @@ export default async function RepositoriesPage({ searchParams }: PageProps<"/rep
                           <>
                             <Link
                               href={feedHref({ repositoryId: repo.id }, latestRelease.id)}
+                              prefetch={false}
                               className="truncate font-mono text-foreground hover:underline"
                               title={latestRelease.tagName}
                             >
@@ -192,7 +194,9 @@ export default async function RepositoriesPage({ searchParams }: PageProps<"/rep
                       <dt>Unread</dt>
                       <dd className={unread > 0 ? "font-medium text-unread tabular-nums" : "tabular-nums"}>
                         {unread > 0 ? (
-                          <Link href={feedHref({ repositoryId: repo.id, onlyUnread: true })}>{unread}</Link>
+                          <Link href={feedHref({ repositoryId: repo.id, onlyUnread: true })} prefetch={false}>
+                            {unread}
+                          </Link>
                         ) : (
                           0
                         )}
@@ -248,6 +252,7 @@ export default async function RepositoriesPage({ searchParams }: PageProps<"/rep
                     <dd className="min-w-0">
                       <Link
                         href={settingsHref}
+                        prefetch={false}
                         className="flex min-w-0 items-center gap-1.5 hover:text-foreground"
                         title={`Change what is tracked for ${repo.fullName}`}
                       >
@@ -269,7 +274,12 @@ export default async function RepositoriesPage({ searchParams }: PageProps<"/rep
 
                 <div className="mt-auto flex flex-wrap items-center gap-1.5 border-t pt-3">
                   {entry.tags.map((tag) => (
-                    <Link key={tag.id} href={feedHref({ tagSlug: tag.slug })} className="rounded-full hover:opacity-80">
+                    <Link
+                      key={tag.id}
+                      href={feedHref({ tagSlug: tag.slug })}
+                      prefetch={false}
+                      className="rounded-full hover:opacity-80"
+                    >
                       <TagPill name={tag.name} colorHex={tag.colorHex} />
                     </Link>
                   ))}

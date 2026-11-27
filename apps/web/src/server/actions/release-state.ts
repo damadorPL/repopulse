@@ -6,7 +6,7 @@ import { prisma } from "@repopulse/db";
 import { getCurrentUserOrThrow } from "@/lib/auth";
 import { MAX_SEARCH_LENGTH, SEMVER_TYPES } from "@/lib/feed-filters";
 import { fail, invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
-import { buildFeedWhere, visibleReleasesWhere } from "@/server/queries/feed";
+import { buildFeedWhereForSubscriptions, getUserFeedContext, visibleReleasesWhere } from "@/server/queries/feed";
 
 const id = z.string().min(1).max(64);
 
@@ -71,8 +71,17 @@ export async function markAllReadAction(
     const parsed = markAllInput.safeParse(input);
     if (!parsed.success) return invalidInput(parsed.error);
 
+    const context = await getUserFeedContext(user.id);
+    const releaseWhere = buildFeedWhereForSubscriptions(user.id, parsed.data, context.subscriptionVisibility, {
+      omitOnlyUnread: true,
+      assumeUserStateExists: true,
+    });
+    if (!releaseWhere) {
+      return ok({ count: 0 });
+    }
+
     const { count } = await prisma.userReleaseState.updateMany({
-      where: { userId: user.id, isRead: false, release: buildFeedWhere(user.id, parsed.data) },
+      where: { userId: user.id, isRead: false, release: releaseWhere },
       data: { isRead: true, readAt: new Date() },
     });
 

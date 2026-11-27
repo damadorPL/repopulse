@@ -103,6 +103,12 @@ function createAuth() {
       provider: "postgresql",
       transaction: true,
     }),
+    session: {
+      cookieCache: {
+        enabled: true,
+        maxAge: 30,
+      },
+    },
     user: {
       fields: {
         image: "avatarUrl",
@@ -215,7 +221,8 @@ function createAuth() {
               const encrypted = pendingAccountTokenUpdates.get(context);
               if (encrypted) {
                 pendingAccountTokenUpdates.delete(context);
-                await prisma.user.update({
+                const db = txStorage.getStore() ?? prisma;
+                await db.user.update({
                   where: { id: account.userId },
                   data: { githubAccessTokenEncrypted: encrypted },
                 });

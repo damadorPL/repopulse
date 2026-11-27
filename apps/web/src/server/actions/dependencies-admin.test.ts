@@ -19,6 +19,7 @@ vi.mock("@repopulse/github", () => ({
   InvalidRepositoryInputError: class extends Error {},
 }));
 
+const { readDepsEnabledCached } = await import("@/server/deps-enabled-cache");
 const { setDepsEnabledAction } = await import("./dependencies-admin");
 
 beforeEach(() => {
@@ -27,8 +28,10 @@ beforeEach(() => {
 });
 
 describe("setDepsEnabledAction", () => {
-  it("turns the module on and off", async () => {
+  it("turns the module on and off and invalidates the depsEnabled cache", async () => {
+    await expect(readDepsEnabledCached(async () => false)).resolves.toBe(false);
     expect(await setDepsEnabledAction({ enabled: true })).toEqual({ ok: true, data: { enabled: true } });
+    await expect(readDepsEnabledCached(async () => true)).resolves.toBe(true);
     expect(prisma.instanceSettings.upsert).toHaveBeenCalledWith({
       where: { id: 1 },
       create: { id: 1, depsEnabled: true },

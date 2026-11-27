@@ -35,6 +35,7 @@ export interface PathPollTarget {
   owner: string;
   name: string;
   fullName: string;
+  polledPaths?: string[];
 }
 
 export interface PathStepCounts {
@@ -197,7 +198,9 @@ export async function pollRepoPaths(
   const fetchDetail = deps.fetchDetail ?? fetchCommitDetail;
   try {
     const [repository, allSubscribers] = await Promise.all([
-      prisma.repository.findUnique({ where: { id: repo.id }, select: { polledPaths: true } }),
+      repo.polledPaths
+        ? Promise.resolve({ polledPaths: repo.polledPaths })
+        : prisma.repository.findUnique({ where: { id: repo.id }, select: { polledPaths: true } }),
       preloadedSubscribers ? preloadedSubscribers() : loadSubscribers(prisma, repo.id),
     ]);
     const subscribers: PathSubscriber[] = allSubscribers
@@ -269,8 +272,7 @@ export async function pollRepoPaths(
       );
     }
 
-    // 2. Which are stored already. Queried by short SHA too: it is the unique key, so a different
-    // commit with the same short SHA (vanishingly rare) could never be inserted and is skipped.
+    // 2. Which are stored already. Indexed by (repositoryId, source, tagName) where tagName is the 7-char short SHA.
     const shas = [...polled.keys()];
     const existing: StoredCommit[] =
       shas.length > 0
@@ -278,7 +280,7 @@ export async function pollRepoPaths(
             where: {
               repositoryId: repo.id,
               source: "COMMIT",
-              OR: [{ tagSha: { in: shas } }, { tagName: { in: shas.map((sha) => sha.slice(0, 7)) } }],
+              tagName: { in: [...new Set(shas.map((sha) => sha.slice(0, 7)))] },
             },
             select: STORED_COMMIT_SELECT,
           })
@@ -391,7 +393,11 @@ export async function pollRepoPaths(
 
       // Exactly the paths watched now: a path nobody watches any more is forgotten, so watching it
       // again later is a quiet initial import rather than a burst of notifications.
-      await tx.repository.update({ where: { id: repo.id }, data: { lastPathsPolledAt: now(), polledPaths: paths } });
+      await tx.repository.update({
+        where: { id: repo.id },
+        data: { lastPathsPolledAt: now(), polledPaths: paths },
+        select: { id: true },
+      });
 
       return {
         counts: {

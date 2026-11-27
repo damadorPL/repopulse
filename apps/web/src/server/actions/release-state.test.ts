@@ -8,6 +8,8 @@ const currentUser = { id: "u1" };
 const prisma = {
   release: { findFirst: vi.fn() },
   userReleaseState: { upsert: vi.fn(), updateMany: vi.fn() },
+  tag: { findMany: vi.fn() },
+  userSubscription: { findMany: vi.fn() },
 };
 
 vi.mock("@/lib/auth", () => ({
@@ -24,7 +26,7 @@ vi.mock("@repopulse/github", () => ({
 }));
 
 const { revalidatePath } = await import("next/cache");
-const { buildFeedWhere, visibleReleasesWhere } = await import("@/server/queries/feed");
+const { buildFeedWhereForSubscriptions, visibleReleasesWhere } = await import("@/server/queries/feed");
 const { markAllReadAction, toggleReleaseReadAction } = await import("./release-state");
 
 beforeEach(() => {
@@ -71,7 +73,35 @@ describe("toggleReleaseReadAction", () => {
 });
 
 describe("markAllReadAction", () => {
-  it("updates unread release states scoped to the user and buildFeedWhere filters", async () => {
+  it("updates unread release states scoped to the user and subscription visibility filters", async () => {
+    prisma.tag.findMany.mockResolvedValueOnce([
+      {
+        id: "t1",
+        name: "Frontend",
+        slug: "frontend",
+        colorHex: "#3B82F6",
+        subscriptions: [{ subscriptionId: "sub1" }],
+      },
+    ]);
+    prisma.userSubscription.findMany.mockResolvedValueOnce([
+      {
+        id: "sub1",
+        repositoryId: "repo1",
+        includePrereleases: false,
+        trackMode: "RELEASES",
+        trackPaths: false,
+        currentVersion: null,
+        repository: {
+          id: "repo1",
+          owner: "acme",
+          name: "react",
+          fullName: "acme/react",
+          avatarUrl: null,
+          htmlUrl: "https://github.com/acme/react",
+        },
+        tags: [{ tagId: "t1" }],
+      },
+    ]);
     prisma.userReleaseState.updateMany.mockResolvedValueOnce({ count: 4 });
     const filters = { tagSlug: "frontend", semverType: "MAJOR" as const, searchQuery: "react" };
 
@@ -81,9 +111,31 @@ describe("markAllReadAction", () => {
       where: {
         userId: "u1",
         isRead: false,
-        release: buildFeedWhere("u1", filters),
+        release: buildFeedWhereForSubscriptions(
+          "u1",
+          filters,
+          [
+            {
+              repositoryId: "repo1",
+              includePrereleases: false,
+              trackMode: "RELEASES",
+              trackPaths: false,
+              tagSlugs: ["frontend"],
+              fullName: "acme/react",
+              tagNames: ["Frontend"],
+            },
+          ],
+          { omitOnlyUnread: true, assumeUserStateExists: true },
+        ),
       },
       data: { isRead: true, readAt: expect.any(Date) },
     });
+
+    // Short-circuits when no subscription matches without hitting userReleaseState.updateMany.
+    prisma.tag.findMany.mockResolvedValueOnce([]);
+    prisma.userSubscription.findMany.mockResolvedValueOnce([]);
+    prisma.userReleaseState.updateMany.mockClear();
+    expect(await markAllReadAction({})).toEqual({ ok: true, data: { count: 0 } });
+    expect(prisma.userReleaseState.updateMany).not.toHaveBeenCalled();
   });
 });

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { INSTANCE_SETTINGS_ID, prisma } from "@repopulse/db";
+import { invalidateDepsEnabledCache } from "@/server/deps-enabled-cache";
 import { invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
 import { getSuperAdminOrThrow } from "@/server/session";
 
@@ -25,6 +26,7 @@ export async function setDepsEnabledAction(input: { enabled: boolean }): Promise
       create: { id: INSTANCE_SETTINGS_ID, depsEnabled: enabled },
       update: { depsEnabled: enabled },
     });
+    invalidateDepsEnabledCache();
     revalidatePath("/admin/dependencies");
     revalidatePath("/admin");
     // The sidebar link lives in the dashboard layout.

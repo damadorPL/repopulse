@@ -13,7 +13,7 @@ import { prisma } from "@repopulse/db";
 import { AppVersionLink } from "@/components/layout/app-version-link";
 import { getBackfillSettingsView } from "@/server/backfill-settings";
 import { isDepsEnabled } from "@/server/deps-status";
-import { getInvites, getMemberCount } from "@/server/queries/access";
+import { getMemberCount } from "@/server/queries/access";
 import { getGitHubAppView } from "@/server/queries/github-app";
 import { isPublicRegistrationOpen } from "@/server/registration";
 import { requireSuperAdmin } from "@/server/session";
@@ -62,10 +62,10 @@ function SectionCard({
 export default async function AdminOverviewPage() {
   const admin = await requireSuperAdmin();
 
-  const [publicRegistration, invites, memberCount, smtp, history, repositoryCount, githubApp, depsEnabled] =
+  const [publicRegistration, pendingInvites, memberCount, smtp, history, repositoryCount, githubApp, depsEnabled] =
     await Promise.all([
       isPublicRegistrationOpen(),
-      getInvites(),
+      prisma.invite.count({ where: { usedAt: null, expiresAt: { gt: new Date() } } }),
       getMemberCount(),
       getSmtpSettingsView(),
       getBackfillSettingsView(),
@@ -73,7 +73,6 @@ export default async function AdminOverviewPage() {
       getGitHubAppView(admin.githubLogin),
       isDepsEnabled(),
     ]);
-  const pendingInvites = invites.filter((invite) => invite.status === "pending").length;
   const value = (key: string) => history.find((s) => s.key === key)!.value;
   const customCount = history.filter((s) => s.source === "admin").length;
   const maxAge = value("maxAgeDays");

@@ -1,7 +1,14 @@
 import { prisma } from "@repopulse/db";
 import { ACTIVITY_WINDOW_DAYS, type ActivityItem } from "@/lib/activity-grid";
 import { getBackfillConfig } from "@/server/backfill-settings";
-import { loadTrackedRepositories, visibleReleasesWhere, type TagPill, type TrackedRepository } from "./feed";
+import {
+  loadTrackedRepositories,
+  visibleReleasesWhere,
+  visibleReleasesWhereForSubscriptions,
+  type SubscriptionVisibility,
+  type TagPill,
+  type TrackedRepository,
+} from "./feed";
 
 /**
  * Read queries of the repository settings page, `/repositories/[owner]/[name]` (Slice 07). The URL
@@ -91,18 +98,24 @@ export async function getRepositoryActivity(
   userId: string,
   repositoryId: string,
   now: Date = new Date(),
+  subscription?: SubscriptionVisibility,
 ): Promise<RepositoryActivity> {
-  const visible = { AND: [visibleReleasesWhere(userId, { repositoryId }), { repositoryId }] };
+  const scopedVisibility = subscription
+    ? visibleReleasesWhereForSubscriptions(userId, [subscription])
+    : visibleReleasesWhere(userId, { repositoryId });
+  if (!scopedVisibility) {
+    return { items: [], truncated: false, total: 0, firstStoredAt: null };
+  }
+  const visible = { AND: [scopedVisibility, { repositoryId }] };
   const since = new Date(now.getTime() - ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-  const [rows, total, oldest] = await Promise.all([
+  const [rows, summary] = await Promise.all([
     prisma.release.findMany({
       where: { AND: [visible, { publishedAt: { gte: since } }] },
       orderBy: [{ publishedAt: "desc" }, { id: "desc" }],
       take: ACTIVITY_ITEMS_CAP + 1,
       select: { id: true, publishedAt: true, source: true, semverType: true },
     }),
-    prisma.release.count({ where: visible }),
-    prisma.release.aggregate({ where: visible, _min: { publishedAt: true } }),
+    prisma.release.aggregate({ where: visible, _count: { _all: true }, _min: { publishedAt: true } }),
   ]);
   const truncated = rows.length > ACTIVITY_ITEMS_CAP;
   return {
@@ -113,7 +126,7 @@ export async function getRepositoryActivity(
       semverType: row.semverType,
     })),
     truncated,
-    total,
-    firstStoredAt: oldest._min.publishedAt,
+    total: summary._count._all,
+    firstStoredAt: summary._min.publishedAt,
   };
 }

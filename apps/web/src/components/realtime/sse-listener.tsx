@@ -52,13 +52,34 @@ export function SseListener() {
     let pending: NewReleaseEvent[] = [];
     let flushTimer: ReturnType<typeof setTimeout> | undefined;
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    let pendingRefresh = false;
     let hasConnected = false;
+
+    const triggerRefresh = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        pendingRefresh = true;
+        return;
+      }
+      pendingRefresh = false;
+      router.refresh();
+    };
+
+    const onVisibilityChange = () => {
+      if (pendingRefresh && document.visibilityState === "visible") {
+        pendingRefresh = false;
+        router.refresh();
+      }
+    };
+
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", onVisibilityChange);
+    }
 
     const refresh = () => {
       if (refreshTimer) clearTimeout(refreshTimer);
       refreshTimer = setTimeout(() => {
         refreshTimer = undefined;
-        router.refresh();
+        triggerRefresh();
       }, REFRESH_COALESCE_MS);
     };
 
@@ -176,6 +197,9 @@ export function SseListener() {
 
     return () => {
       source.close();
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+      }
       if (flushTimer) clearTimeout(flushTimer);
       if (refreshTimer) clearTimeout(refreshTimer);
     };
