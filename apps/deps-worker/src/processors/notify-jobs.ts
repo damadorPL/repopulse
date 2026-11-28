@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+import type { Queue } from "bullmq";
+
 import type { NotificationLevel, PrismaClient } from "@repopulse/db";
 import { isDeliverableChannel } from "@repopulse/notifications";
 import {
@@ -10,7 +12,6 @@ import {
   type RealtimeEvent,
   type Redis,
 } from "@repopulse/queue";
-import type { Queue } from "bullmq";
 
 import { createLogger } from "../logger.js";
 
@@ -54,7 +55,7 @@ export type NotifyQueue = Pick<Queue<DepsNotifyJobData>, "addBulk">;
 
 /** Enabled, untagged, deliverable rules of `userId` that cover `event`. */
 export async function rulesFor(
-  prisma: PrismaClient,
+  prisma: Pick<PrismaClient, "notificationRule">,
   userId: string,
   event: "DEPENDENCY_UPDATES" | "DEPENDENCY_PULL_REQUESTS",
 ): Promise<Array<{ id: string }>> {
@@ -65,7 +66,7 @@ export async function rulesFor(
   return rules.filter((rule) => isDeliverableChannel(rule.channel)).map((rule) => ({ id: rule.id }));
 }
 
-export async function addNotifyJobs(queue: NotifyQueue, jobs: DepsNotifyJobData[], label: string): Promise<void> {
+async function addNotifyJobs(queue: NotifyQueue, jobs: DepsNotifyJobData[], label: string): Promise<void> {
   if (jobs.length === 0) return;
   try {
     await queue.addBulk(

@@ -29,7 +29,7 @@ describe("processDepsSchedulerTick", () => {
   it("does nothing while the module is disabled", async () => {
     const { deps, project, scanQueue } = setup(false);
     project("p1", { nextScanAt: null });
-    expect(await processDepsSchedulerTick(deps)).toEqual({ status: "DISABLED" });
+    await expect(processDepsSchedulerTick(deps)).resolves.toEqual({ status: "DISABLED" });
     expect(scanQueue.addBulk).not.toHaveBeenCalled();
   });
 
@@ -50,7 +50,7 @@ describe("processDepsSchedulerTick", () => {
       updatedAt: new Date(NOW.getTime() - STALE_SCANNING_MS - 1),
     });
 
-    expect(await processDepsSchedulerTick(deps)).toEqual({ status: "OK", due: 4 });
+    await expect(processDepsSchedulerTick(deps)).resolves.toEqual({ status: "OK", due: 4 });
     expect(queued(scanQueue)).toEqual(["due", "errored", "never", "stale"]);
     const [first] = scanQueue.addBulk.mock.calls[0]![0];
     expect(first!.opts).toEqual({
@@ -66,7 +66,7 @@ describe("processDepsSchedulerTick", () => {
         nextScanAt: i < 5 ? new Date(NOW.getTime() - (10 - i) * 1000) : null,
       });
     }
-    expect(await processDepsSchedulerTick(deps)).toEqual({ status: "OK", due: SCHEDULER_BATCH_SIZE + 5 });
+    await expect(processDepsSchedulerTick(deps)).resolves.toEqual({ status: "OK", due: SCHEDULER_BATCH_SIZE + 5 });
     expect(scanQueue.addBulk).toHaveBeenCalledTimes(2);
     expect(new Set(queued(scanQueue)).size).toBe(SCHEDULER_BATCH_SIZE + 5);
     const firstBatchIds = scanQueue.addBulk.mock.calls[0]![0].map((j) => j.data.projectId);
@@ -80,7 +80,7 @@ describe("processDepsSchedulerTick", () => {
       .mockResolvedValueOnce([{ id: "p1" }, { id: "p2" }] as never)
       .mockResolvedValueOnce([{ id: "p2" }, { id: "p3" }] as never);
 
-    expect(await processDepsSchedulerTick(deps)).toEqual({ status: "OK", due: 3 });
+    await expect(processDepsSchedulerTick(deps)).resolves.toEqual({ status: "OK", due: 3 });
     expect(findMany).toHaveBeenCalledTimes(2);
     expect(queued(scanQueue)).toEqual(["p1", "p2", "p3"]);
   });

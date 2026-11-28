@@ -131,8 +131,7 @@ export function ReleaseCard({
           href={item.htmlUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="z-10 rounded-sm p-1 text-muted-foreground opacity-0 outline-hidden transition-opacity group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/50"
-          title="Open on GitHub"
+          className="z-10 rounded-sm p-1 text-muted-foreground opacity-60 outline-hidden transition-opacity group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/50"
         >
           <ExternalLinkIcon className="size-4" />
           <span className="sr-only">Open {item.tagName} on GitHub</span>

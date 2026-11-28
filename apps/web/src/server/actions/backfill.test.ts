@@ -80,7 +80,7 @@ describe("requestDeepBackfillAction", () => {
         backfillRequestedAt: null,
       },
     });
-    expect(await requestDeepBackfillAction({ repositoryId: "repo1" })).toEqual({
+    await expect(requestDeepBackfillAction({ repositoryId: "repo1" })).resolves.toEqual({
       ok: true,
       data: { status: "AT_CAP", fullName: "acme/web", hardCap: 500 },
     });
@@ -94,7 +94,7 @@ describe("requestDeepBackfillAction", () => {
         backfillRequestedAt: null,
       },
     });
-    expect(await requestDeepBackfillAction({ repositoryId: "repo1" })).toEqual({
+    await expect(requestDeepBackfillAction({ repositoryId: "repo1" })).resolves.toEqual({
       ok: true,
       data: { status: "AT_CAP", fullName: "acme/web", hardCap: 500 },
     });
@@ -110,7 +110,7 @@ describe("requestDeepBackfillAction", () => {
         backfillRequestedAt: null,
       },
     });
-    expect(await requestDeepBackfillAction({ repositoryId: "repo1" })).toEqual({
+    await expect(requestDeepBackfillAction({ repositoryId: "repo1" })).resolves.toEqual({
       ok: true,
       data: { status: "COMPLETE", fullName: "acme/web" },
     });

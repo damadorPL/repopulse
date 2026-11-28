@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -35,7 +37,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run coding & architectural guardrails
-        run: pnpm run check:guardrails
+        run: |
+          BASE_REF="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -n "$BASE_REF" ] && [ "$BASE_REF" != "0000000000000000000000000000000000000000" ] && git rev-parse --verify "${BASE_REF}^{commit}" >/dev/null 2>&1; then
+            pnpm run check:guardrails -- --base "$BASE_REF"
+          else
+            pnpm run check:guardrails
+          fi
 
       - name: Lint workspace manifests (Sherif)
         run: pnpm run lint:manifests

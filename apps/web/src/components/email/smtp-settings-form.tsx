@@ -28,16 +28,18 @@ interface FormState {
   from: string;
 }
 
+const FORM_STATE_KEYS = ["host", "port", "security", "user", "from"] as const satisfies ReadonlyArray<keyof FormState>;
+
+function isSmtpSecurity(value: string): value is SmtpSecurity {
+  return (SMTP_SECURITY as readonly string[]).includes(value);
+}
+
 function toFormState(view: SmtpSettingsView): FormState {
   return { host: view.host, port: String(view.port), security: view.security, user: view.user, from: view.from };
 }
 
 function isSmtpFormDirty(form: FormState, savedForm: FormState, password: string, clearPassword: boolean): boolean {
-  return (
-    (Object.keys(form) as (keyof FormState)[]).some((key) => form[key].trim() !== savedForm[key].trim()) ||
-    password !== "" ||
-    clearPassword
-  );
+  return FORM_STATE_KEYS.some((key) => form[key].trim() !== savedForm[key].trim()) || password !== "" || clearPassword;
 }
 
 function SmtpCredentialsFields({
@@ -351,7 +353,12 @@ export function SmtpSettingsForm({ settings, adminEmail }: { settings: SmtpSetti
 
         <div className="grid gap-2">
           <Label htmlFor="smtp-security">Encryption</Label>
-          <Select value={form.security} onValueChange={(value) => update("security", value as SmtpSecurity)}>
+          <Select
+            value={form.security}
+            onValueChange={(value) => {
+              if (isSmtpSecurity(value)) update("security", value);
+            }}
+          >
             <SelectTrigger id="smtp-security" className="w-full sm:w-64" aria-describedby="smtp-security-hint">
               <SelectValue />
             </SelectTrigger>

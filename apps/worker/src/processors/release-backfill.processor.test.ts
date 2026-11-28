@@ -1,3 +1,6 @@
+import { DelayedError, type Job } from "bullmq";
+import { describe, expect, it, vi } from "vitest";
+
 import {
   GitHubRateLimitError,
   GitHubRepositoryNotFoundError,
@@ -5,8 +8,6 @@ import {
   type MappedRelease,
 } from "@repopulse/github";
 import { BACKFILL_DEFAULTS, type BackfillConfig, type ReleaseBackfillJobData } from "@repopulse/queue";
-import { DelayedError, type Job } from "bullmq";
-import { describe, expect, it, vi } from "vitest";
 
 import { processReleaseBackfill } from "./release-backfill.processor.js";
 
@@ -156,7 +157,7 @@ describe("processReleaseBackfill", () => {
     const gone = fakeDb({ stored: [1] });
     gone.prisma.repository.findUnique.mockResolvedValueOnce(null as never);
     const github = fakeGitHub(10);
-    expect(await processReleaseBackfill(job(), "token", deps(gone, github))).toEqual({
+    await expect(processReleaseBackfill(job(), "token", deps(gone, github))).resolves.toEqual({
       status: "SKIPPED",
       reason: "REPOSITORY_GONE",
     });
@@ -164,7 +165,7 @@ describe("processReleaseBackfill", () => {
     expect(github).not.toHaveBeenCalled();
 
     const empty = fakeDb({ stored: [1], subscribers: [] });
-    expect(await processReleaseBackfill(job(), "token", deps(empty, github))).toEqual({
+    await expect(processReleaseBackfill(job(), "token", deps(empty, github))).resolves.toEqual({
       status: "SKIPPED",
       reason: "NO_SUBSCRIBERS",
     });
@@ -258,7 +259,7 @@ describe("processReleaseBackfill", () => {
   it("finishes without calling GitHub when nothing is stored", async () => {
     const db = fakeDb({ stored: [] });
     const github = fakeGitHub(0);
-    expect(await processReleaseBackfill(job(), "token", deps(db, github))).toMatchObject({
+    await expect(processReleaseBackfill(job(), "token", deps(db, github))).resolves.toMatchObject({
       backfillStatus: "DONE",
       reason: "COMPLETE",
     });
@@ -292,7 +293,7 @@ describe("processReleaseBackfill", () => {
   it("flags ERROR on 404", async () => {
     const db = fakeDb({ stored: range(50, 41) });
     const github = fakeGitHub(50, { error: new GitHubRepositoryNotFoundError("acme", "widget") });
-    expect(await processReleaseBackfill(job(), "token", deps(db, github))).toEqual({ status: "NOT_FOUND" });
+    await expect(processReleaseBackfill(job(), "token", deps(db, github))).resolves.toEqual({ status: "NOT_FOUND" });
     expect(db.repo.backfillStatus).toBe("ERROR");
   });
 

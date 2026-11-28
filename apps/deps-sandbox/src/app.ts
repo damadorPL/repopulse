@@ -27,7 +27,7 @@ import type { ToolVersions } from "./commands.js";
 import { log } from "./logger.js";
 import { DEFAULT_EGRESS_PROXY, DEFAULT_TIMEOUT_MS, runLock, type RunLockOptions } from "./run-lock.js";
 
-export const DEFAULT_PORT = 3003;
+const DEFAULT_PORT = 3003;
 const MIN_TOKEN_LENGTH = 16;
 const MAX_TIMEOUT_MS = 60 * 60 * 1000;
 
@@ -67,7 +67,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): SandboxConfig 
     if (url.protocol !== "http:") throw new Error("DEPS_EGRESS_PROXY must be an http:// URL");
   }
 
-  return { port, token, tmpRoot: env.DEPS_SANDBOX_TMP_DIR?.trim() || os.tmpdir(), timeoutMs, proxy };
+  const rawTmpDir = env.DEPS_SANDBOX_TMP_DIR?.trim();
+  const tmpRoot = rawTmpDir !== undefined && rawTmpDir.length > 0 ? rawTmpDir : os.tmpdir();
+  return { port, token, tmpRoot, timeoutMs, proxy };
 }
 
 const sha256 = (value: string) => createHash("sha256").update(value, "utf8").digest();

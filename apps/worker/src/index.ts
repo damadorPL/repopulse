@@ -1,3 +1,5 @@
+import { Worker } from "bullmq";
+
 import { createCachedLoader, loadBackfillOverrides, loadSmtpSettings, prisma } from "@repopulse/db";
 import { closeSmtpTransports } from "@repopulse/notifications";
 import {
@@ -13,7 +15,6 @@ import {
   type RepoPollJobData,
   type SchedulerJobData,
 } from "@repopulse/queue";
-import { Worker } from "bullmq";
 
 import { startHealthServer, type HealthServer } from "./health.js";
 import { createLogger, errorMessage, log } from "./logger.js";

@@ -69,7 +69,11 @@ const noop = () => {};
 const MAX_APP_OCTOKIT_CACHE_SIZE = 16;
 const appOctokitCache = new Map<string, Octokit>();
 
-/** Clears the cached App Octokit instances (used by tests). */
+/**
+ * Clears the cached App Octokit instances.
+ *
+ * @internal Exported for unit tests.
+ */
 export function clearAppOctokitCache(): void {
   appOctokitCache.clear();
 }
@@ -244,6 +248,30 @@ interface AppData {
   html_url: string;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function parseAppData(raw: unknown): AppData | null {
+  if (
+    !isRecord(raw) ||
+    typeof raw.id !== "number" ||
+    typeof raw.name !== "string" ||
+    typeof raw.html_url !== "string"
+  ) {
+    return null;
+  }
+  const owner = isRecord(raw.owner) ? { login: typeof raw.owner.login === "string" ? raw.owner.login : null } : null;
+  return {
+    id: raw.id,
+    ...(typeof raw.slug === "string" ? { slug: raw.slug } : {}),
+    name: raw.name,
+    client_id: typeof raw.client_id === "string" ? raw.client_id : null,
+    owner,
+    html_url: raw.html_url,
+  };
+}
+
 function mapApp(data: AppData): GitHubAppInfo {
   return {
     id: data.id,
@@ -267,8 +295,9 @@ export async function getAuthenticatedApp(
   const octokit = createAppOctokit(auth, options);
   try {
     const response = await octokit.request("GET /app", requestOptions(options.signal));
-    if (!response.data) throw new GitHubAppAuthError("GitHub returned no App for these credentials.");
-    return mapApp(response.data as AppData);
+    const appData = parseAppData(response.data);
+    if (!appData) throw new GitHubAppAuthError("GitHub returned no App for these credentials.");
+    return mapApp(appData);
   } catch (error) {
     rethrowAppError(error, () => {
       throw new GitHubAppAuthError("No GitHub App matches this App id and private key.", 404);
@@ -303,18 +332,22 @@ export async function convertAppManifest(
       code,
       ...requestOptions(options.signal),
     });
-    const data = response.data as AppData & {
-      client_id: string;
-      client_secret: string;
-      pem: string;
-      webhook_secret?: string | null;
-    };
+    const appData = parseAppData(response.data);
+    if (
+      !appData ||
+      !isRecord(response.data) ||
+      typeof response.data.client_id !== "string" ||
+      typeof response.data.client_secret !== "string" ||
+      typeof response.data.pem !== "string"
+    ) {
+      throw new GitHubAppAuthError("GitHub returned an incomplete App manifest conversion payload.");
+    }
     return {
-      ...mapApp(data),
-      clientId: data.client_id,
-      clientSecret: data.client_secret,
-      pem: data.pem,
-      webhookSecret: data.webhook_secret ?? null,
+      ...mapApp(appData),
+      clientId: response.data.client_id,
+      clientSecret: response.data.client_secret,
+      pem: response.data.pem,
+      webhookSecret: typeof response.data.webhook_secret === "string" ? response.data.webhook_secret : null,
     };
   } catch (error) {
     if (isGitHubHttpError(error) && (error.status === 404 || error.status === 422)) {
@@ -398,12 +431,18 @@ export async function createInstallationToken(
 
 export type CollaboratorPermission = "admin" | "maintain" | "write" | "triage" | "read" | "none";
 
-const PERMISSIONS: readonly CollaboratorPermission[] = ["admin", "maintain", "write", "triage", "read", "none"];
-
 function asPermission(value: unknown): CollaboratorPermission | null {
-  return typeof value === "string" && (PERMISSIONS as readonly string[]).includes(value)
-    ? (value as CollaboratorPermission)
-    : null;
+  switch (value) {
+    case "admin":
+    case "maintain":
+    case "write":
+    case "triage":
+    case "read":
+    case "none":
+      return value;
+    default:
+      return null;
+  }
 }
 
 /**
@@ -461,7 +500,7 @@ export function installUrl(slug: string, githubRepoId?: number, targetId?: numbe
 }
 
 /** GitHub's App name limit. */
-export const GITHUB_APP_NAME_MAX_LENGTH = 34;
+const GITHUB_APP_NAME_MAX_LENGTH = 34;
 
 function truncateName(name: string): string {
   const chars = Array.from(name.trim());
@@ -500,7 +539,7 @@ export function buildAppManifest(opts: { appBaseUrl: string; name?: string }): R
 /** GitHub logins: alphanumerics and single hyphens, no leading / trailing hyphen, at most 39 characters. */
 const GITHUB_LOGIN_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
 
-export function isValidGitHubLogin(login: string): boolean {
+function isValidGitHubLogin(login: string): boolean {
   return GITHUB_LOGIN_PATTERN.test(login);
 }
 

@@ -19,11 +19,13 @@ export const GITHUB_APP_CALLBACK_ERRORS = {
 } as const;
 export type GitHubAppCallbackError = keyof typeof GITHUB_APP_CALLBACK_ERRORS;
 
+function isCallbackError(code: string): code is GitHubAppCallbackError {
+  return Object.hasOwn(GITHUB_APP_CALLBACK_ERRORS, code);
+}
+
 export function callbackErrorMessage(code: string | undefined): string | null {
   if (!code) return null;
-  return Object.hasOwn(GITHUB_APP_CALLBACK_ERRORS, code)
-    ? GITHUB_APP_CALLBACK_ERRORS[code as GitHubAppCallbackError]
-    : GITHUB_APP_CALLBACK_ERRORS.unknown;
+  return isCallbackError(code) ? GITHUB_APP_CALLBACK_ERRORS[code] : GITHUB_APP_CALLBACK_ERRORS.unknown;
 }
 
 /** Public page of an App (also where users install it). */
@@ -47,7 +49,7 @@ export function githubAppSettingsUrl(slug: string, owner: string | null, ownedBy
 // ---------------------------------------------------------------------------
 
 /** Path of the webhook route, relative to `APP_BASE_URL`. */
-export const GITHUB_APP_WEBHOOK_PATH = "/api/github-app/webhook";
+const GITHUB_APP_WEBHOOK_PATH = "/api/github-app/webhook";
 
 export type GitHubAppWebhookTarget = { url: string; reason: null } | { url: null; reason: string };
 
@@ -68,7 +70,8 @@ const PRIVATE_HOST_SUFFIXES = [
 function isPrivateIpv4(host: string): boolean {
   const parts = host.split(".").map(Number);
   if (parts.length !== 4 || parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) return false;
-  const [a, b] = parts as [number, number, number, number];
+  const a = parts[0]!;
+  const b = parts[1]!;
   return (
     a === 0 ||
     a === 10 ||

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { commitMatchesAnyPath, summarizeWatchedPaths, validateWatchedPaths } from "./watched-paths";
+import { commitMatchesAnyPath, validateWatchedPaths } from "./watched-paths";
 
 describe("validateWatchedPaths", () => {
   it("returns normalized, deduplicated paths", () => {
@@ -24,14 +24,6 @@ describe("validateWatchedPaths", () => {
       ok: false,
       message: "Watch at most 10 paths.",
     });
-  });
-});
-
-describe("formatting", () => {
-  it("summarizes for cards", () => {
-    expect(summarizeWatchedPaths(["a"])).toBe("a");
-    expect(summarizeWatchedPaths(["a", "b"])).toBe("a, b");
-    expect(summarizeWatchedPaths(["a", "b", "c"])).toBe("a +2 more");
   });
 });
 

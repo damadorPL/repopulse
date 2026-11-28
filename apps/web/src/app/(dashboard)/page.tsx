@@ -34,7 +34,8 @@ async function resolveViewUnreadCount(
   tag: UserFeedContext["tags"][number] | null,
   repository: UserFeedContext["subscriptions"][number] | null,
 ): Promise<number> {
-  const filtered = Boolean(filters.semverType || filters.searchQuery);
+  const filtered =
+    filters.semverType !== undefined || (filters.searchQuery !== undefined && filters.searchQuery.length > 0);
   if (filtered || Boolean(filters.tagSlug && filters.repositoryId)) {
     return countUnread(userId, filters, context.subscriptionVisibility);
   }
@@ -135,7 +136,8 @@ export default async function ReleaseFeedPage({ searchParams }: PageProps<"/">) 
     : null;
 
   const heading = feedHeading(tag, repository, filters.onlyUnread);
-  const filtered = Boolean(filters.semverType || filters.searchQuery);
+  const filtered =
+    filters.semverType !== undefined || (filters.searchQuery !== undefined && filters.searchQuery.length > 0);
   const [page, viewUnread] = await Promise.all([
     getReleaseFeed({
       userId: user.id,
@@ -178,7 +180,7 @@ export default async function ReleaseFeedPage({ searchParams }: PageProps<"/">) 
                 hasSubscriptions={context.subscriptions.length > 0}
                 onlyUnread={filters.onlyUnread}
                 filtered={filtered}
-                hasScope={Boolean(tag || repository)}
+                hasScope={tag !== null || repository !== null}
                 tags={context.tags.map(({ id, name, slug, colorHex }) => ({ id, name, slug, colorHex }))}
               />
             }

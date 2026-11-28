@@ -14,17 +14,17 @@ export function instantiateOctokit(options: ConstructorParameters<typeof Octokit
 
 export interface CreateOctokitOptions {
   /** GitHub OAuth / personal access token. Unauthenticated requests get 60 req/h. */
-  accessToken?: string | null;
+  accessToken?: string | null | undefined;
   /** Custom fetch implementation (used by tests). */
-  fetch?: typeof globalThis.fetch;
+  fetch?: typeof globalThis.fetch | undefined;
   /** Per-attempt request timeout in milliseconds (composed with `signal` when provided). */
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
   /** Abort signal applied to requests made by this client. */
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
   /** Retry attempts for transient failures (defaults to 2 in production, 0 when custom `fetch` is passed). */
-  retries?: number;
+  retries?: number | undefined;
   /** Base backoff in ms used by `@octokit/plugin-retry` (defaults to 1000). */
-  retryAfterBaseValue?: number;
+  retryAfterBaseValue?: number | undefined;
 }
 
 const noop = () => {};
@@ -46,7 +46,7 @@ export function wrapFetchWithSignal(
     if (init?.signal) signals.push(init.signal);
     if (options.timeoutMs !== undefined) signals.push(AbortSignal.timeout(options.timeoutMs));
     const signal = signals.length === 1 ? signals[0] : AbortSignal.any(signals);
-    return baseFetch(input, { ...init, signal });
+    return baseFetch(input, { ...init, ...(signal !== undefined ? { signal } : {}) });
   };
 }
 
@@ -68,7 +68,10 @@ export function createOctokit(options: CreateOctokitOptions = {}): Octokit {
       })
     : undefined;
   return instantiateOctokit({
-    auth: options.accessToken || undefined,
+    auth:
+      options.accessToken !== undefined && options.accessToken !== null && options.accessToken.length > 0
+        ? options.accessToken
+        : undefined,
     userAgent: GITHUB_USER_AGENT,
     log: { debug: noop, info: noop, warn: console.warn.bind(console), error: noop },
     retry: {

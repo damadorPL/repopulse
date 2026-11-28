@@ -11,7 +11,6 @@ import {
   DEPENDENCY_LIST_SORT_OPTIONS,
   dependencyListHref,
   type DependencyListFilters,
-  type DependencyListSort,
 } from "@/lib/dependency-list-filters";
 import { useUrlSearchSync } from "@/lib/use-url-search-sync";
 
@@ -35,7 +34,7 @@ export function DependencyListToolbar({
 
   function navigate(next: Partial<DependencyListFilters>) {
     cancelPush();
-    const nextQuery = next.q !== undefined ? next.q : query;
+    const nextQuery = next.q ?? query;
     recordPush(nextQuery);
     startTransition(() => router.replace(dependencyListHref({ ...filters, q: query, ...next }), { scroll: false }));
   }
@@ -93,7 +92,13 @@ export function DependencyListToolbar({
           ) : null}
         </div>
       </div>
-      <Select value={filters.sort} onValueChange={(value) => navigate({ sort: value as DependencyListSort })}>
+      <Select
+        value={filters.sort}
+        onValueChange={(value) => {
+          const match = DEPENDENCY_LIST_SORT_OPTIONS.find((opt) => opt.value === value);
+          if (match) navigate({ sort: match.value });
+        }}
+      >
         <SelectTrigger className="w-44" aria-label="Sort projects">
           <SelectValue />
         </SelectTrigger>

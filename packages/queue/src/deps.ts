@@ -123,7 +123,7 @@ export const DEPS_NOTIFY_JOB_OPTIONS = {
   removeOnFail: { age: 7 * 24 * 3600, count: 5000 },
 } satisfies JobsOptions;
 
-export const DEPS_SCHEDULER_JOB_OPTIONS = {
+const DEPS_SCHEDULER_JOB_OPTIONS = {
   removeOnComplete: true,
   removeOnFail: { count: 50 },
 } satisfies JobsOptions;

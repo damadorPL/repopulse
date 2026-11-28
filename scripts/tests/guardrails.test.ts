@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -5,9 +6,11 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { runGuardrailsCli } from "../guardrails.ts";
 import {
   evaluateFile,
   evaluateRepoMigrationsDir,
+  evaluateStagedEnvPaths,
   evaluateStagedMigrationEntries,
   isLineIgnored,
   parseGitNameStatus,
@@ -80,6 +83,32 @@ describe("guardrail file rules", () => {
       ),
     );
     expect(cleanManifest).toEqual([]);
+
+    const extendedRangeViolations = evalRel(
+      "apps/web/package.json",
+      JSON.stringify(
+        {
+          dependencies: {
+            a: "*",
+            b: "latest",
+            c: ">=1.0.0",
+            d: "1.2.x",
+            e: "1.0.0 - 2.0.0",
+            f: "1.0.0 || 2.0.0",
+            g: "catalog:^bad",
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    expect(extendedRangeViolations.map((v) => v.ruleId)).toEqual(Array(7).fill("deps/pinned-versions"));
+
+    const workspaceYamlViolations = evalRel(
+      "pnpm-workspace.yaml",
+      ["catalog:", '  typescript: "7.0.2"', "  vitest: ^5.1.2", "overrides:", "  effect: ~3.22.5"].join("\n"),
+    );
+    expect(workspaceYamlViolations.map((v) => v.ruleId)).toEqual(["deps/pinned-versions", "deps/pinned-versions"]);
   });
 
   it("enforces security/no-raw-sql-unsafe and supports guardrail-ignore", () => {
@@ -133,6 +162,20 @@ describe("guardrail file rules", () => {
         'placeholder={"-----BEGIN RSA PRIVATE KEY-----\\n…\\n-----END RSA PRIVATE KEY-----"}\n',
       ),
     ).toEqual([]);
+
+    expect(
+      evalRel("apps/web/src/lib/leak.ts", 'const tok = "ghp_abcdefghijklmnopqrstuvwxyz1234567890";\n').map(
+        (v) => v.ruleId,
+      ),
+    ).toEqual(["security/no-hardcoded-secrets"]);
+    expect(
+      evalRel("apps/web/src/lib/leak2.ts", 'const pat = "github_pat_11AAAAAA_abcdefghijklmnopqrstuvwxyz";\n').map(
+        (v) => v.ruleId,
+      ),
+    ).toEqual(["security/no-hardcoded-secrets"]);
+
+    const envEntries = parseGitNameStatus("A\t.env\nM\tapps/web/.env.local\nA\t.env.example\nD\t.env.old\n");
+    expect(evaluateStagedEnvPaths(envEntries).map((v) => v.filePath)).toEqual([".env", "apps/web/.env.local"]);
   });
 
   it("enforces migrations/folder-naming for directories and migration files", () => {
@@ -223,6 +266,45 @@ describe("guardrail file rules", () => {
     expect(
       evalRel("packages/deps/package.json", JSON.stringify({ dependencies: { semver: "catalog:", zod: "catalog:" } })),
     ).toEqual([]);
+
+    expect(
+      evalRel(
+        "packages/github/package.json",
+        JSON.stringify({ dependencies: { "@repopulse/web": "workspace:*" } }),
+      ).map((v) => v.ruleId),
+    ).toEqual(["arch/workspace-dep-isolation"]);
+
+    expect(
+      evalRel(
+        "apps/deps-sandbox/package.json",
+        JSON.stringify({ dependencies: { "@repopulse/db": "workspace:*", "@repopulse/github": "workspace:*" } }),
+      ).map((v) => v.ruleId),
+    ).toEqual(["arch/workspace-dep-isolation", "arch/workspace-dep-isolation"]);
+  });
+
+  it("checks migration immutability against --base <ref> in git history", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "repopulse-base-test-"));
+    try {
+      const git = (args: string[]) => execFileSync("git", args, { cwd: tempRoot, encoding: "utf8" });
+      git(["init", "-q"]);
+      git(["config", "user.email", "test@repopulse.local"]);
+      git(["config", "user.name", "Test"]);
+      const migDir = join(tempRoot, "packages/db/prisma/migrations/20261031000000_init");
+      mkdirSync(migDir, { recursive: true });
+      writeFileSync(join(migDir, "migration.sql"), "CREATE TABLE a (id int);\n", "utf8");
+      git(["add", "."]);
+      git(["commit", "-q", "-m", "init"]);
+      const baseSha = git(["rev-parse", "HEAD"]).trim();
+
+      writeFileSync(join(migDir, "migration.sql"), "CREATE TABLE a (id bigint);\n", "utf8");
+      git(["add", "."]);
+      git(["commit", "-q", "-m", "edit shipped migration"]);
+
+      expect(runGuardrailsCli(["--base", baseSha], tempRoot)).toBe(1);
+      expect(runGuardrailsCli(["--base=HEAD"], tempRoot)).toBe(0);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("parses guardrail-ignore directives with em-dash or double-hyphen and >=5 non-ws chars", () => {

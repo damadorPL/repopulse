@@ -1,5 +1,6 @@
-import { DEPS_WORKER_HEARTBEAT_INTERVAL_MS, DEPS_WORKER_HEARTBEAT_KEY } from "@repopulse/deps";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { DEPS_WORKER_HEARTBEAT_INTERVAL_MS, DEPS_WORKER_HEARTBEAT_KEY } from "@repopulse/deps";
 
 import { startHeartbeat, writeHeartbeat } from "./heartbeat.js";
 
@@ -24,7 +25,7 @@ describe("writeHeartbeat & startHeartbeat", () => {
 
   it("writes sandbox: null when the sandbox is unreachable", async () => {
     const redis = { set: vi.fn(async () => "OK" as const) };
-    expect(await writeHeartbeat(redis as never, { health: async () => null }, now)).toEqual({
+    await expect(writeHeartbeat(redis as never, { health: async () => null }, now)).resolves.toEqual({
       at: "2026-11-03T12:00:00.000Z",
       sandbox: null,
     });
@@ -32,7 +33,7 @@ describe("writeHeartbeat & startHeartbeat", () => {
 
   it("startHeartbeat beats immediately, repeats every interval, swallows errors, and stops on cleanup", async () => {
     vi.useFakeTimers();
-    const warnSpy = vi.fn();
+    const warnSpy = vi.fn<() => void>();
     const redis = {
       set: vi
         .fn<() => Promise<"OK">>()

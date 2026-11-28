@@ -81,7 +81,10 @@ for (let i = 0; i < lines.length; i++) {
   }
 }
 
-const repoSlug = process.env.GITHUB_REPOSITORY || "damadorPL/repopulse";
+const repoSlug =
+  process.env.GITHUB_REPOSITORY !== undefined && process.env.GITHUB_REPOSITORY.length > 0
+    ? process.env.GITHUB_REPOSITORY
+    : "damadorPL/repopulse";
 let notes = "";
 let hasNotes = false;
 if (startLine !== -1) {

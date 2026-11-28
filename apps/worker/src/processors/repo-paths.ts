@@ -62,10 +62,10 @@ export interface PathStepResult {
 
 export interface PathStepDeps {
   prisma: PrismaClient;
-  redis?: Partial<Pick<Redis, "get" | "set">>;
-  fetchCommits?: typeof fetchCommitsForPath;
-  fetchDetail?: typeof fetchCommitDetail;
-  now?: () => Date;
+  redis?: Partial<Pick<Redis, "get" | "set">> | undefined;
+  fetchCommits?: typeof fetchCommitsForPath | undefined;
+  fetchDetail?: typeof fetchCommitDetail | undefined;
+  now?: (() => Date) | undefined;
 }
 
 type PathSubscriber = SubscriberWithMode & { watchedPaths: string[] };
@@ -246,7 +246,7 @@ export async function pollRepoPaths(
         onEtag: (nextEtag) => {
           if (nextEtag && nextEtag !== etag) updatedEtags.push({ path, etag: nextEtag });
         },
-        accessToken,
+        ...(accessToken !== undefined ? { accessToken } : {}),
         signal: requestSignal(jobSignal),
       });
     };
@@ -308,7 +308,7 @@ export async function pollRepoPaths(
             owner: repo.owner,
             name: repo.name,
             ref: sha,
-            accessToken: token,
+            ...(token !== undefined ? { accessToken: token } : {}),
             signal: requestSignal(jobSignal),
           });
         } catch (error) {

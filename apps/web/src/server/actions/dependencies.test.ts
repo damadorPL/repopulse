@@ -1,5 +1,6 @@
-import type * as GithubModule from "@repopulse/github";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type * as GithubModule from "@repopulse/github";
 
 class UnauthorizedError extends Error {}
 class ForbiddenError extends Error {}
@@ -165,17 +166,19 @@ describe("addDependencyProjectsAction", () => {
   });
 
   it("validates the input", async () => {
-    expect(await actions.addDependencyProjectsAction({ sources: [] })).toMatchObject({
+    await expect(actions.addDependencyProjectsAction({ sources: [] })).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
-    expect(
-      await actions.addDependencyProjectsAction({ sources: [{ subscriptionId: "s1" }], userId: "u2" } as never),
-    ).toMatchObject({
+    await expect(
+      actions.addDependencyProjectsAction({ sources: [{ subscriptionId: "s1" }], userId: "u2" } as never),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
-    expect(await actions.addDependencyProjectsAction({ sources: [{ repoUrlOrSlug: "not a repo" }] })).toMatchObject({
+    await expect(
+      actions.addDependencyProjectsAction({ sources: [{ repoUrlOrSlug: "not a repo" }] }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
@@ -191,7 +194,9 @@ describe("addDependencyProjectsAction", () => {
 
   it("is refused while the module is off", async () => {
     isDepsEnabled.mockResolvedValue(false);
-    expect(await actions.addDependencyProjectsAction({ sources: [{ repoUrlOrSlug: "acme/web" }] })).toMatchObject({
+    await expect(
+      actions.addDependencyProjectsAction({ sources: [{ repoUrlOrSlug: "acme/web" }] }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "UNAVAILABLE" },
     });
@@ -294,7 +299,7 @@ describe("addDependencyProjectsAction", () => {
 describe("removeDependencyProjectAction", () => {
   it("deletes only the user's project", async () => {
     prisma.dependencyProject.deleteMany.mockResolvedValue({ count: 1 });
-    expect(await actions.removeDependencyProjectAction({ projectId: "p1" })).toEqual({
+    await expect(actions.removeDependencyProjectAction({ projectId: "p1" })).resolves.toEqual({
       ok: true,
       data: { projectId: "p1" },
     });
@@ -303,7 +308,7 @@ describe("removeDependencyProjectAction", () => {
 
   it("is NOT_FOUND for another user's project", async () => {
     prisma.dependencyProject.deleteMany.mockResolvedValue({ count: 0 });
-    expect(await actions.removeDependencyProjectAction({ projectId: "theirs" })).toMatchObject({
+    await expect(actions.removeDependencyProjectAction({ projectId: "theirs" })).resolves.toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
@@ -329,7 +334,9 @@ const storedProject = {
 describe("updateDependencyProjectSettingsAction", () => {
   it("scopes the lookup to the user", async () => {
     prisma.dependencyProject.findFirst.mockResolvedValue(null);
-    expect(await actions.updateDependencyProjectSettingsAction({ projectId: "theirs", maxOpenPrs: 3 })).toMatchObject({
+    await expect(
+      actions.updateDependencyProjectSettingsAction({ projectId: "theirs", maxOpenPrs: 3 }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
@@ -339,18 +346,18 @@ describe("updateDependencyProjectSettingsAction", () => {
   });
 
   it("validates fields and ignore rules", async () => {
-    expect(
-      await actions.updateDependencyProjectSettingsAction({ projectId: "p1", minReleaseAgeDays: 31 }),
-    ).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
-    expect(
-      await actions.updateDependencyProjectSettingsAction({ projectId: "p1", ignoreRules: [{ name: "re*act" }] }),
-    ).toMatchObject({
+    await expect(
+      actions.updateDependencyProjectSettingsAction({ projectId: "p1", minReleaseAgeDays: 31 }),
+    ).resolves.toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    await expect(
+      actions.updateDependencyProjectSettingsAction({ projectId: "p1", ignoreRules: [{ name: "re*act" }] }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
-    expect(
-      await actions.updateDependencyProjectSettingsAction({ projectId: "p1", manifestPaths: ["../etc/passwd"] }),
-    ).toMatchObject({
+    await expect(
+      actions.updateDependencyProjectSettingsAction({ projectId: "p1", manifestPaths: ["../etc/passwd"] }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
@@ -380,7 +387,9 @@ describe("updateDependencyProjectSettingsAction", () => {
   it("refuses a PR mode without write access", async () => {
     prisma.dependencyProject.findFirst.mockResolvedValue(storedProject);
     checkRepoAccess.mockResolvedValue({ ok: false, code: "FORBIDDEN", message: "no write" });
-    expect(await actions.updateDependencyProjectSettingsAction({ projectId: "p1", updateMode: "MANUAL_PR" })).toEqual({
+    await expect(
+      actions.updateDependencyProjectSettingsAction({ projectId: "p1", updateMode: "MANUAL_PR" }),
+    ).resolves.toEqual({
       ok: false,
       error: { code: "FORBIDDEN", message: "no write" },
     });
@@ -392,9 +401,9 @@ describe("updateDependencyProjectSettingsAction", () => {
       updateMode: "MANUAL_PR",
       prOwnership: { projectId: "p1" },
     });
-    expect(
-      await actions.updateDependencyProjectSettingsAction({ projectId: "p1", updateMode: "NOTIFY" }),
-    ).toMatchObject({ ok: true });
+    await expect(
+      actions.updateDependencyProjectSettingsAction({ projectId: "p1", updateMode: "NOTIFY" }),
+    ).resolves.toMatchObject({ ok: true });
     expect(prisma.dependencyPrOwner.deleteMany).toHaveBeenCalledWith({ where: { projectId: "p1" } });
     expect(checkRepoAccess).not.toHaveBeenCalled();
   });
@@ -423,7 +432,7 @@ describe("updateDependencyProjectSettingsAction", () => {
 describe("triggerDependencyScanAction", () => {
   it("is NOT_FOUND for another user's project", async () => {
     prisma.dependencyProject.findFirst.mockResolvedValue(null);
-    expect(await actions.triggerDependencyScanAction({ projectId: "theirs" })).toMatchObject({
+    await expect(actions.triggerDependencyScanAction({ projectId: "theirs" })).resolves.toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
@@ -450,7 +459,7 @@ describe("triggerDependencyScanAction", () => {
       fullName: "acme/web",
       lastScannedAt: new Date(Date.now() - 10 * 60_000),
     });
-    expect(await actions.triggerDependencyScanAction({ projectId: "p1" })).toEqual({
+    await expect(actions.triggerDependencyScanAction({ projectId: "p1" })).resolves.toEqual({
       ok: true,
       data: { status: "QUEUED", fullName: "acme/web" },
     });
@@ -489,7 +498,9 @@ describe("createDependencyPullRequestAction", () => {
 
   it("refuses NOTIFY projects", async () => {
     prisma.dependencyProject.findFirst.mockResolvedValue({ ...prProject, updateMode: "NOTIFY" });
-    expect(await actions.createDependencyPullRequestAction({ projectId: "p1", groupKey: "all" })).toMatchObject({
+    await expect(
+      actions.createDependencyPullRequestAction({ projectId: "p1", groupKey: "all" }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "CONFLICT" },
     });
@@ -507,15 +518,19 @@ describe("createDependencyPullRequestAction", () => {
 
   it("is NOT_FOUND for another user's project or an unknown group", async () => {
     prisma.dependencyProject.findFirst.mockResolvedValueOnce(null);
-    expect(await actions.createDependencyPullRequestAction({ projectId: "theirs", groupKey: "all" })).toMatchObject({
+    await expect(
+      actions.createDependencyPullRequestAction({ projectId: "theirs", groupKey: "all" }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
     prisma.dependencyProject.findFirst.mockResolvedValueOnce(prProject);
-    expect(await actions.createDependencyPullRequestAction({ projectId: "p1", groupKey: "major-react" })).toMatchObject(
-      { ok: false, error: { code: "NOT_FOUND" } },
-    );
-    expect(await actions.createDependencyPullRequestAction({ projectId: "p1", groupKey: "Bad:Key" })).toMatchObject({
+    await expect(
+      actions.createDependencyPullRequestAction({ projectId: "p1", groupKey: "major-react" }),
+    ).resolves.toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    await expect(
+      actions.createDependencyPullRequestAction({ projectId: "p1", groupKey: "Bad:Key" }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
@@ -542,13 +557,17 @@ describe("createDependencyPullRequestAction", () => {
         },
       ],
     });
-    expect(await actions.createDependencyPullRequestAction({ projectId: "p1", groupKey: "all" })).toMatchObject({
+    await expect(
+      actions.createDependencyPullRequestAction({ projectId: "p1", groupKey: "all" }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "CONFLICT" },
     });
     prisma.dependencyProject.findFirst.mockResolvedValueOnce(prProject);
     checkRepoAccess.mockResolvedValueOnce({ ok: false, code: "FORBIDDEN", message: "no write" });
-    expect(await actions.createDependencyPullRequestAction({ projectId: "p1", groupKey: "all" })).toMatchObject({
+    await expect(
+      actions.createDependencyPullRequestAction({ projectId: "p1", groupKey: "all" }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "FORBIDDEN" },
     });
@@ -575,7 +594,9 @@ describe("createDependencyPullRequestAction", () => {
     expect(queueAdd).not.toHaveBeenCalled();
 
     // Sandbox reachable (heartbeat with a sandbox): queued.
-    expect(await actions.createDependencyPullRequestAction({ projectId: "p1", groupKey: "all" })).toMatchObject({
+    await expect(
+      actions.createDependencyPullRequestAction({ projectId: "p1", groupKey: "all" }),
+    ).resolves.toMatchObject({
       ok: true,
     });
     expect(queueAdd).toHaveBeenCalledTimes(1);
@@ -583,7 +604,7 @@ describe("createDependencyPullRequestAction", () => {
 
   it("enqueues deps-update with priority 1 and takes over waiting/prioritized jobs", async () => {
     prisma.dependencyProject.findFirst.mockResolvedValue(prProject);
-    expect(await actions.createDependencyPullRequestAction({ projectId: "p1", groupKey: "all" })).toEqual({
+    await expect(actions.createDependencyPullRequestAction({ projectId: "p1", groupKey: "all" })).resolves.toEqual({
       ok: true,
       data: { status: "QUEUED", groupKey: "all" },
     });
@@ -598,7 +619,7 @@ describe("createDependencyPullRequestAction", () => {
     const changePriority = vi.fn();
     queueGetDeduplicationJobId.mockResolvedValueOnce("42");
     queueGetJob.mockResolvedValueOnce({ getState: vi.fn(async () => "waiting"), changePriority });
-    expect(await actions.createDependencyPullRequestAction({ projectId: "p1", groupKey: "all" })).toEqual({
+    await expect(actions.createDependencyPullRequestAction({ projectId: "p1", groupKey: "all" })).resolves.toEqual({
       ok: true,
       data: { status: "QUEUED", groupKey: "all" },
     });
@@ -664,13 +685,13 @@ describe("createProjectDependencyPullRequestsAction", () => {
   };
 
   it("validates input, checks module status, and scopes to the signed-in user", async () => {
-    expect(await actions.createProjectDependencyPullRequestsAction({ projectId: "" })).toMatchObject({
+    await expect(actions.createProjectDependencyPullRequestsAction({ projectId: "" })).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
 
     prisma.dependencyProject.findFirst.mockResolvedValueOnce(null);
-    expect(await actions.createProjectDependencyPullRequestsAction({ projectId: "theirs" })).toMatchObject({
+    await expect(actions.createProjectDependencyPullRequestsAction({ projectId: "theirs" })).resolves.toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
@@ -680,7 +701,7 @@ describe("createProjectDependencyPullRequestsAction", () => {
 
     prisma.dependencyProject.findFirst.mockResolvedValueOnce(baseProject);
     isDepsEnabled.mockResolvedValueOnce(false);
-    expect(await actions.createProjectDependencyPullRequestsAction({ projectId: "p1" })).toMatchObject({
+    await expect(actions.createProjectDependencyPullRequestsAction({ projectId: "p1" })).resolves.toMatchObject({
       ok: false,
       error: { code: "UNAVAILABLE" },
     });
@@ -688,7 +709,7 @@ describe("createProjectDependencyPullRequestsAction", () => {
 
   it("refuses NOTIFY mode and PR ownership conflicts", async () => {
     prisma.dependencyProject.findFirst.mockResolvedValueOnce({ ...baseProject, updateMode: "NOTIFY" });
-    expect(await actions.createProjectDependencyPullRequestsAction({ projectId: "p1" })).toMatchObject({
+    await expect(actions.createProjectDependencyPullRequestsAction({ projectId: "p1" })).resolves.toMatchObject({
       ok: false,
       error: { code: "CONFLICT" },
     });
@@ -705,7 +726,7 @@ describe("createProjectDependencyPullRequestsAction", () => {
 
   it("returns NOT_FOUND when nothing is outdated and CONFLICT when every group is blocked", async () => {
     prisma.dependencyProject.findFirst.mockResolvedValueOnce({ ...baseProject, updates: [] });
-    expect(await actions.createProjectDependencyPullRequestsAction({ projectId: "p1" })).toMatchObject({
+    await expect(actions.createProjectDependencyPullRequestsAction({ projectId: "p1" })).resolves.toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
@@ -841,12 +862,12 @@ describe("ignore rules", () => {
   });
 
   it("validates the pattern, ignores duplicates and caps the rule count", async () => {
-    expect(await actions.ignoreDependencyAction({ projectId: "p1", name: "re*act" })).toMatchObject({
+    await expect(actions.ignoreDependencyAction({ projectId: "p1", name: "re*act" })).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
     prisma.dependencyProject.findFirst.mockResolvedValueOnce({ id: "p1", ignoreRules: [{ name: "React" }] });
-    expect(await actions.ignoreDependencyAction({ projectId: "p1", name: "react" })).toMatchObject({
+    await expect(actions.ignoreDependencyAction({ projectId: "p1", name: "react" })).resolves.toMatchObject({
       ok: true,
       data: { ignored: 0 },
     });
@@ -854,12 +875,12 @@ describe("ignore rules", () => {
       id: "p1",
       ignoreRules: Array.from({ length: 50 }, (_, i) => ({ name: `pkg${i}` })),
     });
-    expect(await actions.ignoreDependencyAction({ projectId: "p1", name: "react" })).toMatchObject({
+    await expect(actions.ignoreDependencyAction({ projectId: "p1", name: "react" })).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
     prisma.dependencyProject.findFirst.mockResolvedValueOnce(null);
-    expect(await actions.ignoreDependencyAction({ projectId: "theirs", name: "react" })).toMatchObject({
+    await expect(actions.ignoreDependencyAction({ projectId: "theirs", name: "react" })).resolves.toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
@@ -884,7 +905,7 @@ describe("ignore rules", () => {
       expect.anything(),
     );
 
-    expect(await actions.removeIgnoreRuleAction({ projectId: "p1", name: "angular" })).toMatchObject({
+    await expect(actions.removeIgnoreRuleAction({ projectId: "p1", name: "angular" })).resolves.toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });

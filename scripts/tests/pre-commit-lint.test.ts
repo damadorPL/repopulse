@@ -7,6 +7,8 @@ describe("pre-commit-lint", () => {
     const result = partitionStagedFiles([
       "apps/web/src/app/page.tsx",
       "apps/web/src/app/globals.css",
+      "packages/db/prisma/migrations/migration_lock.toml",
+      "apps/web/package.json",
       ".oxlintrc.json",
       "README.md",
       "docs/CODING_STANDARDS.md",
@@ -24,11 +26,15 @@ describe("pre-commit-lint", () => {
       formatFiles: [
         "apps/web/src/app/page.tsx",
         "apps/web/src/app/globals.css",
+        "packages/db/prisma/migrations/migration_lock.toml",
+        "apps/web/package.json",
         ".oxlintrc.json",
         "README.md",
         "scripts/verify.ts",
       ],
       lintFiles: ["apps/web/src/app/page.tsx", "scripts/verify.ts"],
+      cssFiles: ["apps/web/src/app/globals.css"],
+      hasManifestChange: true,
       doctorMode: "staged",
     });
 
@@ -46,7 +52,9 @@ describe("pre-commit-lint", () => {
         calls.push(args);
         return 0;
       },
-      log: (msg) => logs.push(msg),
+      log: (msg) => {
+        logs.push(msg);
+      },
     });
 
     expect(exitCode).toBe(0);
@@ -69,7 +77,24 @@ describe("pre-commit-lint", () => {
     expect(webCalls).toEqual([
       ["oxfmt", "--check", "apps/web/src/app/page.tsx", "apps/web/src/app/globals.css"],
       ["oxlint", "apps/web/src/app/page.tsx"],
+      ["stylelint", "apps/web/src/app/globals.css"],
       ["react-doctor", "--no-telemetry", "--staged", "--verbose", "."],
+    ]);
+
+    const manifestCalls: Array<readonly string[]> = [];
+    const manifestOk = runPreCommitLint({
+      cwd: "/repo",
+      getStaged: () => ["apps/web/package.json"],
+      runner: (args) => {
+        manifestCalls.push(args);
+        return 0;
+      },
+      log: () => {},
+    });
+    expect(manifestOk).toBe(0);
+    expect(manifestCalls).toEqual([
+      ["oxfmt", "--check", "apps/web/package.json"],
+      ["sherif", "--fail-on-warnings"],
     ]);
 
     const configCalls: Array<readonly string[]> = [];
@@ -115,6 +140,6 @@ describe("pre-commit-lint", () => {
       log: () => {},
     });
     expect(failed).toBe(1);
-    expect(failCalls).toHaveLength(3);
+    expect(failCalls).toHaveLength(4);
   });
 });

@@ -41,6 +41,8 @@ export function prepareUvLock(text: string, path = "uv.lock"): PreparedLockfile 
  * Resolved versions of registry packages, keyed by normalized name. With `names`, only those are returned.
  * Editable / virtual / path / git sources are skipped. A package locked at several versions (forked resolution)
  * reports the highest. `formatVersion` = `"<version>/<revision>"`.
+ *
+ * @internal Exported for unit tests.
  */
 export function readUvLock(text: string, names?: Iterable<string>, path = "uv.lock"): LockfileVersions {
   const prepared = prepareUvLock(text, path);

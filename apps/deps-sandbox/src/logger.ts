@@ -72,7 +72,7 @@ function wrapPino(instance: PinoLogger): ServiceLogger {
  * Creates a structured Pino logger scoped to `service`, emitting JSON lines in production
  * and `pino-pretty` output in non-production TTY environments when `pino-pretty` is available.
  */
-export function createLogger(service: string, options: CreateLoggerOptions = {}): ServiceLogger {
+function createLogger(service: string, options: CreateLoggerOptions = {}): ServiceLogger {
   const transport = options.destination ? undefined : resolvePrettyTransport();
   const pinoOptions: LoggerOptions = {
     level: resolveLogLevel(options.level),

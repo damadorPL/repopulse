@@ -38,6 +38,8 @@ export function preparePoetryLock(text: string, path = "poetry.lock"): PreparedL
 /**
  * Resolved versions keyed by normalized name (only `names` when given). Packages with a `[package.source]` of type
  * git / directory / file / url are skipped; `legacy` (private index) sources too.
+ *
+ * @internal Exported for unit tests.
  */
 export function readPoetryLock(text: string, names?: Iterable<string>, path = "poetry.lock"): LockfileVersions {
   const prepared = preparePoetryLock(text, path);

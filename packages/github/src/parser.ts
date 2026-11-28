@@ -68,7 +68,7 @@ export function parseRepoInput(input: string): RepoRef {
   if (!REPO_SLUG_RE.test(slug)) {
     throw new InvalidRepositoryInputError(input, "expected the form owner/repo");
   }
-  const [owner, name] = slug.split("/") as [string, string];
+  const [owner = "", name = ""] = slug.split("/");
   if (owner === "." || owner === ".." || name === "." || name === "..") {
     throw new InvalidRepositoryInputError(input, "owner and repository cannot be '.' or '..'");
   }

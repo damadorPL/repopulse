@@ -28,7 +28,7 @@ export function parentOf(path: string): string {
   return slash === -1 ? "" : path.slice(0, slash);
 }
 
-export function baseName(path: string): string {
+function baseName(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1);
 }
 
@@ -145,7 +145,7 @@ export function rootLabel(repo: string | null): string {
   if (/^https?:\/\//i.test(trimmed)) {
     try {
       const segments = new URL(trimmed).pathname.split("/").filter(Boolean);
-      return segments[1] || "root";
+      return segments[1] ?? "root";
     } catch {
       return "root";
     }
@@ -155,9 +155,9 @@ export function rootLabel(repo: string | null): string {
   const segments = slug.split("/").filter(Boolean);
   const first = segments[0]?.toLowerCase();
   if (first === "github.com" || first === "www.github.com") {
-    return segments[2] || "root";
+    return segments[2] ?? "root";
   }
-  return segments[1] || "root";
+  return segments[1] ?? "root";
 }
 
 /**

@@ -1,3 +1,5 @@
+import type { ConnectionOptions } from "bullmq";
+
 import {
   createNotificationQueue,
   createReleaseBackfillQueue,
@@ -11,10 +13,8 @@ import {
   type NotificationQueue,
   type ReleaseBackfillQueue,
   type RepoPollQueue,
-  type SchedulerJobData,
   type SchedulerQueue,
 } from "@repopulse/queue";
-import type { ConnectionOptions, Queue } from "bullmq";
 
 import { createLogger } from "../logger.js";
 
@@ -53,13 +53,12 @@ export function closeQueues(queues: Queues): Promise<void[]> {
 }
 
 export function pollIntervalCron(): string {
-  return process.env.POLL_INTERVAL_CRON?.trim() || DEFAULT_POLL_INTERVAL_CRON;
+  const configured = process.env.POLL_INTERVAL_CRON?.trim();
+  return configured !== undefined && configured.length > 0 ? configured : DEFAULT_POLL_INTERVAL_CRON;
 }
 
 export const MAINTENANCE_SCHEDULER_ID = "db-maintenance";
 export const MAINTENANCE_CRON = "17 3 * * *";
-
-type MaintenanceSchedulerQueue = Queue<SchedulerJobData, unknown, typeof MAINTENANCE_SCHEDULER_ID>;
 
 /**
  * Registers (or updates) the repeatable scan on `repo-scheduler`. Upserting by a fixed id keeps
@@ -76,7 +75,7 @@ export async function registerSchedule(schedulerQueue: SchedulerQueue, cron: str
  * Registers (or updates) the daily data-lifecycle maintenance job on `repo-scheduler`.
  */
 export async function registerMaintenanceSchedule(schedulerQueue: SchedulerQueue): Promise<void> {
-  await (schedulerQueue as unknown as MaintenanceSchedulerQueue).upsertJobScheduler(
+  await schedulerQueue.upsertJobScheduler(
     MAINTENANCE_SCHEDULER_ID,
     { pattern: MAINTENANCE_CRON },
     { name: MAINTENANCE_SCHEDULER_ID, data: {} },

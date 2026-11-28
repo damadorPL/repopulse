@@ -4,19 +4,21 @@ import { createOctokit } from "./client.js";
 import {
   buildCommitChangelog,
   COMMIT_CHANGELOG_MAX_FILES,
-  commitMatchesAnyPath,
-  commitMatchesPath,
   fetchCommitDetail,
   fetchCommitsForPath,
   mapCommitListItem,
   mapPathCommit,
-  MAX_WATCHED_PATH_LENGTH,
-  normalizeWatchedPath,
-  parseWatchedPaths,
   type CommitDetail,
   type PathCommitSummary,
 } from "./paths.js";
 import { GitHubRateLimitError, GitHubRepositoryNotFoundError } from "./poller.js";
+import {
+  commitMatchesAnyPath,
+  commitMatchesPath,
+  MAX_WATCHED_PATH_LENGTH,
+  normalizeWatchedPath,
+  parseWatchedPaths,
+} from "./watched-paths.js";
 
 function json(body: unknown, init: { status?: number; headers?: Record<string, string> } = {}) {
   return new Response(JSON.stringify(body), {
@@ -228,7 +230,7 @@ describe("fetchCommitsForPath", () => {
   });
 
   it("reports response ETag via onEtag on 200 and leaves it untouched on 304", async () => {
-    const onEtag200 = vi.fn();
+    const onEtag200 = vi.fn<(etag: string | null) => void>();
     const fetch200 = mockFetch(() => json([], { headers: { etag: 'W/"new-etag"' } }));
     await fetchCommitsForPath({
       owner: "acme",
@@ -239,7 +241,7 @@ describe("fetchCommitsForPath", () => {
     });
     expect(onEtag200).toHaveBeenCalledWith('W/"new-etag"');
 
-    const onEtag304 = vi.fn();
+    const onEtag304 = vi.fn<(etag: string | null) => void>();
     const fetch304 = mockFetch(() => new Response(null, { status: 304 }));
     await fetchCommitsForPath({
       owner: "acme",
@@ -269,9 +271,9 @@ describe("fetchCommitDetail", () => {
         { headers: { link: `<https://api.github.com/repositories/1/commits/${SHA}?page=2>; rel="next"` } },
       );
     });
-    expect(
-      await fetchCommitDetail({ owner: "acme", name: "widget", ref: SHA, octokit: createOctokit({ fetch }) }),
-    ).toEqual({
+    await expect(
+      fetchCommitDetail({ owner: "acme", name: "widget", ref: SHA, octokit: createOctokit({ fetch }) }),
+    ).resolves.toEqual({
       sha: SHA,
       stats: { additions: 12, deletions: 3, total: 15 },
       files: [
@@ -284,14 +286,14 @@ describe("fetchCommitDetail", () => {
 
   it("defaults missing stats and files, and maps 404/429 errors", async () => {
     const emptyFetch = mockFetch(() => json({ sha: SHA }));
-    expect(
-      await fetchCommitDetail({
+    await expect(
+      fetchCommitDetail({
         owner: "acme",
         name: "widget",
         ref: SHA,
         octokit: createOctokit({ fetch: emptyFetch }),
       }),
-    ).toEqual({
+    ).resolves.toEqual({
       sha: SHA,
       stats: { additions: 0, deletions: 0, total: 0 },
       files: [],

@@ -88,7 +88,7 @@ export interface GotifyMessage {
   };
 }
 
-export function formatGotifyMessage(ctx: MessageContext): GotifyMessage {
+function formatGotifyMessage(ctx: MessageContext): GotifyMessage {
   const { release, repository } = ctx;
   return {
     title: truncateText(

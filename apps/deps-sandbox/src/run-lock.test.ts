@@ -4,8 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 
-import { lockRequestSchema, type LockRequest } from "@repopulse/deps/sandbox-contract";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { lockRequestSchema, type LockRequest } from "@repopulse/deps/sandbox-contract";
 
 import type { ToolVersions } from "./commands.js";
 import {
@@ -57,7 +58,9 @@ class FakeChild extends EventEmitter implements SpawnedProcess {
   exit(code: number | null, signal: NodeJS.Signals | null = null): void {
     this.stdout.end();
     this.stderr.end();
-    setImmediate(() => this.emit("close", code, signal));
+    setImmediate(() => {
+      this.emit("close", code, signal);
+    });
   }
 }
 
@@ -104,7 +107,7 @@ afterEach(async () => {
 });
 
 async function expectNoJobDirs(): Promise<void> {
-  expect(await fs.readdir(tmpRoot)).toEqual([]);
+  await expect(fs.readdir(tmpRoot)).resolves.toEqual([]);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -137,6 +140,7 @@ describe("prepareFiles", () => {
   it("reports custom registries in stripped config and keeps default ones", () => {
     const prepared = prepareFiles([
       file(".npmrc", "registry=https://registry.npmjs.org/\n"),
+      // oxlint-disable-next-line eslint/no-template-curly-in-string -- Literal .npmrc authToken fixture
       file("a/.npmrc", "@acme:registry=https://npm.acme.dev/\n//npm.acme.dev/:_authToken=${NPM_TOKEN}\n"),
       file("bunfig.toml", '[install]\nregistry = "https://bun.acme.dev"\n'),
       file("pip.conf", "[global]\nindex-url = https://pypi.acme.dev/simple\n"),
@@ -456,7 +460,10 @@ describe("runLock", () => {
       expectLockfile: "package-lock.json",
     });
     const quiet = fakeSpawn((_call, child) => child.exit(0));
-    expect(await runLock(req, options({ spawn: quiet.spawn }))).toMatchObject({ ok: false, code: "LOCKFILE_MISSING" });
+    await expect(runLock(req, options({ spawn: quiet.spawn }))).resolves.toMatchObject({
+      ok: false,
+      code: "LOCKFILE_MISSING",
+    });
 
     const outside = path.join(tmpRoot, "..", `outside-${Date.now()}.json`);
     await fs.writeFile(outside, NPM_LOCK);
@@ -469,7 +476,7 @@ describe("runLock", () => {
         }
         child.exit(0);
       });
-      expect(await runLock(req, options({ spawn: symlinker.spawn }))).toMatchObject({
+      await expect(runLock(req, options({ spawn: symlinker.spawn }))).resolves.toMatchObject({
         ok: false,
         code: "LOCKFILE_MISSING",
       });
@@ -516,7 +523,7 @@ describe("runLock", () => {
       }),
       options({ spawn, signal: abort.signal, onPrepared: () => void setTimeout(() => abort.abort(), 10) }),
     );
-    expect(await pending).toMatchObject({ ok: false, code: "BUSY" });
+    await expect(pending).resolves.toMatchObject({ ok: false, code: "BUSY" });
     killTree.mockImplementation((child: SpawnedProcess) => void child.kill("SIGKILL"));
     await expectNoJobDirs();
   });
@@ -608,33 +615,37 @@ describe("runLock", () => {
       upgrade: [],
       expectLockfile: "pnpm-lock.yaml",
     };
-    expect(
-      await runLock(
+    await expect(
+      runLock(
         parse({ ...base, files: [file("package.json", JSON.stringify({ packageManager: "pnpm@9.15.0" }))] }),
         options({ spawn }),
       ),
-    ).toMatchObject({ ok: false, code: "UNSUPPORTED_TOOL_VERSION" });
-    expect(
-      await runLock(
+    ).resolves.toMatchObject({ ok: false, code: "UNSUPPORTED_TOOL_VERSION" });
+    await expect(
+      runLock(
         parse({ ...base, files: [file("package.json", PKG), file("pnpm-lock.yaml", "lockfileVersion: '6.0'\n")] }),
         options({ spawn }),
       ),
-    ).toMatchObject({ ok: false, code: "UNSUPPORTED_TOOL_VERSION" });
+    ).resolves.toMatchObject({ ok: false, code: "UNSUPPORTED_TOOL_VERSION" });
     expect(calls).toHaveLength(0);
 
     // The tool rewrote the lockfile in another format: refused.
-    expect(
-      await runLock(
+    await expect(
+      runLock(
         parse({ ...base, files: [file("package.json", PKG), file("pnpm-lock.yaml", "lockfileVersion: '9.0'\n")] }),
         options({ spawn }),
       ),
-    ).toEqual({ ok: false, code: "UNSUPPORTED_TOOL_VERSION", stderrTail: "lockfile format changed (9.0 → 10.0)" });
-    expect(
-      await runLock(
+    ).resolves.toEqual({
+      ok: false,
+      code: "UNSUPPORTED_TOOL_VERSION",
+      stderrTail: "lockfile format changed (9.0 → 10.0)",
+    });
+    await expect(
+      runLock(
         parse({ ...base, packageManager: "BUN", expectLockfile: "bun.lockb", files: [file("package.json", PKG)] }),
         options({ spawn }),
       ),
-    ).toMatchObject({ ok: false, code: "UNSUPPORTED_TOOL_VERSION" });
+    ).resolves.toMatchObject({ ok: false, code: "UNSUPPORTED_TOOL_VERSION" });
     await expectNoJobDirs();
   });
 
@@ -643,21 +654,25 @@ describe("runLock", () => {
     const run = (req: LockRequest) => runLock(parse(req), options({ spawn }));
     const base = { packageManager: "NPM" as const, workdir: "", upgrade: [], expectLockfile: "package-lock.json" };
 
-    expect(await run({ ...base, files: [file("package.json", PKG)], expectLockfile: "yarn.lock" })).toMatchObject({
+    await expect(
+      run({ ...base, files: [file("package.json", PKG)], expectLockfile: "yarn.lock" }),
+    ).resolves.toMatchObject({
       code: "BAD_REQUEST",
     });
-    expect(await run({ ...base, files: [file("README.md", "x")] })).toMatchObject({ code: "BAD_REQUEST" });
-    expect(await run({ ...base, files: [file("package.json", PKG), file("a", "1"), file("a/b", "2")] })).toMatchObject({
+    await expect(run({ ...base, files: [file("README.md", "x")] })).resolves.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      run({ ...base, files: [file("package.json", PKG), file("a", "1"), file("a/b", "2")] }),
+    ).resolves.toMatchObject({
       code: "BAD_REQUEST",
     });
-    expect(
-      await run({
+    await expect(
+      run({
         ...base,
         files: [file("package.json", PKG)],
         upgrade: [{ name: "--registry=http://evil", version: "1.0.0" }],
         lockfileOnly: true,
       }),
-    ).toMatchObject({ code: "BAD_REQUEST" });
+    ).resolves.toMatchObject({ code: "BAD_REQUEST" });
     expect(calls).toHaveLength(0);
     await expectNoJobDirs();
   });
@@ -696,7 +711,7 @@ describe("runLock", () => {
       expect(result.ok).toBe(true);
       expect(calls.map((c) => c.args[0])).toEqual(["update", "install"]);
       expect(manifestsSeen).toEqual([original, original]);
-      expect(await fs.readFile(outsideTarget, "utf8")).toBe('{"untouched":true}');
+      await expect(fs.readFile(outsideTarget, "utf8")).resolves.toBe('{"untouched":true}');
     } finally {
       await fs.rm(outsideTarget, { force: true });
     }
@@ -764,7 +779,7 @@ describe.skipIf(!npmCli)("runLock with the real npm", () => {
         expect([2, 3]).toContain(lock.lockfileVersion);
       }
       expect(treeFiles.toSorted()).toEqual(["package.json"]);
-      expect(await fs.readdir(markerDir)).toEqual([]);
+      await expect(fs.readdir(markerDir)).resolves.toEqual([]);
       await expectNoJobDirs();
     } finally {
       await fs.rm(markerDir, { recursive: true, force: true });

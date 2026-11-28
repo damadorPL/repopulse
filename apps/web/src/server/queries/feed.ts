@@ -1,3 +1,5 @@
+import { cache } from "react";
+
 import {
   Prisma,
   prisma,
@@ -7,7 +9,6 @@ import {
   type SemverType,
   type TrackMode,
 } from "@repopulse/db";
-import { cache } from "react";
 
 import { FEED_PAGE_SIZE, type FeedFilters } from "@/lib/feed-filters";
 import {
@@ -1350,7 +1351,7 @@ const VERSION_ROWS_CAP = 5000;
  * Maps a subscription row (+ the per-list lookups) to the view type shared by `/repositories` and
  * the repository settings page.
  */
-export function toTrackedRepository(
+function toTrackedRepository(
   row: TrackedRepositoryRow & { repository: { releases?: FallbackReleaseRow[] } },
   extras: {
     oldestAt: Date | null;

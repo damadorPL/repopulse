@@ -1,9 +1,11 @@
 import net from "node:net";
 
-import { prisma } from "@repopulse/db";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { pingRedis, resolveHealthPort, startHealthServer, type HealthServer } from "./health.js";
+import { prisma } from "@repopulse/db";
+import { pingRedis } from "@repopulse/queue";
+
+import { resolveHealthPort, startHealthServer, type HealthServer } from "./health.js";
 
 let activeServer: HealthServer | null = null;
 
@@ -50,7 +52,9 @@ describe("pingRedis", () => {
         }
       });
     });
-    await new Promise<void>((resolve) => tcp.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) => {
+      tcp.listen(0, "127.0.0.1", resolve);
+    });
     const { port } = tcp.address() as net.AddressInfo;
 
     try {
@@ -68,7 +72,11 @@ describe("pingRedis", () => {
       pingReply = "-LOADING\r\n";
       await expect(pingRedis(`redis://127.0.0.1:${port}`)).rejects.toThrow(/unexpected redis PING reply/);
     } finally {
-      await new Promise<void>((resolve) => tcp.close(() => resolve()));
+      await new Promise<void>((resolve) => {
+        tcp.close(() => {
+          resolve();
+        });
+      });
     }
   });
 });
@@ -84,7 +92,7 @@ describe("startHealthServer", () => {
 
     const okRes = await fetch(`${base}/health`);
     expect(okRes.status).toBe(200);
-    expect(await okRes.json()).toMatchObject({
+    await expect(okRes.json()).resolves.toMatchObject({
       status: "ok",
       checks: { database: "ok", redis: "skipped" },
     });
@@ -95,7 +103,7 @@ describe("startHealthServer", () => {
     querySpy.mockRejectedValueOnce(new Error("db connection refused"));
     const failRes = await fetch(`${base}/health`);
     expect(failRes.status).toBe(503);
-    expect(await failRes.json()).toMatchObject({
+    await expect(failRes.json()).resolves.toMatchObject({
       status: "error",
       checks: { database: "error", redis: "skipped" },
     });

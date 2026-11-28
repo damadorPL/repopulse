@@ -1,6 +1,7 @@
-import { resolveAppBaseUrl } from "@repopulse/notifications";
 import { CircleCheckIcon, ShieldCheckIcon, TriangleExclamationPointIcon } from "lucide-react";
 import type { Metadata } from "next";
+
+import { resolveAppBaseUrl } from "@repopulse/notifications";
 
 import {
   CreateGitHubAppForm,

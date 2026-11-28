@@ -19,7 +19,7 @@ export function SubmitButton({
 }) {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" disabled={disabled || pending} aria-busy={pending || undefined} {...props}>
+    <Button type="submit" disabled={(disabled ?? false) || pending} aria-busy={pending ? true : undefined} {...props}>
       {pending ? <LoaderCircleIcon className="motion-safe:animate-spin" aria-hidden /> : idleIcon}
       {pending && pendingLabel ? pendingLabel : children}
     </Button>

@@ -21,11 +21,20 @@ export interface BackfillConfig {
 
 export type BackfillSettingKey = keyof BackfillConfig;
 
+const BACKFILL_SETTING_KEYS = [
+  "defaultTarget",
+  "maxAgeDays",
+  "hardCap",
+  "minQuota",
+  "deepStep",
+  "deepCooldownMinutes",
+] as const satisfies readonly BackfillSettingKey[];
+
 /** How much "Load older releases" raises `backfillTarget` per click, by default. */
-export const DEEP_BACKFILL_STEP = 200;
+const DEEP_BACKFILL_STEP = 200;
 
 /** Minimum time between two "Load older releases" requests for the same repository, by default. */
-export const DEEP_BACKFILL_COOLDOWN_MS = 5 * 60 * 1000;
+const DEEP_BACKFILL_COOLDOWN_MS = 5 * 60 * 1000;
 
 export const BACKFILL_DEFAULTS: BackfillConfig = {
   defaultTarget: 100,
@@ -47,7 +56,7 @@ export const BACKFILL_LIMITS: Record<BackfillSettingKey, { min: number; max: num
 };
 
 /** Admin overrides: `null` (or missing) keeps the environment / default value. */
-export type BackfillOverrides = Partial<Record<BackfillSettingKey, number | null>>;
+export type BackfillOverrides = Partial<Record<BackfillSettingKey, number | null | undefined>>;
 
 function nonNegativeInt(env: Record<string, string | undefined>, name: string, fallback: number): number {
   const raw = env[name]?.trim();
@@ -88,7 +97,7 @@ export function applyBackfillOverrides(
   overrides: BackfillOverrides | null | undefined,
 ): BackfillConfig {
   const merged = { ...base };
-  for (const key of Object.keys(base) as BackfillSettingKey[]) {
+  for (const key of BACKFILL_SETTING_KEYS) {
     const value = overrides?.[key];
     if (typeof value === "number" && Number.isFinite(value)) merged[key] = clamp(value, key);
   }

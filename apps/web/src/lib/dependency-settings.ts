@@ -160,7 +160,7 @@ export const COMMIT_PREFIX_MAX_LENGTH = 50;
 
 export type AddDependencySource = { subscriptionId: string } | { repoUrlOrSlug: string };
 
-export type IgnoreRuleValue = { name: string; versions?: string };
+export type IgnoreRuleValue = { name: string; versions?: string | undefined };
 
 /** Suggestions for the manifest paths picker. */
 export const MANIFEST_PATH_SUGGESTIONS = ["package.json", "pyproject.toml", "requirements.txt"] as const;
@@ -169,16 +169,20 @@ export const MANIFEST_PATH_SUGGESTIONS = ["package.json", "pyproject.toml", "req
 export function sameIgnoreRule(a: IgnoreRuleValue, b: IgnoreRuleValue): boolean {
   return (
     a.name.trim().toLowerCase() === b.name.trim().toLowerCase() &&
-    (a.versions?.trim() || "") === (b.versions?.trim() || "")
+    (a.versions?.trim() ?? "") === (b.versions?.trim() ?? "")
   );
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 /** Reads a stored `ignoreRules` JSON value defensively (anything malformed is dropped). */
 export function readIgnoreRules(value: unknown): IgnoreRuleValue[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((entry) => {
-    if (!entry || typeof entry !== "object") return [];
-    const { name, versions } = entry as { name?: unknown; versions?: unknown };
+    if (!isObjectRecord(entry)) return [];
+    const { name, versions } = entry;
     if (typeof name !== "string" || name.trim() === "") return [];
     return [typeof versions === "string" && versions.trim() !== "" ? { name, versions } : { name }];
   });

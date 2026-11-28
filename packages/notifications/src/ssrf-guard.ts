@@ -129,7 +129,7 @@ export interface ValidateWebhookUrlOptions {
 }
 
 /** URL hostname without IPv6 brackets. */
-export function bareHostname(url: URL): string {
+function bareHostname(url: URL): string {
   return url.hostname.replace(/^\[|\]$/g, "");
 }
 
@@ -205,10 +205,11 @@ export function createGuardedLookup(
       try {
         addresses = await resolveGuardedAddresses(hostname, options.family, policy, resolveAll);
       } catch (error) {
-        callback(error as NodeJS.ErrnoException, "", 0);
+        callback(error instanceof Error ? error : new Error(String(error)), "", 0);
         return;
       }
       if (options.all) {
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- @types/node LookupFunction omits the all:true LookupAddress[] overload
         (callback as unknown as (err: null, addresses: LookupAddress[]) => void)(null, addresses);
       } else {
         const first = addresses[0]!;

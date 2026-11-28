@@ -92,12 +92,15 @@ export function parseVerifyArgs(argv: readonly string[]): VerifyCliOptions {
       if (parsed.length === 0) {
         throw new Error("--only requires a comma-separated list of step IDs.");
       }
+      const validated: VerifyStepId[] = [];
       for (const candidate of parsed) {
-        if (!SELECTABLE_STEP_IDS.has(candidate as VerifyStepId)) {
+        const match = DEFAULT_VERIFY_STEPS.find((step) => step.id === candidate);
+        if (!match) {
           throw new Error(`Unknown verify step "${candidate}". Valid steps: ${[...SELECTABLE_STEP_IDS].join(", ")}`);
         }
+        validated.push(match.id);
       }
-      only = parsed as VerifyStepId[];
+      only = validated;
     } else {
       throw new Error(`Unknown flag "${arg}". Run with --help for usage.`);
     }

@@ -1,5 +1,6 @@
-import { MAX_MANIFEST_BYTES } from "@repopulse/deps";
 import { describe, expect, it, vi } from "vitest";
+
+import { MAX_MANIFEST_BYTES } from "@repopulse/deps";
 
 import {
   BLOB_CACHE_TTL_SECONDS,
@@ -27,7 +28,7 @@ describe("createRedisRegistryCache", () => {
     const redis = fakeRedis();
     const cache = createRedisRegistryCache(redis as never);
 
-    expect(await cache.get("deps:reg:npm:react")).toBeNull();
+    await expect(cache.get("deps:reg:npm:react")).resolves.toBeNull();
     await cache.set("deps:reg:npm:react", { body: '{"ok":true}', storedAt: 1000, etag: '"e1"' }, 1234.6);
     expect(redis.set).toHaveBeenCalledWith(
       "deps:reg:npm:react",
@@ -35,15 +36,19 @@ describe("createRedisRegistryCache", () => {
       "PX",
       1235,
     );
-    expect(await cache.get("deps:reg:npm:react")).toEqual({ body: '{"ok":true}', storedAt: 1000, etag: '"e1"' });
+    await expect(cache.get("deps:reg:npm:react")).resolves.toEqual({
+      body: '{"ok":true}',
+      storedAt: 1000,
+      etag: '"e1"',
+    });
 
     redis.store.set("bad-json", "{broken");
-    expect(await cache.get("bad-json")).toBeNull();
+    await expect(cache.get("bad-json")).resolves.toBeNull();
     redis.store.set("bad-shape", JSON.stringify({ body: 123 }));
-    expect(await cache.get("bad-shape")).toBeNull();
+    await expect(cache.get("bad-shape")).resolves.toBeNull();
 
     redis.get.mockRejectedValueOnce(new Error("redis down"));
-    expect(await cache.get("deps:reg:npm:react")).toBeNull();
+    await expect(cache.get("deps:reg:npm:react")).resolves.toBeNull();
     redis.set.mockRejectedValueOnce(new Error("redis down"));
     await expect(cache.set("deps:reg:npm:react", { body: "{}", storedAt: 1 }, 0)).resolves.toBeUndefined();
   });
@@ -56,13 +61,13 @@ describe("createRedisBlobCache", () => {
 
     await cache.set("sha1", "hello");
     expect(redis.set).toHaveBeenCalledWith("deps:blob:sha1", "hello", "EX", BLOB_CACHE_TTL_SECONDS);
-    expect(await cache.get("sha1")).toBe("hello");
+    await expect(cache.get("sha1")).resolves.toBe("hello");
 
     await cache.set("oversize", "x".repeat(MAX_MANIFEST_BYTES + 1));
     expect(redis.store.has("deps:blob:oversize")).toBe(false);
 
     redis.get.mockRejectedValueOnce(new Error("boom"));
-    expect(await cache.get("sha1")).toBeNull();
+    await expect(cache.get("sha1")).resolves.toBeNull();
     redis.set.mockRejectedValueOnce(new Error("boom"));
     await expect(cache.set("sha2", "ok")).resolves.toBeUndefined();
   });
@@ -89,9 +94,9 @@ describe("createRedisLockfileCache & lockfileCacheKey", () => {
     expect(loaded).toEqual(val);
 
     redis.store.set("deps:lockread:corrupt", "{bad");
-    expect(await cache.get("corrupt")).toBeNull();
+    await expect(cache.get("corrupt")).resolves.toBeNull();
     redis.get.mockRejectedValueOnce(new Error("err"));
-    expect(await cache.get("k1")).toBeNull();
+    await expect(cache.get("k1")).resolves.toBeNull();
   });
 });
 
@@ -144,7 +149,7 @@ describe("createRedisBlobCache batching & createRedisTreeCache", () => {
       truncated: false,
     });
     expect(redis.set).toHaveBeenCalledWith("deps:tree:42:c1", expect.any(String), "EX", TREE_CACHE_TTL_SECONDS);
-    expect(await treeCache.get(42n, "c1")).toEqual({
+    await expect(treeCache.get(42n, "c1")).resolves.toEqual({
       entries: [{ path: "package.json", type: "blob", sha: "s1", size: 10 }],
       truncated: false,
     });
@@ -159,6 +164,6 @@ describe("createRedisBlobCache batching & createRedisTreeCache", () => {
       MAX_TREE_CACHE_BYTES,
     );
     await treeCache.set(42n, "huge", { entries: huge, truncated: false });
-    expect(await treeCache.get(42n, "huge")).toBeNull();
+    await expect(treeCache.get(42n, "huge")).resolves.toBeNull();
   });
 });

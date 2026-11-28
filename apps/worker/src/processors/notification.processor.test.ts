@@ -1,7 +1,8 @@
-import { NotificationDeliveryError, type dispatchNotification } from "@repopulse/notifications";
-import type { NotificationJobData } from "@repopulse/queue";
 import { UnrecoverableError, type Job } from "bullmq";
 import { describe, expect, it, vi } from "vitest";
+
+import { NotificationDeliveryError, type dispatchNotification } from "@repopulse/notifications";
+import type { NotificationJobData } from "@repopulse/queue";
 
 import { processNotification } from "./notification.processor.js";
 
@@ -116,7 +117,7 @@ describe("processNotification", () => {
   it("Slice 05 acceptance: skips the same rule for v2.0.1 (PATCH)", async () => {
     const dispatch = delivered();
     const prisma = fakePrisma({ release: releaseRow("v2.0.1", "PATCH") });
-    expect(await processNotification(job("rel-v2.0.1"), { prisma: prisma as never, dispatch })).toEqual({
+    await expect(processNotification(job("rel-v2.0.1"), { prisma: prisma as never, dispatch })).resolves.toEqual({
       status: "SKIPPED",
       reason: "NOT_MAJOR",
     });

@@ -1,5 +1,7 @@
 import type { Route } from "next";
 
+import { toRoute } from "./route";
+
 /** Only allow same-origin relative paths as a post-login destination. */
 export function safeCallbackUrl(value: string | undefined): Route {
   if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("\\")) {
@@ -7,9 +9,9 @@ export function safeCallbackUrl(value: string | undefined): Route {
   }
   try {
     const parsed = new URL(value, "http://repopulse.local");
-    return (
-      parsed.origin === "http://repopulse.local" ? `${parsed.pathname}${parsed.search}${parsed.hash}` : "/"
-    ) as Route;
+    return parsed.origin === "http://repopulse.local"
+      ? toRoute(`${parsed.pathname}${parsed.search}${parsed.hash}`)
+      : "/";
   } catch {
     return "/";
   }

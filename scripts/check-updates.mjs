@@ -155,7 +155,8 @@ try {
 for (const filePath of packageJsonFiles) {
   try {
     const content = JSON.parse(readFileSync(filePath, "utf8"));
-    const consumerName = content.name || path.relative(root, filePath);
+    const consumerName =
+      typeof content.name === "string" && content.name.length > 0 ? content.name : path.relative(root, filePath);
 
     if (typeof content.packageManager === "string" && content.packageManager.includes("@")) {
       const atIdx = content.packageManager.lastIndexOf("@");
@@ -228,7 +229,7 @@ async function fetchLatestInfo(pkgName) {
     }
 
     const data = await res.json();
-    const distTags = data["dist-tags"] || {};
+    const distTags = data["dist-tags"] ?? {};
     const latest = distTags.latest;
 
     return {

@@ -19,13 +19,13 @@ export const NOTIFICATION_EVENT_HINTS: Record<NotificationEventValue, string> = 
 };
 
 /** Events a tag-scoped rule can have: projects have no tags, so only releases. */
-export const TAG_SCOPED_EVENTS: readonly NotificationEventValue[] = ["RELEASES"];
+const TAG_SCOPED_EVENTS = new Set<NotificationEventValue>(["RELEASES"]);
 
 export const DEFAULT_NOTIFICATION_EVENTS: NotificationEventValue[] = ["RELEASES"];
 
 /** Whether an event can be chosen for a rule with (or without) a tag scope. */
 export function isEventAllowedForScope(event: NotificationEventValue, tagScoped: boolean): boolean {
-  return !tagScoped || TAG_SCOPED_EVENTS.includes(event);
+  return !tagScoped || TAG_SCOPED_EVENTS.has(event);
 }
 
 /** Sorted, de-duplicated list in {@link NOTIFICATION_EVENTS} order. */
@@ -34,7 +34,7 @@ export function normalizeEvents(events: readonly NotificationEventValue[]): Noti
 }
 
 /** The message shown when a tag-scoped rule asks for dependency events. */
-export const TAG_SCOPED_EVENTS_MESSAGE =
+const TAG_SCOPED_EVENTS_MESSAGE =
   "A rule limited to a tag can only notify about releases. Dependency projects have no tags.";
 
 /** Checks the tag-scope restriction; returns an error message or null. */

@@ -10,13 +10,13 @@ import { cachedGet, registryCacheKey, type RegistryFetchOptions } from "./cache.
 import { toGitHubRepoUrl } from "./github-url.js";
 import type { RegistryLookup, RegistryVersion } from "./types.js";
 
-export const NPM_REGISTRY_URL = "https://registry.npmjs.org";
-export const NPM_ABBREVIATED_ACCEPT = "application/vnd.npm.install-v1+json";
+const NPM_REGISTRY_URL = "https://registry.npmjs.org";
+const NPM_ABBREVIATED_ACCEPT = "application/vnd.npm.install-v1+json";
 
 const NPM_NAME = /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9_][a-z0-9._~-]*$/i;
 
 /** `true` for a syntactically valid npm package name (≤ 214 chars). */
-export function isValidNpmPackageName(name: string): boolean {
+function isValidNpmPackageName(name: string): boolean {
   return name.length <= 214 && NPM_NAME.test(name);
 }
 
@@ -78,6 +78,34 @@ export interface NpmFetchOptions extends RegistryFetchOptions {
  * Looks up an npm package. Throws `RegistryUnavailableError` on 429 / 5xx / network errors; returns
  * `{ found: false }` for 404 and invalid names.
  */
+function parseCompactAbbreviated(body: string): CompactAbbreviated {
+  const data: unknown = JSON.parse(body);
+  if (!isRecord(data)) throw new Error("cached abbreviated packument is invalid");
+  const versions: Record<string, boolean> = {};
+  if (isRecord(data.versions)) {
+    for (const [k, v] of Object.entries(data.versions)) {
+      if (typeof v === "boolean") versions[k] = v;
+    }
+  }
+  return {
+    modified: typeof data.modified === "string" ? data.modified : null,
+    latest: typeof data.latest === "string" ? data.latest : null,
+    versions,
+  };
+}
+
+function parseCompactTimes(body: string): CompactTimes {
+  const data: unknown = JSON.parse(body);
+  if (!isRecord(data)) throw new Error("cached times packument is invalid");
+  const time: Record<string, string> = {};
+  if (isRecord(data.time)) {
+    for (const [k, v] of Object.entries(data.time)) {
+      if (typeof v === "string") time[k] = v;
+    }
+  }
+  return { time, repository: typeof data.repository === "string" ? data.repository : null };
+}
+
 export async function fetchNpmPackage(name: string, options: NpmFetchOptions): Promise<RegistryLookup> {
   if (!isValidNpmPackageName(name)) return { found: false, reason: "Invalid npm package name" };
   const abbreviated = await cachedGet({
@@ -89,13 +117,13 @@ export async function fetchNpmPackage(name: string, options: NpmFetchOptions): P
     derive: compactAbbreviated,
   });
   if (!abbreviated.found) return { found: false, reason: "Not on the public npm registry" };
-  const packument = JSON.parse(abbreviated.body) as CompactAbbreviated;
+  const packument = parseCompactAbbreviated(abbreviated.body);
 
   let times: CompactTimes | null = null;
   if (options.includeTimes !== false) {
     const timeKey = registryCacheKey("npm-time", name);
     const cachedTimes = options.cache ? await options.cache.get(timeKey) : null;
-    const parsedCachedTimes = cachedTimes ? (JSON.parse(cachedTimes.body) as CompactTimes) : null;
+    const parsedCachedTimes = cachedTimes ? parseCompactTimes(cachedTimes.body) : null;
     const cachedModified = parsedCachedTimes?.time.modified;
     // The cached times are stale when the abbreviated document was modified after them (invalid dates never count as fresh).
     const cachedModifiedMs = cachedModified !== undefined ? Date.parse(cachedModified) : NaN;
@@ -114,10 +142,10 @@ export async function fetchNpmPackage(name: string, options: NpmFetchOptions): P
         url: npmPackageUrl(name),
         accept: "application/json",
         key: timeKey,
-        options: { ...options, ttlMs: stale ? 0 : options.ttlMs },
+        options: { ...options, ...(stale ? { ttlMs: 0 } : {}) },
         derive: compactFull,
       });
-      if (full.found) times = JSON.parse(full.body) as CompactTimes;
+      if (full.found) times = parseCompactTimes(full.body);
     }
   }
 

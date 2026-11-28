@@ -106,7 +106,10 @@ const tools = [
     current: readArg("UV_VERSION"),
     source: "github",
     fetchLatest: async () => {
-      const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+      const githubToken =
+        process.env.GITHUB_TOKEN !== undefined && process.env.GITHUB_TOKEN.length > 0
+          ? process.env.GITHUB_TOKEN
+          : process.env.GH_TOKEN;
       const res = await fetch("https://api.github.com/repos/astral-sh/uv/releases/latest", {
         headers: {
           Accept: "application/vnd.github+json",
@@ -116,7 +119,7 @@ const tools = [
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       const data = await res.json();
-      const latest = String(data.tag_name || "").replace(/^v/, "");
+      const latest = String(data.tag_name ?? "").replace(/^v/, "");
       return { latest };
     },
   },

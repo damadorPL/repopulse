@@ -108,15 +108,15 @@ describe("createNotificationRuleAction events", () => {
   });
 
   it("needs at least one event", async () => {
-    expect(await createNotificationRuleAction({ ...base, events: [] })).toMatchObject({
+    await expect(createNotificationRuleAction({ ...base, events: [] })).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
-    expect(await createNotificationRuleAction({ ...base, events: ["SOMETHING"] } as never)).toMatchObject({
+    await expect(createNotificationRuleAction({ ...base, events: ["SOMETHING"] } as never)).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
-    expect(await createNotificationRuleAction(base as never)).toMatchObject({
+    await expect(createNotificationRuleAction(base as never)).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
@@ -132,21 +132,23 @@ describe("createNotificationRuleAction events", () => {
     expect(result).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
     expect(prisma.notificationRule.create).not.toHaveBeenCalled();
 
-    expect(await createNotificationRuleAction({ ...base, tagId: "t1", events: ["RELEASES"] })).toMatchObject({
+    await expect(createNotificationRuleAction({ ...base, tagId: "t1", events: ["RELEASES"] })).resolves.toMatchObject({
       ok: true,
     });
   });
 
   it("enforces MAX_NOTIFICATION_RULES (25) with CONFLICT and rejects a foreign tagId with NOT_FOUND", async () => {
     prisma.notificationRule.count.mockResolvedValueOnce(25);
-    expect(await createNotificationRuleAction({ ...base, events: ["RELEASES"] })).toMatchObject({
+    await expect(createNotificationRuleAction({ ...base, events: ["RELEASES"] })).resolves.toMatchObject({
       ok: false,
       error: { code: "CONFLICT" },
     });
     expect(prisma.notificationRule.create).not.toHaveBeenCalled();
 
     prisma.tag.findFirst.mockResolvedValueOnce(null);
-    expect(await createNotificationRuleAction({ ...base, tagId: "foreign-tag", events: ["RELEASES"] })).toMatchObject({
+    await expect(
+      createNotificationRuleAction({ ...base, tagId: "foreign-tag", events: ["RELEASES"] }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
@@ -160,7 +162,7 @@ describe("createNotificationRuleAction events", () => {
 describe("toggleNotificationRuleAction and deleteNotificationRuleAction", () => {
   it("scopes toggle and delete to the current user", async () => {
     prisma.notificationRule.updateMany.mockResolvedValueOnce({ count: 0 });
-    expect(await toggleNotificationRuleAction({ ruleId: "r-other", enabled: false })).toMatchObject({
+    await expect(toggleNotificationRuleAction({ ruleId: "r-other", enabled: false })).resolves.toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
@@ -170,13 +172,13 @@ describe("toggleNotificationRuleAction and deleteNotificationRuleAction", () => 
     });
 
     prisma.notificationRule.updateMany.mockResolvedValueOnce({ count: 1 });
-    expect(await toggleNotificationRuleAction({ ruleId: "r1", enabled: false })).toEqual({
+    await expect(toggleNotificationRuleAction({ ruleId: "r1", enabled: false })).resolves.toEqual({
       ok: true,
       data: { ruleId: "r1", enabled: false },
     });
 
     prisma.notificationRule.deleteMany.mockResolvedValueOnce({ count: 0 });
-    expect(await deleteNotificationRuleAction({ ruleId: "r-other" })).toMatchObject({
+    await expect(deleteNotificationRuleAction({ ruleId: "r-other" })).resolves.toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
@@ -185,7 +187,7 @@ describe("toggleNotificationRuleAction and deleteNotificationRuleAction", () => 
     });
 
     prisma.notificationRule.deleteMany.mockResolvedValueOnce({ count: 1 });
-    expect(await deleteNotificationRuleAction({ ruleId: "r1" })).toEqual({
+    await expect(deleteNotificationRuleAction({ ruleId: "r1" })).resolves.toEqual({
       ok: true,
       data: { ruleId: "r1" },
     });
@@ -202,7 +204,7 @@ describe("sendTestNotificationAction", () => {
 
   it("scopes rule lookup to the user, enforces per-rule cooldown, and maps delivery errors to DELIVERY_FAILED", async () => {
     prisma.notificationRule.findFirst.mockResolvedValueOnce(null);
-    expect(await sendTestNotificationAction({ ruleId: "r-other" })).toMatchObject({
+    await expect(sendTestNotificationAction({ ruleId: "r-other" })).resolves.toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
@@ -218,7 +220,7 @@ describe("sendTestNotificationAction", () => {
 
     // Within 10s cooldown for r-test
     now += 2_000;
-    expect(await sendTestNotificationAction({ ruleId: "r-test" })).toMatchObject({
+    await expect(sendTestNotificationAction({ ruleId: "r-test" })).resolves.toMatchObject({
       ok: false,
       error: { code: "RATE_LIMITED" },
     });
@@ -226,7 +228,7 @@ describe("sendTestNotificationAction", () => {
     // Advance past cooldown and test error mappings
     now += 10_000;
     getSmtpConfig.mockRejectedValueOnce(new SmtpPasswordUnreadableError("Unreadable key"));
-    expect(await sendTestNotificationAction({ ruleId: "r-test" })).toEqual({
+    await expect(sendTestNotificationAction({ ruleId: "r-test" })).resolves.toEqual({
       ok: false,
       error: { code: "DELIVERY_FAILED", message: "Unreadable key" },
     });
@@ -234,7 +236,7 @@ describe("sendTestNotificationAction", () => {
     now += 10_000;
     isNotificationDeliveryError.mockReturnValueOnce(true);
     dispatchNotification.mockRejectedValueOnce(new Error("Webhook 500"));
-    expect(await sendTestNotificationAction({ ruleId: "r-test" })).toEqual({
+    await expect(sendTestNotificationAction({ ruleId: "r-test" })).resolves.toEqual({
       ok: false,
       error: { code: "DELIVERY_FAILED", message: "Webhook 500" },
     });
@@ -303,7 +305,7 @@ describe("updateNotificationRuleAction", () => {
 
   it("returns NOT_FOUND for someone else's rule or a foreign tagId", async () => {
     prisma.notificationRule.findFirst.mockResolvedValueOnce(null);
-    expect(await updateNotificationRuleAction({ ruleId: "r1", events: ["RELEASES"] })).toMatchObject({
+    await expect(updateNotificationRuleAction({ ruleId: "r1", events: ["RELEASES"] })).resolves.toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
@@ -316,7 +318,7 @@ describe("updateNotificationRuleAction", () => {
       onlyMajorReleases: false,
     });
     prisma.tag.findFirst.mockResolvedValueOnce(null);
-    expect(await updateNotificationRuleAction({ ruleId: "r1", tagId: "foreign-tag" })).toMatchObject({
+    await expect(updateNotificationRuleAction({ ruleId: "r1", tagId: "foreign-tag" })).resolves.toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
@@ -331,7 +333,9 @@ describe("updateNotificationRuleAction", () => {
       events: ["RELEASES"],
       onlyMajorReleases: false,
     });
-    expect(await updateNotificationRuleAction({ ruleId: "r1", events: ["DEPENDENCY_PULL_REQUESTS"] })).toMatchObject({
+    await expect(
+      updateNotificationRuleAction({ ruleId: "r1", events: ["DEPENDENCY_PULL_REQUESTS"] }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
@@ -343,16 +347,16 @@ describe("updateNotificationRuleAction", () => {
       events: ["RELEASES", "DEPENDENCY_UPDATES"],
       onlyMajorReleases: false,
     });
-    expect(await updateNotificationRuleAction({ ruleId: "r1", tagId: "t1" })).toMatchObject({
+    await expect(updateNotificationRuleAction({ ruleId: "r1", tagId: "t1" })).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
 
-    expect(await updateNotificationRuleAction({ ruleId: "r1", events: [] })).toMatchObject({
+    await expect(updateNotificationRuleAction({ ruleId: "r1", events: [] })).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
-    expect(await updateNotificationRuleAction({ ruleId: "r1" })).toMatchObject({
+    await expect(updateNotificationRuleAction({ ruleId: "r1" })).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });

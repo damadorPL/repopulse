@@ -108,7 +108,9 @@ describe("fetchGitTree", () => {
       const fetch = mockFetch((url) =>
         url.pathname === "/repos/acme/widget" ? json(REPO) : json({ message: "Empty" }, { status: refStatus }),
       );
-      expect(await fetchGitTree({ owner: "acme", name: "widget", octokit: createOctokit({ fetch }) })).toMatchObject({
+      await expect(
+        fetchGitTree({ owner: "acme", name: "widget", octokit: createOctokit({ fetch }) }),
+      ).resolves.toMatchObject({
         commitSha: null,
         entries: [],
         truncated: false,
@@ -120,9 +122,9 @@ describe("fetchGitTree", () => {
         ? json(REPO)
         : json({ ref: "refs/heads/main-other", object: { sha: "head1" } }),
     );
-    expect(
-      await fetchGitTree({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: prefixMismatch }) }),
-    ).toMatchObject({
+    await expect(
+      fetchGitTree({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: prefixMismatch }) }),
+    ).resolves.toMatchObject({
       commitSha: null,
       entries: [],
       truncated: false,
@@ -134,9 +136,9 @@ describe("fetchGitTree", () => {
         return json({ ref: "refs/heads/main", object: { sha: "head1" } });
       return json({ message: "Git Repository is empty." }, { status: 409 });
     });
-    expect(
-      await fetchGitTree({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: tree409 }) }),
-    ).toMatchObject({
+    await expect(
+      fetchGitTree({ owner: "acme", name: "widget", octokit: createOctokit({ fetch: tree409 }) }),
+    ).resolves.toMatchObject({
       commitSha: "head1",
       entries: [],
       truncated: false,

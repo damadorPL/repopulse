@@ -1,11 +1,10 @@
-import { INSTANCE_SETTINGS_ID, loadDepsEnabled, prisma } from "@repopulse/db";
-import { DEPS_WORKER_HEARTBEAT_KEY, type DepsWorkerHeartbeat } from "@repopulse/deps/limits";
 import { cache } from "react";
 
-import { invalidateDepsEnabledCache, readDepsEnabledCached } from "@/server/deps-enabled-cache";
-import { getRedis, isRealtimeConfigured, withRedisTimeout } from "@/server/realtime";
+import { INSTANCE_SETTINGS_ID, loadDepsEnabled, prisma } from "@repopulse/db";
+import { DEPS_WORKER_HEARTBEAT_KEY, type DepsWorkerHeartbeat } from "@repopulse/deps/limits";
 
-export { invalidateDepsEnabledCache };
+import { readDepsEnabledCached } from "@/server/deps-enabled-cache";
+import { getRedis, isRealtimeConfigured, withRedisTimeout } from "@/server/realtime";
 
 /**
  * Server-only status of the Dependencies module (Slice 08): the admin switch, the sidebar count and
@@ -40,16 +39,19 @@ export type DepsWorkerStatus =
   /** Redis is not configured or did not answer, so the status is unknown. */
   | { state: "unknown" };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 /** Validates the heartbeat JSON; anything malformed counts as missing. */
 export function parseDepsWorkerHeartbeat(raw: string | null): DepsWorkerStatus {
   if (!raw) return { state: "missing" };
   try {
     const value: unknown = JSON.parse(raw);
-    if (typeof value !== "object" || value === null) return { state: "missing" };
-    const record = value as Record<string, unknown>;
-    const at = typeof record.at === "string" ? new Date(record.at) : null;
+    if (!isRecord(value)) return { state: "missing" };
+    const at = typeof value.at === "string" ? new Date(value.at) : null;
     if (!at || Number.isNaN(at.getTime())) return { state: "missing" };
-    const sandbox = record.sandbox;
+    const sandbox = value.sandbox;
     const sandboxTools =
       typeof sandbox === "object" && sandbox !== null && "tools" in sandbox ? sandbox.tools : undefined;
     const tools =

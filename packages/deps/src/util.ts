@@ -75,11 +75,6 @@ export function resolveRelativePath(dir: string, relative: string): string | nul
   return segments.length === 0 ? null : segments.join("/");
 }
 
-/** `true` when `ancestor` (a directory, `""` = root) contains `path`. */
-export function isWithinDir(path: string, ancestor: string): boolean {
-  return ancestor === "" || path === ancestor || path.startsWith(`${ancestor}/`);
-}
-
 /** Path of `path` relative to directory `from` (which must contain it). `""` when equal. */
 export function relativeTo(path: string, from: string): string {
   if (from === "") return path;
@@ -101,7 +96,7 @@ export function workspaceGlobToRegExp(glob: string): RegExp {
   if ((pattern.match(/\*\*/g)?.length ?? 0) <= 1 && (pattern.match(/\*/g)?.length ?? 0) <= 3) {
     let source = "";
     for (let i = 0; i < pattern.length; i++) {
-      const char = pattern[i] as string;
+      const char = pattern[i]!;
       if (char === "*") {
         if (pattern[i + 1] === "*") {
           if (pattern[i + 2] === "/") {
@@ -118,7 +113,7 @@ export function workspaceGlobToRegExp(glob: string): RegExp {
     return new RegExp(`^${source}$`);
   }
   const rawSegs = pattern.split("/");
-  const patSegs: RegExp[] = [];
+  const patSegs: Array<{ test(input: string): boolean }> = [];
   const isGlobstar: boolean[] = [];
   for (let i = 0; i < rawSegs.length; i++) {
     const seg = rawSegs[i]!;
@@ -145,7 +140,7 @@ export function workspaceGlobToRegExp(glob: string): RegExp {
 
 function matchGlobSegments(
   dirSegs: readonly string[],
-  patSegs: readonly RegExp[],
+  patSegs: ReadonlyArray<{ test(input: string): boolean }>,
   isGlobstar: readonly boolean[],
 ): boolean {
   const n = dirSegs.length;
@@ -173,7 +168,7 @@ function matchGlobSegments(
   return dp[n] === 1;
 }
 
-function segmentToRegExp(seg: string): RegExp {
+function segmentToRegExp(seg: string): { test(input: string): boolean } {
   // Collapse consecutive `*` inside a single path segment and use linear segment matching when multiple `*` exist.
   const collapsed = seg.replace(/\*+/g, "*");
   const parts = collapsed.split("*");
@@ -216,7 +211,7 @@ function segmentToRegExp(seg: string): RegExp {
       last.lastIndex = endStart;
       return last.test(input) && last.lastIndex === input.length;
     },
-  } as RegExp;
+  };
 }
 
 function matchesSingleWorkspaceGlob(dir: string, glob: string): boolean {
@@ -229,7 +224,7 @@ function matchesSingleWorkspaceGlob(dir: string, glob: string): boolean {
   }
   const dirSegs = dir === "" ? [] : dir.split("/");
   const rawSegs = pattern.split("/");
-  const patSegs: RegExp[] = [];
+  const patSegs: Array<{ test(input: string): boolean }> = [];
   const isGlobstar: boolean[] = [];
   for (let i = 0; i < rawSegs.length; i++) {
     const seg = rawSegs[i]!;
@@ -265,11 +260,6 @@ export function matchesWorkspaceGlobs(dir: string, globs: readonly string[]): bo
   return matched;
 }
 
-/** Strips a UTF-8 BOM. Returns the offset shift (0 or 1) so spans can be mapped back. */
-export function stripBom(text: string): { text: string; offset: number } {
-  return text.charCodeAt(0) === 0xfeff ? { text: text.slice(1), offset: 1 } : { text, offset: 0 };
-}
-
 /** Structural deep equality for JSON / TOML values (TOML dates compare by string form). */
 export function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
@@ -282,21 +272,14 @@ export function deepEqual(a: unknown, b: unknown): boolean {
   if (Array.isArray(a) && Array.isArray(b)) {
     return a.length === b.length && a.every((item, index) => deepEqual(item, b[index]));
   }
-  const aRecord = a as Record<string, unknown>;
-  const bRecord = b as Record<string, unknown>;
-  const aKeys = Object.keys(aRecord);
-  const bKeys = Object.keys(bRecord);
+  if (!isRecord(a) || !isRecord(b)) return false;
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
   if (aKeys.length !== bKeys.length) return false;
-  return aKeys.every((key) => Object.hasOwn(bRecord, key) && deepEqual(aRecord[key], bRecord[key]));
+  return aKeys.every((key) => Object.hasOwn(b, key) && deepEqual(a[key], b[key]));
 }
 
 /** `true` for a plain object (not an array, not null). */
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/** Line ending used by a text (`"\r\n"` when it appears before any bare `"\n"`). */
-export function detectLineEnding(text: string): "\n" | "\r\n" {
-  const index = text.indexOf("\n");
-  return index > 0 && text[index - 1] === "\r" ? "\r\n" : "\n";
 }

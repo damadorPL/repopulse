@@ -77,7 +77,9 @@ describe("verify script", () => {
     const buildFailRun = runVerify(
       { fix: false, skipBuild: false, failFast: false, only: null, help: false },
       {
-        log: (m) => logs.push(m),
+        log: (m) => {
+          logs.push(m);
+        },
         runner: (args) => (args.includes("build") && args.includes("turbo") ? 1 : 0),
       },
     );

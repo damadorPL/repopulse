@@ -1,7 +1,8 @@
+import { describe, expect, it, vi } from "vitest";
+
 import { RegistryUnavailableError } from "@repopulse/deps";
 import { GitHubRateLimitError } from "@repopulse/github";
 import type { DepsScanJobData } from "@repopulse/queue";
-import { describe, expect, it, vi } from "vitest";
 
 import { flushNotificationOutbox } from "../notification-outbox.js";
 import { createFakeGitHub, type FakeGitHub } from "../testing/fake-github.js";
@@ -99,7 +100,7 @@ describe("processDepsScan", () => {
   it("keeps digest intents durable when Redis fails after notifiedAt is committed", async () => {
     const { deps, prisma, queues } = setup({ project: { lastScannedAt: new Date("2026-10-01T00:00:00Z") } });
     queues.notifyQueue.addBulk.mockRejectedValueOnce(new Error("Redis unavailable"));
-    expect(await processDepsScan(scanJob(), deps)).toMatchObject({ status: "SCANNED", digests: 1 });
+    await expect(processDepsScan(scanJob(), deps)).resolves.toMatchObject({ status: "SCANNED", digests: 1 });
     expect(rows(prisma).requests!.notifiedAt).toEqual(NOW);
     expect(prisma.dependencyNotificationOutbox.rows).toHaveLength(1);
     // A recovery dispatcher does not need a fresh scan or unannounced update rows.
@@ -113,7 +114,7 @@ describe("processDepsScan", () => {
 
   it("does nothing while the module is disabled", async () => {
     const { deps, prisma } = setup({ depsEnabled: false });
-    expect(await processDepsScan(scanJob(), deps)).toEqual({ status: "SKIPPED", reason: "DISABLED" });
+    await expect(processDepsScan(scanJob(), deps)).resolves.toEqual({ status: "SKIPPED", reason: "DISABLED" });
     expect(prisma.dependencyProject.rows[0]!.scanStatus).toBe("IDLE");
   });
 
@@ -222,7 +223,7 @@ describe("processDepsScan", () => {
 
   it("refuses a private repository without the GitHub App (user-safe error, no retry)", async () => {
     const { deps, prisma, queues } = setup({ project: { isPrivate: true }, isPrivate: true });
-    expect(await processDepsScan(scanJob({ trigger: "manual", requestedByUserId: "u1" }), deps)).toEqual({
+    await expect(processDepsScan(scanJob({ trigger: "manual", requestedByUserId: "u1" }), deps)).resolves.toEqual({
       status: "PRIVATE_WITHOUT_APP",
     });
     expect(prisma.dependencyProject.rows[0]).toMatchObject({
@@ -240,7 +241,7 @@ describe("processDepsScan", () => {
 
   it("reads a private repository with the installation token when the App is installed", async () => {
     const { deps, github } = setup({ project: { isPrivate: true }, isPrivate: true, app: true, installed: true });
-    expect(await processDepsScan(scanJob(), deps)).toMatchObject({ status: "SCANNED", outdated: 1 });
+    await expect(processDepsScan(scanJob(), deps)).resolves.toMatchObject({ status: "SCANNED", outdated: 1 });
     expect(github.state.tokensSeen).toEqual(new Set(["inst-token"]));
   });
 
@@ -252,7 +253,7 @@ describe("processDepsScan", () => {
       installed: true,
     });
     github.state.permissions.set("dev", "none");
-    expect(await processDepsScan(scanJob(), deps)).toEqual({ status: "NO_ACCESS", switchedToNotify: false });
+    await expect(processDepsScan(scanJob(), deps)).resolves.toEqual({ status: "NO_ACCESS", switchedToNotify: false });
     expect(prisma.dependencyProject.rows[0]).toMatchObject({
       scanStatus: "ERROR",
       scanError: NO_ACCESS_MESSAGE,
@@ -273,7 +274,7 @@ describe("processDepsScan", () => {
     prisma.dependencyPrOwner.rows.push({ githubRepoId: 42n, projectId: "p1" });
     github.state.permissions.delete("dev");
     github.state.logins.delete("1001");
-    expect(await processDepsScan(scanJob(), deps)).toEqual({ status: "NO_ACCESS", switchedToNotify: true });
+    await expect(processDepsScan(scanJob(), deps)).resolves.toEqual({ status: "NO_ACCESS", switchedToNotify: true });
     expect(prisma.dependencyProject.rows[0]!.updateMode).toBe("NOTIFY");
     expect(prisma.dependencyPrOwner.rows).toEqual([]);
     const prJobs = queues.notifyQueue.addBulk.mock.calls
@@ -285,14 +286,17 @@ describe("processDepsScan", () => {
   it("re-resolves a renamed login before refusing a private repository", async () => {
     const { deps, prisma } = setup({ project: { isPrivate: true }, isPrivate: true, app: true, installed: true });
     prisma.user.rows[0]!.githubLogin = "old-login";
-    expect(await processDepsScan(scanJob(), deps)).toMatchObject({ status: "SCANNED" });
+    await expect(processDepsScan(scanJob(), deps)).resolves.toMatchObject({ status: "SCANNED" });
     expect(prisma.user.rows[0]!.githubLogin).toBe("dev");
   });
 
   it("counts 404s and pauses the project after five", async () => {
     const { deps, prisma, github } = setup({ project: { errorCount: MAX_ERROR_COUNT - 1 } });
     github.state.notFound = true;
-    expect(await processDepsScan(scanJob(), deps)).toEqual({ status: "NOT_FOUND", errorCount: MAX_ERROR_COUNT });
+    await expect(processDepsScan(scanJob(), deps)).resolves.toEqual({
+      status: "NOT_FOUND",
+      errorCount: MAX_ERROR_COUNT,
+    });
     const row = prisma.dependencyProject.rows[0]!;
     expect(row.scanStatus).toBe("ERROR");
     expect(row.scanError).toContain("was not found on GitHub");
@@ -356,7 +360,7 @@ describe("processDepsScan", () => {
       const { deps, prisma, github } = setup({ project: { lastScannedAt: NOW } });
       const number = await withOpenPr(github, prisma);
       github.mergePr(number);
-      expect(await processDepsScan(scanJob(), deps)).toMatchObject({
+      await expect(processDepsScan(scanJob(), deps)).resolves.toMatchObject({
         pullRequests: { merged: 1, closed: 0, edited: 0 },
       });
       expect(prisma.dependencyPullRequest.rows[0]).toMatchObject({ state: "MERGED", closedAt: NOW });
@@ -389,7 +393,7 @@ describe("processDepsScan", () => {
       const { deps, prisma, github, queues } = setup({ project: { lastScannedAt: NOW } });
       await withOpenPr(github, prisma);
       github.push("repopulse/deps/all", { "README.md": "human change" });
-      expect(await processDepsScan(scanJob(), deps)).toMatchObject({ pullRequests: { edited: 1 } });
+      await expect(processDepsScan(scanJob(), deps)).resolves.toMatchObject({ pullRequests: { edited: 1 } });
       expect(prisma.dependencyPullRequest.rows[0]!.state).toBe("EDITED");
       const prJobs = queues.notifyQueue.addBulk.mock.calls
         .flatMap(([jobs]) => jobs)
@@ -437,7 +441,10 @@ describe("processDepsScan", () => {
           "PYPI:flask": [version("3.0.0")],
         });
         // BullMQ removed the failed job: it no longer offers in-flight protection.
-        expect(await processDepsScan(scanJob(), deps)).toMatchObject({ pullRequests: { edited: 0 }, autoUpdates: 1 });
+        await expect(processDepsScan(scanJob(), deps)).resolves.toMatchObject({
+          pullRequests: { edited: 0 },
+          autoUpdates: 1,
+        });
         expect(prisma.dependencyPullRequest.rows[0]!.state).toBe("OPEN");
         expect(queues.updateQueue.addBulk).toHaveBeenCalledWith([
           expect.objectContaining({ data: { projectId: "p1", groupKey: "all", trigger: "auto" } }),
@@ -455,7 +462,7 @@ describe("processDepsScan", () => {
         commitSha: github.branches.get("repopulse/deps/all"),
       });
       github.push("repopulse/deps/all", { "README.md": "human change" });
-      expect(await processDepsScan(scanJob(), deps)).toMatchObject({ pullRequests: { edited: 1 } });
+      await expect(processDepsScan(scanJob(), deps)).resolves.toMatchObject({ pullRequests: { edited: 1 } });
       expect(prisma.dependencyPullRequest.rows[0]!.state).toBe("EDITED");
     });
   });
@@ -467,7 +474,7 @@ describe("processDepsScan", () => {
       installed: true,
     });
     prisma.dependencyPrOwner.rows.push({ githubRepoId: 42n, projectId: "p1" });
-    expect(await processDepsScan(scanJob(), deps)).toMatchObject({ autoUpdates: 1 });
+    await expect(processDepsScan(scanJob(), deps)).resolves.toMatchObject({ autoUpdates: 1 });
     expect(queues.updateQueue.addBulk).toHaveBeenCalledWith([
       expect.objectContaining({
         data: { projectId: "p1", groupKey: "all", trigger: "auto" },
@@ -488,7 +495,7 @@ describe("processDepsScan", () => {
       targets: ["requirements.txt#requests@2.32.3"],
     });
     deps.github = { ...(deps.github as object), getPullRequestState: async () => null } as never;
-    expect(await processDepsScan(scanJob(), deps)).toMatchObject({ autoUpdates: 0 });
+    await expect(processDepsScan(scanJob(), deps)).resolves.toMatchObject({ autoUpdates: 0 });
 
     // An open PR whose group vanished (e.g. "major-old") gets queued so deps-update can close it.
     prisma.dependencyPullRequest.rows.push({
@@ -503,7 +510,7 @@ describe("processDepsScan", () => {
       targets: ["requirements.txt#old@2.0.0"],
     });
     queues.updateQueue.addBulk.mockClear();
-    expect(await processDepsScan(scanJob(), deps)).toMatchObject({ autoUpdates: 1 });
+    await expect(processDepsScan(scanJob(), deps)).resolves.toMatchObject({ autoUpdates: 1 });
     expect(queues.updateQueue.addBulk).toHaveBeenCalledWith([
       expect.objectContaining({ data: { projectId: "p1", groupKey: "major-old", trigger: "auto" } }),
     ]);
@@ -515,7 +522,7 @@ describe("processDepsScan", () => {
     const origFetch = github.raw.fetchGitTree;
 
     // 1. 401 on app token invalidates installation cache; fallback from oauth -> anonymous succeeds on 401
-    github.raw.fetchGitTree = vi.fn(async () => {
+    vi.spyOn(github.raw, "fetchGitTree").mockImplementation(async () => {
       throw Object.assign(new Error("Bad credentials"), { status: 401 });
     });
     await expect(processDepsScan(scanJob(), deps)).rejects.toThrow("Bad credentials");
@@ -525,27 +532,33 @@ describe("processDepsScan", () => {
     prisma.user.rows[0]!.githubAccessTokenEncrypted = "enc";
     deps.access = fakeAccess(github, { app: false, installed: false });
     let calls = 0;
-    github.raw.fetchGitTree = vi.fn(async (params: { octokit?: unknown; owner: string; name: string }) => {
-      calls++;
-      if (calls === 1) throw Object.assign(new Error("Bad oauth token"), { status: 401 });
-      return origFetch(params);
-    });
-    expect(await processDepsScan(scanJob(), deps)).toMatchObject({ status: "SCANNED" });
+    vi.spyOn(github.raw, "fetchGitTree").mockImplementation(
+      async (params: { octokit?: unknown; owner: string; name: string }) => {
+        calls++;
+        if (calls === 1) throw Object.assign(new Error("Bad oauth token"), { status: 401 });
+        return origFetch(params);
+      },
+    );
+    await expect(processDepsScan(scanJob(), deps)).resolves.toMatchObject({ status: "SCANNED" });
     expect(calls).toBe(2);
 
     // 2. Repository ID mismatch -> NOT_FOUND
-    github.raw.fetchGitTree = vi.fn(async (params: { octokit?: unknown; owner: string; name: string }) => {
-      const snap = await origFetch(params);
-      return { ...snap, repository: { ...snap.repository, id: 9999 } };
-    });
-    expect(await processDepsScan(scanJob(), deps)).toEqual({ status: "NOT_FOUND", errorCount: 1 });
+    vi.spyOn(github.raw, "fetchGitTree").mockImplementation(
+      async (params: { octokit?: unknown; owner: string; name: string }) => {
+        const snap = await origFetch(params);
+        return { ...snap, repository: { ...snap.repository, id: 9999 } };
+      },
+    );
+    await expect(processDepsScan(scanJob(), deps)).resolves.toEqual({ status: "NOT_FOUND", errorCount: 1 });
 
     // 3. Newly-private repo read with non-App token -> PRIVATE_WITHOUT_APP and sets isPrivate: true
-    github.raw.fetchGitTree = vi.fn(async (params: { octokit?: unknown; owner: string; name: string }) => {
-      const snap = await origFetch(params);
-      return { ...snap, repository: { ...snap.repository, isPrivate: true } };
-    });
-    expect(await processDepsScan(scanJob(), deps)).toEqual({ status: "PRIVATE_WITHOUT_APP" });
+    vi.spyOn(github.raw, "fetchGitTree").mockImplementation(
+      async (params: { octokit?: unknown; owner: string; name: string }) => {
+        const snap = await origFetch(params);
+        return { ...snap, repository: { ...snap.repository, isPrivate: true } };
+      },
+    );
+    await expect(processDepsScan(scanJob(), deps)).resolves.toEqual({ status: "PRIVATE_WITHOUT_APP" });
     expect(prisma.dependencyProject.rows[0]!.isPrivate).toBe(true);
   });
 
@@ -561,20 +574,22 @@ describe("processDepsScan", () => {
     const scanDeps = { ...deps, treeCache };
 
     // First scan populates treeCache with lastScannedSha.
-    expect(await processDepsScan(scanJob(), scanDeps)).toMatchObject({ status: "SCANNED" });
+    await expect(processDepsScan(scanJob(), scanDeps)).resolves.toMatchObject({ status: "SCANNED" });
     const headSha = prisma.dependencyProject.rows[0]!.lastScannedSha as string;
     expect(treeCache.set).toHaveBeenCalledWith(42n, headSha, expect.objectContaining({ truncated: false }));
 
     // Second scan passes knownCommitSha and receives unchanged: true with empty entries -> hydrates from treeCache.
     const origFetch = github.raw.fetchGitTree;
-    github.raw.fetchGitTree = vi.fn(async (params: { knownCommitSha?: string | null; owner: string; name: string }) => {
-      const snap = await origFetch(params);
-      if (params.knownCommitSha === snap.commitSha) {
-        return { ...snap, entries: [], unchanged: true };
-      }
-      return snap;
-    });
-    expect(await processDepsScan(scanJob(), scanDeps)).toMatchObject({ status: "SCANNED" });
+    vi.spyOn(github.raw, "fetchGitTree").mockImplementation(
+      async (params: { knownCommitSha?: string | null; owner: string; name: string }) => {
+        const snap = await origFetch(params);
+        if (params.knownCommitSha === snap.commitSha) {
+          return { ...snap, entries: [], unchanged: true };
+        }
+        return snap;
+      },
+    );
+    await expect(processDepsScan(scanJob(), scanDeps)).resolves.toMatchObject({ status: "SCANNED" });
     expect(treeCache.get).toHaveBeenCalledWith(42n, headSha);
     expect(github.raw.fetchGitTree).toHaveBeenCalledWith(expect.objectContaining({ knownCommitSha: headSha }));
   });
@@ -642,7 +657,10 @@ describe("processDepsScan", () => {
     const queryRaw = vi.fn(async () => [{ errorCount: MAX_ERROR_COUNT }]);
     (prisma as unknown as { $queryRaw: typeof queryRaw }).$queryRaw = queryRaw;
     github.state.notFound = true;
-    expect(await processDepsScan(scanJob(), deps)).toEqual({ status: "NOT_FOUND", errorCount: MAX_ERROR_COUNT });
+    await expect(processDepsScan(scanJob(), deps)).resolves.toEqual({
+      status: "NOT_FOUND",
+      errorCount: MAX_ERROR_COUNT,
+    });
     expect(queryRaw).toHaveBeenCalledTimes(1);
     delete (prisma as unknown as { $queryRaw?: unknown }).$queryRaw;
 

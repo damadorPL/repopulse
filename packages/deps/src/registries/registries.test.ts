@@ -96,7 +96,7 @@ describe("npm registry", () => {
     expect(again.found).toBe(true);
     expect(revalidating.calls).toHaveLength(1);
     expect(revalidating.calls[0]!.headers["If-None-Match"]).toBe('"abbr-1"');
-    expect(await cache.get(registryCacheKey("npm", "@scope/pkg"))).not.toBeNull();
+    await expect(cache.get(registryCacheKey("npm", "@scope/pkg"))).resolves.not.toBeNull();
   });
 
   it("refetches times when the abbreviated document is newer", async () => {
@@ -144,7 +144,7 @@ describe("npm registry", () => {
         }).fetch,
       }),
     ).rejects.toBeInstanceOf(RegistryUnavailableError);
-    expect(await fetchNpmPackage("../etc/passwd", { fetch: fakeFetch(() => json({})).fetch })).toMatchObject({
+    await expect(fetchNpmPackage("../etc/passwd", { fetch: fakeFetch(() => json({})).fetch })).resolves.toMatchObject({
       found: false,
     });
   });
@@ -312,12 +312,12 @@ describe("PyPI registry", () => {
       fetch: fakeFetch((url) => (url.endsWith("/json") ? new Response("", { status: 502 }) : json(SIMPLE))).fetch,
     });
     expect(result.found && result.package.sourceRepoUrl).toBeNull();
-    expect(await fetchPypiPackage("nope", { fetch: fakeFetch(() => new Response("", { status: 404 })).fetch })).toEqual(
-      {
-        found: false,
-        reason: "Not on the public PyPI",
-      },
-    );
+    await expect(
+      fetchPypiPackage("nope", { fetch: fakeFetch(() => new Response("", { status: 404 })).fetch }),
+    ).resolves.toEqual({
+      found: false,
+      reason: "Not on the public PyPI",
+    });
   });
 });
 
@@ -392,9 +392,9 @@ describe("helpers", () => {
     const mem = createMemoryRegistryCache(() => clock);
     await mem.set("item", { body: "v", storedAt: clock }, 500);
     expect(mem.size()).toBe(1);
-    expect(await mem.get("item")).not.toBeNull();
+    await expect(mem.get("item")).resolves.not.toBeNull();
     clock = 1_501;
-    expect(await mem.get("item")).toBeNull();
+    await expect(mem.get("item")).resolves.toBeNull();
     expect(mem.size()).toBe(0);
   });
 
@@ -406,7 +406,9 @@ describe("helpers", () => {
       async (i) => {
         active++;
         peak = Math.max(peak, active);
-        await new Promise((resolve) => setTimeout(resolve, 2));
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 2);
+        });
         active--;
         return i * 2;
       },
@@ -508,7 +510,9 @@ describe("helpers", () => {
     const sharedCache = createMemoryRegistryCache();
     const sharedFetch = vi.fn(async () => {
       fetchCount++;
-      await new Promise((r) => setTimeout(r, 10));
+      await new Promise<void>((r) => {
+        setTimeout(r, 10);
+      });
       return json({ ok: true });
     }) as unknown as typeof fetch;
     const [r1, r2, r3] = await Promise.all([
@@ -545,7 +549,7 @@ describe("helpers", () => {
     expect((await lru.get("a"))?.body).toBe("1");
     await lru.set("c", { body: "3", storedAt: 1_000 }, 10_000);
     expect(lru.size()).toBe(2);
-    expect(await lru.get("b")).toBeNull();
+    await expect(lru.get("b")).resolves.toBeNull();
     expect((await lru.get("a"))?.body).toBe("1");
     expect((await lru.get("c"))?.body).toBe("3");
   });

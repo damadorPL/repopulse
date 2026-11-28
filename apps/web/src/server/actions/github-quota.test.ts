@@ -29,10 +29,10 @@ beforeEach(() => {
 describe("refreshGitHubQuotaAction", () => {
   it("returns FORBIDDEN for non-super admins and UNAUTHORIZED when signed out", async () => {
     currentUser.isSuperAdmin = false;
-    expect(await refreshGitHubQuotaAction()).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
+    await expect(refreshGitHubQuotaAction()).resolves.toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
 
     vi.mocked(getCurrentUserOrThrow).mockRejectedValueOnce(new UnauthorizedError("Not signed in"));
-    expect(await refreshGitHubQuotaAction()).toMatchObject({ ok: false, error: { code: "UNAUTHORIZED" } });
+    await expect(refreshGitHubQuotaAction()).resolves.toMatchObject({ ok: false, error: { code: "UNAUTHORIZED" } });
   });
 
   it("returns quota data when query succeeds", async () => {

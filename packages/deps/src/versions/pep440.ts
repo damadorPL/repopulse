@@ -33,7 +33,7 @@ export function parsePep440(input: string): Pep440Version | null {
   const match = VERSION_PATTERN.exec(input);
   const groups = match?.groups;
   if (!groups) return null;
-  const release = (groups.release as string).split(".").map(Number);
+  const release = (groups.release ?? "").split(".").map(Number);
   let pre: Pep440Version["pre"] = null;
   if (groups.preL) {
     const label = groups.preL.toLowerCase();
@@ -55,7 +55,7 @@ export function parsePep440(input: string): Pep440Version | null {
 }
 
 /** `true` when the string is a valid PEP 440 version. */
-export function isValidPep440(input: string): boolean {
+function isValidPep440(input: string): boolean {
   return parsePep440(input) !== null;
 }
 
@@ -126,8 +126,8 @@ function suffixKey(version: Pep440Version): [number, number, number, number] {
     preRank = PRE_RANK[version.pre.label];
     preNumber = version.pre.number;
   }
-  const post = version.post === null ? -Infinity : version.post;
-  const dev = version.dev === null ? Infinity : version.dev;
+  const post = version.post ?? -Infinity;
+  const dev = version.dev ?? Infinity;
   return [preRank, preNumber, post, dev];
 }
 
@@ -142,7 +142,7 @@ export function comparePep440(a: Pep440Version | string, b: Pep440Version | stri
   const kx = suffixKey(x);
   const ky = suffixKey(y);
   for (let i = 0; i < kx.length; i++) {
-    const diff = compareNumbers(kx[i] as number, ky[i] as number);
+    const diff = compareNumbers(kx[i]!, ky[i]!);
     if (diff !== 0) return diff;
   }
   return compareLocal(x.local, y.local);
@@ -190,7 +190,7 @@ export function parsePep440Constraint(text: string, syntax: "pep440" | "poetry" 
   let i = 0;
   let expectSeparator = false;
   while (i < text.length) {
-    const char = text[i] as string;
+    const char = text[i]!;
     if (char === " " || char === "\t") {
       i++;
       continue;
@@ -220,7 +220,7 @@ export function parsePep440Constraint(text: string, syntax: "pep440" | "poetry" 
     }
     while (text[i] === " " || text[i] === "\t") i++;
     const start = i;
-    while (i < text.length && !/[\s,|]/.test(text[i] as string)) i++;
+    while (i < text.length && !/[\s,|]/.test(text[i]!)) i++;
     let version = text.slice(start, i);
     if (version === "") return null;
     if (operator === null) {
@@ -416,7 +416,7 @@ export function pep440BumpSpecifier(
   const targetVersion = parsePep440(target);
   if (!parsed || !targetVersion) return { outcome: "blocked" };
   if (parsed.length !== 1) return pep440Satisfies(target, parsed) ? { outcome: "unchanged" } : { outcome: "blocked" };
-  const clauses = parsed[0] as ConstraintClause[];
+  const clauses = parsed[0]!;
   const anchors = clauses.filter((clause) => ANCHOR_OPERATORS.has(clause.operator));
   if (anchors.length === 0) return pep440Satisfies(target, parsed) ? { outcome: "unchanged" } : { outcome: "blocked" };
 

@@ -20,8 +20,8 @@ import {
  */
 
 /** Above `DEPS_SANDBOX_TIMEOUT_MS` (300 s), so the sandbox reports its own timeout first. */
-export const SANDBOX_LOCK_TIMEOUT_MS = 330_000;
-export const SANDBOX_HEALTH_TIMEOUT_MS = 3_000;
+const SANDBOX_LOCK_TIMEOUT_MS = 330_000;
+const SANDBOX_HEALTH_TIMEOUT_MS = 3_000;
 /** base64 inflates by 4/3; plus JSON framing. */
 const MAX_RESPONSE_BYTES = Math.ceil((MAX_LOCKFILE_BYTES * 4) / 3) + 64 * 1024;
 

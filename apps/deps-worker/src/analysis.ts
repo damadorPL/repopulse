@@ -166,7 +166,7 @@ export interface ProjectAnalysis {
 }
 
 /** `name␀kind␀group`: the unique key of a dependency within one manifest. */
-export function dependencyKey(name: string, kind: DependencyKind | (string & {}), group: string): string {
+function dependencyKey(name: string, kind: DependencyKind | (string & {}), group: string): string {
   return `${name}\u0000${kind}\u0000${group}`;
 }
 
@@ -380,7 +380,7 @@ export type RegistryLookupFn = (
   signal?: AbortSignal,
 ) => Promise<RegistryLookup>;
 
-export function registryKey(ecosystem: DependencyEcosystem, name: string): string {
+function registryKey(ecosystem: DependencyEcosystem, name: string): string {
   return `${ecosystem}:${name}`;
 }
 

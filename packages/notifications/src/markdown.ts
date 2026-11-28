@@ -13,7 +13,7 @@ const SEMVER_LABELS: Record<SemverType, string> = {
   OTHER: "Release",
 };
 
-export function semverLabel(type: SemverType): string {
+function semverLabel(type: SemverType): string {
   return SEMVER_LABELS[type];
 }
 

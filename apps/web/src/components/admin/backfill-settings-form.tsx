@@ -65,10 +65,23 @@ const GROUPS: ReadonlyArray<{ title: string; keys: Key[] }> = [
 const numberFormat = new Intl.NumberFormat("en");
 const EMPTY_CANDIDATES: ReapplyCandidate[] = [];
 
+const ALL_KEYS: readonly Key[] = GROUPS.flatMap((group) => group.keys);
+
 type Draft = Record<Key, string>;
 
 function toDraft(settings: BackfillSettingView[]): Draft {
-  return Object.fromEntries(settings.map((s) => [s.key, s.override === null ? "" : String(s.override)])) as Draft;
+  const draft: Draft = {
+    defaultTarget: "",
+    maxAgeDays: "",
+    deepStep: "",
+    deepCooldownMinutes: "",
+    hardCap: "",
+    minQuota: "",
+  };
+  for (const s of settings) {
+    draft[s.key] = s.override === null ? "" : String(s.override);
+  }
+  return draft;
 }
 
 function resolveEffectiveTarget(rawTarget: string, fallback: number): number {
@@ -82,8 +95,15 @@ function parseBackfillDraft(
   draft: Draft,
   byKey: Map<Key, BackfillSettingView>,
 ): { input: BackfillSettingsInput } | { error: string } {
-  const input = {} as Record<Key, number | null>;
-  for (const key of Object.keys(draft) as Key[]) {
+  const input: Record<Key, number | null> = {
+    defaultTarget: null,
+    maxAgeDays: null,
+    deepStep: null,
+    deepCooldownMinutes: null,
+    hardCap: null,
+    minQuota: null,
+  };
+  for (const key of ALL_KEYS) {
     const raw = draft[key].trim();
     if (raw === "") {
       input[key] = null;
@@ -409,7 +429,7 @@ export function BackfillSettingsForm({
 
   const byKey = new Map(saved.map((s) => [s.key, s]));
   const savedDraft = toDraft(saved);
-  const dirty = (Object.keys(draft) as Key[]).some((key) => draft[key].trim() !== savedDraft[key]);
+  const dirty = ALL_KEYS.some((key) => draft[key].trim() !== savedDraft[key]);
 
   const candidateCount = candidates.length > 0 ? candidates.length : (reapplyCandidates ?? 0);
   const effectiveTarget = resolveEffectiveTarget(draft.defaultTarget, byKey.get("defaultTarget")?.value ?? 100);

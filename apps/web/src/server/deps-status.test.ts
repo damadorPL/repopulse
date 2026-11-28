@@ -17,11 +17,11 @@ vi.mock("@/server/realtime", () => ({
   withRedisTimeout: vi.fn(),
 }));
 
+const { invalidateDepsEnabledCache } = await import("@/server/deps-enabled-cache");
 const {
   countOutdatedDependencyProjects,
   getDepsAdminView,
   getDepsSidebarInfo,
-  invalidateDepsEnabledCache,
   isDepsEnabled,
   lockfileRegenerationAvailable,
   parseDepsWorkerHeartbeat,

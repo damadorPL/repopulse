@@ -38,29 +38,29 @@ beforeEach(() => {
 describe("super admin guard across access actions", () => {
   it("returns FORBIDDEN for regular users and UNAUTHORIZED when signed out", async () => {
     currentUser.isSuperAdmin = false;
-    expect(await setPublicRegistrationAction({ enabled: false })).toMatchObject({
+    await expect(setPublicRegistrationAction({ enabled: false })).resolves.toMatchObject({
       ok: false,
       error: { code: "FORBIDDEN" },
     });
-    expect(await createInviteAction({ expiresInDays: 7 })).toMatchObject({
+    await expect(createInviteAction({ expiresInDays: 7 })).resolves.toMatchObject({
       ok: false,
       error: { code: "FORBIDDEN" },
     });
-    expect(await deleteInviteAction({ inviteId: "inv1" })).toMatchObject({
+    await expect(deleteInviteAction({ inviteId: "inv1" })).resolves.toMatchObject({
       ok: false,
       error: { code: "FORBIDDEN" },
     });
 
     vi.mocked(getCurrentUserOrThrow).mockRejectedValue(new UnauthorizedError("Not signed in"));
-    expect(await setPublicRegistrationAction({ enabled: true })).toMatchObject({
+    await expect(setPublicRegistrationAction({ enabled: true })).resolves.toMatchObject({
       ok: false,
       error: { code: "UNAUTHORIZED" },
     });
-    expect(await createInviteAction({ expiresInDays: 7 })).toMatchObject({
+    await expect(createInviteAction({ expiresInDays: 7 })).resolves.toMatchObject({
       ok: false,
       error: { code: "UNAUTHORIZED" },
     });
-    expect(await deleteInviteAction({ inviteId: "inv1" })).toMatchObject({
+    await expect(deleteInviteAction({ inviteId: "inv1" })).resolves.toMatchObject({
       ok: false,
       error: { code: "UNAUTHORIZED" },
     });
@@ -128,12 +128,12 @@ describe("createInviteAction", () => {
 describe("deleteInviteAction", () => {
   it("returns NOT_FOUND when count is 0 and ok(null) when deleted", async () => {
     prisma.invite.deleteMany.mockResolvedValueOnce({ count: 0 });
-    expect(await deleteInviteAction({ inviteId: "inv-missing" })).toMatchObject({
+    await expect(deleteInviteAction({ inviteId: "inv-missing" })).resolves.toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
 
     prisma.invite.deleteMany.mockResolvedValueOnce({ count: 1 });
-    expect(await deleteInviteAction({ inviteId: "inv1" })).toEqual({ ok: true, data: null });
+    await expect(deleteInviteAction({ inviteId: "inv1" })).resolves.toEqual({ ok: true, data: null });
   });
 });

@@ -1,8 +1,9 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
+import type { Route } from "next";
+
 import { encryptToken, INSTANCE_SETTINGS_ID, prisma } from "@repopulse/db";
 import { GitHubRateLimitError, type ConvertedAppManifest } from "@repopulse/github";
-import type { Route } from "next";
 
 import type { GitHubAppCallbackError } from "@/lib/github-app";
 
@@ -20,8 +21,8 @@ export const GITHUB_APP_ADMIN_PATH = "/admin/github-app";
  * cookie to the callback route.
  */
 export const GITHUB_APP_STATE_COOKIE = "repopulse_github_app_state";
-export const GITHUB_APP_STATE_COOKIE_PATH = "/api/github-app/manifest";
-export const GITHUB_APP_STATE_MAX_AGE_SECONDS = 10 * 60;
+const GITHUB_APP_STATE_COOKIE_PATH = "/api/github-app/manifest";
+const GITHUB_APP_STATE_MAX_AGE_SECONDS = 10 * 60;
 
 export function githubAppStateCookieOptions(maxAge = GITHUB_APP_STATE_MAX_AGE_SECONDS) {
   return {

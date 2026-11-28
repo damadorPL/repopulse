@@ -86,7 +86,9 @@ describe("readBlobs", () => {
       routes[`GET ${R}/git/blobs/${sha}`] = async () => {
         inFlight++;
         maxInFlight = Math.max(maxInFlight, inFlight);
-        await new Promise((resolve) => setTimeout(resolve, 5));
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 5);
+        });
         inFlight--;
         // GitHub wraps base64 at 60 columns.
         const base64 = Buffer.from(content)

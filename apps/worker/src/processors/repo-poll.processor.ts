@@ -1,3 +1,5 @@
+import { Worker, type Job, type Queue } from "bullmq";
+
 import type { PrismaClient } from "@repopulse/db";
 import {
   GitHubRateLimitError,
@@ -21,7 +23,6 @@ import {
   type Redis,
   type RepoPollJobData,
 } from "@repopulse/queue";
-import { Worker, type Job, type Queue } from "bullmq";
 
 import { createLogger } from "../logger.js";
 import { createUserReleaseStatesInBatches } from "./batch-db.js";
@@ -101,7 +102,7 @@ async function pollWithFallback(
         owner: repo.owner,
         name: repo.name,
         lastEtag: repo.lastEtag,
-        accessToken: candidate.token,
+        ...(candidate.token !== undefined ? { accessToken: candidate.token } : {}),
         signal,
       });
     } catch (error) {

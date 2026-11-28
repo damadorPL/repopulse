@@ -32,7 +32,7 @@ export function oversizeWarning(text: string, path: string): string | null {
     : null;
 }
 
-export function parseFailureWarning(path: string, error: unknown): string {
+function parseFailureWarning(path: string, error: unknown): string {
   const detail = error instanceof Error ? error.message.split("\n")[0] : String(error);
   return `${path} could not be parsed (${detail}): current versions are taken from the declared ranges`;
 }

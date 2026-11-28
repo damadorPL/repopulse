@@ -12,6 +12,7 @@ const FORMAT_EXTENSIONS = new Set([
   ".cjs",
   ".json",
   ".css",
+  ".toml",
   ".md",
   ".yml",
   ".yaml",
@@ -24,6 +25,8 @@ export type DoctorMode = "none" | "staged" | "full";
 export interface StagedLintBuckets {
   formatFiles: string[];
   lintFiles: string[];
+  cssFiles: string[];
+  hasManifestChange: boolean;
   doctorMode: DoctorMode;
 }
 
@@ -56,22 +59,28 @@ function isIgnoredPath(relPath: string): boolean {
   );
 }
 
-/** Partitions staged repository-relative paths into Oxfmt, Oxlint, and React Doctor buckets. */
+/** Partitions staged repository-relative paths into Oxfmt, Oxlint, Stylelint, Sherif, and React Doctor buckets. */
 export function partitionStagedFiles(paths: readonly string[]): StagedLintBuckets {
   const formatFiles: string[] = [];
   const lintFiles: string[] = [];
+  const cssFiles: string[] = [];
   const seen = new Set<string>();
   let hasDoctorConfig = false;
   let hasWebLintFile = false;
+  let hasManifestChange = false;
 
   for (const rawPath of paths) {
     const relPath = toPosixPath(rawPath).replace(/^\.\//, "").trim();
     if (!relPath || seen.has(relPath) || isIgnoredPath(relPath)) continue;
     seen.add(relPath);
     if (relPath === "doctor.config.json") hasDoctorConfig = true;
+    if (relPath === "package.json" || relPath.endsWith("/package.json")) hasManifestChange = true;
 
     const ext = extname(relPath).toLowerCase();
     if (FORMAT_EXTENSIONS.has(ext)) formatFiles.push(relPath);
+    if (ext === ".css" && (relPath.startsWith("apps/") || relPath.startsWith("packages/"))) {
+      cssFiles.push(relPath);
+    }
     if (LINT_EXTENSIONS.has(ext)) {
       lintFiles.push(relPath);
       if (relPath.startsWith("apps/web/")) hasWebLintFile = true;
@@ -79,7 +88,7 @@ export function partitionStagedFiles(paths: readonly string[]): StagedLintBucket
   }
 
   const doctorMode: DoctorMode = hasDoctorConfig ? "full" : hasWebLintFile ? "staged" : "none";
-  return { formatFiles, lintFiles, doctorMode };
+  return { formatFiles, lintFiles, cssFiles, hasManifestChange, doctorMode };
 }
 
 function getStagedFiles(repoRoot: string): string[] {
@@ -140,8 +149,14 @@ export function runPreCommitLint(
   const runner = deps.runner ?? runPnpmExec;
   const log = deps.log ?? ((msg: string) => console.log(msg));
 
-  const { formatFiles, lintFiles, doctorMode } = partitionStagedFiles(staged);
-  if (formatFiles.length === 0 && lintFiles.length === 0 && doctorMode === "none") {
+  const { formatFiles, lintFiles, cssFiles, hasManifestChange, doctorMode } = partitionStagedFiles(staged);
+  if (
+    formatFiles.length === 0 &&
+    lintFiles.length === 0 &&
+    cssFiles.length === 0 &&
+    !hasManifestChange &&
+    doctorMode === "none"
+  ) {
     log("[pre-commit] No staged code or config files to format/lint.");
     return 0;
   }
@@ -156,6 +171,18 @@ export function runPreCommitLint(
     log(`[pre-commit] Linting ${lintFiles.length} staged file(s)...`);
     const lintStatus = runInBatches(["oxlint"], lintFiles, cwd, runner);
     if (lintStatus !== 0) return lintStatus;
+  }
+
+  if (cssFiles.length > 0) {
+    log(`[pre-commit] Linting CSS on ${cssFiles.length} staged file(s)...`);
+    const cssStatus = runInBatches(["stylelint"], cssFiles, cwd, runner);
+    if (cssStatus !== 0) return cssStatus;
+  }
+
+  if (hasManifestChange) {
+    log("[pre-commit] Checking workspace manifests (Sherif)...");
+    const manifestStatus = runner(["sherif", "--fail-on-warnings"], cwd);
+    if (manifestStatus !== 0) return manifestStatus;
   }
 
   if (doctorMode !== "none") {

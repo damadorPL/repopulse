@@ -108,14 +108,14 @@ describe("updateTagAction", () => {
 describe("deleteTagAction", () => {
   it("deletes scoped by userId and returns NOT_FOUND when count is 0", async () => {
     prisma.tag.deleteMany.mockResolvedValueOnce({ count: 0 });
-    expect(await deleteTagAction({ tagId: "t-other" })).toMatchObject({
+    await expect(deleteTagAction({ tagId: "t-other" })).resolves.toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
     expect(prisma.tag.deleteMany).toHaveBeenCalledWith({ where: { id: "t-other", userId: "u1" } });
 
     prisma.tag.deleteMany.mockResolvedValueOnce({ count: 1 });
-    expect(await deleteTagAction({ tagId: "t1" })).toEqual({ ok: true, data: { tagId: "t1" } });
+    await expect(deleteTagAction({ tagId: "t1" })).resolves.toEqual({ ok: true, data: { tagId: "t1" } });
   });
 });
 

@@ -27,8 +27,7 @@ function parseClassic(text: string): Map<string, string> {
       continue;
     }
     const match = /^\s+version:?\s+"?([^"\s]+)"?/.exec(rawLine);
-    if (match && /^\s{2}\S/.test(rawLine))
-      for (const descriptor of descriptors) resolved.set(descriptor, match[1] as string);
+    if (match && /^\s{2}\S/.test(rawLine)) for (const descriptor of descriptors) resolved.set(descriptor, match[1]!);
   }
   return resolved;
 }
@@ -80,7 +79,7 @@ export function prepareYarnLock(text: string, path = "yarn.lock"): PreparedLockf
         for (const { name } of dependencies) {
           if (versions.has(name)) continue;
           const found = byName.get(name);
-          if (found?.size === 1) versions.set(name, [...found][0] as string);
+          if (found?.size === 1) versions.set(name, [...found][0]!);
         }
         return { versions, formatVersion, warnings: [] };
       },
@@ -91,6 +90,8 @@ export function prepareYarnLock(text: string, path = "yarn.lock"): PreparedLockf
 /**
  * Resolved versions of the given direct dependencies. Yarn keys entries by `name@range`, so the declared ranges
  * of the manifest are needed (`declared` = `[{ name, range }]`).
+ *
+ * @internal Exported for unit tests.
  */
 export function readYarnLock(
   text: string,

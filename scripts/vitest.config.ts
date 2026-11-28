@@ -6,5 +6,7 @@ export default defineConfig({
     name: "scripts",
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    unstubEnvs: true,
+    restoreMocks: true,
   },
 });

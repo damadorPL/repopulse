@@ -1,11 +1,12 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { encryptToken, prisma, type Prisma, type User as DbUser } from "@repopulse/db";
 import { betterAuth, APIError } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { nextCookies } from "better-auth/next-js";
 import { cookies, headers } from "next/headers";
 import { cache } from "react";
+
+import { encryptToken, prisma, type Prisma, type User as DbUser } from "@repopulse/db";
 
 import { INVITE_COOKIE } from "@/lib/invites";
 import { admitNewGitHubUser } from "@/server/registration";
@@ -244,13 +245,13 @@ function createAuth() {
 
 type BetterAuthInstance = ReturnType<typeof createAuth>;
 
-const globalForAuth = globalThis as unknown as { betterAuthInstance?: BetterAuthInstance };
+declare global {
+  var betterAuthInstance: BetterAuthInstance | undefined;
+}
 
 function getAuth(): BetterAuthInstance {
-  if (!globalForAuth.betterAuthInstance) {
-    globalForAuth.betterAuthInstance = createAuth();
-  }
-  return globalForAuth.betterAuthInstance;
+  globalThis.betterAuthInstance ??= createAuth();
+  return globalThis.betterAuthInstance;
 }
 
 /**
@@ -262,6 +263,7 @@ function getAuth(): BetterAuthInstance {
  * Env: `AUTH_SECRET` / `BETTER_AUTH_SECRET`, `AUTH_GITHUB_ID`, `AUTH_GITHUB_SECRET`,
  * and `AUTH_URL` / `NEXTAUTH_URL` / `BETTER_AUTH_URL`.
  */
+// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Lazy Proxy target for deferred Better Auth initialization
 export const auth: BetterAuthInstance = new Proxy({} as BetterAuthInstance, {
   get(_target, prop) {
     if (prop === "then" || prop === "__esModule" || typeof prop === "symbol") {

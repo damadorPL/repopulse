@@ -1,4 +1,4 @@
-import type { Metadata, Route } from "next";
+import type { Metadata } from "next";
 import { cookies, headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { auth } from "@/lib/auth";
 import { INVITE_COOKIE, INVITE_COOKIE_MAX_AGE_SECONDS } from "@/lib/invites";
+import { toRoute } from "@/lib/route";
 import { findUsableInvite } from "@/server/registration";
 
 export const metadata: Metadata = { title: "Invitation · RepoPulse", robots: { index: false } };
@@ -39,7 +40,7 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
       headers: await headers(),
     });
     if (result.url) {
-      redirect(result.url as Route);
+      redirect(toRoute(result.url));
     }
   }
 

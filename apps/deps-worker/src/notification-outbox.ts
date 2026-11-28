@@ -1,8 +1,12 @@
-import { loadDepsEnabled, type PrismaClient } from "@repopulse/db";
+import { loadDepsEnabled, type Prisma, type PrismaClient } from "@repopulse/db";
 import { DEPS_JOB_NAMES, depsNotifyJobId, type DepsNotifyJobData } from "@repopulse/queue";
 
 import { createLogger } from "./logger.js";
 import type { NotifyQueue } from "./processors/notify-jobs.js";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 const log = createLogger("deps-notification-outbox");
 type OutboxClient = Pick<PrismaClient, "dependencyNotificationOutbox">;
@@ -10,55 +14,82 @@ type OutboxClient = Pick<PrismaClient, "dependencyNotificationOutbox">;
 export const OUTBOX_BATCH_SIZE = 100;
 export const MAX_FLUSH_BATCHES = 20;
 
-const PR_EVENTS = new Set(["opened", "updated", "edited", "access_lost"]);
+type PrNotificationEvent = Extract<DepsNotifyJobData, { kind: "pull_request" }>["event"];
+
+function parsePrEvent(value: unknown): PrNotificationEvent | null {
+  switch (value) {
+    case "opened":
+    case "updated":
+    case "edited":
+    case "access_lost":
+      return value;
+    default:
+      return null;
+  }
+}
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
 
 /** Strict runtime validation matching `DepsNotifyJobData` so one corrupt row never blocks the outbox. */
-export function parseDepsNotifyJobData(payload: unknown): DepsNotifyJobData | null {
-  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return null;
-  const obj = payload as Record<string, unknown>;
-  if (!isNonEmptyString(obj.ruleId) || !isNonEmptyString(obj.projectId)) return null;
+function parseDepsNotifyJobData(payload: unknown): DepsNotifyJobData | null {
+  if (!isRecord(payload)) return null;
+  if (!isNonEmptyString(payload.ruleId) || !isNonEmptyString(payload.projectId)) return null;
 
-  if (obj.kind === "digest") {
+  if (payload.kind === "digest") {
     if (
-      !isNonEmptyString(obj.scanId) ||
-      !Array.isArray(obj.updateIds) ||
-      !obj.updateIds.every((id) => isNonEmptyString(id))
+      !isNonEmptyString(payload.scanId) ||
+      !Array.isArray(payload.updateIds) ||
+      !payload.updateIds.every((id) => isNonEmptyString(id))
     ) {
       return null;
     }
     return {
-      ruleId: obj.ruleId,
-      projectId: obj.projectId,
+      ruleId: payload.ruleId,
+      projectId: payload.projectId,
       kind: "digest",
-      scanId: obj.scanId,
-      updateIds: [...obj.updateIds],
+      scanId: payload.scanId,
+      updateIds: [...payload.updateIds],
     };
   }
 
-  if (obj.kind === "pull_request") {
-    if (
-      !isNonEmptyString(obj.prId) ||
-      typeof obj.event !== "string" ||
-      !PR_EVENTS.has(obj.event) ||
-      !isNonEmptyString(obj.dedupKey)
-    ) {
+  if (payload.kind === "pull_request") {
+    const event = parsePrEvent(payload.event);
+    if (!isNonEmptyString(payload.prId) || event === null || !isNonEmptyString(payload.dedupKey)) {
       return null;
     }
     return {
-      ruleId: obj.ruleId,
-      projectId: obj.projectId,
+      ruleId: payload.ruleId,
+      projectId: payload.projectId,
       kind: "pull_request",
-      prId: obj.prId,
-      event: obj.event as Extract<DepsNotifyJobData, { kind: "pull_request" }>["event"],
-      dedupKey: obj.dedupKey,
+      prId: payload.prId,
+      event,
+      dedupKey: payload.dedupKey,
     };
   }
 
   return null;
+}
+
+function toOutboxJsonPayload(data: DepsNotifyJobData): Prisma.InputJsonObject {
+  if (data.kind === "digest") {
+    return {
+      ruleId: data.ruleId,
+      projectId: data.projectId,
+      kind: "digest",
+      scanId: data.scanId,
+      updateIds: [...data.updateIds],
+    };
+  }
+  return {
+    ruleId: data.ruleId,
+    projectId: data.projectId,
+    kind: "pull_request",
+    prId: data.prId,
+    event: data.event,
+    dedupKey: data.dedupKey,
+  };
 }
 
 let inFlightFlush: Promise<number> | null = null;
@@ -67,7 +98,11 @@ let inFlightFlush: Promise<number> | null = null;
 export async function storeNotificationIntents(prisma: OutboxClient, jobs: DepsNotifyJobData[]): Promise<void> {
   if (jobs.length === 0) return;
   await prisma.dependencyNotificationOutbox.createMany({
-    data: jobs.map((data) => ({ id: depsNotifyJobId(data), projectId: data.projectId, payload: data as never })),
+    data: jobs.map((data) => ({
+      id: depsNotifyJobId(data),
+      projectId: data.projectId,
+      payload: toOutboxJsonPayload(data),
+    })),
     skipDuplicates: true,
   });
 }

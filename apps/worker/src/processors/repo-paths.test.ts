@@ -1,5 +1,6 @@
-import { GitHubRateLimitError, type CommitDetail, type PathCommitSummary } from "@repopulse/github";
 import { describe, expect, it, vi } from "vitest";
+
+import { GitHubRateLimitError, type CommitDetail, type PathCommitSummary } from "@repopulse/github";
 
 import { planPathFanOut, pollRepoPaths, tracksPaths } from "./repo-paths.js";
 
@@ -361,20 +362,24 @@ describe("pollRepoPaths", () => {
       ],
     });
     const fetchCommits = vi.fn();
-    expect(await pollRepoPaths({ prisma: db.prisma as never, fetchCommits }, REPO, TOKENS)).toBeNull();
+    await expect(pollRepoPaths({ prisma: db.prisma as never, fetchCommits }, REPO, TOKENS)).resolves.toBeNull();
     expect(fetchCommits).not.toHaveBeenCalled();
 
     const invalidOnly = fakePrisma({
       subscribers: [{ userId: "u", trackMode: "NONE", trackPaths: true, watchedPaths: ["/", "../bad", "   "] }],
     });
-    expect(await pollRepoPaths({ prisma: invalidOnly.prisma as never, fetchCommits }, REPO, TOKENS)).toBeNull();
+    await expect(
+      pollRepoPaths({ prisma: invalidOnly.prisma as never, fetchCommits }, REPO, TOKENS),
+    ).resolves.toBeNull();
     expect(fetchCommits).not.toHaveBeenCalled();
 
     const missingRepo = fakePrisma({
       subscribers: [{ userId: "u", trackMode: "NONE", trackPaths: true, watchedPaths: ["docs"] }],
     });
     missingRepo.prisma.repository.findUnique.mockResolvedValueOnce(null as never);
-    expect(await pollRepoPaths({ prisma: missingRepo.prisma as never, fetchCommits }, REPO, TOKENS)).toBeNull();
+    await expect(
+      pollRepoPaths({ prisma: missingRepo.prisma as never, fetchCommits }, REPO, TOKENS),
+    ).resolves.toBeNull();
     expect(fetchCommits).not.toHaveBeenCalled();
   });
 
@@ -411,12 +416,14 @@ describe("pollRepoPaths", () => {
     const fetchCommits500 = vi.fn(async () => {
       throw Object.assign(new Error("Server error"), { status: 500 });
     });
-    expect(await pollRepoPaths({ prisma: db.prisma as never, fetchCommits: fetchCommits500 }, REPO, TOKENS)).toBeNull();
+    await expect(
+      pollRepoPaths({ prisma: db.prisma as never, fetchCommits: fetchCommits500 }, REPO, TOKENS),
+    ).resolves.toBeNull();
     expect(fetchCommits500).toHaveBeenCalledTimes(1);
 
-    expect(
-      await pollRepoPaths({ prisma: db.prisma as never, fetchCommits: commitsByPath({ docs: [] }) }, REPO, []),
-    ).toBeNull();
+    await expect(
+      pollRepoPaths({ prisma: db.prisma as never, fetchCommits: commitsByPath({ docs: [] }) }, REPO, []),
+    ).resolves.toBeNull();
   });
 
   it("caches and sends path ETags for already-polled paths and skips ETags for newly added paths", async () => {
@@ -435,7 +442,7 @@ describe("pollRepoPaths", () => {
     const seenCalls: Array<{ path: string; etag?: string | null }> = [];
     const fetchCommits = vi.fn(
       async (p: { path: string; etag?: string | null; onEtag?: (etag: string | null) => void }) => {
-        seenCalls.push({ path: p.path, etag: p.etag });
+        seenCalls.push(p.etag !== undefined ? { path: p.path, etag: p.etag } : { path: p.path });
         p.onEtag?.(`etag-${p.path}`);
         return [];
       },

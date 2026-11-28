@@ -149,7 +149,7 @@ export default async function RepositoriesPage({ searchParams }: PageProps<"/rep
                           : "mt-0.5 min-h-10 text-sm text-muted-foreground/60 italic"
                       }
                     >
-                      {repo.description || "No description"}
+                      {repo.description !== null && repo.description.length > 0 ? repo.description : "No description"}
                     </p>
                   </div>
                   <div className="flex items-center gap-1">

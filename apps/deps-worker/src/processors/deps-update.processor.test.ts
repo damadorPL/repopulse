@@ -1,8 +1,9 @@
+import { UnrecoverableError } from "bullmq";
+import { describe, expect, it, vi } from "vitest";
+
 import type { LockRequest } from "@repopulse/deps";
 import { GitHubAppAuthError, GitHubRateLimitError, RefUpdateConflictError } from "@repopulse/github";
 import type { DepsUpdateJobData } from "@repopulse/queue";
-import { UnrecoverableError } from "bullmq";
-import { describe, expect, it, vi } from "vitest";
 
 import { SandboxLockError, type SandboxClient } from "../sandbox-client.js";
 import { createFakeGitHub } from "../testing/fake-github.js";
@@ -212,7 +213,7 @@ describe("processDepsUpdate: server-side checks", () => {
 
   it("re-resolves a renamed login from the GitHub id before failing", async () => {
     const { deps, prisma } = setup({ user: { githubLogin: "old-name" } });
-    expect(await processDepsUpdate(updateJob(), deps)).toMatchObject({ status: "OPENED" });
+    await expect(processDepsUpdate(updateJob(), deps)).resolves.toMatchObject({ status: "OPENED" });
     expect(prisma.user.rows[0]!.githubLogin).toBe("dev");
   });
 
@@ -228,7 +229,7 @@ describe("processDepsUpdate: server-side checks", () => {
       .spyOn(github.raw, "commitFiles")
       .mockRejectedValueOnce(new RefUpdateConflictError("refs/heads/repopulse/deps/all", 422, "conflict"))
       .mockImplementation(origCommit);
-    expect(await processDepsUpdate(updateJob(), deps)).toMatchObject({ status: "OPENED" });
+    await expect(processDepsUpdate(updateJob(), deps)).resolves.toMatchObject({ status: "OPENED" });
     expect(commitSpy).toHaveBeenCalledTimes(2);
     commitSpy.mockRestore();
 
@@ -250,7 +251,7 @@ describe("processDepsUpdate: server-side checks", () => {
     // 5. closeEmptyGroup when no PR is open returns NOTHING_TO_DO
     prisma.dependencyPullRequest.rows = [];
     deps.registry = fakeRegistry({ "PYPI:requests": [version("2.31.0", 300)] });
-    expect(await processDepsUpdate(updateJob(), deps)).toEqual({ status: "NOTHING_TO_DO" });
+    await expect(processDepsUpdate(updateJob(), deps)).resolves.toEqual({ status: "NOTHING_TO_DO" });
 
     // 6. All updates in group are manifest-only no-ops (range already satisfies target) -> closeEmptyGroup -> NOTHING_TO_DO
     const noopCtx = setup({
@@ -261,7 +262,7 @@ describe("processDepsUpdate: server-side checks", () => {
     seedRows(noopCtx.prisma, { path: "requirements.txt", packageManager: "PIP", ecosystem: "PYPI" }, [
       { name: "requests", declared: ">=2.31.0", currentVersion: "2.31.0", targetVersion: "2.32.3", level: "MINOR" },
     ]);
-    expect(await processDepsUpdate(updateJob(), noopCtx.deps)).toEqual({ status: "NOTHING_TO_DO" });
+    await expect(processDepsUpdate(updateJob(), noopCtx.deps)).resolves.toEqual({ status: "NOTHING_TO_DO" });
   });
 });
 
@@ -432,7 +433,7 @@ describe("processDepsUpdate: hashed requirements (no lockfile)", () => {
 
     // A second run with no new versions: no commit, no redundant DB upsert, no new notification.
     const prUpsertSpy = vi.spyOn(prisma.dependencyPullRequest, "upsert");
-    expect(await processDepsUpdate(updateJob(), deps)).toMatchObject({ status: "UNCHANGED", number: 1 });
+    await expect(processDepsUpdate(updateJob(), deps)).resolves.toMatchObject({ status: "UNCHANGED", number: 1 });
     expect(prUpsertSpy).not.toHaveBeenCalled();
     expect(commits(github)).toHaveLength(1);
     expect(notifyJobs(queues)).toHaveLength(1);
@@ -450,7 +451,7 @@ describe("processDepsUpdate: hashed requirements (no lockfile)", () => {
     github.push(BRANCH, { "requirements.txt": "requests==2.32.3\nflask==3.0.0\n" });
     const humanHead = github.branches.get(BRANCH);
 
-    expect(await processDepsUpdate(updateJob(), deps)).toEqual({ status: "EDITED", number: 1 });
+    await expect(processDepsUpdate(updateJob(), deps)).resolves.toEqual({ status: "EDITED", number: 1 });
     expect(github.branches.get(BRANCH)).toBe(humanHead);
     expect(prisma.dependencyPullRequest.rows[0]!.state).toBe("EDITED");
     expect(prisma.dependencyBranchWriteIntent.rows).toEqual([]);
@@ -468,7 +469,7 @@ describe("processDepsUpdate: hashed requirements (no lockfile)", () => {
       previousHeadSha: null,
     });
     deps.registry = fakeRegistry({ "PYPI:requests": [version("2.31.0", 300)] });
-    expect(await processDepsUpdate(updateJob(), deps)).toEqual({ status: "CLOSED", number: 1 });
+    await expect(processDepsUpdate(updateJob(), deps)).resolves.toEqual({ status: "CLOSED", number: 1 });
     expect(github.prs[0]).toMatchObject({ state: "closed", comments: [EMPTY_GROUP_COMMENT] });
     expect(prisma.dependencyPullRequest.rows[0]).toMatchObject({ state: "CLOSED", closedAt: NOW });
     expect(prisma.dependencyBranchWriteIntent.rows).toEqual([]);
@@ -479,7 +480,7 @@ describe("processDepsUpdate: hashed requirements (no lockfile)", () => {
     await processDepsUpdate(updateJob(), deps);
     github.push(BRANCH, { "README.md": "human change" });
     deps.registry = fakeRegistry({ "PYPI:requests": [version("2.31.0", 300)] });
-    expect(await processDepsUpdate(updateJob(), deps)).toEqual({ status: "EDITED", number: 1 });
+    await expect(processDepsUpdate(updateJob(), deps)).resolves.toEqual({ status: "EDITED", number: 1 });
     expect(github.prs[0]).toMatchObject({ state: "open", comments: [] });
     expect(prisma.dependencyPullRequest.rows[0]!.state).toBe("EDITED");
   });
@@ -540,7 +541,7 @@ describe("processDepsUpdate: lockfiles through the sandbox", () => {
   it("sends the rewritten manifests and the current lockfile, validates and commits both", async () => {
     const sandbox = fakeSandbox((request) => ({ path: request.expectLockfile, text: lock("1.3.0") }));
     const { deps, github } = npmSetup(sandbox);
-    expect(await processDepsUpdate(updateJob(), deps)).toMatchObject({
+    await expect(processDepsUpdate(updateJob(), deps)).resolves.toMatchObject({
       status: "OPENED",
       files: ["package-lock.json", "package.json"],
     });

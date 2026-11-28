@@ -60,7 +60,7 @@ export async function loadSmtpSettings(
 }
 
 /** The release history columns of `InstanceSettings` (Admin → Release history). */
-export const BACKFILL_SETTINGS_SELECT = {
+const BACKFILL_SETTINGS_SELECT = {
   backfillDefaultTarget: true,
   backfillMaxAgeDays: true,
   backfillHardCap: true,
@@ -192,7 +192,7 @@ export async function loadGitHubAppSettings(
 }
 
 /** Combined select for the GitHub App webhook endpoint (`depsEnabled` + webhook verification secret). */
-export const GITHUB_APP_WEBHOOK_SETTINGS_SELECT = {
+const GITHUB_APP_WEBHOOK_SETTINGS_SELECT = {
   depsEnabled: true,
   githubAppId: true,
   githubAppSlug: true,
@@ -245,7 +245,7 @@ export async function loadDepsEnabled(client: Pick<PrismaClient, "instanceSettin
 }
 
 /** Combined select for the Admin overview page (`/admin`) to read all settings in one query. */
-export const ADMIN_OVERVIEW_SETTINGS_SELECT = {
+const ADMIN_OVERVIEW_SETTINGS_SELECT = {
   publicRegistration: true,
   depsEnabled: true,
   ...SMTP_SETTINGS_SELECT,
@@ -347,7 +347,7 @@ export async function loadAdminSettingsSnapshot(
 }
 
 /** Default TTL for in-memory worker settings caches (changes in Admin apply within 15s without restart). */
-export const DEFAULT_SETTINGS_CACHE_TTL_MS = 15_000;
+const DEFAULT_SETTINGS_CACHE_TTL_MS = 15_000;
 
 export interface CachedLoaderOptions {
   ttlMs?: number;

@@ -1,5 +1,6 @@
-import { GitHubAppKeyUnreadableError, loadGitHubAppWebhookSettings, prisma } from "@repopulse/db";
 import type { NextRequest } from "next/server";
+
+import { GitHubAppKeyUnreadableError, loadGitHubAppWebhookSettings, prisma } from "@repopulse/db";
 
 import { enqueueWebhookScan } from "@/server/deps-webhook-queue";
 import { handleGitHubAppWebhook, type WebhookDeps } from "@/server/github-app-webhook";

@@ -18,6 +18,23 @@ import { TagDot } from "./tag-pill";
 
 const ALL = "all";
 
+function toSemverType(value: string): SemverTypeValue | undefined {
+  switch (value) {
+    case "MAJOR":
+    case "MINOR":
+    case "PATCH":
+    case "PRERELEASE":
+    case "OTHER":
+      return value;
+    default:
+      return undefined;
+  }
+}
+
+function toFeedSort(value: string): FeedSort | undefined {
+  return value === "newest" || value === "oldest" ? value : undefined;
+}
+
 interface FilterChip {
   key: string;
   label: ReactNode;
@@ -162,7 +179,7 @@ export function FeedFilterBar({
 
         <Select
           value={filters.semverType ?? ALL}
-          onValueChange={(value) => go({ semverType: value === ALL ? undefined : (value as SemverTypeValue) })}
+          onValueChange={(value) => go({ semverType: value === ALL ? undefined : toSemverType(value) })}
         >
           <SelectTrigger aria-label="Release type" className={cn("min-w-36", navigating && "opacity-70")}>
             <SelectValue />
@@ -177,7 +194,13 @@ export function FeedFilterBar({
           </SelectContent>
         </Select>
 
-        <Select value={filters.sort} onValueChange={(value) => go({ sort: value as FeedSort })}>
+        <Select
+          value={filters.sort}
+          onValueChange={(value) => {
+            const sort = toFeedSort(value);
+            if (sort) go({ sort });
+          }}
+        >
           <SelectTrigger aria-label="Sort order" className={cn("min-w-32", navigating && "opacity-70")}>
             <SelectValue />
           </SelectTrigger>

@@ -20,16 +20,16 @@ export interface RegistryCache {
 }
 
 /** How long the cache keeps an entry: stale entries past the TTL are still revalidated with their ETag. */
-export const REGISTRY_CACHE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const REGISTRY_CACHE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Default per-request HTTP timeout for registry fetches (15 seconds). */
-export const DEFAULT_REGISTRY_TIMEOUT_MS = 15_000;
+const DEFAULT_REGISTRY_TIMEOUT_MS = 15_000;
 
 /** Default maximum registry response body size in bytes (25 MiB). */
-export const DEFAULT_REGISTRY_MAX_BYTES = 25 * 1024 * 1024;
+const DEFAULT_REGISTRY_MAX_BYTES = 25 * 1024 * 1024;
 
 /** Default maximum entries in {@link createMemoryRegistryCache}. */
-export const DEFAULT_MEMORY_CACHE_MAX_ENTRIES = 1000;
+const DEFAULT_MEMORY_CACHE_MAX_ENTRIES = 1000;
 
 export type RegistryCacheNamespace = "npm" | "npm-time" | "pypi" | "pypi-meta";
 
@@ -108,7 +108,7 @@ export interface RegistryFetchOptions {
   userAgent?: string;
 }
 
-export const REGISTRY_USER_AGENT = "RepoPulse-Deps/1.0";
+const REGISTRY_USER_AGENT = "RepoPulse-Deps/1.0";
 
 const inFlightByScope = new WeakMap<object, Map<string, Promise<CachedGetResult>>>();
 const signalIds = new WeakMap<AbortSignal, number>();
@@ -303,7 +303,10 @@ export function createLimiter(concurrency: number = REGISTRY_CONCURRENCY): <T>(t
     queue.shift()?.();
   };
   return async <T>(task: () => Promise<T>): Promise<T> => {
-    if (active >= concurrency) await new Promise<void>((resolve) => queue.push(resolve));
+    if (active >= concurrency)
+      await new Promise<void>((resolve) => {
+        queue.push(resolve);
+      });
     active++;
     try {
       return await task();

@@ -28,7 +28,7 @@ export function isNotificationLevel(value: string): value is NotificationLevelVa
 export const NOTE_MAX_LENGTH = 2000;
 export const CURRENT_VERSION_MAX_LENGTH = 100;
 /** A snooze can't be set further out than this. */
-export const MAX_SNOOZE_DAYS = 366;
+const MAX_SNOOZE_DAYS = 366;
 
 export const SNOOZE_PRESETS = [
   { key: "1d", label: "1 day", days: 1 },

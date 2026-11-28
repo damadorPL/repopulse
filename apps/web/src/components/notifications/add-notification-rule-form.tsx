@@ -1,11 +1,12 @@
 "use client";
 
-import { CHANNEL_INFO, DELIVERABLE_CHANNELS, type DeliverableChannel } from "@repopulse/notifications/channels";
 import { LoaderCircleIcon, PlusIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type SubmitEvent } from "react";
 import { toast } from "sonner";
+
+import { CHANNEL_INFO, DELIVERABLE_CHANNELS, type DeliverableChannel } from "@repopulse/notifications/channels";
 
 import { TagDot } from "@/components/feed/tag-pill";
 import { ChannelGlyph } from "@/components/notifications/channel-icon";
@@ -72,7 +73,13 @@ function RuleScopeFields({
     <div className="grid items-start gap-4 sm:grid-cols-2">
       <div className="grid gap-2">
         <Label htmlFor="rule-channel">Channel</Label>
-        <Select value={channel} onValueChange={(value) => onChannelChange(value as DeliverableChannel)}>
+        <Select
+          value={channel}
+          onValueChange={(value) => {
+            const match = DELIVERABLE_CHANNELS.find((c) => c === value);
+            if (match) onChannelChange(match);
+          }}
+        >
           <SelectTrigger id="rule-channel" className="w-full">
             <SelectValue />
           </SelectTrigger>

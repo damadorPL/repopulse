@@ -35,7 +35,7 @@ interface WebhookConfigData {
 function mapConfig(data: WebhookConfigData): AppWebhookConfig {
   const contentType = data.content_type === "json" || data.content_type === "form" ? data.content_type : null;
   return {
-    url: data.url || null,
+    url: data.url !== undefined && data.url.length > 0 ? data.url : null,
     contentType,
     hasSecret: Boolean(data.secret),
     insecureSsl: String(data.insecure_ssl ?? "0") === "1",
@@ -52,7 +52,11 @@ function assertHttpsUrl(url: string): void {
   if (parsed.protocol !== "https:") throw new Error("The webhook URL must use https.");
 }
 
-/** `GET /app/hook/config` (App JWT). */
+/**
+ * `GET /app/hook/config` (App JWT).
+ *
+ * @internal Exported for unit tests.
+ */
 export async function getAppWebhookConfig(
   auth: GitHubAppAuth,
   options: GitHubAppRequestOptions = {},
@@ -115,7 +119,11 @@ export function verifyWebhookSignature(
   return timingSafeEqual(received, expected);
 }
 
-/** `sha256=<hex>` for a body: what GitHub sends (tests and local tooling). */
+/**
+ * `sha256=<hex>` for a body: what GitHub sends (tests and local tooling).
+ *
+ * @internal Exported for unit tests.
+ */
 export function signWebhookPayload(rawBody: Buffer | string, secret: string): string {
   return `sha256=${createHmac("sha256", secret).update(rawBody).digest("hex")}`;
 }

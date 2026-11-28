@@ -20,7 +20,7 @@ export const SCHEDULER_BATCH_SIZE = 200;
  * Due non-scanning projects (`DependencyProject_due_nextScanAt_id_idx`): `nextScanAt` reached or never set.
  * Paused projects (404 five times) simply have a `nextScanAt` far in the future.
  */
-export function dueNonScanningProjectsWhere(now: Date): Prisma.DependencyProjectWhereInput {
+function dueNonScanningProjectsWhere(now: Date): Prisma.DependencyProjectWhereInput {
   return {
     scanStatus: { not: "SCANNING" },
     OR: [{ nextScanAt: null }, { nextScanAt: { lte: now } }],
@@ -30,7 +30,7 @@ export function dueNonScanningProjectsWhere(now: Date): Prisma.DependencyProject
 /**
  * Stale `SCANNING` projects (`DependencyProject_scanning_updatedAt_idx`): belongs to a worker that died mid-scan.
  */
-export function dueStaleScanningProjectsWhere(now: Date): Prisma.DependencyProjectWhereInput {
+function dueStaleScanningProjectsWhere(now: Date): Prisma.DependencyProjectWhereInput {
   return {
     scanStatus: "SCANNING",
     updatedAt: { lt: new Date(now.getTime() - STALE_SCANNING_MS) },

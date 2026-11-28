@@ -1,9 +1,10 @@
 "use client";
 
-import { parseRealtimeEvent, type RealtimeEvent } from "@repopulse/queue/events";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { toast } from "sonner";
+
+import { parseRealtimeEvent, type RealtimeEvent } from "@repopulse/queue/events";
 
 import { dependencyProjectHref } from "@/lib/dependency-list-filters";
 import { feedHref } from "@/lib/feed-filters";
@@ -176,14 +177,14 @@ export function SseListener() {
       }
     };
 
-    source.onopen = () => {
+    source.addEventListener("open", () => {
       if (hasConnected) refresh();
       hasConnected = true;
-    };
-    source.onmessage = (message: MessageEvent<string>) => {
+    });
+    source.addEventListener("message", (message: MessageEvent<string>) => {
       const event = parseRealtimeEvent(message.data);
       if (event) handle(event);
-    };
+    });
 
     return () => {
       source.close();

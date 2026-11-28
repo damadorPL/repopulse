@@ -1,13 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { createUrlSearchSyncState, reconcileUrlSearchQuery, recordUrlSearchPush } from "./url-search";
+import { createUrlSearchSyncState, reconcileUrlSearchQuery } from "./url-search";
 
 describe("url-search sync", () => {
   it("ignores in-flight self-pushed updates while the user keeps typing", () => {
-    const state = createUrlSearchSyncState("");
-
-    expect(recordUrlSearchPush(state, "a")).toBe("a");
-    expect(recordUrlSearchPush(state, "ab")).toBe("ab");
+    const state = { ...createUrlSearchSyncState(""), pendingPushes: ["a", "ab"] };
 
     // First navigation resolves while user has already typed further.
     expect(reconcileUrlSearchQuery(state, "a")).toBe(false);
@@ -17,19 +14,15 @@ describe("url-search sync", () => {
   });
 
   it("handles skipped intermediate navigations", () => {
-    const state = createUrlSearchSyncState("");
-
-    recordUrlSearchPush(state, "a");
-    recordUrlSearchPush(state, "ab");
+    const state = { ...createUrlSearchSyncState(""), pendingPushes: ["a", "ab"] };
 
     expect(reconcileUrlSearchQuery(state, "ab")).toBe(false);
     expect(state.pendingPushes).toEqual([]);
   });
 
   it("syncs external URL changes such as back button or clear links", () => {
-    const state = createUrlSearchSyncState("");
+    const state = { ...createUrlSearchSyncState(""), pendingPushes: ["react"] };
 
-    recordUrlSearchPush(state, "react");
     expect(reconcileUrlSearchQuery(state, "react")).toBe(false);
 
     // User clicks "Clear search" link or navigates back.
@@ -39,26 +32,12 @@ describe("url-search sync", () => {
   });
 
   it("syncs when navigating back to a previously visited query after it was consumed", () => {
-    const state = createUrlSearchSyncState("");
+    const state = { ...createUrlSearchSyncState(""), pendingPushes: ["a", "ab"] };
 
-    recordUrlSearchPush(state, "a");
     expect(reconcileUrlSearchQuery(state, "a")).toBe(false);
-
-    recordUrlSearchPush(state, "ab");
     expect(reconcileUrlSearchQuery(state, "ab")).toBe(false);
 
     // Browser back returns to "a", which is no longer pending.
     expect(reconcileUrlSearchQuery(state, "a")).toBe(true);
-  });
-
-  it("does not duplicate identical consecutive pushes or no-op pushes", () => {
-    const state = createUrlSearchSyncState("foo");
-
-    recordUrlSearchPush(state, "foo ");
-    expect(state.pendingPushes).toEqual([]);
-
-    recordUrlSearchPush(state, "bar");
-    recordUrlSearchPush(state, "bar ");
-    expect(state.pendingPushes).toEqual(["bar"]);
   });
 });

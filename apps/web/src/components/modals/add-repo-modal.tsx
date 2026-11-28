@@ -269,7 +269,9 @@ export function AddRepoModal({
           event.preventDefault();
           repoInputRef.current?.focus();
         }}
-        onEscapeKeyDown={(event) => isExpandedCombobox(event.target) && event.preventDefault()}
+        onEscapeKeyDown={(event) => {
+          if (isExpandedCombobox(event.target)) event.preventDefault();
+        }}
       >
         <form onSubmit={submit} className="grid gap-5">
           <DialogHeader>

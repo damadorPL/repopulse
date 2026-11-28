@@ -7,7 +7,7 @@ import { dirname, normalizePypiName, resolveRelativePath, trimTrailingChar } fro
 import { isValidPep440Constraint, normalizePep440, parsePep440Constraint } from "../versions/pep440.js";
 
 /** Maximum include depth for `-r` / `-c` (Slice 08 §3.2). */
-export const REQUIREMENTS_MAX_INCLUDE_DEPTH = 5;
+const REQUIREMENTS_MAX_INCLUDE_DEPTH = 5;
 
 export interface RequirementHash {
   /** `"sha256:…"` as written (algorithm lowercased). */
@@ -85,7 +85,7 @@ function splitLogicalLines(source: string): LogicalLine[] {
     const raw = source.slice(offset, contentEnd);
     const continued = raw.endsWith("\\") && !/^\s*#/.test(raw);
     const contentLength = continued ? raw.length - 1 : raw.length;
-    if (!current) current = { text: "", offsets: [], line: lineNumber };
+    current ??= { text: "", offsets: [], line: lineNumber };
     // A comment-only line inside a continuation ends the comment, not the logical line.
     for (let i = 0; i < contentLength; i++) {
       current.text += raw[i];
@@ -162,7 +162,7 @@ export function parseRequirements(text: string, path = "requirements.txt"): Requ
     if (body.startsWith("-")) {
       const option = OPTION_ARGUMENT.exec(body);
       if (!option) continue; // --pre, --no-index, --require-hashes, …: no effect on the dependency list
-      const flag = option[1] as string;
+      const flag = option[1]!;
       const argument = (option[2] ?? "").trim();
       if (flag === "-r" || flag === "--requirement" || flag === "-c" || flag === "--constraint") {
         const isUrl = /^[a-z][a-z0-9+.-]*:\/\//i.test(argument);
@@ -239,7 +239,7 @@ export function parseRequirements(text: string, path = "requirements.txt"): Requ
       result.warnings.push(`${path}:${line.line}: unrecognized line skipped`);
       continue;
     }
-    const rawName = nameMatch[1] as string;
+    const rawName = nameMatch[1]!;
     let i = rawName.length;
     const skipSpaces = (): void => {
       while (body[i] === " " || body[i] === "\t") i++;
@@ -307,7 +307,7 @@ export function parseRequirements(text: string, path = "requirements.txt"): Requ
     for (let match = hashPattern.exec(options); match; match = hashPattern.exec(options)) {
       const start = leading + optionsStart + match.index;
       const hashSpan = toSpan(line, start, start + match[0].length);
-      const [algorithm = "", digest = ""] = (match[1] as string).split(":");
+      const [algorithm = "", digest = ""] = (match[1] ?? "").split(":");
       if (hashSpan) hashes.push({ value: `${algorithm.toLowerCase()}:${digest}`, span: hashSpan });
     }
     if (hashes.length > 0) result.hashed = true;

@@ -60,8 +60,6 @@ export type RealtimeEvent =
       message?: string;
     };
 
-export type RealtimeEventType = RealtimeEvent["type"];
-
 export function serializeRealtimeEvent(event: RealtimeEvent): string {
   return JSON.stringify(event);
 }
@@ -75,10 +73,10 @@ function isCount(value: unknown): value is number {
 }
 
 type PrEventState = Extract<RealtimeEvent, { type: "DEPS_PULL_REQUEST_UPDATED" }>["state"];
-const PR_EVENT_STATES = new Set<PrEventState>(["OPEN", "MERGED", "CLOSED", "EDITED", "FAILED"]);
+const PR_EVENT_STATES: ReadonlySet<string> = new Set<PrEventState>(["OPEN", "MERGED", "CLOSED", "EDITED", "FAILED"]);
 
 function isPrEventState(value: unknown): value is PrEventState {
-  return typeof value === "string" && PR_EVENT_STATES.has(value as PrEventState);
+  return typeof value === "string" && PR_EVENT_STATES.has(value);
 }
 
 /**

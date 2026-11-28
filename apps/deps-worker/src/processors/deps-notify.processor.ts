@@ -1,3 +1,5 @@
+import { UnrecoverableError, type Job } from "bullmq";
+
 import {
   loadDepsEnabled,
   loadSmtpSettings,
@@ -15,7 +17,6 @@ import {
   type DependencyUpdateInput,
 } from "@repopulse/notifications";
 import { DEPS_QUEUE_NAMES, type DepsNotifyJobData } from "@repopulse/queue";
-import { UnrecoverableError, type Job } from "bullmq";
 
 import { createLogger } from "../logger.js";
 import { passesDependencyNotificationLevel } from "./notify-jobs.js";

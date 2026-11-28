@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { useOptionalUnread } from "@/components/layout/unread-context";
 import { PARAM } from "@/lib/feed-filters";
+import { toRoute } from "@/lib/route";
 import { versionTagCandidates } from "@/lib/version-compare";
 import type { ActionResult } from "@/server/action-result";
 import { getReleaseDrawerAction } from "@/server/actions/feed";
@@ -63,7 +64,7 @@ function currentHrefWithRelease(releaseId: string | null): Route {
   if (releaseId) params.set(PARAM.release, releaseId);
   else params.delete(PARAM.release);
   const query = params.toString();
-  return (query ? `${window.location.pathname}?${query}` : window.location.pathname) as Route;
+  return toRoute(query ? `${window.location.pathname}?${query}` : window.location.pathname);
 }
 
 function closeRelease() {

@@ -7,7 +7,7 @@ import { RelativeTime } from "@/components/feed/relative-time";
 import { Skeleton } from "@/components/ui/skeleton";
 import { computeActivityStats, type ActivityItem } from "@/lib/activity-grid";
 
-import { useClientNow } from "./activity-grid";
+import { useClientNow } from "./use-client-now";
 
 function Stat({ label, children }: { label: string; children: ReactNode }) {
   return (

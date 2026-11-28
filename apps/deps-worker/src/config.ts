@@ -20,8 +20,13 @@ function positiveInt(env: Record<string, string | undefined>, name: string, fall
   return value;
 }
 
+function nonEmpty(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed !== undefined && trimmed.length > 0 ? trimmed : null;
+}
+
 export function readConfig(env: Record<string, string | undefined> = process.env): DepsWorkerConfig {
-  const sandboxUrl = (env.DEPS_SANDBOX_URL?.trim() || DEFAULT_SANDBOX_URL).replace(/\/+$/, "");
+  const sandboxUrl = (nonEmpty(env.DEPS_SANDBOX_URL) ?? DEFAULT_SANDBOX_URL).replace(/\/+$/, "");
   let parsed: URL;
   try {
     parsed = new URL(sandboxUrl);
@@ -30,10 +35,10 @@ export function readConfig(env: Record<string, string | undefined> = process.env
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("DEPS_SANDBOX_URL must be http(s)");
   return {
-    scanCron: env.DEPS_SCAN_CRON?.trim() || DEFAULT_DEPS_SCAN_CRON,
+    scanCron: nonEmpty(env.DEPS_SCAN_CRON) ?? DEFAULT_DEPS_SCAN_CRON,
     scanConcurrency: positiveInt(env, "DEPS_SCAN_CONCURRENCY", 3),
     updateConcurrency: positiveInt(env, "DEPS_UPDATE_CONCURRENCY", 1),
     sandboxUrl,
-    sandboxToken: env.DEPS_SANDBOX_TOKEN?.trim() || null,
+    sandboxToken: nonEmpty(env.DEPS_SANDBOX_TOKEN),
   };
 }

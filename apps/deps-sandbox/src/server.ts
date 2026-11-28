@@ -49,7 +49,8 @@ process.on("uncaughtException", (err) => {
 
 async function main(): Promise<void> {
   const config = loadConfig();
-  const host = process.env.HOST?.trim() || undefined;
+  const rawHost = process.env.HOST?.trim();
+  const host = rawHost !== undefined && rawHost.length > 0 ? rawHost : undefined;
   // The token stays in memory only; children get an environment built from scratch anyway.
   delete process.env.DEPS_SANDBOX_TOKEN;
 

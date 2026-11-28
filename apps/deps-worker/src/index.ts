@@ -1,3 +1,5 @@
+import { Worker } from "bullmq";
+
 import { createCachedLoader, loadDepsEnabled, loadGitHubAppSettings, loadSmtpSettings, prisma } from "@repopulse/db";
 import { fetchRegistryPackage } from "@repopulse/deps";
 import { closeSmtpTransports } from "@repopulse/notifications";
@@ -11,7 +13,6 @@ import {
   type DepsUpdateJobData,
   type Redis,
 } from "@repopulse/queue";
-import { Worker } from "bullmq";
 
 import type { RegistryLookupFn } from "./analysis.js";
 import { readConfig } from "./config.js";

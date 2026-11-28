@@ -82,7 +82,9 @@ describe("fetchRepoTree", () => {
           ? json({ default_branch: "main" })
           : json({ message: "Empty or unborn" }, { status }),
       );
-      expect(await fetchRepoTree({ owner: "acme", name: "widget", octokit: createOctokit({ fetch }) })).toEqual({
+      await expect(
+        fetchRepoTree({ owner: "acme", name: "widget", octokit: createOctokit({ fetch }) }),
+      ).resolves.toEqual({
         defaultBranch: "main",
         dirs: [],
         files: [],

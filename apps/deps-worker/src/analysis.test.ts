@@ -1,5 +1,6 @@
-import { MAX_MANIFEST_BYTES } from "@repopulse/deps";
 import { describe, expect, it, vi } from "vitest";
+
+import { MAX_MANIFEST_BYTES } from "@repopulse/deps";
 
 import {
   analyzeProject,
@@ -161,6 +162,7 @@ describe("registry/source safety in shared dependency analysis", () => {
   });
 
   it("rejects a registry path on the public host and unresolved variables", async () => {
+    // oxlint-disable-next-line eslint/no-template-curly-in-string -- Literal .npmrc env var fixture
     for (const registry of ["https://registry.npmjs.org/private/", "${PRIVATE_REGISTRY}"]) {
       expect(
         supported(
@@ -312,19 +314,19 @@ describe("snapshot reader, lockCache, truncated trees, capDependencies, and pars
     const reader = createSnapshotReader(entries, readBlobs, blobCache);
     expect(reader.sha("package.json")).toBe("sha-pkg");
     expect(reader.sha("dir")).toBeNull();
-    expect(await reader.read("huge.json")).toBeNull();
-    expect(await reader.read("missing.json")).toBeNull();
+    await expect(reader.read("huge.json")).resolves.toBeNull();
+    await expect(reader.read("missing.json")).resolves.toBeNull();
     expect(reader.downloaded).toBe(0);
 
-    expect(await reader.read("package.json")).toBe('{"name":"demo"}');
-    expect(await reader.read("package.json")).toBe('{"name":"demo"}');
+    await expect(reader.read("package.json")).resolves.toBe('{"name":"demo"}');
+    await expect(reader.read("package.json")).resolves.toBe('{"name":"demo"}');
     expect(reader.downloaded).toBe(1);
     expect(readBlobs).toHaveBeenCalledTimes(1);
     expect(blobCache.set).toHaveBeenCalledWith("sha-pkg", '{"name":"demo"}');
 
     // Second reader hits blobCache without calling readBlobs
     const reader2 = createSnapshotReader(entries, readBlobs, blobCache);
-    expect(await reader2.read("package.json")).toBe('{"name":"demo"}');
+    await expect(reader2.read("package.json")).resolves.toBe('{"name":"demo"}');
     expect(reader2.downloaded).toBe(0);
   });
 

@@ -1,8 +1,9 @@
 "use server";
 
-import { prisma } from "@repopulse/db";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+
+import { prisma } from "@repopulse/db";
 
 import { getCurrentUserOrThrow } from "@/lib/auth";
 import { MAX_SEARCH_LENGTH, SEMVER_TYPES } from "@/lib/feed-filters";
@@ -66,10 +67,10 @@ export async function toggleReleaseReadAction(input: {
  */
 export async function markAllReadAction(
   input: {
-    tagSlug?: string;
-    repositoryId?: string;
-    semverType?: (typeof SEMVER_TYPES)[number];
-    searchQuery?: string;
+    tagSlug?: string | undefined;
+    repositoryId?: string | undefined;
+    semverType?: (typeof SEMVER_TYPES)[number] | undefined;
+    searchQuery?: string | undefined;
   } = {},
 ): Promise<ActionResult<{ count: number }>> {
   try {

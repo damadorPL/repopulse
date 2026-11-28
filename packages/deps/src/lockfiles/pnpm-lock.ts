@@ -67,6 +67,8 @@ export function preparePnpmLock(text: string, path = "pnpm-lock.yaml"): Prepared
  * Resolved versions of the direct dependencies of `importer` (path relative to the lockfile directory; `"."` or
  * `""` = root). Lockfiles without `importers` (single project, pnpm < 7) are read from the top level.
  * Multi-document lockfiles (pnpm 11+ boot/env doc followed by the project lockfile) read the final document.
+ *
+ * @internal Exported for unit tests.
  */
 export function readPnpmLock(text: string, importer = ".", path = "pnpm-lock.yaml"): LockfileVersions {
   return preparePnpmLock(text, path).readFor(importer, []);

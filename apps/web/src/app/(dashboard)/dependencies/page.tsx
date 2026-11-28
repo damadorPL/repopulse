@@ -1,4 +1,3 @@
-import { MAX_DEPENDENCY_PROJECTS_PER_USER } from "@repopulse/deps/limits";
 import {
   CircleCheckIcon,
   ExternalLinkIcon,
@@ -10,6 +9,8 @@ import {
 } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
+
+import { MAX_DEPENDENCY_PROJECTS_PER_USER } from "@repopulse/deps/limits";
 
 import { AddDependencyProjectsDialog } from "@/components/dependencies/add-dependency-projects-dialog";
 import { CheckNowButton } from "@/components/dependencies/check-now-button";

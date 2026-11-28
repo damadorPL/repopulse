@@ -1,3 +1,5 @@
+import { DelayedError, type Job } from "bullmq";
+
 import type { PrismaClient } from "@repopulse/db";
 import {
   fetchReleasesPage,
@@ -15,7 +17,6 @@ import {
   type Redis,
   type ReleaseBackfillJobData,
 } from "@repopulse/queue";
-import { DelayedError, type Job } from "bullmq";
 
 import { createLogger } from "../logger.js";
 import { effectiveTarget, maxAgeCutoff, planBackfillPage, targetStop, type BackfillStop } from "./backfill-plan.js";
@@ -60,7 +61,13 @@ async function fetchWithFallback(
     const timeout = AbortSignal.timeout(GITHUB_REQUEST_TIMEOUT_MS);
     const signal = jobSignal ? AbortSignal.any([jobSignal, timeout]) : timeout;
     try {
-      return await fetchPage({ owner: repo.owner, name: repo.name, page, accessToken: candidate.token, signal });
+      return await fetchPage({
+        owner: repo.owner,
+        name: repo.name,
+        page,
+        ...(candidate.token !== undefined ? { accessToken: candidate.token } : {}),
+        signal,
+      });
     } catch (error) {
       if (isGitHubHttpError(error) && error.status === 401 && cursor.index < candidates.length - 1) {
         log.warn(

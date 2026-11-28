@@ -1,12 +1,11 @@
 import { prisma } from "@repopulse/db";
 import {
-  pingRedis,
   resolveHealthPort as resolvePort,
   startHealthServer as startSharedHealthServer,
   type HealthServer,
 } from "@repopulse/queue";
 
-export { pingRedis, type HealthServer };
+export type { HealthServer };
 
 const DEFAULT_HEALTH_PORT = 3002;
 

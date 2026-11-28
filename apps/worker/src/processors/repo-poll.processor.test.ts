@@ -1,7 +1,8 @@
-import { GitHubRateLimitError, GitHubRepositoryNotFoundError, type pollRepoReleases } from "@repopulse/github";
-import type { RepoPollJobData } from "@repopulse/queue";
 import type { Job } from "bullmq";
 import { describe, expect, it, vi } from "vitest";
+
+import { GitHubRateLimitError, GitHubRepositoryNotFoundError, type pollRepoReleases } from "@repopulse/github";
+import type { RepoPollJobData } from "@repopulse/queue";
 
 import { MAX_ERROR_COUNT, processRepoPoll } from "./repo-poll.processor.js";
 
@@ -84,7 +85,7 @@ describe("processRepoPoll", () => {
     const { prisma } = fakePrisma();
     prisma.repository.findUnique.mockResolvedValueOnce(null as never);
     const d = deps(prisma, notModified);
-    expect(await processRepoPoll(job(), d)).toEqual({ status: "SKIPPED", reason: "REPOSITORY_GONE" });
+    await expect(processRepoPoll(job(), d)).resolves.toEqual({ status: "SKIPPED", reason: "REPOSITORY_GONE" });
     expect(prisma.repository.update).not.toHaveBeenCalled();
     expect(notModified).not.toHaveBeenCalled();
   });
@@ -92,7 +93,7 @@ describe("processRepoPoll", () => {
   it("skips repositories nobody subscribes to any more", async () => {
     const { prisma } = fakePrisma({ subscribers: 0 });
     const d = deps(prisma, notModified);
-    expect(await processRepoPoll(job(), d)).toEqual({ status: "SKIPPED", reason: "NO_SUBSCRIBERS" });
+    await expect(processRepoPoll(job(), d)).resolves.toEqual({ status: "SKIPPED", reason: "NO_SUBSCRIBERS" });
     expect(prisma.repository.update).not.toHaveBeenCalled();
   });
 
@@ -100,7 +101,7 @@ describe("processRepoPoll", () => {
     const { prisma, repo, updates } = fakePrisma({ errorCount: 3 });
     const d = deps(prisma, notModified);
 
-    expect(await processRepoPoll(job({ trigger: "manual", requestedByUserId: "u1" }), d)).toEqual({
+    await expect(processRepoPoll(job({ trigger: "manual", requestedByUserId: "u1" }), d)).resolves.toEqual({
       status: "NOT_MODIFIED",
     });
 
@@ -187,7 +188,7 @@ describe("processRepoPoll", () => {
 
     const below = fakePrisma({ errorCount: MAX_ERROR_COUNT - 2 });
     const belowDeps = deps(below.prisma, poll);
-    expect(await processRepoPoll(job({ trigger: "manual", requestedByUserId: "u1" }), belowDeps)).toEqual({
+    await expect(processRepoPoll(job({ trigger: "manual", requestedByUserId: "u1" }), belowDeps)).resolves.toEqual({
       status: "NOT_FOUND",
       errorCount: MAX_ERROR_COUNT - 1,
     });
@@ -202,7 +203,7 @@ describe("processRepoPoll", () => {
     );
 
     const at = fakePrisma({ errorCount: MAX_ERROR_COUNT - 1 });
-    expect(await processRepoPoll(job(), deps(at.prisma, poll))).toEqual({
+    await expect(processRepoPoll(job(), deps(at.prisma, poll))).resolves.toEqual({
       status: "NOT_FOUND",
       errorCount: MAX_ERROR_COUNT,
     });
@@ -229,7 +230,7 @@ describe("processRepoPoll", () => {
     const queryRaw = vi.fn(async () => [{ errorCount: MAX_ERROR_COUNT }]);
     (prisma as Record<string, unknown>).$queryRaw = queryRaw;
 
-    expect(await processRepoPoll(job(), deps(prisma, poll))).toEqual({
+    await expect(processRepoPoll(job(), deps(prisma, poll))).resolves.toEqual({
       status: "NOT_FOUND",
       errorCount: MAX_ERROR_COUNT,
     });
@@ -688,7 +689,7 @@ describe("processRepoPoll release → tag promotion", () => {
           ]
         : [{ userId: "both", user: { githubAccessTokenEncrypted: "t1" } }],
     );
-    (db.prisma.userReleaseState as Record<string, unknown>).findMany = vi.fn(async () => []);
+    Object.assign(db.prisma.userReleaseState, { findMany: vi.fn(async () => []) });
 
     const poll = vi.fn(async () => ({
       status: "UPDATED" as const,

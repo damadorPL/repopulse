@@ -1,5 +1,6 @@
-import type { ResolveAll } from "@repopulse/notifications";
 import { describe, expect, it, vi } from "vitest";
+
+import type { ResolveAll } from "@repopulse/notifications";
 
 // action-result pulls in Auth.js (via UnauthorizedError), which needs the Next runtime.
 vi.mock("@/lib/auth", () => ({
@@ -18,7 +19,9 @@ const opts = { resolveAll, policy: { mode: "none" } as const };
 
 describe("normalizeDestination", () => {
   it("accepts public webhook URLs and normalizes them", async () => {
-    expect(await normalizeDestination("DISCORD_WEBHOOK", "  https://discord.com/api/webhooks/1/abc ", opts)).toEqual({
+    await expect(
+      normalizeDestination("DISCORD_WEBHOOK", "  https://discord.com/api/webhooks/1/abc ", opts),
+    ).resolves.toEqual({
       ok: true,
       data: "https://discord.com/api/webhooks/1/abc",
     });
@@ -36,36 +39,36 @@ describe("normalizeDestination", () => {
   });
 
   it("requires a URL for webhook channels and a token for Gotify", async () => {
-    expect(await normalizeDestination("SLACK_WEBHOOK", "  ", opts)).toMatchObject({
+    await expect(normalizeDestination("SLACK_WEBHOOK", "  ", opts)).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
-    expect(await normalizeDestination("GOTIFY_WEBHOOK", "https://gotify.example.com", opts)).toMatchObject({
+    await expect(normalizeDestination("GOTIFY_WEBHOOK", "https://gotify.example.com", opts)).resolves.toMatchObject({
       ok: false,
       error: { message: expect.stringContaining("application token") },
     });
-    expect(await normalizeDestination("NTFY_WEBHOOK", "https://nowhere.invalid/topic", opts)).toMatchObject({
+    await expect(normalizeDestination("NTFY_WEBHOOK", "https://nowhere.invalid/topic", opts)).resolves.toMatchObject({
       ok: false,
       error: { message: expect.stringContaining("Could not resolve") },
     });
   });
 
   it("email: needs SMTP (Admin → Email), takes an optional valid address", async () => {
-    expect(await normalizeDestination("EMAIL_INSTANT", "", opts)).toMatchObject({
+    await expect(normalizeDestination("EMAIL_INSTANT", "", opts)).resolves.toMatchObject({
       ok: false,
       error: { code: "UNAVAILABLE" },
     });
-    expect(await normalizeDestination("EMAIL_INSTANT", "", { ...opts, smtpConfigured: false })).toMatchObject({
+    await expect(normalizeDestination("EMAIL_INSTANT", "", { ...opts, smtpConfigured: false })).resolves.toMatchObject({
       ok: false,
       error: { message: expect.stringContaining("Admin → Email") },
     });
     const smtp = { ...opts, smtpConfigured: true };
-    expect(await normalizeDestination("EMAIL_INSTANT", "", smtp)).toEqual({ ok: true, data: null });
-    expect(await normalizeDestination("EMAIL_INSTANT", "team@example.com", smtp)).toEqual({
+    await expect(normalizeDestination("EMAIL_INSTANT", "", smtp)).resolves.toEqual({ ok: true, data: null });
+    await expect(normalizeDestination("EMAIL_INSTANT", "team@example.com", smtp)).resolves.toEqual({
       ok: true,
       data: "team@example.com",
     });
-    expect(await normalizeDestination("EMAIL_INSTANT", "not-an-email", smtp)).toMatchObject({
+    await expect(normalizeDestination("EMAIL_INSTANT", "not-an-email", smtp)).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });

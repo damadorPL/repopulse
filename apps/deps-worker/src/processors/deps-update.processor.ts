@@ -1,3 +1,5 @@
+import { UnrecoverableError, Worker, type Job, type Queue } from "bullmq";
+
 import { loadDepsEnabled, type PrismaClient } from "@repopulse/db";
 import {
   buildCommitMessage,
@@ -16,7 +18,6 @@ import {
   rewritePackageJson,
   rewritePyproject,
   rewriteRequirements,
-  SANDBOX_PACKAGE_MANAGERS,
   SKIPPED_DIRECTORIES,
   type ManifestEdit,
   type PrUpdate,
@@ -32,7 +33,6 @@ import {
 } from "@repopulse/github";
 import { resolveAppBaseUrl } from "@repopulse/notifications";
 import { DEPS_QUEUE_NAMES, rateLimitDelayMs, type DepsUpdateJobData, type Redis } from "@repopulse/queue";
-import { UnrecoverableError, Worker, type Job, type Queue } from "bullmq";
 
 import {
   analyzeProject,
@@ -60,9 +60,23 @@ import { ownerHasPermission, revokePullRequestMode } from "./repo-access.js";
 
 const log = createLogger("deps-update");
 
+function toSandboxPackageManager(pm: string | undefined): SandboxPackageManager | null {
+  if (pm === undefined) return null;
+  switch (pm) {
+    case "NPM":
+    case "PNPM":
+    case "BUN":
+    case "UV":
+    case "POETRY":
+      return pm;
+    default:
+      return null;
+  }
+}
+
 export const EMPTY_GROUP_COMMENT =
   "All updates in this group were applied or are no longer wanted. Closing this pull request.";
-export const UPDATE_FAILED_MESSAGE = "The update pull request could not be created. It will be retried later.";
+const UPDATE_FAILED_MESSAGE = "The update pull request could not be created. It will be retried later.";
 
 export interface DepsUpdateDeps {
   prisma: PrismaClient;
@@ -473,10 +487,10 @@ async function runUpdate(
       (m) => m.detected.lockfilePath === lockfilePath && manifestNeedsLockfile(m.detected),
     );
     const packageManager = manifests[0]?.detected.packageManager;
-    if (!packageManager || !(SANDBOX_PACKAGE_MANAGERS as readonly string[]).includes(packageManager) || !deps.sandbox) {
+    const sandboxManager = toSandboxPackageManager(packageManager);
+    if (!packageManager || !sandboxManager || !deps.sandbox) {
       throw new Refusal(`${lockfilePath} cannot be regenerated.`);
     }
-    const sandboxManager = packageManager as SandboxPackageManager;
     const paths = workspaceFilePaths(snapshot.entries, lockfilePath, sandboxManager);
     if (paths.length > MAX_SANDBOX_FILES)
       throw new Refusal("The workspace has too many manifests for lockfile regeneration.");

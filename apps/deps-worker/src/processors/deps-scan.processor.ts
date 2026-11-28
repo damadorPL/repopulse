@@ -1,4 +1,6 @@
-import { loadDepsEnabled, type PrismaClient } from "@repopulse/db";
+import { Worker, type Job, type Queue } from "bullmq";
+
+import { loadDepsEnabled, type Prisma, type PrismaClient } from "@repopulse/db";
 import {
   formatTarget,
   groupCapability,
@@ -27,7 +29,6 @@ import {
   type DepsUpdateQueue,
   type Redis,
 } from "@repopulse/queue";
-import { Worker, type Job, type Queue } from "bullmq";
 
 import {
   analyzeProject,
@@ -61,14 +62,14 @@ export const MAX_ERROR_COUNT = 5;
 /** A paused project is retried this long after its last failure ("Check now" works at any time). */
 export const PAUSED_RESCAN_MS = 7 * 24 * 3600_000;
 /** Transient failures (registry down, network) are retried after at most this long. */
-export const FAILED_RESCAN_MAX_MS = 6 * 3600_000;
+const FAILED_RESCAN_MAX_MS = 6 * 3600_000;
 /** Interactive transactions of a large project (1,000 rows) need more than Prisma's 5 s default. */
 const TRANSACTION_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
 
 /** A private repository read with the App token whose owner no longer has read permission (§3.8.4). */
 export const NO_ACCESS_MESSAGE = "You no longer have access to this private repository";
 
-export const SCAN_FAILED_MESSAGE = "The dependency check failed. It will be retried on the next scheduled check.";
+const SCAN_FAILED_MESSAGE = "The dependency check failed. It will be retried on the next scheduled check.";
 
 export interface DepsScanDeps {
   prisma: PrismaClient;
@@ -495,7 +496,7 @@ export async function processDepsScan(
       }
 
       const keep = new Set<string>();
-      const toCreate: Array<Record<string, unknown>> = [];
+      const toCreate: Prisma.DependencyUpdateCreateManyInput[] = [];
       const toUpdate: Array<{ id: string; data: RowData; firstSeenAt: Date; notifiedAt: Date | null }> = [];
       for (const item of planned) {
         const data = rowData(item);
@@ -595,7 +596,7 @@ export async function processDepsScan(
       if (stale.length > 0) await tx.dependencyUpdate.deleteMany({ where: { id: { in: stale } } });
       for (let i = 0; i < toCreate.length; i += CREATE_BATCH_SIZE) {
         await tx.dependencyUpdate.createMany({
-          data: toCreate.slice(i, i + CREATE_BATCH_SIZE) as never,
+          data: toCreate.slice(i, i + CREATE_BATCH_SIZE),
           skipDuplicates: true,
         });
       }
@@ -877,7 +878,7 @@ async function queueDigest(
   const ids = eligible.map((row) => row.id);
 
   const jobs = await deps.prisma.$transaction(async (tx) => {
-    const rules = silent ? [] : await rulesFor(tx as PrismaClient, project.userId, "DEPENDENCY_UPDATES");
+    const rules = silent ? [] : await rulesFor(tx, project.userId, "DEPENDENCY_UPDATES");
     await tx.dependencyUpdate.updateMany({ where: { id: { in: ids }, notifiedAt: null }, data: { notifiedAt: at } });
     const scanId = digestScanId(project.id, eligible);
     const intents = rules.map((rule): DepsNotifyJobData => ({

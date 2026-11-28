@@ -41,12 +41,14 @@ export function isRealtimeConfigured(): boolean {
 }
 
 // Cached on globalThis: Next.js dev HMR re-evaluates modules and would leak connections.
-const globalForRealtime = globalThis as unknown as {
-  repopulseRedis?: Redis;
-  repopulseRepoPollQueue?: RepoPollQueue;
-  repopulseReleaseBackfillQueue?: ReleaseBackfillQueue;
-  repopulseSubscriberState?: SubscriberState;
-};
+declare global {
+  var repopulseRedis: Redis | undefined;
+  var repopulseRepoPollQueue: RepoPollQueue | undefined;
+  var repopulseReleaseBackfillQueue: ReleaseBackfillQueue | undefined;
+  var repopulseSubscriberState: SubscriberState | undefined;
+}
+
+const globalForRealtime = globalThis;
 
 /**
  * Shared command connection. Unlike the worker, requests must fail fast when Redis is down

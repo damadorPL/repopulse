@@ -79,7 +79,9 @@ export function locateJsonStrings(
     const raw = text.slice(start - 1, end + 1);
     let value: string;
     try {
-      value = JSON.parse(raw) as string;
+      const parsed: unknown = JSON.parse(raw);
+      if (typeof parsed !== "string") return fail("Invalid string");
+      value = parsed;
     } catch {
       return fail("Invalid string");
     }
@@ -162,8 +164,8 @@ export function locateJsonStrings(
       return;
     }
     const literal = /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/.exec(text.slice(i, i + 64));
-    if (!literal) fail("Unexpected token");
-    i += (literal as RegExpExecArray)[0].length;
+    if (!literal) return fail("Unexpected token");
+    i += literal[0].length;
   };
 
   readValue([]);

@@ -44,7 +44,11 @@ export interface NotificationJobData {
   userId: string;
 }
 
-export type SchedulerQueue = Queue<SchedulerJobData, unknown, typeof JOB_NAMES.scan | typeof SCHEDULER_ID>;
+export type SchedulerQueue = Queue<
+  SchedulerJobData,
+  unknown,
+  typeof JOB_NAMES.scan | typeof SCHEDULER_ID | "db-maintenance"
+>;
 export type RepoPollQueue = Queue<RepoPollJobData, unknown, typeof JOB_NAMES.poll>;
 export type NotificationQueue = Queue<NotificationJobData, unknown, typeof JOB_NAMES.notify>;
 export type ReleaseBackfillQueue = Queue<ReleaseBackfillJobData, unknown, typeof JOB_NAMES.backfill>;
@@ -107,17 +111,20 @@ export const NOTIFICATION_JOB_OPTIONS = {
   removeOnFail: { age: 7 * 24 * 3600, count: 5000 },
 } satisfies JobsOptions;
 
-export const SCHEDULER_JOB_OPTIONS = {
+const SCHEDULER_JOB_OPTIONS = {
   removeOnComplete: true,
   removeOnFail: { count: 50 },
 } satisfies JobsOptions;
 
 export function createSchedulerQueue(connection: ConnectionOptions, onError?: (err: Error) => void): SchedulerQueue {
-  return createQueue<SchedulerJobData, typeof JOB_NAMES.scan | typeof SCHEDULER_ID>(QUEUE_NAMES.scheduler, {
-    connection,
-    defaultJobOptions: SCHEDULER_JOB_OPTIONS,
-    ...(onError ? { onError } : {}),
-  });
+  return createQueue<SchedulerJobData, typeof JOB_NAMES.scan | typeof SCHEDULER_ID | "db-maintenance">(
+    QUEUE_NAMES.scheduler,
+    {
+      connection,
+      defaultJobOptions: SCHEDULER_JOB_OPTIONS,
+      ...(onError ? { onError } : {}),
+    },
+  );
 }
 
 export function createRepoPollQueue(connection: ConnectionOptions, onError?: (err: Error) => void): RepoPollQueue {

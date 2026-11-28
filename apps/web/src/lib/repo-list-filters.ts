@@ -8,6 +8,7 @@
 import type { Route } from "next";
 
 import { MAX_SEARCH_LENGTH } from "./feed-filters";
+import { toRoute } from "./route";
 
 export const REPO_LIST_SORTS = ["name", "-name", "added", "-added", "updated", "synced", "unread", "stars"] as const;
 export type RepoListSort = (typeof REPO_LIST_SORTS)[number];
@@ -35,16 +36,14 @@ export const REPO_LIST_STATUS_OPTIONS: ReadonlyArray<{ value: RepoListStatus; la
 ];
 
 export interface RepoListFilters {
-  q?: string;
+  q?: string | undefined;
   sort: RepoListSort;
-  tagSlug?: string;
+  tagSlug?: string | undefined;
   /** Every chosen status must hold (AND). */
   statuses: RepoListStatus[];
 }
 
-export const REPO_LIST_PARAM = { q: "q", sort: "sort", tag: "tag", status: "status" } as const;
-
-export const DEFAULT_REPO_LIST_FILTERS: RepoListFilters = { sort: "name", statuses: [] };
+const REPO_LIST_PARAM = { q: "q", sort: "sort", tag: "tag", status: "status" } as const;
 
 type RawParams = URLSearchParams | Record<string, string | string[] | undefined>;
 
@@ -52,7 +51,7 @@ function read(params: RawParams, key: string): string | undefined {
   const value = params instanceof URLSearchParams ? params.get(key) : params[key];
   const first = Array.isArray(value) ? value[0] : value;
   const trimmed = first?.trim();
-  return trimmed ? trimmed : undefined;
+  return trimmed !== undefined && trimmed.length > 0 ? trimmed : undefined;
 }
 
 export function parseRepoListFilters(params: RawParams): RepoListFilters {
@@ -75,7 +74,7 @@ export function parseRepoListFilters(params: RawParams): RepoListFilters {
 }
 
 /** Serializes filters to search params (defaults omitted to keep URLs short). */
-export function repoListSearchParams(filters: Partial<RepoListFilters>): URLSearchParams {
+function repoListSearchParams(filters: Partial<RepoListFilters>): URLSearchParams {
   const params = new URLSearchParams();
   const q = filters.q?.trim();
   if (q) params.set(REPO_LIST_PARAM.q, q.slice(0, MAX_SEARCH_LENGTH));
@@ -100,7 +99,7 @@ export function repositorySettingsHref(fullName: string, from?: Partial<RepoList
   const path = `/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
   const query = from ? repoListSearchParams(from).toString() : "";
   const suffix = hash ? `#${hash}` : "";
-  return (query ? `${path}?from=${encodeURIComponent(query)}${suffix}` : `${path}${suffix}`) as Route;
+  return toRoute(query ? `${path}?from=${encodeURIComponent(query)}${suffix}` : `${path}${suffix}`);
 }
 
 /** The list URL to return to from a settings page's `?from=` value (re-parsed, so it can only point at the list). */
@@ -112,7 +111,7 @@ export function repoListHrefFrom(from: string | string[] | undefined): Route {
 
 /** Anything narrowing the list (sorting alone does not). */
 export function hasActiveRepoListFilters(filters: RepoListFilters): boolean {
-  return Boolean(filters.q || filters.tagSlug || filters.statuses.length > 0);
+  return filters.q !== undefined || filters.tagSlug !== undefined || filters.statuses.length > 0;
 }
 
 /** The fields of a tracked repository the list filters read (structural, so lib stays free of server types). */

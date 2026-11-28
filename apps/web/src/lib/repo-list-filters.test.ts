@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyRepoListFilters,
-  DEFAULT_REPO_LIST_FILTERS,
   hasActiveRepoListFilters,
   parseRepoListFilters,
   repoListHref,
@@ -40,7 +39,7 @@ function row(fullName: string, extra: RowExtra = {}): RepoListRow {
   };
 }
 
-const filters = (extra: Partial<RepoListFilters> = {}): RepoListFilters => ({ ...DEFAULT_REPO_LIST_FILTERS, ...extra });
+const filters = (extra: Partial<RepoListFilters> = {}): RepoListFilters => ({ sort: "name", statuses: [], ...extra });
 const names = (rows: RepoListRow[]) => rows.map((r) => r.repository.fullName);
 
 describe("parseRepoListFilters / repoListHref", () => {

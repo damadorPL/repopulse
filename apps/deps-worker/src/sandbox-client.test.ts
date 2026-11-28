@@ -1,5 +1,6 @@
-import { MAX_LOCKFILE_BYTES, MAX_SANDBOX_BODY_BYTES, type LockRequest } from "@repopulse/deps";
 import { describe, expect, it, vi } from "vitest";
+
+import { MAX_LOCKFILE_BYTES, MAX_SANDBOX_BODY_BYTES, type LockRequest } from "@repopulse/deps";
 
 import {
   createSandboxClient,
@@ -31,7 +32,7 @@ describe("createSandboxClient().lock", () => {
   it("posts the request with the bearer token and returns the decoded lockfile", async () => {
     const fetch = respond(200, { ok: true, lockfile: { path: "package-lock.json", contentBase64: b64("LOCK") } });
     const client = createSandboxClient({ baseUrl: "http://deps-sandbox:3003/", token: "sandbox-token", fetch });
-    expect(await client.lock(REQUEST)).toEqual({ path: "package-lock.json", text: "LOCK" });
+    await expect(client.lock(REQUEST)).resolves.toEqual({ path: "package-lock.json", text: "LOCK" });
     const [url, init] = fetch.mock.calls[0]!;
     expect(url).toBe("http://deps-sandbox:3003/v1/lock");
     expect(init).toMatchObject({
@@ -155,7 +156,7 @@ describe("createSandboxClient().health", () => {
       token: "",
       fetch: respond(200, { status: "ok", tools: { npm: "11.0.0" } }),
     });
-    expect(await ok.health()).toEqual({ status: "ok", tools: { npm: "11.0.0" } });
+    await expect(ok.health()).resolves.toEqual({ status: "ok", tools: { npm: "11.0.0" } });
     const down = createSandboxClient({
       baseUrl: "http://s",
       token: "",
@@ -163,15 +164,15 @@ describe("createSandboxClient().health", () => {
         throw new Error("ECONNREFUSED");
       }),
     });
-    expect(await down.health()).toBeNull();
+    await expect(down.health()).resolves.toBeNull();
     const status500 = createSandboxClient({
       baseUrl: "http://s",
       token: "",
       fetch: respond(500, { status: "ok", tools: {} }),
     });
-    expect(await status500.health()).toBeNull();
+    await expect(status500.health()).resolves.toBeNull();
     const badSchema = createSandboxClient({ baseUrl: "http://s", token: "", fetch: respond(200, { status: "wrong" }) });
-    expect(await badSchema.health()).toBeNull();
+    await expect(badSchema.health()).resolves.toBeNull();
   });
 });
 

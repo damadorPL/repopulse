@@ -1,20 +1,10 @@
-export {
-  parseRealtimeEvent,
-  serializeRealtimeEvent,
-  userEventsChannel,
-  type RealtimeEvent,
-  type RealtimeEventType,
-  type SyncFailureReason,
-} from "./events.js";
+export { userEventsChannel, type RealtimeEvent } from "./events.js";
 export {
   applyBackfillOverrides,
   BACKFILL_DEFAULTS,
   BACKFILL_LIMITS,
-  DEEP_BACKFILL_COOLDOWN_MS,
-  DEEP_BACKFILL_STEP,
   readBackfillConfig,
   type BackfillConfig,
-  type BackfillOverrides,
   type BackfillSettingKey,
 } from "./backfill.js";
 export {
@@ -24,14 +14,10 @@ export {
   createSchedulerQueue,
   DEFAULT_POLL_INTERVAL_CRON,
   JOB_NAMES,
-  NOTIFICATION_JOB_OPTIONS,
   QUEUE_NAMES,
-  REPO_POLL_JOB_OPTIONS,
   REPO_POLL_PRIORITY,
-  RELEASE_BACKFILL_JOB_OPTIONS,
   RELEASE_BACKFILL_PRIORITY,
   SCHEDULER_ID,
-  SCHEDULER_JOB_OPTIONS,
   notificationJobId,
   releaseBackfillJobId,
   repoPollJobId,
@@ -44,7 +30,7 @@ export {
   type SchedulerJobData,
   type SchedulerQueue,
 } from "./names.js";
-export { createRedisConnection, publishUserEvent, Redis, type RedisOptions } from "./redis.js";
+export { createRedisConnection, publishUserEvent, Redis } from "./redis.js";
 export {
   createDepsNotifyQueue,
   createDepsScanQueue,
@@ -52,13 +38,9 @@ export {
   createDepsUpdateQueue,
   DEFAULT_DEPS_SCAN_CRON,
   DEPS_JOB_NAMES,
-  DEPS_NOTIFY_JOB_OPTIONS,
   DEPS_QUEUE_NAMES,
-  DEPS_SCAN_JOB_OPTIONS,
   DEPS_SCAN_PRIORITY,
   DEPS_SCHEDULER_ID,
-  DEPS_SCHEDULER_JOB_OPTIONS,
-  DEPS_UPDATE_JOB_OPTIONS,
   DEPS_UPDATE_PRIORITY,
   depsNotifyJobId,
   depsScanJobId,
@@ -73,18 +55,9 @@ export {
   type DepsUpdateJobData,
   type DepsUpdateQueue,
 } from "./deps.js";
-export {
-  attachWorkerListeners,
-  createQueue,
-  deduplicatedJobOptions,
-  enqueueDeduplicated,
-  type DeduplicatedQueueLike,
-  type EnqueueDeduplicatedOptions,
-  type TypedQueueOptions,
-  type WorkerEventLog,
-} from "./queues.js";
+export { attachWorkerListeners, deduplicatedJobOptions, enqueueDeduplicated } from "./queues.js";
 export { rateLimitDelayMs } from "./rate-limit.js";
-export { createLogger, errorMessage, type CreateLoggerOptions, type ServiceLogger } from "./logger.js";
+export { createLogger, errorMessage, type ServiceLogger } from "./logger.js";
 export {
   checkDatabase,
   checkRedis,

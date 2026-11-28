@@ -1,6 +1,7 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { GitHubAppKeyUnreadableError } from "@repopulse/db";
 import { GitHubAppAuthError, GitHubAppInstallationError } from "@repopulse/github";
-import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { GitHubAccess, PRIVATE_WITHOUT_APP_MESSAGE, TOKEN_REFRESH_MARGIN_MS } from "./github-access.js";
 
@@ -53,9 +54,9 @@ describe("GitHubAccess", () => {
   it("caches installation tokens until 5 minutes before expiry, per repository and scope", async () => {
     const { access, createInstallationToken, tick } = setup();
     const app = (await access.app())!;
-    expect(await access.installationToken(app, 7, 42n, "read")).toBe("ghs_secret_1");
-    expect(await access.installationToken(app, 7, 42n, "read")).toBe("ghs_secret_1");
-    expect(await access.installationToken(app, 7, 42n, "write")).toBe("ghs_secret_2");
+    await expect(access.installationToken(app, 7, 42n, "read")).resolves.toBe("ghs_secret_1");
+    await expect(access.installationToken(app, 7, 42n, "read")).resolves.toBe("ghs_secret_1");
+    await expect(access.installationToken(app, 7, 42n, "write")).resolves.toBe("ghs_secret_2");
     expect(createInstallationToken.mock.calls[0]![2]).toEqual({
       repositoryIds: [42],
       permissions: { contents: "read", pull_requests: "read" },
@@ -66,9 +67,9 @@ describe("GitHubAccess", () => {
     });
 
     tick(60 * 60_000 - TOKEN_REFRESH_MARGIN_MS - 1);
-    expect(await access.installationToken(app, 7, 42n, "read")).toBe("ghs_secret_1");
+    await expect(access.installationToken(app, 7, 42n, "read")).resolves.toBe("ghs_secret_1");
     tick(2);
-    expect(await access.installationToken(app, 7, 42n, "read")).toBe("ghs_secret_3");
+    await expect(access.installationToken(app, 7, 42n, "read")).resolves.toBe("ghs_secret_3");
 
     access.invalidate(7);
     expect(access.cachedTokenCount).toBe(0);
@@ -76,7 +77,7 @@ describe("GitHubAccess", () => {
 
   it("uses only the installation token when the App is installed", async () => {
     const { access } = setup();
-    expect(await access.readAccess({ ...PROJECT, isPrivate: true }, USER)).toMatchObject({
+    await expect(access.readAccess({ ...PROJECT, isPrivate: true }, USER)).resolves.toMatchObject({
       kind: "ok",
       installationId: 7,
       candidates: [{ source: "app", token: "ghs_secret_1" }],
@@ -85,7 +86,7 @@ describe("GitHubAccess", () => {
 
   it("falls back to the owner's OAuth token, then anonymous", async () => {
     const { access } = setup({ installed: false });
-    expect(await access.readAccess(PROJECT, USER)).toMatchObject({
+    await expect(access.readAccess(PROJECT, USER)).resolves.toMatchObject({
       kind: "ok",
       installationId: null,
       candidates: [
@@ -94,7 +95,9 @@ describe("GitHubAccess", () => {
       ],
     });
     const noApp = setup({ app: null });
-    expect(await noApp.access.readAccess(PROJECT, { id: "u1", githubAccessTokenEncrypted: "corrupt" })).toMatchObject({
+    await expect(
+      noApp.access.readAccess(PROJECT, { id: "u1", githubAccessTokenEncrypted: "corrupt" }),
+    ).resolves.toMatchObject({
       candidates: [{ source: "anonymous", token: undefined }],
     });
   });
@@ -105,7 +108,7 @@ describe("GitHubAccess", () => {
       setup({ installed: false }),
       setup({ tokenError: new GitHubAppInstallationError("lacks permissions", 422) }),
     ]) {
-      expect(await ctx.access.readAccess({ ...PROJECT, isPrivate: true }, USER)).toEqual({
+      await expect(ctx.access.readAccess({ ...PROJECT, isPrivate: true }, USER)).resolves.toEqual({
         kind: "private-without-app",
         message: PRIVATE_WITHOUT_APP_MESSAGE,
       });
@@ -114,7 +117,7 @@ describe("GitHubAccess", () => {
 
   it("treats an undecryptable App key as no App", async () => {
     const { access } = setup({ app: new GitHubAppKeyUnreadableError() });
-    expect(await access.app()).toBeNull();
+    await expect(access.app()).resolves.toBeNull();
   });
 
   it("handles strict vs non-strict installation() on GitHubAppAuthError and recreates appOctokit on key rotation", async () => {
@@ -134,20 +137,20 @@ describe("GitHubAccess", () => {
     });
 
     const app1 = (await access.app())!;
-    expect(await access.installation(app1, "acme", "widget")).toBe(9);
-    expect(await access.installation(app1, "acme", "widget")).toBe(9);
+    await expect(access.installation(app1, "acme", "widget")).resolves.toBe(9);
+    await expect(access.installation(app1, "acme", "widget")).resolves.toBe(9);
     expect(createAppOctokit).toHaveBeenCalledTimes(1);
 
     // Key rotation creates a new App Octokit and evicts the previous one
     privateKey = "PEM-2";
     const app2 = (await access.app())!;
-    expect(await access.installation(app2, "acme", "widget")).toBe(9);
+    await expect(access.installation(app2, "acme", "widget")).resolves.toBe(9);
     expect(createAppOctokit).toHaveBeenCalledTimes(2);
 
     // GitHubAppAuthError: returns null when strict is false/omitted, rethrows when strict is true
     privateKey = "BAD";
     const appBad = (await access.app())!;
-    expect(await access.installation(appBad, "acme", "widget")).toBeNull();
+    await expect(access.installation(appBad, "acme", "widget")).resolves.toBeNull();
     await expect(access.installation(appBad, "acme", "widget", { strict: true })).rejects.toBeInstanceOf(
       GitHubAppAuthError,
     );

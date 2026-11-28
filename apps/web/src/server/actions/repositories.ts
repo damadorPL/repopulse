@@ -1,5 +1,9 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
+import { after } from "next/server";
+import { z } from "zod";
+
 import { prisma, type BackfillStatus, type NotificationLevel, type TrackMode } from "@repopulse/db";
 import {
   fetchRepoTree,
@@ -9,9 +13,6 @@ import {
   type RepoTree,
 } from "@repopulse/github";
 import { RELEASE_BACKFILL_PRIORITY } from "@repopulse/queue";
-import { revalidatePath } from "next/cache";
-import { after } from "next/server";
-import { z } from "zod";
 
 import { getCurrentUserOrThrow } from "@/lib/auth";
 import { validateSnooze } from "@/lib/subscription-settings";
@@ -418,10 +419,11 @@ export async function listRepositoryPathsAction(input: { repoUrlOrSlug: string }
     const parsed = listRepositoryPathsInput.safeParse(input);
     if (!parsed.success) return invalidInput(parsed.error);
     const { owner, name } = parseRepoInput(parsed.data.repoUrlOrSlug);
+    const accessToken = await loadGitHubToken(user, "listRepositoryPathsAction");
     const tree = await fetchRepoTree({
       owner,
       name,
-      accessToken: await loadGitHubToken(user, "listRepositoryPathsAction"),
+      ...(accessToken !== undefined ? { accessToken } : {}),
       signal: AbortSignal.timeout(15_000),
     });
     return ok(tree);

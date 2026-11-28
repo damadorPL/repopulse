@@ -1,15 +1,14 @@
 import { createHash } from "node:crypto";
 
-import {
-  MAX_MANIFEST_BYTES,
-  type LockfileVersions,
-  type RegistryCache,
-  type RegistryCacheEntry,
-} from "@repopulse/deps";
+import { MAX_MANIFEST_BYTES, type LockfileVersions, type RegistryCache } from "@repopulse/deps";
 import type { GitTreeEntry } from "@repopulse/github";
 import type { Redis } from "@repopulse/queue";
 
 import { createLogger } from "./logger.js";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 const log = createLogger("deps-cache");
 
@@ -27,8 +26,8 @@ export function createRedisRegistryCache(redis: CacheRedis): RegistryCache {
       try {
         const raw = await redis.get(key);
         if (!raw) return null;
-        const entry = JSON.parse(raw) as Partial<RegistryCacheEntry>;
-        if (typeof entry.body !== "string" || typeof entry.storedAt !== "number") return null;
+        const entry: unknown = JSON.parse(raw);
+        if (!isRecord(entry) || typeof entry.body !== "string" || typeof entry.storedAt !== "number") return null;
         return {
           body: entry.body,
           storedAt: entry.storedAt,
@@ -87,7 +86,7 @@ export interface TreeCache {
 export const BLOB_CACHE_TTL_SECONDS = 7 * 24 * 3600;
 export const TREE_CACHE_TTL_SECONDS = 24 * 3600;
 export const MAX_TREE_CACHE_BYTES = 2 * 1024 * 1024;
-export const LOCKFILE_CACHE_VERSION = 2;
+const LOCKFILE_CACHE_VERSION = 2;
 
 export function lockfileCacheKey(
   lockfileSha: string,
@@ -163,14 +162,25 @@ export function createRedisBlobCache(redis: BlobCacheRedis): BlobCache {
   };
 }
 
+function isGitTreeEntry(value: unknown): value is GitTreeEntry {
+  return (
+    isRecord(value) &&
+    typeof value.path === "string" &&
+    (value.type === "blob" || value.type === "tree" || value.type === "commit") &&
+    typeof value.sha === "string" &&
+    (value.size === null || typeof value.size === "number")
+  );
+}
+
 export function createRedisTreeCache(redis: CacheRedis): TreeCache {
   return {
     async get(githubRepoId, commitSha) {
       try {
         const raw = await redis.get(`deps:tree:${String(githubRepoId)}:${commitSha}`);
         if (!raw) return null;
-        const parsed = JSON.parse(raw) as Partial<CachedGitTree>;
-        if (!Array.isArray(parsed.entries) || typeof parsed.truncated !== "boolean") return null;
+        const parsed: unknown = JSON.parse(raw);
+        if (!isRecord(parsed) || !Array.isArray(parsed.entries) || typeof parsed.truncated !== "boolean") return null;
+        if (!parsed.entries.every(isGitTreeEntry)) return null;
         return { entries: parsed.entries, truncated: parsed.truncated };
       } catch {
         return null;
@@ -194,12 +204,21 @@ export function createRedisLockfileCache(redis: CacheRedis): LockfileCache {
       try {
         const raw = await redis.get(`deps:lockread:${key}`);
         if (!raw) return null;
-        const data = JSON.parse(raw) as {
-          versions: Array<[string, string]>;
-          formatVersion: string | null;
-          warnings: string[];
-        };
-        return { versions: new Map(data.versions), formatVersion: data.formatVersion, warnings: data.warnings };
+        const data: unknown = JSON.parse(raw);
+        if (
+          !isRecord(data) ||
+          !Array.isArray(data.versions) ||
+          (data.formatVersion !== null && typeof data.formatVersion !== "string") ||
+          !Array.isArray(data.warnings)
+        ) {
+          return null;
+        }
+        const pairs = data.versions.filter(
+          (entry): entry is [string, string] =>
+            Array.isArray(entry) && entry.length === 2 && typeof entry[0] === "string" && typeof entry[1] === "string",
+        );
+        const warnings = data.warnings.filter((w): w is string => typeof w === "string");
+        return { versions: new Map(pairs), formatVersion: data.formatVersion, warnings };
       } catch {
         return null;
       }

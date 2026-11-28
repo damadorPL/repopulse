@@ -20,6 +20,7 @@ export function ThemeProvider({ initialTheme, children }: { initialTheme: ThemeP
     const attribute = themeAttribute(next);
     if (attribute) document.documentElement.dataset.theme = attribute;
     else delete document.documentElement.dataset.theme;
+    // oxlint-disable-next-line unicorn/no-document-cookie -- Synchronous SSR theme cookie persistence
     document.cookie = themeCookieString(next);
   }
 

@@ -52,14 +52,3 @@ export function tagSlug(name: string): string {
 export function isHexColor(value: string): boolean {
   return HEX_COLOR_RE.test(value);
 }
-
-/** Black or white text, whichever reads better on `hex` (WCAG relative luminance). */
-export function readableTextColor(hex: string): "#000000" | "#FFFFFF" {
-  if (!isHexColor(hex)) return "#FFFFFF";
-  const channel = (offset: number) => {
-    const c = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  };
-  const luminance = 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
-  return luminance > 0.4 ? "#000000" : "#FFFFFF";
-}

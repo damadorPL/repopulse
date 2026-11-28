@@ -17,7 +17,7 @@ export type ToolVersions = Record<ToolName, string>;
 
 export const MISSING = "missing";
 
-export const TOOL_FOR: Record<SandboxPackageManager, ToolName> = {
+const TOOL_FOR: Record<SandboxPackageManager, ToolName> = {
   NPM: "npm",
   PNPM: "pnpm",
   BUN: "bun",
@@ -39,15 +39,15 @@ export const LOCKFILE_NAMES: Record<SandboxPackageManager, readonly string[]> = 
  * format differs from the input is refused afterwards (the worker requires the input format to be kept).
  */
 /** npm 7+ keeps v2 and v3 and silently upgrades v1, so v1 is refused. */
-export const NPM_LOCKFILE_VERSIONS = ["2", "3"] as const;
+const NPM_LOCKFILE_VERSIONS = ["2", "3"] as const;
 /** pnpm 9 through 12 write `lockfileVersion: '9.0'`. */
-export const PNPM_LOCKFILE_MAJOR = 9;
+const PNPM_LOCKFILE_MAJOR = 9;
 /** Bun 1.2 / 1.3 write text `bun.lock` v1, Bun 1.4 writes v2 for new lockfiles and keeps v1. */
-export const BUN_LOCKFILE_VERSIONS = ["1", "2"] as const;
+const BUN_LOCKFILE_VERSIONS = ["1", "2"] as const;
 /** uv.lock `version = 1` (uv ≥ 0.3). */
-export const UV_LOCKFILE_VERSION = "1";
+const UV_LOCKFILE_VERSION = "1";
 /** Poetry 2 reads and writes `lock-version = "2.x"`. */
-export const POETRY_LOCK_MAJOR = 2;
+const POETRY_LOCK_MAJOR = 2;
 
 /** A failed precondition: the job ends with `code` and `message` as the stderr tail. */
 export class LockJobError extends Error {
@@ -200,7 +200,7 @@ export function buildCommands(input: CommandInput, ctx: CommandContext): Command
 // ---------------------------------------------------------------------------------------------------------------
 
 /** Major of a version string such as `12.2.1`, `v1.4.3` or `0.13.1`; `null` when unparsable. */
-export function majorOf(version: string): number | null {
+function majorOf(version: string): number | null {
   const match = /^v?(\d+)(?:\.|$)/.exec(version.trim());
   return match ? Number(match[1]) : null;
 }
@@ -259,7 +259,7 @@ export function lockfileFormat(pm: SandboxPackageManager, content: string): stri
 }
 
 /** Throws `UNSUPPORTED_TOOL_VERSION` when the pinned tools would write the lockfile in another format. */
-export function checkLockfileFormat(pm: SandboxPackageManager, content: string): void {
+function checkLockfileFormat(pm: SandboxPackageManager, content: string): void {
   const format = lockfileFormat(pm, content);
   if (format === null) throw new LockJobError("UNSUPPORTED_TOOL_VERSION", "unrecognized lockfile format");
   const ok = (() => {
@@ -289,6 +289,10 @@ interface PackageManagerSpec {
   version: string;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 /** `packageManager` (`pnpm@10.12.1+sha512…`) and `devEngines.packageManager` entries of a package.json. */
 export function declaredPackageManagers(packageJson: string): PackageManagerSpec[] {
   let parsed: unknown;
@@ -297,20 +301,19 @@ export function declaredPackageManagers(packageJson: string): PackageManagerSpec
   } catch {
     throw new LockJobError("BAD_REQUEST", "package.json is not valid JSON");
   }
-  if (typeof parsed !== "object" || parsed === null) return [];
-  const pkg = parsed as Record<string, unknown>;
+  if (!isRecord(parsed)) return [];
   const out: PackageManagerSpec[] = [];
-  if (typeof pkg.packageManager === "string") {
-    const match = /^(@?[^@\s]+)@([^+\s]+)/.exec(pkg.packageManager.trim());
-    if (match) out.push({ name: match[1]!, version: match[2]! });
+  if (typeof parsed.packageManager === "string") {
+    const match = /^(@?[^@\s]+)@([^+\s]+)/.exec(parsed.packageManager.trim());
+    if (match?.[1] !== undefined && match[2] !== undefined) out.push({ name: match[1], version: match[2] });
   }
-  const devEngines = pkg.devEngines;
-  if (typeof devEngines === "object" && devEngines !== null) {
-    const pmField = (devEngines as Record<string, unknown>).packageManager;
+  const devEngines = parsed.devEngines;
+  if (isRecord(devEngines)) {
+    const pmField = devEngines.packageManager;
     const entries = Array.isArray(pmField) ? pmField : pmField ? [pmField] : [];
     for (const entry of entries) {
-      if (typeof entry !== "object" || entry === null) continue;
-      const { name, version } = entry as Record<string, unknown>;
+      if (!isRecord(entry)) continue;
+      const { name, version } = entry;
       if (typeof name === "string") out.push({ name, version: typeof version === "string" ? version : "*" });
     }
   }

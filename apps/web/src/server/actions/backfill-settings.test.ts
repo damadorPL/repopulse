@@ -1,5 +1,6 @@
-import { RELEASE_BACKFILL_PRIORITY } from "@repopulse/queue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { RELEASE_BACKFILL_PRIORITY } from "@repopulse/queue";
 
 import type * as BackfillSettingsModule from "@/server/backfill-settings";
 
@@ -63,22 +64,33 @@ beforeEach(() => {
 describe("super admin guard across backfill-settings actions", () => {
   it("returns FORBIDDEN for regular users and UNAUTHORIZED when signed out", async () => {
     currentUser.isSuperAdmin = false;
-    expect(await saveBackfillSettingsAction(validInput)).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
-    expect(await reapplyBackfillSettingsAction()).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
+    await expect(saveBackfillSettingsAction(validInput)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "FORBIDDEN" },
+    });
+    await expect(reapplyBackfillSettingsAction()).resolves.toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
 
     vi.mocked(getCurrentUserOrThrow).mockRejectedValue(new UnauthorizedError("Not signed in"));
-    expect(await saveBackfillSettingsAction(validInput)).toMatchObject({ ok: false, error: { code: "UNAUTHORIZED" } });
-    expect(await reapplyBackfillSettingsAction()).toMatchObject({ ok: false, error: { code: "UNAUTHORIZED" } });
+    await expect(saveBackfillSettingsAction(validInput)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "UNAUTHORIZED" },
+    });
+    await expect(reapplyBackfillSettingsAction()).resolves.toMatchObject({
+      ok: false,
+      error: { code: "UNAUTHORIZED" },
+    });
   });
 });
 
 describe("saveBackfillSettingsAction", () => {
   it("validates bounds and rejects defaultTarget > effective.hardCap", async () => {
-    expect(await saveBackfillSettingsAction({ ...validInput, defaultTarget: -1 })).toMatchObject({
+    await expect(saveBackfillSettingsAction({ ...validInput, defaultTarget: -1 })).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
-    expect(await saveBackfillSettingsAction({ ...validInput, defaultTarget: 600, hardCap: 400 })).toMatchObject({
+    await expect(
+      saveBackfillSettingsAction({ ...validInput, defaultTarget: 600, hardCap: 400 }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });

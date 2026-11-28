@@ -1,5 +1,8 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+
 import { prisma, SmtpPasswordUnreadableError } from "@repopulse/db";
 import {
   buildTestRelease,
@@ -9,8 +12,6 @@ import {
   resolveAppBaseUrl,
 } from "@repopulse/notifications";
 import { CHANNEL_INFO, DELIVERABLE_CHANNELS } from "@repopulse/notifications/channels";
-import { revalidatePath } from "next/cache";
-import { z } from "zod";
 
 import { getCurrentUserOrThrow } from "@/lib/auth";
 import { normalizeEvents, validateEventsForScope, type NotificationEventValue } from "@/lib/notification-events";
@@ -147,7 +148,7 @@ export async function updateNotificationRuleAction(input: {
     if (!rule) return fail("NOT_FOUND", "Notification rule not found.");
 
     const nextTagId = tagId !== undefined ? tagId : rule.tagId;
-    const nextEvents = events !== undefined ? events : normalizeEvents(rule.events);
+    const nextEvents = events ?? normalizeEvents(rule.events);
     const scopeError = validateEventsForScope(nextEvents, nextTagId !== null);
     if (scopeError) return fail("INVALID_INPUT", scopeError);
 

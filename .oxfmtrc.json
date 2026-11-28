@@ -7,7 +7,23 @@
   "singleQuote": false,
   "trailingComma": "all",
   "sortPackageJson": false,
-  "sortImports": {},
+  "sortImports": {
+    "customGroups": [
+      {
+        "groupName": "workspace",
+        "elementNamePattern": ["@repopulse/**"]
+      }
+    ],
+    "groups": [
+      "builtin",
+      "external",
+      "workspace",
+      ["internal", "subpath"],
+      ["parent", "sibling", "index"],
+      "style",
+      "unknown"
+    ]
+  },
   "sortTailwindcss": {
     "stylesheet": "apps/web/src/app/globals.css",
     "functions": ["cn", "cva", "clsx"]

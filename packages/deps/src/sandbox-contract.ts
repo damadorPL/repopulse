@@ -31,7 +31,6 @@ const relativePath = z
 const workdirPath = z.union([z.literal(""), relativePath]);
 
 export const sandboxFileSchema = z.strictObject({ path: relativePath, contentBase64: z.string() });
-export type SandboxFile = z.infer<typeof sandboxFileSchema>;
 
 export const lockRequestSchema = z.strictObject({
   packageManager: z.enum(SANDBOX_PACKAGE_MANAGERS),
@@ -71,7 +70,6 @@ export const lockResponseSchema = z.discriminatedUnion("ok", [
     stderrTail: z.string().max(4096).default(""),
   }),
 ]);
-export type LockResponse = z.input<typeof lockResponseSchema>;
 export type ParsedLockResponse = z.output<typeof lockResponseSchema>;
 
 /** `GET /health` (no auth). */

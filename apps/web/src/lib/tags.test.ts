@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isHexColor, readableTextColor, slugify, tagSlug } from "./tags";
+import { isHexColor, slugify, tagSlug } from "./tags";
 
 describe("slugify", () => {
   it.each([
@@ -39,13 +39,6 @@ describe("isHexColor", () => {
       expect(isHexColor(value)).toBe(false);
     },
   );
-});
-
-describe("readableTextColor", () => {
-  it("uses dark text on light colors and light text on dark colors", () => {
-    expect(readableTextColor("#FDE047")).toBe("#000000");
-    expect(readableTextColor("#1E3A8A")).toBe("#FFFFFF");
-  });
 });
 
 describe("tagSlug", () => {

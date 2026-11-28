@@ -13,10 +13,10 @@ import { verifyWebhookSignature } from "@repopulse/github";
 export const WEBHOOK_MAX_BODY_BYTES = 5 * 1024 * 1024;
 
 /** GitHub's push payload lists at most this many commits; a list this long may be truncated. */
-export const PUSH_MAX_LISTED_COMMITS = 2048;
+const PUSH_MAX_LISTED_COMMITS = 2048;
 
 /** Branch prefix of the bot's update pull requests (`repopulse/deps/<groupKey>`). */
-export const DEPS_BRANCH_PREFIX = "repopulse/deps/";
+const DEPS_BRANCH_PREFIX = "repopulse/deps/";
 
 export class PayloadTooLargeError extends Error {
   constructor() {
@@ -105,7 +105,7 @@ export function changedPathsOfPush(payload: { commits?: unknown }): Set<string> 
 }
 
 /** Whether a push touched a dependency file of a project (generic manifests / lockfiles, or its explicit paths). */
-export function pushTouchesProject(changed: Set<string> | null, manifestPaths: readonly string[]): boolean {
+function pushTouchesProject(changed: Set<string> | null, manifestPaths: readonly string[]): boolean {
   if (changed === null) return true;
   const explicit = new Set(manifestPaths);
   for (const path of changed) {
@@ -154,18 +154,16 @@ function positiveInt(value: unknown): number | null {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
+  return isRecord(value) ? value : null;
 }
 
 /** Project ids to rescan for a verified delivery (empty = nothing to do). */
-export async function projectsToScan(
-  event: string,
-  payload: Record<string, unknown>,
-  deps: WebhookDeps,
-): Promise<string[]> {
+async function projectsToScan(event: string, payload: Record<string, unknown>, deps: WebhookDeps): Promise<string[]> {
   const repoId = positiveInt(asRecord(payload.repository)?.id);
   if (repoId === null) return [];
 

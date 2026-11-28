@@ -15,11 +15,9 @@ export type DependencyUpdateStatus =
   | "DISMISSED"
   | "UNSUPPORTED_SOURCE";
 export type SemverType = "MAJOR" | "MINOR" | "PATCH" | "PRERELEASE" | "OTHER";
-export type DepsUpdateMode = "NOTIFY" | "MANUAL_PR" | "AUTO_PR";
 export type DepsUpdateLevel = "PATCH" | "MINOR" | "MAJOR";
 export type DepsGroupMode = "SINGLE" | "SEPARATE_MAJORS" | "PER_DEPENDENCY";
 export type DepsRangeStrategy = "BUMP" | "LOCKFILE_ONLY";
-export type DepsPrState = "OPEN" | "MERGED" | "CLOSED" | "EDITED";
 
 /**
  * Syntax of a declared range: npm semver ranges, PEP 440 specifiers (PEP 508 strings, requirements files) or
@@ -53,9 +51,4 @@ export interface ParsedDependency {
   unsupportedReason?: string;
   /** Repo-relative path of the file that declares it (differs from the manifest for `-r` includes). */
   file: string;
-}
-
-/** Ecosystem of a range syntax. */
-export function ecosystemOfSyntax(syntax: RangeSyntax): DependencyEcosystem {
-  return syntax === "npm" ? "NPM" : "PYPI";
 }

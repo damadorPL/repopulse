@@ -42,7 +42,10 @@ export interface DispatchResult {
  * domain (Coolify's `SERVICE_FQDN_*` may come without a scheme) gets `https://`.
  */
 export function resolveAppBaseUrl(env: Record<string, string | undefined> = process.env): string {
-  const raw = (env.APP_BASE_URL || env.AUTH_URL || env.NEXTAUTH_URL || "http://localhost:3000").trim();
+  const candidate = [env.APP_BASE_URL, env.AUTH_URL, env.NEXTAUTH_URL]
+    .map((v) => v?.trim())
+    .find((v): v is string => v !== undefined && v.length > 0);
+  const raw = candidate ?? "http://localhost:3000";
   const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
   return trimTrailingChar(withScheme, "/");
 }
@@ -90,7 +93,8 @@ export async function dispatchNotification(
   };
 
   if (channel === "EMAIL_INSTANT") {
-    const to = rule.destinationUrl?.trim() || input.user.email;
+    const dest = rule.destinationUrl?.trim();
+    const to = dest !== undefined && dest.length > 0 ? dest : input.user.email;
     const config = options.smtp ?? null;
     if (!config) {
       throw new NotificationDeliveryError(SMTP_NOT_CONFIGURED_MESSAGE, { permanent: true });

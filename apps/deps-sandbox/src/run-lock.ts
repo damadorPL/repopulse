@@ -34,7 +34,7 @@ import { log } from "./logger.js";
 export const DEFAULT_TIMEOUT_MS = 300_000;
 export const DEFAULT_EGRESS_PROXY = "http://deps-egress:3128";
 /** Combined stdout + stderr kept per job (rolling: the newest output wins). */
-export const MAX_CAPTURED_OUTPUT_BYTES = 1024 * 1024;
+const MAX_CAPTURED_OUTPUT_BYTES = 1024 * 1024;
 const DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -323,7 +323,7 @@ export function buildSandboxEnv(jobDir: string, opts: SandboxEnvOptions): Record
   const cache = path.join(jobDir, "cache");
   const env: Record<string, string> = {
     HOME: home,
-    PATH: opts.path || DEFAULT_PATH,
+    PATH: opts.path !== undefined && opts.path.length > 0 ? opts.path : DEFAULT_PATH,
     TMPDIR: path.join(jobDir, "tmp"),
     LANG: "C.UTF-8",
     CI: "1",
@@ -487,7 +487,7 @@ export const defaultSpawn: SpawnFn = (command, args, options) =>
   });
 
 /** SIGKILL the child's process group (POSIX), falling back to the child itself. Never throws. */
-export function killProcessTree(child: SpawnedProcess): void {
+function killProcessTree(child: SpawnedProcess): void {
   if (child.pid && process.platform !== "win32") {
     try {
       process.kill(-child.pid, "SIGKILL");
@@ -633,7 +633,7 @@ async function writeTree(treeRoot: string, files: readonly DecodedFile[]): Promi
       await fs.writeFile(target, file.content, { flag: "wx", mode: 0o600 });
     } catch (err) {
       if (err instanceof LockJobError) throw err;
-      const code = (err as NodeJS.ErrnoException).code;
+      const code = typeof err === "object" && err !== null && "code" in err ? err.code : undefined;
       if (code === "EEXIST" || code === "ENOTDIR" || code === "EISDIR") {
         throw new LockJobError("BAD_REQUEST", "conflicting file paths in the upload");
       }
@@ -724,11 +724,13 @@ export async function runLock(request: ParsedLockRequest, options: RunLockOption
     if (!manifest) throw new LockJobError("BAD_REQUEST", `${manifestPath} is missing from the upload`);
     const inputLockfile = byPath.get(request.expectLockfile);
 
+    const packageJson = python ? undefined : manifest.toString("utf8");
+    const lockfileText = inputLockfile?.toString("utf8");
     checkToolVersions(
       {
         packageManager: pm,
-        packageJson: python ? undefined : manifest.toString("utf8"),
-        lockfile: inputLockfile?.toString("utf8"),
+        ...(packageJson !== undefined ? { packageJson } : {}),
+        ...(lockfileText !== undefined ? { lockfile: lockfileText } : {}),
       },
       options.tools,
     );
@@ -758,9 +760,10 @@ export async function runLock(request: ParsedLockRequest, options: RunLockOption
       pm === "PNPM" && inputLockfile && hasPnpmPackageManagerDependencies(inputLockfile.toString("utf8"))
         ? "warn"
         : "ignore";
+    const pathEnv = options.pathEnv ?? process.env.PATH;
     const env = buildSandboxEnv(jobDir, {
       proxy: options.proxy,
-      path: options.pathEnv ?? process.env.PATH,
+      ...(pathEnv !== undefined ? { path: pathEnv } : {}),
       pnpmPmOnFail,
     });
     await options.onPrepared?.({ jobDir, treeRoot, cwd });

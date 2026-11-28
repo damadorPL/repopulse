@@ -1,7 +1,8 @@
-import { convertAppManifest } from "@repopulse/github";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import type { NextRequest } from "next/server";
+
+import { convertAppManifest } from "@repopulse/github";
 
 import { getCurrentUserOrThrow, UnauthorizedError } from "@/lib/auth";
 import {

@@ -1,8 +1,9 @@
 "use server";
 
-import { INSTANCE_SETTINGS_ID, prisma } from "@repopulse/db";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+
+import { INSTANCE_SETTINGS_ID, prisma } from "@repopulse/db";
 
 import { INVITE_EXPIRY_DAYS, INVITE_NOTE_MAX_LENGTH, MAX_PENDING_INVITES } from "@/lib/invites";
 import { fail, invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
@@ -19,7 +20,7 @@ const createInviteInput = z.object({
     .trim()
     .max(INVITE_NOTE_MAX_LENGTH, `Notes can be at most ${INVITE_NOTE_MAX_LENGTH} characters`)
     .optional()
-    .transform((v) => v || null),
+    .transform((v) => (v !== undefined && v.length > 0 ? v : null)),
   expiresInDays: z
     .number()
     .refine(

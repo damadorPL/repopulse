@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev --port 3000",
     "build": "next build",
+    "analyze": "next analyze",
     "start": "next start --port 3000",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",

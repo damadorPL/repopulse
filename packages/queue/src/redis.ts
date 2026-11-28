@@ -9,7 +9,9 @@ export { Redis, type RedisOptions };
  * blocking commands must wait out a Redis restart instead of failing. Producers that should fail
  * fast (web requests) override it.
  */
-export function createRedisConnection(options: RedisOptions & { url?: string } = {}): Redis {
+export function createRedisConnection(
+  options: Omit<RedisOptions, "replyMapping"> & { url?: string | undefined; replyMapping?: "legacy" } = {},
+): Redis {
   const { url = process.env.REDIS_URL, ...rest } = options;
   if (!url) {
     throw new Error("REDIS_URL is not set");

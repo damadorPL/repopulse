@@ -83,14 +83,17 @@ beforeEach(() => {
 describe("super admin guard across email-settings actions", () => {
   it("returns FORBIDDEN for regular users and UNAUTHORIZED when signed out", async () => {
     currentUser.isSuperAdmin = false;
-    expect(await saveSmtpSettingsAction(baseInput)).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
-    expect(await removeSmtpSettingsAction()).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
-    expect(await sendSmtpTestEmailAction({})).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
+    await expect(saveSmtpSettingsAction(baseInput)).resolves.toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
+    await expect(removeSmtpSettingsAction()).resolves.toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
+    await expect(sendSmtpTestEmailAction({})).resolves.toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
 
     vi.mocked(getCurrentUserOrThrow).mockRejectedValue(new UnauthorizedError("Not signed in"));
-    expect(await saveSmtpSettingsAction(baseInput)).toMatchObject({ ok: false, error: { code: "UNAUTHORIZED" } });
-    expect(await removeSmtpSettingsAction()).toMatchObject({ ok: false, error: { code: "UNAUTHORIZED" } });
-    expect(await sendSmtpTestEmailAction({})).toMatchObject({ ok: false, error: { code: "UNAUTHORIZED" } });
+    await expect(saveSmtpSettingsAction(baseInput)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "UNAUTHORIZED" },
+    });
+    await expect(removeSmtpSettingsAction()).resolves.toMatchObject({ ok: false, error: { code: "UNAUTHORIZED" } });
+    await expect(sendSmtpTestEmailAction({})).resolves.toMatchObject({ ok: false, error: { code: "UNAUTHORIZED" } });
   });
 });
 
@@ -158,7 +161,7 @@ describe("sendSmtpTestEmailAction", () => {
 
   it("enforces the 10-second cooldown and maps delivery errors to DELIVERY_FAILED", async () => {
     getSmtpConfig.mockRejectedValueOnce(new SmtpPasswordUnreadableError("Cannot decrypt SMTP password"));
-    expect(await sendSmtpTestEmailAction({})).toEqual({
+    await expect(sendSmtpTestEmailAction({})).resolves.toEqual({
       ok: false,
       error: { code: "DELIVERY_FAILED", message: "Cannot decrypt SMTP password" },
     });
@@ -175,7 +178,7 @@ describe("sendSmtpTestEmailAction", () => {
     now += 10_000;
     isNotificationDeliveryError.mockReturnValueOnce(true);
     dispatchNotification.mockRejectedValueOnce(new Error("SMTP connection refused"));
-    expect(await sendSmtpTestEmailAction({})).toEqual({
+    await expect(sendSmtpTestEmailAction({})).resolves.toEqual({
       ok: false,
       error: { code: "DELIVERY_FAILED", message: "SMTP connection refused" },
     });

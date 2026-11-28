@@ -53,6 +53,20 @@ export interface DependencySettingsValues {
   commitPrefix: string;
 }
 
+const SETTINGS_KEYS = [
+  "updateMode",
+  "maxUpdateLevel",
+  "includePrereleases",
+  "minReleaseAgeDays",
+  "groupMode",
+  "rangeStrategy",
+  "maxOpenPrs",
+  "scanIntervalHours",
+  "notificationLevel",
+  "manifestPaths",
+  "commitPrefix",
+] as const satisfies ReadonlyArray<keyof DependencySettingsValues>;
+
 function Row({
   label,
   htmlFor,
@@ -180,7 +194,7 @@ export function DependencySettingsForm({
     const manifestPaths = pathsDraft.trim() ? [...form.manifestPaths, pathsDraft.trim()] : form.manifestPaths;
     const next = { ...form, minReleaseAgeDays, maxOpenPrs, manifestPaths };
     const changed: Record<string, unknown> = {};
-    for (const key of Object.keys(next) as Array<keyof DependencySettingsValues>) {
+    for (const key of SETTINGS_KEYS) {
       const same =
         key === "manifestPaths" ? samePaths(next.manifestPaths, values.manifestPaths) : next[key] === values[key];
       if (!same) changed[key] = next[key];

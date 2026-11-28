@@ -56,6 +56,8 @@ export function preparePackageLock(text: string, path = "package-lock.json"): Pr
  * Resolved versions of the direct dependencies of `importer` (the manifest's directory relative to the lockfile's,
  * `""` = root). Workspace members resolve `<importer>/node_modules/<name>` first, then the hoisted
  * `node_modules/<name>`. Linked (workspace) packages are skipped.
+ *
+ * @internal Exported for unit tests.
  */
 export function readPackageLock(text: string, importer = "", path = "package-lock.json"): LockfileVersions {
   return preparePackageLock(text, path).readFor(importer, []);

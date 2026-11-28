@@ -8,9 +8,9 @@ import { cachedGet, isRegistryUnavailableError, registryCacheKey, type RegistryF
 import { toGitHubRepoUrl } from "./github-url.js";
 import type { RegistryLookup, RegistryVersion } from "./types.js";
 
-export const PYPI_SIMPLE_URL = "https://pypi.org/simple";
-export const PYPI_JSON_URL = "https://pypi.org/pypi";
-export const PYPI_SIMPLE_ACCEPT = "application/vnd.pypi.simple.v1+json";
+const PYPI_SIMPLE_URL = "https://pypi.org/simple";
+const PYPI_JSON_URL = "https://pypi.org/pypi";
+const PYPI_SIMPLE_ACCEPT = "application/vnd.pypi.simple.v1+json";
 
 const NORMALIZED_NAME = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 
@@ -103,6 +103,31 @@ export interface PypiFetchOptions extends RegistryFetchOptions {
   includeProjectUrls?: boolean;
 }
 
+function parseCompactSourceRepoUrl(body: string): string | null {
+  const data: unknown = JSON.parse(body);
+  return isRecord(data) && typeof data.sourceRepoUrl === "string" ? data.sourceRepoUrl : null;
+}
+
+function parseCompactSimple(body: string): CompactSimple {
+  const data: unknown = JSON.parse(body);
+  if (!isRecord(data)) throw new Error("cached simple index is invalid");
+  const versions = Array.isArray(data.versions) ? data.versions.filter((v): v is string => typeof v === "string") : [];
+  const files: CompactFile[] = [];
+  if (Array.isArray(data.files)) {
+    for (const item of data.files) {
+      if (!isRecord(item) || typeof item.v !== "string") continue;
+      files.push({
+        v: item.v,
+        t: typeof item.t === "string" ? item.t : null,
+        y: item.y === true,
+        rp: typeof item.rp === "string" ? item.rp : null,
+        h: typeof item.h === "string" ? item.h : null,
+      });
+    }
+  }
+  return { versions, files };
+}
+
 /**
  * Looks up a PyPI project (any spelling; normalized per PEP 503). Throws `RegistryUnavailableError` on 429 / 5xx /
  * network errors; `{ found: false }` for 404 and invalid names. A version's release date is its earliest file
@@ -129,7 +154,7 @@ export async function fetchPypiPackage(name: string, options: PypiFetchOptions):
           options,
           derive: compactJson,
         }).then(
-          (meta) => (meta.found ? (JSON.parse(meta.body) as { sourceRepoUrl: string | null }).sourceRepoUrl : null),
+          (meta) => (meta.found ? parseCompactSourceRepoUrl(meta.body) : null),
           (error: unknown) => {
             if (!isRegistryUnavailableError(error)) throw error;
             // The changelog link is optional: keep the versions.
@@ -140,7 +165,7 @@ export async function fetchPypiPackage(name: string, options: PypiFetchOptions):
 
   const [simple, sourceRepoUrl] = await Promise.all([simplePromise, metaPromise]);
   if (!simple.found) return { found: false, reason: "Not on the public PyPI" };
-  const index = JSON.parse(simple.body) as CompactSimple;
+  const index = parseCompactSimple(simple.body);
 
   const filesByVersion = Map.groupBy(index.files, (file) => file.v);
   const versions: RegistryVersion[] = [];
@@ -151,9 +176,9 @@ export async function fetchPypiPackage(name: string, options: PypiFetchOptions):
     const live = files.filter((file) => !file.y);
     const considered = live.length > 0 ? live : files;
     const times = files.map((file) => (file.t ? Date.parse(file.t) : NaN)).filter((t) => !Number.isNaN(t));
-    const requiresPython = considered.some((file) => file.rp === null)
-      ? null
-      : [...new Set(considered.map((file) => file.rp as string))].toSorted();
+    const requiresPythonValues = considered.map((file) => file.rp).filter((rp): rp is string => rp !== null);
+    const requiresPython =
+      requiresPythonValues.length === considered.length ? [...new Set(requiresPythonValues)].toSorted() : null;
     versions.push({
       version: raw,
       publishedAt: times.length > 0 ? new Date(Math.min(...times)) : null,

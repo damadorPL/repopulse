@@ -15,13 +15,15 @@ import { getRedis, isRealtimeConfigured, RealtimeUnavailableError, withRedisTime
  * Shares the cached `Queue` instance with the Dependencies actions (same `globalThis` key, same
  * options), so the web process holds one producer for the queue.
  */
-const globalForDeps = globalThis as unknown as { repopulseDepsScanQueue?: DepsScanQueue };
+declare global {
+  var repopulseDepsScanQueue: DepsScanQueue | undefined;
+}
 
 function getDepsScanQueue(): DepsScanQueue {
-  globalForDeps.repopulseDepsScanQueue ??= createDepsScanQueue(getRedis(), (err) =>
+  globalThis.repopulseDepsScanQueue ??= createDepsScanQueue(getRedis(), (err) =>
     console.error(`[deps-webhook] queue error: ${err.message}`),
   );
-  return globalForDeps.repopulseDepsScanQueue;
+  return globalThis.repopulseDepsScanQueue;
 }
 
 /**

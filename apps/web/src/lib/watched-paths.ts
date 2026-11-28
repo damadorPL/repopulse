@@ -34,9 +34,3 @@ export function validateWatchedPaths(input: string | readonly string[]): Watched
   if (paths.length === 0) return { ok: false, message: "Enter at least one file or folder path." };
   return { ok: true, paths };
 }
-
-/** Short label for a repository card: `CHANGELOG.md`, `CHANGELOG.md, docs`, `CHANGELOG.md +2 more`. */
-export function summarizeWatchedPaths(paths: readonly string[]): string {
-  if (paths.length <= 2) return paths.join(", ");
-  return `${paths[0]} +${paths.length - 1} more`;
-}

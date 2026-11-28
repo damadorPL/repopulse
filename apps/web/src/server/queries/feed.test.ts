@@ -1,5 +1,6 @@
-import type * as DbModule from "@repopulse/db";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type * as DbModule from "@repopulse/db";
 
 const prisma = {
   release: {

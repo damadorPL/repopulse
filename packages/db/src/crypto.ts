@@ -47,8 +47,11 @@ export function decryptToken(cipherText: string): string {
   if (parts.length !== 3) {
     throw new Error("Invalid encrypted token format: expected ivHex:authTagHex:encryptedHex");
   }
-  const [ivHex, authTagHex, encryptedHex] = parts as [string, string, string];
+  const [ivHex, authTagHex, encryptedHex] = parts;
   if (
+    ivHex === undefined ||
+    authTagHex === undefined ||
+    encryptedHex === undefined ||
     ivHex.length !== IV_LENGTH * 2 ||
     authTagHex.length !== AUTH_TAG_LENGTH * 2 ||
     encryptedHex.length % 2 !== 0 ||

@@ -14,7 +14,7 @@ import {
 function setAtPath(root: unknown, path: ReadonlyArray<string | number>, update: (value: string) => string): boolean {
   let node: unknown = root;
   for (let i = 0; i < path.length - 1; i++) {
-    const key = path[i] as string | number;
+    const key = path[i];
     if (Array.isArray(node) && typeof key === "number") node = node[key];
     else if (isRecord(node) && typeof key === "string") node = node[key];
     else return false;

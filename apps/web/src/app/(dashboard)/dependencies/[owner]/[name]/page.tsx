@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { dependencyListHrefFrom } from "@/lib/dependency-list-filters";
 import { PACKAGE_MANAGER_LABELS, updateModeLabel, type LevelCounts } from "@/lib/dependency-settings";
 import { repositorySettingsHref } from "@/lib/repo-list-filters";
+import { toRoute } from "@/lib/route";
 import { loadGitHubToken } from "@/server/action-result";
 import {
   isDepsEnabled,
@@ -58,7 +59,7 @@ function canonicalProjectHref(fullName: string, rawFrom: string | string[] | und
   const from = Array.isArray(rawFrom) ? rawFrom[0] : rawFrom;
   const [canonicalOwner = "", canonicalName = ""] = fullName.split("/");
   const path = `/dependencies/${encodeURIComponent(canonicalOwner)}/${encodeURIComponent(canonicalName)}`;
-  return (from ? `${path}?from=${encodeURIComponent(from)}` : path) as Route;
+  return toRoute(from ? `${path}?from=${encodeURIComponent(from)}` : path);
 }
 
 function Section({
@@ -250,7 +251,7 @@ function ManifestsTable({
 
   return (
     <div className="overflow-x-auto rounded-md border">
-      <table className="w-full min-w-xl text-sm">
+      <table className="w-full min-w-xl text-sm" aria-label="Tracked manifests">
         <thead className="text-left text-xs text-muted-foreground">
           <tr className="border-b">
             <th className="px-3 py-2 font-medium">Path</th>

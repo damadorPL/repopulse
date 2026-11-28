@@ -6,7 +6,7 @@ import { ManifestParseError } from "./errors.js";
 import { jsonPathKey, locateJsonStrings, type JsonLocations } from "./json-locate.js";
 
 /** `package.json` dependency sections and their kinds. */
-export const PACKAGE_JSON_SECTIONS: ReadonlyArray<{ key: string; kind: DependencyKind }> = [
+const PACKAGE_JSON_SECTIONS: ReadonlyArray<{ key: string; kind: DependencyKind }> = [
   { key: "dependencies", kind: "PROD" },
   { key: "devDependencies", kind: "DEV" },
   { key: "peerDependencies", kind: "PEER" },

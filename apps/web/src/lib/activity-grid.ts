@@ -10,7 +10,7 @@ import { format } from "date-fns";
 export const ACTIVITY_SOURCES = ["RELEASE", "TAG", "COMMIT"] as const;
 export type ActivitySource = (typeof ACTIVITY_SOURCES)[number];
 
-export const ACTIVITY_WEEKS = 53;
+const ACTIVITY_WEEKS = 53;
 /** Days of history the server sends: 53 weeks plus the partial current week. */
 export const ACTIVITY_WINDOW_DAYS = 371;
 

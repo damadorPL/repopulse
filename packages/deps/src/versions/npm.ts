@@ -42,11 +42,6 @@ export function isSupportedNpmRange(spec: string): boolean {
   return npmUnsupportedReason(spec) === null;
 }
 
-/** Valid semver version (`1.2.3`, `1.2.3-beta.1`). */
-export function isValidNpmVersion(version: string): boolean {
-  return semver.valid(version) !== null;
-}
-
 export function compareNpm(a: string, b: string): number {
   return semver.compare(a, b);
 }

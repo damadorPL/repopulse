@@ -67,7 +67,7 @@ function matchValue(actual: unknown, condition: unknown): boolean {
   return eq(actual, condition);
 }
 
-export function matches(row: Row, where: Where | undefined): boolean {
+function matches(row: Row, where: Where | undefined): boolean {
   if (!where) return true;
   for (const [key, condition] of Object.entries(where)) {
     if (condition === undefined) continue;
@@ -96,7 +96,7 @@ const clone = <T>(row: T): T => ({ ...(row as object) }) as T;
 
 let counter = 0;
 
-export class FakeTable {
+class FakeTable {
   rows: Row[] = [];
   private readonly defaults: () => Row;
   private readonly touch: boolean;

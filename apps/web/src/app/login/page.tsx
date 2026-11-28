@@ -1,9 +1,10 @@
-import type { Metadata, Route } from "next";
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { SubmitButton } from "@/components/ui/submit-button";
 import { auth } from "@/lib/auth";
+import { toRoute } from "@/lib/route";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { isPublicRegistrationOpen } from "@/server/registration";
 
@@ -47,7 +48,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
       headers: await headers(),
     });
     if (result.url) {
-      redirect(result.url as Route);
+      redirect(toRoute(result.url));
     }
   }
 

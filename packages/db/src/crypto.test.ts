@@ -106,11 +106,10 @@ describe("encryptToken / decryptToken", () => {
       this: Buffer,
       ...args: Parameters<typeof originalFill>
     ) {
-      const result = originalFill.apply(this, args);
+      originalFill.apply(this, args);
       if (args[0] === 0 && this.length === 32) {
         zeroedBuffers.push(this);
       }
-      return result;
     });
 
     try {

@@ -39,11 +39,11 @@ export interface IgnoreRule {
   /** Name glob: `*` only at the start and/or end (`@types/*`, `*-plugin`, `*eslint*`, `react`). */
   name: string;
   /** Optional range in the dependency's own syntax: only versions inside it are ignored. */
-  versions?: string;
+  versions?: string | undefined;
 }
 
 const IGNORE_PATTERN = /^\*?[A-Za-z0-9@/._-]+\*?$/;
-export const IGNORE_PATTERN_MAX_LENGTH = 214;
+const IGNORE_PATTERN_MAX_LENGTH = 214;
 
 /** `true` for a valid ignore-rule name pattern (`*` alone ignores everything). */
 export function isValidIgnorePattern(pattern: string): boolean {
@@ -55,7 +55,7 @@ export function isValidIgnorePattern(pattern: string): boolean {
 }
 
 /** `true` when `versions` is a valid range in npm, PEP 440 or Poetry syntax. */
-export function isValidIgnoreVersions(versions: string): boolean {
+function isValidIgnoreVersions(versions: string): boolean {
   return isValidRange("npm", versions) || isValidRange("pep440", versions) || isValidRange("poetry", versions);
 }
 
@@ -329,7 +329,7 @@ export function selectTarget(
   const oldEnough = (candidate: RegistryVersion): boolean =>
     candidate.publishedAt === null || candidate.publishedAt.getTime() <= cutoff;
   const eligible = withinLevel.filter(oldEnough);
-  const preferred = withinLevel.at(-1) as RegistryVersion;
+  const preferred = withinLevel.at(-1)!;
   if (eligible.length === 0) {
     return baseSelection({
       ...common,
@@ -344,7 +344,7 @@ export function selectTarget(
   let target: RegistryVersion | undefined;
   let newDeclared: string | null = null;
   for (let index = eligible.length - 1; index >= 0; index--) {
-    const candidate = eligible[index] as RegistryVersion;
+    const candidate = eligible[index]!;
     if (lockfileOnly) {
       if (satisfiesRange(rangeSyntax, candidate.version, declared)) {
         target = candidate;
@@ -361,7 +361,7 @@ export function selectTarget(
     }
   }
   if (!target) {
-    const blocked = eligible.at(-1) as RegistryVersion;
+    const blocked = eligible.at(-1)!;
     return baseSelection({
       ...common,
       ...describe(blocked),
@@ -498,7 +498,7 @@ export interface ManifestUpdateTarget {
 const REGENERATED: ReadonlySet<PackageManager> = new Set(SANDBOX_PACKAGE_MANAGERS);
 
 /** Check-only reason of a manifest (Yarn, `bun.lockb`, pip-tools), or `null`. */
-export function manifestCheckOnlyReason(manifest: ManifestUpdateTarget): string | null {
+function manifestCheckOnlyReason(manifest: ManifestUpdateTarget): string | null {
   if (manifest.checkOnlyReason) return manifest.checkOnlyReason;
   if (manifest.packageManager === "YARN") return "Yarn projects are check only: update pull requests are not supported";
   if (manifest.packageManager === "PIP_TOOLS") return "pip-compile output is check only: recompile it with pip-compile";
@@ -531,7 +531,12 @@ export function groupCapability(
   options: { lockfileRegeneration: boolean },
 ): GroupCapability {
   const lockfiles = [
-    ...new Set(manifests.filter(manifestNeedsLockfile).map((manifest) => manifest.lockfilePath as string)),
+    ...new Set(
+      manifests
+        .filter(manifestNeedsLockfile)
+        .map((manifest) => manifest.lockfilePath)
+        .filter((p): p is string => p !== null),
+    ),
   ].toSorted();
   const needsLockfile = lockfiles.length > 0;
   for (const manifest of manifests) {

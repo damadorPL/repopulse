@@ -1,5 +1,6 @@
-import type * as GithubModule from "@repopulse/github";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type * as GithubModule from "@repopulse/github";
 
 const prisma = {
   dependencyProject: { findMany: vi.fn(), findFirst: vi.fn() },
@@ -39,7 +40,7 @@ beforeEach(() => {
   github.createInstallationToken.mockResolvedValue({ token: "t", expiresAt: new Date() });
 });
 
-describe("getDependencyProjects", () => {
+describe("getDependenciesListData", () => {
   it("is scoped to the user and aggregates outdated counts", async () => {
     prisma.dependencyProject.findMany.mockResolvedValue([
       {
@@ -116,9 +117,12 @@ describe("getDependencyProjects", () => {
         pullRequests: [],
       },
     ]);
-    prisma.userSubscription.findMany.mockResolvedValue([{ repositoryId: "r1" }]);
+    prisma.userSubscription.findMany.mockResolvedValue([
+      { repositoryId: "r1", repository: { githubRepoId: 1, fullName: "acme/web", description: null, avatarUrl: null } },
+    ]);
 
-    const [project] = await queries.getDependencyProjects("u1");
+    const { projects } = await queries.getDependenciesListData("u1");
+    const [project] = projects;
     expect(prisma.dependencyProject.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { userId: "u1" } }),
     );
@@ -216,7 +220,8 @@ describe("getDependencyProjects", () => {
       { githubRepoId: 20n, projectId: "p-other", project: { user: { githubLogin: "bob", name: null } } },
     ]);
 
-    const [p1, p2] = await queries.getDependencyProjects("u1");
+    const { projects } = await queries.getDependenciesListData("u1");
+    const [p1, p2] = projects;
     expect(p1!.openPullRequests).toEqual([
       { id: "pr1", number: 12, htmlUrl: "https://github.com/acme/web/pull/12", groupKey: "all" },
     ]);
@@ -239,25 +244,8 @@ describe("getDependencyProjects", () => {
     const p2Plans = queries.planListPullRequests(p2!, { appConfigured: true, lockfileRegeneration: true });
     expect(p2Plans[0]!.disabledReason).toContain("bob");
   });
-});
 
-describe("getAddableSubscriptions", () => {
-  it("lists the user's subscriptions that are not projects yet", async () => {
-    prisma.userSubscription.findMany.mockResolvedValue([
-      { id: "s1", repository: { githubRepoId: 1, fullName: "b/one", description: null, avatarUrl: null } },
-      { id: "s2", repository: { githubRepoId: 2, fullName: "a/two", description: "d", avatarUrl: null } },
-    ]);
-    prisma.dependencyProject.findMany.mockResolvedValue([{ githubRepoId: 1 }]);
-    expect(await queries.getAddableSubscriptions("u1")).toEqual([
-      { subscriptionId: "s2", fullName: "a/two", description: "d", avatarUrl: null },
-    ]);
-    expect(prisma.dependencyProject.findMany).toHaveBeenCalledWith({
-      where: { userId: "u1" },
-      select: { githubRepoId: true },
-    });
-  });
-
-  it("getDependenciesListData fetches projects and addable subscriptions in a single pass", async () => {
+  it("fetches projects and addable subscriptions in a single pass", async () => {
     prisma.dependencyProject.findMany.mockResolvedValue([
       {
         id: "p1",
@@ -397,7 +385,7 @@ function storedProject(overrides: Record<string, unknown> = {}) {
 describe("getDependencyProject", () => {
   it("looks the project up by user and case-insensitive name", async () => {
     prisma.dependencyProject.findMany.mockResolvedValue([]);
-    expect(await queries.getDependencyProject("u2", "Acme", "Web")).toBeNull();
+    await expect(queries.getDependencyProject("u2", "Acme", "Web")).resolves.toBeNull();
     expect(prisma.dependencyProject.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { userId: "u2", fullName: { equals: "Acme/Web", mode: "insensitive" } },
@@ -408,11 +396,11 @@ describe("getDependencyProject", () => {
 
   it("ignores ILIKE underscore wildcard mismatches", async () => {
     prisma.dependencyProject.findMany.mockResolvedValue([storedProject({ fullName: "my-org/web" })]);
-    expect(await queries.getDependencyProject("u1", "my_org", "web")).toBeNull();
+    await expect(queries.getDependencyProject("u1", "my_org", "web")).resolves.toBeNull();
   });
 
   it("rejects implausible segments without a query", async () => {
-    expect(await queries.getDependencyProject("u1", "..", "web")).toBeNull();
+    await expect(queries.getDependencyProject("u1", "..", "web")).resolves.toBeNull();
     expect(prisma.dependencyProject.findMany).not.toHaveBeenCalled();
   });
 
@@ -518,33 +506,39 @@ describe("checkRepoAccess", () => {
 
   it("needs the App configured and installed", async () => {
     loadGitHubAppSettings.mockResolvedValueOnce(null);
-    expect(await queries.checkRepoAccess(user, repo, "read")).toMatchObject({ ok: false, code: "UNAVAILABLE" });
+    await expect(queries.checkRepoAccess(user, repo, "read")).resolves.toMatchObject({
+      ok: false,
+      code: "UNAVAILABLE",
+    });
     github.getRepoInstallation.mockResolvedValueOnce(null);
-    expect(await queries.checkRepoAccess(user, repo, "read")).toMatchObject({ ok: false, code: "CONFLICT" });
+    await expect(queries.checkRepoAccess(user, repo, "read")).resolves.toMatchObject({ ok: false, code: "CONFLICT" });
   });
 
   it("checks the user's permission with a token narrowed to the repository", async () => {
     github.getCollaboratorPermission.mockResolvedValue("read");
-    expect(await queries.checkRepoAccess(user, repo, "read")).toEqual({ ok: true, installationId: 9 });
+    await expect(queries.checkRepoAccess(user, repo, "read")).resolves.toEqual({ ok: true, installationId: 9 });
     expect(github.createInstallationToken).toHaveBeenCalledWith(
       expect.anything(),
       9,
       { repositoryIds: [5], permissions: { metadata: "read" } },
       expect.anything(),
     );
-    expect(await queries.checkRepoAccess(user, repo, "write")).toMatchObject({ ok: false, code: "FORBIDDEN" });
+    await expect(queries.checkRepoAccess(user, repo, "write")).resolves.toMatchObject({ ok: false, code: "FORBIDDEN" });
   });
 
   it("re-resolves a changed login on a 404", async () => {
     github.getCollaboratorPermission.mockResolvedValueOnce(null).mockResolvedValueOnce("admin");
     github.getUserLoginById.mockResolvedValue("alice-new");
-    expect(await queries.checkRepoAccess(user, repo, "write")).toEqual({ ok: true, installationId: 9 });
+    await expect(queries.checkRepoAccess(user, repo, "write")).resolves.toEqual({ ok: true, installationId: 9 });
     expect(github.getCollaboratorPermission).toHaveBeenLastCalledWith(expect.anything(), "acme", "web", "alice-new");
     expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: "u1" }, data: { githubLogin: "alice-new" } });
   });
 
   it("reports an unreadable App key", async () => {
     loadGitHubAppSettings.mockRejectedValueOnce(new GitHubAppKeyUnreadableError());
-    expect(await queries.checkRepoAccess(user, repo, "read")).toMatchObject({ ok: false, code: "UNAVAILABLE" });
+    await expect(queries.checkRepoAccess(user, repo, "read")).resolves.toMatchObject({
+      ok: false,
+      code: "UNAVAILABLE",
+    });
   });
 });

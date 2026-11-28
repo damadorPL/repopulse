@@ -1,5 +1,6 @@
-import type * as GithubModule from "@repopulse/github";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type * as GithubModule from "@repopulse/github";
 
 class UnauthorizedError extends Error {}
 class ForbiddenError extends Error {}
@@ -108,21 +109,23 @@ describe("addRepositoryAction", () => {
   });
 
   it("validates empty slug, nothing-tracked combination, and invalid or too many watchedPaths", async () => {
-    expect(await addRepositoryAction({ repoUrlOrSlug: "   ", includePrereleases: false, tagIds: [] })).toMatchObject({
+    await expect(
+      addRepositoryAction({ repoUrlOrSlug: "   ", includePrereleases: false, tagIds: [] }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
-    expect(
-      await addRepositoryAction({
+    await expect(
+      addRepositoryAction({
         repoUrlOrSlug: "acme/web",
         includePrereleases: false,
         trackMode: "NONE",
         trackPaths: false,
         tagIds: [],
       }),
-    ).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
-    expect(
-      await addRepositoryAction({
+    ).resolves.toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    await expect(
+      addRepositoryAction({
         repoUrlOrSlug: "acme/web",
         includePrereleases: false,
         trackMode: "NONE",
@@ -130,16 +133,16 @@ describe("addRepositoryAction", () => {
         watchedPaths: ["../secret"],
         tagIds: [],
       }),
-    ).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
-    expect(
-      await addRepositoryAction({
+    ).resolves.toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    await expect(
+      addRepositoryAction({
         repoUrlOrSlug: "acme/web",
         includePrereleases: false,
         trackPaths: true,
         watchedPaths: Array.from({ length: 51 }, (_, i) => `src/file-${i}.ts`),
         tagIds: [],
       }),
-    ).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    ).resolves.toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
     expect(validateAndFetchRepo).not.toHaveBeenCalled();
   });
 
@@ -340,7 +343,7 @@ describe("removeSubscriptionAction", () => {
 
 describe("listRepositoryPathsAction", () => {
   it("validates input and passes decrypted token to fetchRepoTree", async () => {
-    expect(await listRepositoryPathsAction({ repoUrlOrSlug: "  " })).toMatchObject({
+    await expect(listRepositoryPathsAction({ repoUrlOrSlug: "  " })).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
@@ -357,13 +360,13 @@ describe("listRepositoryPathsAction", () => {
 
   it("maps GitHubRepositoryNotFoundError to NOT_FOUND and GitHubRateLimitError to RATE_LIMITED", async () => {
     fetchRepoTree.mockRejectedValueOnce(new GitHubRepositoryNotFoundError("acme/missing"));
-    expect(await listRepositoryPathsAction({ repoUrlOrSlug: "acme/missing" })).toMatchObject({
+    await expect(listRepositoryPathsAction({ repoUrlOrSlug: "acme/missing" })).resolves.toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
 
     fetchRepoTree.mockRejectedValueOnce(new GitHubRateLimitError("Rate limit exceeded"));
-    expect(await listRepositoryPathsAction({ repoUrlOrSlug: "acme/web" })).toMatchObject({
+    await expect(listRepositoryPathsAction({ repoUrlOrSlug: "acme/web" })).resolves.toMatchObject({
       ok: false,
       error: { code: "RATE_LIMITED" },
     });
@@ -382,22 +385,22 @@ describe("updateSubscriptionSettingsAction", () => {
   };
 
   it("rejects empty updates, unknown fields, and invalid snooze dates", async () => {
-    expect(await updateSubscriptionSettingsAction({ subscriptionId: "sub1" })).toMatchObject({
+    await expect(updateSubscriptionSettingsAction({ subscriptionId: "sub1" })).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
-    expect(
-      await updateSubscriptionSettingsAction({ subscriptionId: "sub1", isPinned: true, extra: 1 } as never),
-    ).toMatchObject({
+    await expect(
+      updateSubscriptionSettingsAction({ subscriptionId: "sub1", isPinned: true, extra: 1 } as never),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
-    expect(
-      await updateSubscriptionSettingsAction({
+    await expect(
+      updateSubscriptionSettingsAction({
         subscriptionId: "sub1",
         snoozedUntil: new Date(Date.now() - 60_000).toISOString(),
       }),
-    ).toMatchObject({
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });

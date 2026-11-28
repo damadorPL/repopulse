@@ -1,19 +1,18 @@
-import { NO_BACKFILL_OVERRIDES } from "@repopulse/db";
 import { describe, expect, it, vi } from "vitest";
+
+import { NO_BACKFILL_OVERRIDES } from "@repopulse/db";
 
 const { prisma } = vi.hoisted(() => ({
   prisma: {
     repository: {
       findMany: vi.fn(),
-      count: vi.fn(),
     },
   },
 }));
 
 vi.mock("@repopulse/db", async (importOriginal) => ({ ...(await importOriginal<object>()), prisma }));
 
-const { buildBackfillSettingsView, countReapplyCandidates, getReapplyCandidates, reapplyCandidatesWhere } =
-  await import("./backfill-settings");
+const { buildBackfillSettingsView, getReapplyCandidates, reapplyCandidatesWhere } = await import("./backfill-settings");
 
 const byKey = (view: ReturnType<typeof buildBackfillSettingsView>) => Object.fromEntries(view.map((s) => [s.key, s]));
 
@@ -49,7 +48,7 @@ describe("buildBackfillSettingsView", () => {
   });
 });
 
-describe("reapplyCandidatesWhere and countReapplyCandidates", () => {
+describe("reapplyCandidatesWhere", () => {
   it("only matches tracked repositories with older releases left and an automatic target", () => {
     expect(reapplyCandidatesWhere(300)).toEqual({
       subscriptions: { some: {} },
@@ -57,12 +56,6 @@ describe("reapplyCandidatesWhere and countReapplyCandidates", () => {
       backfillNextPage: { not: null },
       backfillTarget: { lte: 300 },
     });
-  });
-
-  it("calls prisma count with reapplyCandidatesWhere", async () => {
-    prisma.repository.count.mockResolvedValueOnce(3);
-    expect(await countReapplyCandidates(100)).toBe(3);
-    expect(prisma.repository.count).toHaveBeenCalledWith({ where: reapplyCandidatesWhere(100) });
   });
 });
 

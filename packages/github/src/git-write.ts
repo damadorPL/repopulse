@@ -14,7 +14,7 @@ export { toRateLimitError };
  */
 
 /** Concurrent requests per helper call (blob reads / writes). GitHub's secondary limits punish bursts. */
-export const GIT_WRITE_CONCURRENCY = 4;
+const GIT_WRITE_CONCURRENCY = 4;
 const READ_BLOBS_GRAPHQL_BATCH_SIZE = 25;
 
 function requestOptions(signal: AbortSignal | undefined) {
@@ -39,10 +39,15 @@ export function rethrowRateLimit(error: unknown): never {
   throw toRateLimitError(error) ?? error;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 function errorMessage(error: unknown): string | undefined {
   if (!isGitHubHttpError(error)) return undefined;
-  const data = (error as { response?: { data?: unknown } }).response?.data;
-  const message = data && typeof data === "object" ? (data as { message?: unknown }).message : undefined;
+  const response: unknown = error.response;
+  const data = isRecord(response) ? response.data : undefined;
+  const message = isRecord(data) ? data.message : undefined;
   return typeof message === "string" ? message.slice(0, 200) : undefined;
 }
 
@@ -53,11 +58,11 @@ async function mapLimit<T, R>(
   fn: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
   const results = Array.from<R>({ length: items.length });
-  let next = 0;
+  const entries = items.entries();
   const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
-    while (next < items.length) {
-      const index = next++;
-      results[index] = await fn(items[index] as T, index);
+    for (let next = entries.next(); !next.done; next = entries.next()) {
+      const [index, item] = next.value;
+      results[index] = await fn(item, index);
     }
   });
   await Promise.all(workers);
@@ -139,8 +144,7 @@ async function readBlobsGraphql(
       );
       const repoData = data.repository;
       if (!repoData) continue;
-      for (let i = 0; i < batch.length; i++) {
-        const sha = batch[i] as string;
+      for (const [i, sha] of batch.entries()) {
         const node = repoData[`b${i}`];
         if (!node || typeof node.byteSize !== "number") continue;
         if (node.byteSize > maxBytes) {
@@ -157,7 +161,15 @@ async function readBlobsGraphql(
     } catch (error) {
       if (signal?.aborted) throw error;
       if (isGraphqlRateLimited(error)) {
-        const headers = (error as { headers?: ResponseHeaders }).headers;
+        const rawHeaders = isRecord(error) && isRecord(error.headers) ? error.headers : undefined;
+        const headers: ResponseHeaders | undefined = rawHeaders
+          ? Object.fromEntries(
+              Object.entries(rawHeaders).filter(
+                (entry): entry is [string, string | number | undefined] =>
+                  typeof entry[1] === "string" || typeof entry[1] === "number" || entry[1] === undefined,
+              ),
+            )
+          : undefined;
         throw new GitHubRateLimitError(getRateLimitInfo(headers).resetAt);
       }
       const rateLimited = toRateLimitError(error);
@@ -281,7 +293,11 @@ export async function inspectBranch(
   return expectedHeadSha && headSha === expectedHeadSha ? { status: "owned", headSha } : { status: "edited", headSha };
 }
 
-/** `true` when the branch exists and its head is `expectedHeadSha` (our last commit). A missing branch is `false`. */
+/**
+ * `true` when the branch exists and its head is `expectedHeadSha` (our last commit). A missing branch is `false`.
+ *
+ * @internal Exported for unit tests.
+ */
 export async function branchIsBotOwned(
   octokit: Octokit,
   owner: string,
@@ -407,7 +423,7 @@ export async function commitFiles(octokit: Octokit, params: CommitFilesParams): 
         path: file.path,
         mode: file.mode ?? "100644",
         type: "blob" as const,
-        sha: blobs[index] as string,
+        sha: blobs[index]!,
       })),
       ...request,
     });

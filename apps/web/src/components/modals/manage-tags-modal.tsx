@@ -89,7 +89,7 @@ function ColorPicker({
       })}
       <label
         htmlFor={`${idPrefix}-custom-color`}
-        className="relative flex size-6 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-dashed text-[10px] text-muted-foreground"
+        className="relative flex size-6 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-dashed text-[10px] text-muted-foreground ring-offset-2 ring-offset-background has-focus-visible:ring-2 has-focus-visible:ring-ring"
         title="Custom color"
       >
         <span aria-hidden>+</span>
@@ -98,7 +98,7 @@ function ColorPicker({
           type="color"
           value={isHexColor(value) ? value : DEFAULT_TAG_COLOR}
           onChange={(e) => onChange(e.target.value.toUpperCase())}
-          className="absolute inset-0 cursor-pointer opacity-0"
+          className="absolute inset-0 cursor-pointer opacity-0 outline-hidden"
           aria-label="Custom color"
         />
       </label>

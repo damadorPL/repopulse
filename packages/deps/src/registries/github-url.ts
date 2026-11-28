@@ -18,8 +18,7 @@ export function toGitHubRepoUrl(raw: unknown): string | null {
     value,
   );
   if (!match) return null;
-  const owner = match[1] as string;
-  const repo = match[2] as string;
+  const [, owner = "", repo = ""] = match;
   if (repo === "" || repo === "." || repo === "..") return null;
   return `https://github.com/${owner}/${repo}`;
 }

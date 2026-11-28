@@ -11,7 +11,7 @@ export const DISCORD_COLORS: Record<SemverType, number> = {
 
 /** Discord allows 4096 characters per embed description; the summary is cut well before that. */
 export const DISCORD_DESCRIPTION_LIMIT = 4096;
-export const DISCORD_SUMMARY_LIMIT = 3800;
+const DISCORD_SUMMARY_LIMIT = 3800;
 const TITLE_LIMIT = 256;
 const FIELD_VALUE_LIMIT = 1024;
 

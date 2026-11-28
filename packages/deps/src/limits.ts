@@ -13,7 +13,6 @@ export const MAX_IGNORE_RULES = 50;
 export const SCAN_COOLDOWN_MS = 5 * 60 * 1000;
 export const REGISTRY_CACHE_TTL_MS = 60 * 60 * 1000;
 export const REGISTRY_CONCURRENCY = 8;
-export const DIGEST_MAX_ITEMS = 25;
 export const SCAN_INTERVAL_HOURS = [6, 12, 24, 168] as const;
 export const MIN_RELEASE_AGE_DAYS_MAX = 30;
 export const MAX_OPEN_PRS_MAX = 20;
@@ -38,17 +37,3 @@ export interface DepsWorkerHeartbeat {
   /** Result of `GET /health` on the sandbox: `null` when unreachable. */
   sandbox: { status: "ok"; tools: Record<string, string> } | null;
 }
-
-/** Defaults of a new `DependencyProject` (mirrors the Prisma defaults). */
-export const DEPENDENCY_PROJECT_DEFAULTS = {
-  updateMode: "NOTIFY",
-  maxUpdateLevel: "MINOR",
-  includePrereleases: false,
-  minReleaseAgeDays: 3,
-  groupMode: "SEPARATE_MAJORS",
-  rangeStrategy: "BUMP",
-  maxOpenPrs: 5,
-  scanIntervalHours: 24,
-  notificationLevel: "MINOR_AND_UP",
-  commitPrefix: "chore(deps):",
-} as const;

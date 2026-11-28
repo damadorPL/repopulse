@@ -47,11 +47,11 @@ describe("loadMoreReleasesAction", () => {
   });
 
   it("returns empty page fast-path when cursor is empty or exceeds 100 chars", async () => {
-    expect(await loadMoreReleasesAction({ query: "", cursor: "" })).toEqual({
+    await expect(loadMoreReleasesAction({ query: "", cursor: "" })).resolves.toEqual({
       ok: true,
       data: { items: [], nextCursor: null },
     });
-    expect(await loadMoreReleasesAction({ query: "", cursor: "x".repeat(101) })).toEqual({
+    await expect(loadMoreReleasesAction({ query: "", cursor: "x".repeat(101) })).resolves.toEqual({
       ok: true,
       data: { items: [], nextCursor: null },
     });

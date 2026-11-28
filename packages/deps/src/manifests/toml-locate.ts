@@ -20,7 +20,7 @@ export function tomlPathKey(path: TomlPath): string {
   return JSON.stringify(path);
 }
 
-export class TomlLocateError extends Error {
+class TomlLocateError extends Error {
   readonly offset: number;
 
   constructor(message: string, offset: number) {
@@ -66,7 +66,8 @@ export function locateTomlStrings(text: string): Map<string, TomlLocatedString> 
     const raw = text.slice(start, i++);
     if (quote === "'") return raw;
     try {
-      return JSON.parse(`"${raw}"`) as string;
+      const parsed: unknown = JSON.parse(`"${raw}"`);
+      return typeof parsed === "string" ? parsed : raw;
     } catch {
       return raw;
     }
@@ -79,9 +80,9 @@ export function locateTomlStrings(text: string): Map<string, TomlLocatedString> 
       if (text[i] === '"' || text[i] === "'") parts.push(readQuotedKey());
       else {
         const match = /^[A-Za-z0-9_-]+/.exec(text.slice(i, i + 256));
-        if (!match) fail("Expected key");
-        parts.push((match as RegExpExecArray)[0]);
-        i += (match as RegExpExecArray)[0].length;
+        if (!match) return fail("Expected key");
+        parts.push(match[0]);
+        i += match[0].length;
       }
       skipInline();
       if (text[i] !== ".") return parts;
@@ -188,8 +189,8 @@ export function locateTomlStrings(text: string): Map<string, TomlLocatedString> 
     }
     // Numbers, booleans, dates (a local date-time may contain one space before the time).
     const scalar = /^[^\s,\]}#]+(?: \d{2}:\d{2}[^\s,\]}#]*)?/.exec(text.slice(i, i + 128));
-    if (!scalar) fail("Expected value");
-    i += (scalar as RegExpExecArray)[0].length;
+    if (!scalar) return fail("Expected value");
+    i += scalar[0].length;
   };
 
   while (i < text.length) {

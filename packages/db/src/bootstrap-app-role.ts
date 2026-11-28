@@ -71,7 +71,8 @@ export async function bootstrapAppRole(
     return { status: "skipped-no-password" };
   }
 
-  const appUser = env.POSTGRES_APP_USER?.trim() || DEFAULT_APP_USER;
+  const rawAppUser = env.POSTGRES_APP_USER?.trim();
+  const appUser = rawAppUser !== undefined && rawAppUser.length > 0 ? rawAppUser : DEFAULT_APP_USER;
   if (!VALID_PG_IDENTIFIER_RE.test(appUser)) {
     throw new Error(
       `[db-bootstrap] Invalid POSTGRES_APP_USER "${appUser}": must match ${VALID_PG_IDENTIFIER_RE.source}`,

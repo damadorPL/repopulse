@@ -62,24 +62,25 @@ export async function GET(request: Request): Promise<Response> {
       // The client navigated away, closed the tab or lost the connection.
       request.signal.addEventListener("abort", cleanup, { once: true });
 
+      const isClosed = () => closed;
       send(`retry: ${RETRY_MS}\n: connected\n\n`);
-      void subscribeUserEvents(userId, (message) => {
-        const event = parseRealtimeEvent(message);
-        if (event) send(`data: ${serializeRealtimeEvent(event)}\n\n`);
-      }).then(
-        (unsub) => {
-          if (closed) {
+      void (async () => {
+        try {
+          const unsub = await subscribeUserEvents(userId, (message) => {
+            const event = parseRealtimeEvent(message);
+            if (event) send(`data: ${serializeRealtimeEvent(event)}\n\n`);
+          });
+          if (isClosed()) {
             void unsub();
           } else {
             unsubscribe = unsub;
           }
-        },
-        (err: unknown) => {
+        } catch (err: unknown) {
           console.error("[sse] could not subscribe", err);
           // Ending the stream makes EventSource reconnect after `retry`.
           cleanup();
-        },
-      );
+        }
+      })();
     },
     cancel() {
       cleanup();

@@ -1,5 +1,6 @@
-import { rateLimitDelayMs } from "@repopulse/queue";
 import { describe, expect, it } from "vitest";
+
+import { rateLimitDelayMs } from "@repopulse/queue";
 
 import {
   isSnoozed,

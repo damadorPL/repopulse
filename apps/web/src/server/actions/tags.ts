@@ -1,8 +1,9 @@
 "use server";
 
-import { prisma } from "@repopulse/db";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+
+import { prisma } from "@repopulse/db";
 
 import { getCurrentUserOrThrow } from "@/lib/auth";
 import { HEX_COLOR_RE, TAG_NAME_MAX_LENGTH, tagSlug } from "@/lib/tags";
@@ -72,12 +73,13 @@ export async function updateTagAction(input: {
     if (!parsed.success) return invalidInput(parsed.error);
     const { tagId, name, colorHex: color } = parsed.data;
 
-    const slug = name !== undefined ? tagSlug(name) : undefined;
-
     // updateMany scoped by userId: a single ownership-checked statement.
     const { count } = await prisma.tag.updateMany({
       where: { id: tagId, userId: user.id },
-      data: { ...(name !== undefined ? { name, slug } : {}), ...(color ? { colorHex: color.toUpperCase() } : {}) },
+      data: {
+        ...(name !== undefined ? { name, slug: tagSlug(name) } : {}),
+        ...(color ? { colorHex: color.toUpperCase() } : {}),
+      },
     });
     if (count === 0) return fail("NOT_FOUND", "Tag not found.");
 

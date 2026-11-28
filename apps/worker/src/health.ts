@@ -1,9 +1,7 @@
 import { prisma } from "@repopulse/db";
 import {
   checkDatabase as checkDatabaseWithPing,
-  checkRedis,
   getHealthReport as getHealthReportWithPing,
-  pingRedis,
   resolveHealthPort as resolvePort,
   startHealthServer as startSharedHealthServer,
   type CheckResult,
@@ -11,16 +9,20 @@ import {
   type HealthServer,
 } from "@repopulse/queue";
 
-export { checkRedis, pingRedis, type CheckResult, type HealthReport, type HealthServer };
+/** @internal Exported for health unit tests. */
+export type { CheckResult, HealthReport };
+export type { HealthServer };
 
 const DEFAULT_HEALTH_PORT = 3001;
 
 const pingDb = () => prisma.$queryRaw`SELECT 1`;
 
+/** @internal Exported for health unit tests. */
 export function checkDatabase(): Promise<CheckResult> {
   return checkDatabaseWithPing(pingDb);
 }
 
+/** @internal Exported for health unit tests. */
 export function getHealthReport(): Promise<HealthReport> {
   return getHealthReportWithPing(pingDb);
 }

@@ -1,5 +1,6 @@
-import type * as DbModule from "@repopulse/db";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type * as DbModule from "@repopulse/db";
 
 class UnauthorizedError extends Error {}
 class ForbiddenError extends Error {}
@@ -139,7 +140,7 @@ describe("markAllReadAction", () => {
     prisma.tag.findMany.mockResolvedValueOnce([]);
     prisma.userSubscription.findMany.mockResolvedValueOnce([]);
     prisma.userReleaseState.updateMany.mockClear();
-    expect(await markAllReadAction({})).toEqual({ ok: true, data: { count: 0 } });
+    await expect(markAllReadAction({})).resolves.toEqual({ ok: true, data: { count: 0 } });
     expect(prisma.userReleaseState.updateMany).not.toHaveBeenCalled();
   });
 

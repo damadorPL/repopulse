@@ -28,6 +28,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { ActivitySource } from "@/lib/activity-grid";
 import { feedHref } from "@/lib/feed-filters";
 import { repoListHrefFrom } from "@/lib/repo-list-filters";
+import { toRoute } from "@/lib/route";
 import { formatVersionStatus } from "@/lib/version-compare";
 import { isDepsEnabled } from "@/server/deps-status";
 import { getDependencyProjectForRepository } from "@/server/queries/dependencies";
@@ -50,7 +51,7 @@ function canonicalRepositoryHref(fullName: string, rawFrom: string | string[] | 
   const from = Array.isArray(rawFrom) ? rawFrom[0] : rawFrom;
   const [canonicalOwner = "", canonicalName = ""] = fullName.split("/");
   const path = `/repositories/${encodeURIComponent(canonicalOwner)}/${encodeURIComponent(canonicalName)}`;
-  return (from ? `${path}?from=${encodeURIComponent(from)}` : path) as Route;
+  return toRoute(from ? `${path}?from=${encodeURIComponent(from)}` : path);
 }
 
 function activitySourcesFor(trackMode: RepositorySettings["trackMode"], trackPaths: boolean): ActivitySource[] {
@@ -185,7 +186,7 @@ function RepositoryHeader({
             repo.description ? "mt-1 text-sm text-muted-foreground" : "mt-1 text-sm text-muted-foreground/60 italic"
           }
         >
-          {repo.description || "No description"}
+          {repo.description !== null && repo.description.length > 0 ? repo.description : "No description"}
         </p>
         <dl className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <div className="flex items-center gap-1">

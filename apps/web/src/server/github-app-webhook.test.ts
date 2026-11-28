@@ -136,7 +136,7 @@ describe("changedPathsOfPush", () => {
 describe("readBodyWithLimit", () => {
   it("concatenates the chunks", async () => {
     expect((await readBodyWithLimit(stream("ab", "cd"), 4)).toString()).toBe("abcd");
-    expect(await readBodyWithLimit(null)).toHaveLength(0);
+    await expect(readBodyWithLimit(null)).resolves.toHaveLength(0);
   });
 
   it("stops reading past the limit", async () => {

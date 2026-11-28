@@ -156,7 +156,9 @@ export function parsePyproject(text: string, path = "pyproject.toml"): Pyproject
         if (typeof value.version === "string") {
           declared = value.version;
           valuePath = [...valuePath, "version"];
-        } else if (!reason) reason = "No version constraint";
+        } else {
+          reason ??= "No version constraint";
+        }
         if (Array.isArray(value.extras)) extras = value.extras.filter((e): e is string => typeof e === "string");
       } else if (Array.isArray(value)) reason = "Multiple-constraint dependency";
       else reason = "Not a version constraint";

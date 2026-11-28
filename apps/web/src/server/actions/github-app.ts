@@ -2,6 +2,9 @@
 
 import { randomBytes } from "node:crypto";
 
+import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
+
 import {
   encryptToken,
   GitHubAppKeyUnreadableError,
@@ -17,8 +20,6 @@ import {
   updateAppWebhookConfig,
 } from "@repopulse/github";
 import { resolveAppBaseUrl } from "@repopulse/notifications";
-import { revalidatePath } from "next/cache";
-import { cookies } from "next/headers";
 
 import { githubAppWebhookTarget } from "@/lib/github-app";
 import {

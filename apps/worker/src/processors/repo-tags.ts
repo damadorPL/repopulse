@@ -116,9 +116,9 @@ export interface TagStepResult {
 
 export interface TagStepDeps {
   prisma: PrismaClient;
-  fetchTags?: typeof fetchRecentTags;
-  compare?: typeof compareCommits;
-  now?: () => Date;
+  fetchTags?: typeof fetchRecentTags | undefined;
+  compare?: typeof compareCommits | undefined;
+  now?: (() => Date) | undefined;
 }
 
 function requestSignal(jobSignal: AbortSignal | undefined): AbortSignal {

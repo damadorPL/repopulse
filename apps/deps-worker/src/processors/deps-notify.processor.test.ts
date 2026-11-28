@@ -1,7 +1,8 @@
-import { NotificationDeliveryError, type dispatchDependencyNotification } from "@repopulse/notifications";
-import type { DepsNotifyJobData } from "@repopulse/queue";
 import { UnrecoverableError } from "bullmq";
 import { describe, expect, it, vi } from "vitest";
+
+import { NotificationDeliveryError, type dispatchDependencyNotification } from "@repopulse/notifications";
+import type { DepsNotifyJobData } from "@repopulse/queue";
 
 import { createFakePrisma, seed } from "../testing/fake-prisma.js";
 import { job } from "../testing/fixtures.js";
@@ -86,7 +87,7 @@ const prEvent = (event: "opened" | "access_lost" = "opened"): DepsNotifyJobData 
 describe("processDepsNotify", () => {
   it("delivers a digest with the updates still at or above the level", async () => {
     const { deps, dispatch } = setup();
-    expect(await processDepsNotify(job(digest()), deps)).toEqual({
+    await expect(processDepsNotify(job(digest()), deps)).resolves.toEqual({
       status: "SENT",
       channel: "DISCORD_WEBHOOK",
       destination: "discord.com/••••",
@@ -141,22 +142,25 @@ describe("processDepsNotify", () => {
     ["NOTIFICATION_LEVEL", { project: { notificationLevel: "NONE" } }],
   ] as const)("skips with %s", async (reason, options) => {
     const { deps, dispatch } = setup(options);
-    expect(await processDepsNotify(job(digest()), deps)).toEqual({ status: "SKIPPED", reason });
+    await expect(processDepsNotify(job(digest()), deps)).resolves.toEqual({ status: "SKIPPED", reason });
     expect(dispatch).not.toHaveBeenCalled();
   });
 
   it("skips a digest whose updates are gone or below the level now", async () => {
     const { deps } = setup({ project: { notificationLevel: "MAJOR_ONLY" } });
-    expect(await processDepsNotify(job(digest(["d2"])), deps)).toEqual({ status: "SKIPPED", reason: "NOTHING_LEFT" });
+    await expect(processDepsNotify(job(digest(["d2"])), deps)).resolves.toEqual({
+      status: "SKIPPED",
+      reason: "NOTHING_LEFT",
+    });
   });
 
   it("skips PR events after a switch to notify-only, except access_lost", async () => {
     const { deps, dispatch } = setup({ project: { updateMode: "NOTIFY" } });
-    expect(await processDepsNotify(job(prEvent("opened")), deps)).toEqual({
+    await expect(processDepsNotify(job(prEvent("opened")), deps)).resolves.toEqual({
       status: "SKIPPED",
       reason: "MODE_CHANGED",
     });
-    expect(await processDepsNotify(job(prEvent("access_lost")), deps)).toMatchObject({ status: "SENT" });
+    await expect(processDepsNotify(job(prEvent("access_lost")), deps)).resolves.toMatchObject({ status: "SENT" });
     expect(dispatch.mock.calls[0]![0].pullRequest).toMatchObject({ event: "access_lost" });
   });
 
@@ -170,11 +174,11 @@ describe("processDepsNotify", () => {
     await expect(processDepsNotify(job(digest()), deps)).rejects.not.toBeInstanceOf(UnrecoverableError);
 
     //PROJECT_GONE and PULL_REQUEST_GONE skip reasons
-    expect(await processDepsNotify(job({ ...digest(), projectId: "missing-project" }), deps)).toEqual({
+    await expect(processDepsNotify(job({ ...digest(), projectId: "missing-project" }), deps)).resolves.toEqual({
       status: "SKIPPED",
       reason: "PROJECT_GONE",
     });
-    expect(await processDepsNotify(job({ ...prEvent("opened"), prId: "missing-pr" }), deps)).toEqual({
+    await expect(processDepsNotify(job({ ...prEvent("opened"), prId: "missing-pr" }), deps)).resolves.toEqual({
       status: "SKIPPED",
       reason: "PULL_REQUEST_GONE",
     });

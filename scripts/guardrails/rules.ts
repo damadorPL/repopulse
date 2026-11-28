@@ -18,6 +18,8 @@ const MIGRATION_FOLDER_RE = /^\d{14}_[a-z0-9_]+$/;
 const MIGRATION_SQL_PATH_RE = /^packages\/db\/prisma\/migrations\/([^/]+)\/migration\.sql$/;
 const MIGRATION_ANY_PATH_RE = /^packages\/db\/prisma\/migrations\/([^/]+)\/.+$/;
 const PEM_PRIVATE_KEY_RE = /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/;
+const GITHUB_TOKEN_RE = /\b(?:ghp|gho|ghs|ghu)_[A-Za-z0-9]{20,}\b|\bgithub_pat_[A-Za-z0-9_]{20,}\b/;
+const FORBIDDEN_ENV_FILE_RE = /(?:^|\/)\.env(?:\..+)?$/;
 const UI_PLACEHOLDER_PEM_RE =
   /\bplaceholder\s*=\s*\{?\s*["'`].*-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----.*(?:…|\.\.\.).*-----END/;
 
@@ -46,7 +48,7 @@ export function isGeneratedOrVendorPath(relPath: string): boolean {
   );
 }
 
-export function isTestFilePath(relPath: string): boolean {
+function isTestFilePath(relPath: string): boolean {
   const norm = toPosixPath(relPath);
   return (
     norm.includes("/tests/") ||
@@ -57,7 +59,7 @@ export function isTestFilePath(relPath: string): boolean {
   );
 }
 
-export function isGuardrailSelfPath(relPath: string): boolean {
+function isGuardrailSelfPath(relPath: string): boolean {
   const norm = toPosixPath(relPath);
   return (
     norm === "scripts/guardrails.ts" || norm.startsWith("scripts/guardrails/") || norm.startsWith("scripts/tests/")
@@ -117,13 +119,14 @@ function addViolation(
   out.push({ ...violation, severity: "error" });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function parseJsonObject(content: string): Record<string, unknown> | null {
   try {
     const parsed: unknown = JSON.parse(content);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      return null;
-    }
-    return parsed as Record<string, unknown>;
+    return isRecord(parsed) ? parsed : null;
   } catch {
     return null;
   }
@@ -145,17 +148,84 @@ function findPackagePropertyLine(lines: readonly string[], pkgName: string, spec
 function isUnpinnedRangeSpecifier(specifier: string): boolean {
   const trimmed = specifier.trim();
   if (!trimmed) return false;
-  if (trimmed === "workspace:*" || trimmed === "catalog:" || trimmed.startsWith("catalog:")) {
-    return trimmed.includes("^") || trimmed.includes("~");
+  if (trimmed === "workspace:*" || /^catalog:(?:[A-Za-z0-9_.-]+)?$/.test(trimmed)) {
+    return false;
   }
-  return trimmed.includes("^") || trimmed.includes("~");
+  const normalized = trimmed.replace(/^npm:(?:@[^@/]+\/)?[^@]+@/, "");
+  return (
+    normalized === "*" ||
+    normalized === "latest" ||
+    normalized.includes("^") ||
+    normalized.includes("~") ||
+    /(?:>=|<=|>|<|\|\|| - )/.test(normalized) ||
+    /(?:^|\.)[xX*](?:\b|$)/.test(normalized)
+  );
+}
+
+function stripYamlScalarQuotes(value: string): string {
+  const trimmed = value.trim();
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1);
+  }
+  const inlineComment = trimmed.indexOf(" #");
+  return (inlineComment >= 0 ? trimmed.slice(0, inlineComment) : trimmed).trim();
+}
+
+function checkPnpmWorkspaceYaml(relPath: string, lines: readonly string[]): GuardrailViolation[] {
+  if (relPath !== "pnpm-workspace.yaml") return [];
+
+  const violations: GuardrailViolation[] = [];
+  let section: "catalog" | "catalogs" | "overrides" | null = null;
+  let subCatalog = false;
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const rawLine = lines[i] ?? "";
+    const trimmed = rawLine.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+
+    const indent = rawLine.length - rawLine.trimStart().length;
+    if (indent === 0) {
+      subCatalog = false;
+      if (trimmed === "catalog:") section = "catalog";
+      else if (trimmed === "catalogs:") section = "catalogs";
+      else if (trimmed === "overrides:") section = "overrides";
+      else section = null;
+      continue;
+    }
+
+    if (section === null) continue;
+    if (section === "catalogs" && indent <= 2 && trimmed.endsWith(":")) {
+      subCatalog = true;
+      continue;
+    }
+    if (section === "catalogs" && !subCatalog) continue;
+
+    const colonIdx = trimmed.indexOf(": ");
+    if (colonIdx === -1) continue;
+    const depName = stripYamlScalarQuotes(trimmed.slice(0, colonIdx));
+    const specifier = stripYamlScalarQuotes(trimmed.slice(colonIdx + 2));
+    if (isUnpinnedRangeSpecifier(specifier)) {
+      addViolation(violations, lines, {
+        ruleId: "deps/pinned-versions",
+        filePath: relPath,
+        line: i + 1,
+        message: `Unpinned dependency range "${depName}": "${specifier}" in pnpm-workspace.yaml (${section}).`,
+        remediation: "Pin an exact version in `pnpm-workspace.yaml` `catalog:` / `overrides:`.",
+      });
+    }
+  }
+
+  return violations;
 }
 
 /**
  * Rule 1: `deps/pinned-versions`
- * Enforce exact dependency versions (forbid `^` and `~` ranges) across root and workspace manifests.
+ * Enforce exact dependency versions across root, workspace manifests, and `pnpm-workspace.yaml`.
  */
-export function checkPinnedVersions(relPath: string, content: string, lines: readonly string[]): GuardrailViolation[] {
+function checkPinnedVersions(relPath: string, content: string, lines: readonly string[]): GuardrailViolation[] {
+  if (relPath === "pnpm-workspace.yaml") {
+    return checkPnpmWorkspaceYaml(relPath, lines);
+  }
   if (relPath !== "package.json" && !/^(?:apps|packages)\/[^/]+\/package\.json$/.test(relPath)) {
     return [];
   }
@@ -172,10 +242,11 @@ export function checkPinnedVersions(relPath: string, content: string, lines: rea
     for (const [depName, rawVersion] of Object.entries(rawSection)) {
       if (typeof rawVersion !== "string") continue;
       if (isUnpinnedRangeSpecifier(rawVersion)) {
+        const line = findPackagePropertyLine(lines, depName, rawVersion);
         addViolation(violations, lines, {
           ruleId: "deps/pinned-versions",
           filePath: relPath,
-          line: findPackagePropertyLine(lines, depName, rawVersion),
+          ...(line !== undefined ? { line } : {}),
           message: `Unpinned dependency range "${depName}": "${rawVersion}" in ${sectionName}.`,
           remediation: 'Pin an exact version (e.g. `pnpm add -E`) or use `"workspace:*"` / `"catalog:"`.',
         });
@@ -189,7 +260,7 @@ export function checkPinnedVersions(relPath: string, content: string, lines: rea
  * Rule 2: `security/no-raw-sql-unsafe`
  * Forbid `$queryRawUnsafe` and `$executeRawUnsafe` in `apps/**` and `packages/**` `.ts`/`.tsx` files.
  */
-export function checkNoRawSqlUnsafe(relPath: string, lines: readonly string[]): GuardrailViolation[] {
+function checkNoRawSqlUnsafe(relPath: string, lines: readonly string[]): GuardrailViolation[] {
   if (!/^(?:apps|packages)\/.+\.(?:ts|tsx)$/.test(relPath)) return [];
   if (relPath.endsWith(".d.ts") || isTestFilePath(relPath) || relPath.includes("/generated/")) {
     return [];
@@ -219,23 +290,54 @@ export function checkNoRawSqlUnsafe(relPath: string, lines: readonly string[]): 
 
 /**
  * Rule 3: `security/no-hardcoded-secrets`
- * Forbid committed PEM private key blocks outside test files and UI placeholder examples.
+ * Forbid committed PEM private key blocks and GitHub API tokens outside tests and UI placeholders.
  */
-export function checkNoHardcodedSecrets(relPath: string, lines: readonly string[]): GuardrailViolation[] {
+function checkNoHardcodedSecrets(relPath: string, lines: readonly string[]): GuardrailViolation[] {
   if (isTestFilePath(relPath) || isGuardrailSelfPath(relPath)) return [];
 
   const violations: GuardrailViolation[] = [];
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i] ?? "";
-    if (!PEM_PRIVATE_KEY_RE.test(line)) continue;
-    if (UI_PLACEHOLDER_PEM_RE.test(line)) continue;
+    if (PEM_PRIVATE_KEY_RE.test(line) && !UI_PLACEHOLDER_PEM_RE.test(line)) {
+      addViolation(violations, lines, {
+        ruleId: "security/no-hardcoded-secrets",
+        filePath: relPath,
+        line: i + 1,
+        message: "Hardcoded PEM private key material detected.",
+        remediation: "Load private keys from encrypted database settings, environment variables, or secret mounts.",
+      });
+    }
+    if (GITHUB_TOKEN_RE.test(line)) {
+      addViolation(violations, lines, {
+        ruleId: "security/no-hardcoded-secrets",
+        filePath: relPath,
+        line: i + 1,
+        message: "Hardcoded GitHub token literal detected.",
+        remediation:
+          "Load GitHub tokens from environment variables or encrypted database settings, never source files.",
+      });
+    }
+  }
+  return violations;
+}
 
-    addViolation(violations, lines, {
-      ruleId: "security/no-hardcoded-secrets",
-      filePath: relPath,
-      line: i + 1,
-      message: "Hardcoded PEM private key material detected.",
-      remediation: "Load private keys from encrypted database settings, environment variables, or secret mounts.",
+/**
+ * Rule 3b: `security/no-env-files`
+ * Forbid staging `.env*` files (except `.env.example`).
+ */
+export function evaluateStagedEnvPaths(entries: readonly StagedStatusEntry[]): GuardrailViolation[] {
+  const violations: GuardrailViolation[] = [];
+  for (const entry of entries) {
+    if (entry.status === "D") continue;
+    const norm = toPosixPath(entry.path).replace(/^\.\//, "");
+    if (norm === ".env.example" || norm.endsWith("/.env.example")) continue;
+    if (!FORBIDDEN_ENV_FILE_RE.test(norm)) continue;
+    violations.push({
+      ruleId: "security/no-env-files",
+      severity: "error",
+      filePath: norm,
+      message: `Staged environment file "${norm}" must never be committed.`,
+      remediation: "Unstage the `.env*` file (`git reset HEAD <file>`); only `.env.example` belongs in Git.",
     });
   }
   return violations;
@@ -245,7 +347,7 @@ export function checkNoHardcodedSecrets(relPath: string, lines: readonly string[
  * Rule 4 (file-level): `migrations/folder-naming`
  * Validate the migration directory segment for files under `packages/db/prisma/migrations/`.
  */
-export function checkMigrationFolderNaming(relPath: string, lines: readonly string[]): GuardrailViolation[] {
+function checkMigrationFolderNaming(relPath: string, lines: readonly string[]): GuardrailViolation[] {
   const match = relPath.match(MIGRATION_ANY_PATH_RE);
   if (!match) return [];
 
@@ -291,6 +393,21 @@ export function evaluateRepoMigrationsDir(repoRoot: string): GuardrailViolation[
 /**
  * Parse `git diff --cached --name-status` output into normalized staged status entries.
  */
+function toGitChangeStatus(char: string): GitChangeStatus {
+  switch (char) {
+    case "A":
+    case "M":
+    case "D":
+    case "R":
+    case "C":
+    case "T":
+    case "U":
+      return char;
+    default:
+      return "M";
+  }
+}
+
 export function parseGitNameStatus(output: string): StagedStatusEntry[] {
   const entries: StagedStatusEntry[] = [];
   for (const rawLine of output.split(/\r?\n/)) {
@@ -298,7 +415,7 @@ export function parseGitNameStatus(output: string): StagedStatusEntry[] {
     if (!line) continue;
     const parts = line.split("\t");
     const rawCode = parts[0] ?? "";
-    const statusChar = rawCode.charAt(0) as GitChangeStatus;
+    const statusChar = toGitChangeStatus(rawCode.charAt(0));
 
     if (statusChar === "R" || statusChar === "C") {
       const previousPath = toPosixPath(parts[1] ?? "");
@@ -390,19 +507,41 @@ const WORKSPACE_ISOLATION_RULES: Readonly<Record<string, IsolationRule>> = {
     forbiddenPrefixes: [],
     reason: "apps/worker and apps/deps-worker must never depend on each other.",
   },
+  "apps/deps-sandbox/package.json": {
+    forbiddenExact: ["@repopulse/db", "@repopulse/github", "@repopulse/notifications"],
+    forbiddenPrefixes: [],
+    reason: "apps/deps-sandbox runs isolated and must never depend on db, github, or notifications.",
+  },
 };
+
+const APP_PACKAGE_NAMES = new Set([
+  "@repopulse/web",
+  "@repopulse/worker",
+  "@repopulse/deps-worker",
+  "@repopulse/deps-sandbox",
+]);
+
+function isolationRulesFor(relPath: string): IsolationRule[] {
+  const rules: IsolationRule[] = [];
+  const exact = WORKSPACE_ISOLATION_RULES[relPath];
+  if (exact) rules.push(exact);
+  if (/^packages\/[^/]+\/package\.json$/.test(relPath)) {
+    rules.push({
+      forbiddenExact: [...APP_PACKAGE_NAMES],
+      forbiddenPrefixes: [],
+      reason: "packages/* must never depend on apps/*.",
+    });
+  }
+  return rules;
+}
 
 /**
  * Rule 6: `arch/workspace-dep-isolation`
  * Verify forbidden cross-package dependencies are absent in package manifests.
  */
-export function checkWorkspaceDepIsolation(
-  relPath: string,
-  content: string,
-  lines: readonly string[],
-): GuardrailViolation[] {
-  const rule = WORKSPACE_ISOLATION_RULES[relPath];
-  if (!rule) return [];
+function checkWorkspaceDepIsolation(relPath: string, content: string, lines: readonly string[]): GuardrailViolation[] {
+  const rules = isolationRulesFor(relPath);
+  if (rules.length === 0) return [];
 
   const pkg = parseJsonObject(content);
   if (!pkg) return [];
@@ -414,17 +553,20 @@ export function checkWorkspaceDepIsolation(
       continue;
     }
     for (const depName of Object.keys(rawSection)) {
-      const isForbidden =
-        rule.forbiddenExact.includes(depName) || rule.forbiddenPrefixes.some((prefix) => depName.startsWith(prefix));
-      if (!isForbidden) continue;
+      for (const rule of rules) {
+        const isForbidden =
+          rule.forbiddenExact.includes(depName) || rule.forbiddenPrefixes.some((prefix) => depName.startsWith(prefix));
+        if (!isForbidden) continue;
 
-      addViolation(violations, lines, {
-        ruleId: "arch/workspace-dep-isolation",
-        filePath: relPath,
-        line: findPackagePropertyLine(lines, depName),
-        message: `Forbidden dependency "${depName}" in ${sectionName}: ${rule.reason}`,
-        remediation: `Remove "${depName}" from ${relPath} to preserve package boundaries.`,
-      });
+        const line = findPackagePropertyLine(lines, depName);
+        addViolation(violations, lines, {
+          ruleId: "arch/workspace-dep-isolation",
+          filePath: relPath,
+          ...(line !== undefined ? { line } : {}),
+          message: `Forbidden dependency "${depName}" in ${sectionName}: ${rule.reason}`,
+          remediation: `Remove "${depName}" from ${relPath} to preserve package boundaries.`,
+        });
+      }
     }
   }
   return violations;

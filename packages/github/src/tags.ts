@@ -6,7 +6,7 @@ import { GitHubRateLimitError, GitHubRepositoryNotFoundError, parseRetryAfter, t
 import { trimTrailingChar } from "./text.js";
 
 /** Tags read per poll (the tag counterpart of `RELEASES_PAGE_SIZE`). */
-export const TAGS_PAGE_SIZE = 20;
+const TAGS_PAGE_SIZE = 20;
 /** Commit lines shown in a tag changelog before "…and N more". */
 export const TAG_CHANGELOG_MAX_COMMITS = 50;
 const COMPARE_PAGE_SIZE = 100;
@@ -139,7 +139,8 @@ export function mapGraphqlTag(node: GraphqlTagNode): GitTag | null {
   }
   if (target.__typename === "Tag" && "target" in target && isCommit(target.target)) {
     const commit = target.target;
-    const message = target.message?.trim() || null;
+    const rawMessage = target.message?.trim();
+    const message = rawMessage !== undefined && rawMessage.length > 0 ? rawMessage : null;
     return {
       name: node.name,
       sha: commit.oid,
@@ -223,6 +224,30 @@ interface CompareResponseData {
   commits: Array<{ sha: string; html_url: string; commit: { message: string }; author: { login: string } | null }>;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function parseCompareData(raw: unknown): CompareResponseData {
+  if (
+    !isRecord(raw) ||
+    typeof raw.html_url !== "string" ||
+    typeof raw.total_commits !== "number" ||
+    !Array.isArray(raw.commits)
+  ) {
+    throw new Error("GitHub returned an unexpected compare payload.");
+  }
+  const commits: CompareResponseData["commits"] = [];
+  for (const entry of raw.commits) {
+    if (!isRecord(entry) || typeof entry.sha !== "string" || typeof entry.html_url !== "string") continue;
+    const message = isRecord(entry.commit) && typeof entry.commit.message === "string" ? entry.commit.message : "";
+    const author =
+      isRecord(entry.author) && typeof entry.author.login === "string" ? { login: entry.author.login } : null;
+    commits.push({ sha: entry.sha, html_url: entry.html_url, commit: { message }, author });
+  }
+  return { html_url: raw.html_url, total_commits: raw.total_commits, commits };
+}
+
 /** Commits in `base...head` (`GET /repos/{owner}/{repo}/compare/{basehead}`). */
 export async function compareCommits(params: {
   owner: string;
@@ -243,7 +268,7 @@ export async function compareCommits(params: {
       per_page: COMPARE_PAGE_SIZE,
       ...(params.signal ? { request: { signal: params.signal } } : {}),
     });
-    const data = response.data as unknown as CompareResponseData;
+    const data = parseCompareData(response.data);
     return {
       base,
       htmlUrl: data.html_url,

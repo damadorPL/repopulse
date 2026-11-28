@@ -14,7 +14,6 @@ import {
   REPO_LIST_STATUS_OPTIONS,
   repoListHref,
   type RepoListFilters,
-  type RepoListSort,
   type RepoListStatus,
 } from "@/lib/repo-list-filters";
 import { useUrlSearchSync } from "@/lib/use-url-search-sync";
@@ -56,7 +55,7 @@ export function RepoListToolbar({
     // Flush the draft search when changing a filter, and cancel its old URL write
     // immediately, even if the new server-rendered filters have not arrived yet.
     cancelPush();
-    const nextQuery = next.q !== undefined ? next.q : query;
+    const nextQuery = next.q ?? query;
     recordPush(nextQuery);
     startTransition(() => router.replace(repoListHref({ ...filters, q: query, ...next }), { scroll: false }));
   }
@@ -140,7 +139,13 @@ export function RepoListToolbar({
           </div>
         </div>
 
-        <Select value={filters.sort} onValueChange={(value) => navigate({ sort: value as RepoListSort })}>
+        <Select
+          value={filters.sort}
+          onValueChange={(value) => {
+            const match = REPO_LIST_SORT_OPTIONS.find((opt) => opt.value === value);
+            if (match) navigate({ sort: match.value });
+          }}
+        >
           <SelectTrigger className="w-44" aria-label="Sort repositories">
             <SelectValue />
           </SelectTrigger>

@@ -50,6 +50,8 @@ export function prepareBunLock(text: string, path = "bun.lock"): PreparedLockfil
  * Resolved versions of the direct dependencies of workspace `importer` (`""` = root, else its path relative to the
  * lockfile, as in the `workspaces` table). `packages[name][0]` is `"name@version"`; a member-specific resolution
  * lives under `"<member name>/<dep>"`.
+ *
+ * @internal Exported for unit tests.
  */
 export function readBunLock(text: string, importer = "", path = "bun.lock"): LockfileVersions {
   return prepareBunLock(text, path).readFor(importer, []);

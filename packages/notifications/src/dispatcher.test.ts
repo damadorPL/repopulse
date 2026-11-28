@@ -118,7 +118,9 @@ describe("postWebhook against a local server", () => {
   beforeAll(async () => {
     server = http.createServer((req, res) => {
       let body = "";
-      req.on("data", (chunk) => (body += chunk));
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
       req.on("end", () => {
         received.push({ url: req.url ?? "", headers: req.headers, body });
         if (req.url === "/ok") return void res.writeHead(204).end();
@@ -138,15 +140,27 @@ describe("postWebhook against a local server", () => {
         }
         if (req.url === "/busy") return void res.writeHead(503).end("try later");
         if (req.url === "/moved") return void res.writeHead(302, { location: "http://169.254.169.254/" }).end();
-        if (req.url === "/slow") return void setTimeout(() => res.writeHead(200).end(), 2_000);
+        if (req.url === "/slow")
+          return void setTimeout(() => {
+            res.writeHead(200).end();
+          }, 2_000);
         res.writeHead(200).end("ok");
       });
     });
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
     base = `http://hooks.test:${(server.address() as AddressInfo).port}`;
   });
 
-  afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  afterAll(
+    () =>
+      new Promise<void>((resolve) => {
+        server.close(() => {
+          resolve();
+        });
+      }),
+  );
 
   const send = (path: string, options: { timeoutMs?: number } = {}) =>
     postWebhook(
@@ -225,9 +239,15 @@ describe("postWebhook against a local server", () => {
     ).rejects.toMatchObject({ permanent: false });
 
     const closedServer = http.createServer();
-    await new Promise<void>((resolve) => closedServer.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) => {
+      closedServer.listen(0, "127.0.0.1", resolve);
+    });
     const closedPort = (closedServer.address() as AddressInfo).port;
-    await new Promise<void>((resolve) => closedServer.close(() => resolve()));
+    await new Promise<void>((resolve) => {
+      closedServer.close(() => {
+        resolve();
+      });
+    });
     const connRefused = (await postWebhook(
       {
         url: new URL(`http://hooks.test:${closedPort}/ok`),

@@ -135,11 +135,11 @@ describe("startGitHubAppManifestAction", () => {
   });
 
   it("rejects an invalid organization and unknown fields", async () => {
-    expect(await startGitHubAppManifestAction({ organization: "not a login" })).toMatchObject({
+    await expect(startGitHubAppManifestAction({ organization: "not a login" })).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
-    expect(await startGitHubAppManifestAction({ organization: "", extra: 1 } as never)).toMatchObject({
+    await expect(startGitHubAppManifestAction({ organization: "", extra: 1 } as never)).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
@@ -289,11 +289,11 @@ describe("enableGitHubAppWebhooksAction", () => {
       privateKey: PEM,
       webhookSecret: "saved-secret-0123456789",
     });
-    expect(await enableGitHubAppWebhooksAction()).toMatchObject({ ok: true, data: { secretCreated: false } });
+    await expect(enableGitHubAppWebhooksAction()).resolves.toMatchObject({ ok: true, data: { secretCreated: false } });
     expect(updateAppWebhookConfig.mock.calls[0]![1].secret).toBe("saved-secret-0123456789");
     expect(prisma.instanceSettings.update).not.toHaveBeenCalled();
 
-    expect(await enableGitHubAppWebhooksAction({ rotateSecret: true })).toMatchObject({
+    await expect(enableGitHubAppWebhooksAction({ rotateSecret: true })).resolves.toMatchObject({
       ok: true,
       data: { secretCreated: true },
     });
@@ -312,16 +312,16 @@ describe("enableGitHubAppWebhooksAction", () => {
     "https://pulse.internal",
   ])("is unavailable for APP_BASE_URL %s", async (appBaseUrl) => {
     env.appBaseUrl = appBaseUrl;
-    expect(await enableGitHubAppWebhooksAction()).toMatchObject({ ok: false, error: { code: "UNAVAILABLE" } });
+    await expect(enableGitHubAppWebhooksAction()).resolves.toMatchObject({ ok: false, error: { code: "UNAVAILABLE" } });
     expect(loadGitHubAppSettings).not.toHaveBeenCalled();
     expect(updateAppWebhookConfig).not.toHaveBeenCalled();
   });
 
   it("needs a configured, readable App", async () => {
     loadGitHubAppSettings.mockResolvedValueOnce(null);
-    expect(await enableGitHubAppWebhooksAction()).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    await expect(enableGitHubAppWebhooksAction()).resolves.toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
     loadGitHubAppSettings.mockRejectedValueOnce(new GitHubAppKeyUnreadableError("can't be decrypted"));
-    expect(await enableGitHubAppWebhooksAction()).toMatchObject({
+    await expect(enableGitHubAppWebhooksAction()).resolves.toMatchObject({
       ok: false,
       error: { code: "UNAVAILABLE", message: "can't be decrypted" },
     });
@@ -330,7 +330,7 @@ describe("enableGitHubAppWebhooksAction", () => {
 
   it("stores nothing when GitHub rejects the change", async () => {
     updateAppWebhookConfig.mockRejectedValueOnce(new GitHubAppAuthError("GitHub rejected the App credentials."));
-    expect(await enableGitHubAppWebhooksAction()).toEqual({
+    await expect(enableGitHubAppWebhooksAction()).resolves.toEqual({
       ok: false,
       error: { code: "UNAVAILABLE", message: "GitHub rejected the App credentials." },
     });
@@ -338,7 +338,7 @@ describe("enableGitHubAppWebhooksAction", () => {
   });
 
   it("rejects unknown fields", async () => {
-    expect(await enableGitHubAppWebhooksAction({ secret: "mine" } as never)).toMatchObject({
+    await expect(enableGitHubAppWebhooksAction({ secret: "mine" } as never)).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });

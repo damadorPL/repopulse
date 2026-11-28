@@ -4,13 +4,32 @@
  */
 import { execFile } from "node:child_process";
 import os from "node:os";
-import { promisify } from "node:util";
 
 import { MISSING, TOOL_NAMES, type ToolName, type ToolVersions } from "./commands.js";
 import { log } from "./logger.js";
 
-const execFileAsync = promisify(execFile);
 const VERSION_TIMEOUT_MS = 15_000;
+
+function runExecFile(
+  file: string,
+  args: readonly string[],
+  options: {
+    cwd: string;
+    env: NodeJS.ProcessEnv;
+    timeout: number;
+    killSignal: "SIGKILL";
+    maxBuffer: number;
+    windowsHide: boolean;
+  },
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, { ...options, encoding: "utf8" }, (err, stdout, stderr) => {
+      if (err instanceof Error) reject(err);
+      else if (err) reject(new Error("Command failed"));
+      else resolve({ stdout, stderr });
+    });
+  });
+}
 
 /** First `x.y.z` in a `--version` output (`10.9.2`, `uv 0.13.1 (…)`, `Poetry (version 2.5.1)`). */
 export function parseVersionOutput(output: string): string | null {
@@ -26,7 +45,7 @@ export type VersionRunner = (tool: ToolName) => Promise<string>;
  * (pnpm 11+) and `manage_package_manager_versions=false` (older pnpm), as in the jobs.
  */
 const defaultRunner: VersionRunner = async (tool) => {
-  const { stdout, stderr } = await execFileAsync(tool, ["--version"], {
+  const { stdout, stderr } = await runExecFile(tool, ["--version"], {
     cwd: os.tmpdir(),
     // Same isolation as the jobs: no inherited secrets.
     env: {
@@ -47,15 +66,15 @@ const defaultRunner: VersionRunner = async (tool) => {
 };
 
 export async function detectToolVersions(run: VersionRunner = defaultRunner): Promise<ToolVersions> {
-  const entries = await Promise.all(
-    TOOL_NAMES.map(async (tool): Promise<[ToolName, string]> => {
+  const versions: ToolVersions = { npm: MISSING, pnpm: MISSING, bun: MISSING, uv: MISSING, poetry: MISSING };
+  await Promise.all(
+    TOOL_NAMES.map(async (tool) => {
       try {
-        return [tool, parseVersionOutput(await run(tool)) ?? MISSING];
+        versions[tool] = parseVersionOutput(await run(tool)) ?? MISSING;
       } catch (err) {
         log.error({ tool, err }, `${tool} --version failed`);
-        return [tool, MISSING];
       }
     }),
   );
-  return Object.fromEntries(entries) as ToolVersions;
+  return versions;
 }

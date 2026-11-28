@@ -87,7 +87,7 @@ const LEVEL_LABELS: Record<DependencyUpdateLevel, string> = {
   OTHER: "Other",
 };
 
-export function dependencyLevelLabel(level: DependencyUpdateLevel | null): string {
+function dependencyLevelLabel(level: DependencyUpdateLevel | null): string {
   return LEVEL_LABELS[level ?? "OTHER"];
 }
 
@@ -140,7 +140,7 @@ export function dependencyHeadline(ctx: DependencyMessageContext): string {
 }
 
 /** One sentence explaining the event, or `null` when the update list says it all. */
-export function dependencyIntro(ctx: DependencyMessageContext): string | null {
+function dependencyIntro(ctx: DependencyMessageContext): string | null {
   if (ctx.kind === "digest") return null;
   const title = ctx.pullRequest?.title?.trim();
   switch (ctx.pullRequest?.event) {
@@ -174,7 +174,7 @@ function moreLine(ctx: DependencyMessageContext): string | null {
 }
 
 /** The Markdown body shared by Discord, ntfy and Gotify. */
-export function dependencyMarkdown(ctx: DependencyMessageContext): string {
+function dependencyMarkdown(ctx: DependencyMessageContext): string {
   const parts: string[] = [];
   if (ctx.test) parts.push("_This is a test notification from RepoPulse._");
   const intro = dependencyIntro(ctx);

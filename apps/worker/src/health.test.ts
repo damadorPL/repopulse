@@ -3,14 +3,9 @@ import { PassThrough } from "node:stream";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  checkDatabase,
-  checkRedis,
-  getHealthReport,
-  pingRedis,
-  resolveHealthPort,
-  startHealthServer,
-} from "./health.js";
+import { checkRedis, pingRedis } from "@repopulse/queue";
+
+import { checkDatabase, getHealthReport, resolveHealthPort, startHealthServer } from "./health.js";
 import { createLogger, errorMessage } from "./logger.js";
 import {
   closeQueues,
@@ -62,17 +57,17 @@ describe("checkDatabase, checkRedis, pingRedis, and getHealthReport", () => {
   });
 
   it("checkDatabase returns ok when query succeeds and error when it rejects", async () => {
-    expect(await checkDatabase()).toBe("ok");
+    await expect(checkDatabase()).resolves.toBe("ok");
     queryRaw.mockRejectedValueOnce(new Error("connection\nrefused"));
-    expect(await checkDatabase()).toBe("error");
+    await expect(checkDatabase()).resolves.toBe("error");
   });
 
   it("checkRedis returns skipped when REDIS_URL is unset and error on invalid URL", async () => {
     vi.stubEnv("REDIS_URL", undefined);
-    expect(await checkRedis()).toBe("skipped");
+    await expect(checkRedis()).resolves.toBe("skipped");
 
     vi.stubEnv("REDIS_URL", "not-a-url");
-    expect(await checkRedis()).toBe("error");
+    await expect(checkRedis()).resolves.toBe("error");
   });
 
   it("pingRedis validates URL protocol and speaks RESP over TCP", async () => {
@@ -92,7 +87,11 @@ describe("checkDatabase, checkRedis, pingRedis, and getHealthReport", () => {
       });
     });
 
-    await new Promise<void>((resolve) => tcpServer.listen(0, "127.0.0.1", () => resolve()));
+    await new Promise<void>((resolve) => {
+      tcpServer.listen(0, "127.0.0.1", () => {
+        resolve();
+      });
+    });
     const port = (tcpServer.address() as net.AddressInfo).port;
 
     try {
@@ -115,7 +114,11 @@ describe("checkDatabase, checkRedis, pingRedis, and getHealthReport", () => {
       };
       await expect(pingRedis(`redis://127.0.0.1:${port}`)).rejects.toThrow("unexpected redis PING reply");
     } finally {
-      await new Promise<void>((resolve) => tcpServer.close(() => resolve()));
+      await new Promise<void>((resolve) => {
+        tcpServer.close(() => {
+          resolve();
+        });
+      });
     }
   });
 
@@ -144,16 +147,19 @@ describe("startHealthServer", () => {
     try {
       const okRes = await fetch(`${baseUrl}/health?probe=1`);
       expect(okRes.status).toBe(200);
-      expect(await okRes.json()).toMatchObject({ status: "ok", checks: { database: "ok", redis: "skipped" } });
+      await expect(okRes.json()).resolves.toMatchObject({ status: "ok", checks: { database: "ok", redis: "skipped" } });
 
       queryRaw.mockRejectedValueOnce(new Error("db down"));
       const errRes = await fetch(`${baseUrl}/health`);
       expect(errRes.status).toBe(503);
-      expect(await errRes.json()).toMatchObject({ status: "error", checks: { database: "error", redis: "skipped" } });
+      await expect(errRes.json()).resolves.toMatchObject({
+        status: "error",
+        checks: { database: "error", redis: "skipped" },
+      });
 
       const notFoundRes = await fetch(`${baseUrl}/other`);
       expect(notFoundRes.status).toBe(404);
-      expect(await notFoundRes.json()).toEqual({ status: "not_found" });
+      await expect(notFoundRes.json()).resolves.toEqual({ status: "not_found" });
 
       const postRes = await fetch(`${baseUrl}/health`, { method: "POST" });
       expect(postRes.status).toBe(404);
@@ -205,7 +211,7 @@ describe("createLogger and errorMessage", () => {
     });
 
     const errNoStack = new Error("plain message");
-    errNoStack.stack = undefined;
+    delete errNoStack.stack;
     expect(errorMessage(errNoStack)).toBe("plain message");
     expect(errorMessage(42)).toBe("42");
   });

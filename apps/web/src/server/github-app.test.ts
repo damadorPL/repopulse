@@ -67,30 +67,30 @@ describe("completeManifestCallback", () => {
     ["no state", { code: "abc", state: null, cookieState: "s1" }],
     ["a different state", { code: "abc", state: "s2", cookieState: "s1" }],
   ])("refuses %s without calling GitHub", async (_label, input) => {
-    expect(await completeManifestCallback(input, { convert, save })).toBe("/admin/github-app?error=state");
+    await expect(completeManifestCallback(input, { convert, save })).resolves.toBe("/admin/github-app?error=state");
     expect(convert).not.toHaveBeenCalled();
     expect(save).not.toHaveBeenCalled();
   });
 
   it("needs a code", async () => {
-    expect(await completeManifestCallback({ code: " ", state: "s1", cookieState: "s1" }, { convert, save })).toBe(
-      "/admin/github-app?error=code",
-    );
+    await expect(
+      completeManifestCallback({ code: " ", state: "s1", cookieState: "s1" }, { convert, save }),
+    ).resolves.toBe("/admin/github-app?error=code");
     expect(convert).not.toHaveBeenCalled();
   });
 
   it("maps failures to fixed error codes, never to GitHub's message", async () => {
     convert.mockRejectedValueOnce(new Error("secret details"));
-    expect(await completeManifestCallback({ code: "abc", state: "s1", cookieState: "s1" }, { convert, save })).toBe(
-      "/admin/github-app?error=conversion",
-    );
+    await expect(
+      completeManifestCallback({ code: "abc", state: "s1", cookieState: "s1" }, { convert, save }),
+    ).resolves.toBe("/admin/github-app?error=conversion");
     convert.mockRejectedValueOnce(new GitHubRateLimitError("rate limited"));
-    expect(await completeManifestCallback({ code: "abc", state: "s1", cookieState: "s1" }, { convert, save })).toBe(
-      "/admin/github-app?error=rate_limited",
-    );
+    await expect(
+      completeManifestCallback({ code: "abc", state: "s1", cookieState: "s1" }, { convert, save }),
+    ).resolves.toBe("/admin/github-app?error=rate_limited");
     save.mockRejectedValueOnce(new Error("db down"));
-    expect(await completeManifestCallback({ code: "abc", state: "s1", cookieState: "s1" }, { convert, save })).toBe(
-      "/admin/github-app?error=unknown",
-    );
+    await expect(
+      completeManifestCallback({ code: "abc", state: "s1", cookieState: "s1" }, { convert, save }),
+    ).resolves.toBe("/admin/github-app?error=unknown");
   });
 });

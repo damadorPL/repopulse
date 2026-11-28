@@ -126,7 +126,9 @@ describe("commit-msg-lint", () => {
         cwd: dir,
         messageFilePath: msgFile,
         getStagedFileCount: () => 1,
-        logError: (msg) => errors.push(msg),
+        logError: (msg) => {
+          errors.push(msg);
+        },
       });
       expect(okCode).toBe(0);
       expect(errors).toEqual([]);
@@ -135,7 +137,9 @@ describe("commit-msg-lint", () => {
         cwd: dir,
         messageFilePath: msgFile,
         getStagedFileCount: () => 2,
-        logError: (msg) => errors.push(msg),
+        logError: (msg) => {
+          errors.push(msg);
+        },
       });
       expect(failCode).toBe(1);
       expect(errors.length).toBeGreaterThan(0);

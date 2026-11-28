@@ -1,5 +1,8 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
+import { after } from "next/server";
+
 import { prisma, type DepsUpdateMode, type Prisma } from "@repopulse/db";
 import {
   groupCapability,
@@ -38,8 +41,6 @@ import {
   type DepsScanTrigger,
   type DepsUpdateQueue,
 } from "@repopulse/queue";
-import { revalidatePath } from "next/cache";
-import { after } from "next/server";
 
 import { getCurrentUserOrThrow } from "@/lib/auth";
 import { readIgnoreRules, sameIgnoreRule, type IgnoreRuleValue } from "@/lib/dependency-settings";
@@ -79,23 +80,23 @@ const DISABLED_MESSAGE = "Dependency checks are turned off by the administrator.
 // Queue producers (deps-scan, deps-update)
 // ---------------------------------------------------------------------------
 
-const globalForDeps = globalThis as unknown as {
-  repopulseDepsScanQueue?: DepsScanQueue;
-  repopulseDepsUpdateQueue?: DepsUpdateQueue;
-};
+declare global {
+  var repopulseDepsScanQueue: DepsScanQueue | undefined;
+  var repopulseDepsUpdateQueue: DepsUpdateQueue | undefined;
+}
 
 function getDepsScanQueue(): DepsScanQueue {
-  globalForDeps.repopulseDepsScanQueue ??= createDepsScanQueue(getRedis(), (err) =>
+  globalThis.repopulseDepsScanQueue ??= createDepsScanQueue(getRedis(), (err) =>
     console.error(`[deps-scan] queue error: ${err.message}`),
   );
-  return globalForDeps.repopulseDepsScanQueue;
+  return globalThis.repopulseDepsScanQueue;
 }
 
 function getDepsUpdateQueue(): DepsUpdateQueue {
-  globalForDeps.repopulseDepsUpdateQueue ??= createDepsUpdateQueue(getRedis(), (err) =>
+  globalThis.repopulseDepsUpdateQueue ??= createDepsUpdateQueue(getRedis(), (err) =>
     console.error(`[deps-update] queue error: ${err.message}`),
   );
-  return globalForDeps.repopulseDepsUpdateQueue;
+  return globalThis.repopulseDepsUpdateQueue;
 }
 
 /**
@@ -724,7 +725,16 @@ export async function updateDependencyProjectSettingsAction(
       await tx.dependencyProject.update({
         where: { id: project.id },
         data: {
-          ...fields,
+          ...(fields.updateMode !== undefined ? { updateMode: fields.updateMode } : {}),
+          ...(fields.maxUpdateLevel !== undefined ? { maxUpdateLevel: fields.maxUpdateLevel } : {}),
+          ...(fields.includePrereleases !== undefined ? { includePrereleases: fields.includePrereleases } : {}),
+          ...(fields.minReleaseAgeDays !== undefined ? { minReleaseAgeDays: fields.minReleaseAgeDays } : {}),
+          ...(fields.groupMode !== undefined ? { groupMode: fields.groupMode } : {}),
+          ...(fields.rangeStrategy !== undefined ? { rangeStrategy: fields.rangeStrategy } : {}),
+          ...(fields.maxOpenPrs !== undefined ? { maxOpenPrs: fields.maxOpenPrs } : {}),
+          ...(fields.scanIntervalHours !== undefined ? { scanIntervalHours: fields.scanIntervalHours } : {}),
+          ...(fields.notificationLevel !== undefined ? { notificationLevel: fields.notificationLevel } : {}),
+          ...(fields.commitPrefix !== undefined ? { commitPrefix: fields.commitPrefix } : {}),
           ...(ignoreRules !== undefined ? { ignoreRules } : {}),
           ...(manifestPaths !== undefined ? { manifestPaths } : {}),
           ...(nextScanAt ? { nextScanAt } : {}),

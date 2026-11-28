@@ -8,6 +8,7 @@ import type { Route } from "next";
 
 import type { DependencyEcosystemValue, DependencyKindValue, DependencyUpdateStatusValue } from "./dependency-settings";
 import { MAX_SEARCH_LENGTH } from "./feed-filters";
+import { toRoute } from "./route";
 
 export const DEPENDENCY_LIST_SORTS = ["name", "outdated", "checked"] as const;
 export type DependencyListSort = (typeof DEPENDENCY_LIST_SORTS)[number];
@@ -19,12 +20,12 @@ export const DEPENDENCY_LIST_SORT_OPTIONS: ReadonlyArray<{ value: DependencyList
 ];
 
 export interface DependencyListFilters {
-  q?: string;
+  q?: string | undefined;
   sort: DependencyListSort;
 }
 
-export const DEPENDENCY_LIST_PARAM = { q: "q", sort: "sort" } as const;
-export const DEPENDENCIES_PATH = "/dependencies";
+const DEPENDENCY_LIST_PARAM = { q: "q", sort: "sort" } as const;
+const DEPENDENCIES_PATH = "/dependencies";
 
 type RawParams = URLSearchParams | Record<string, string | string[] | undefined>;
 
@@ -32,7 +33,7 @@ function read(params: RawParams, key: string): string | undefined {
   const value = params instanceof URLSearchParams ? params.get(key) : params[key];
   const first = Array.isArray(value) ? value[0] : value;
   const trimmed = first?.trim();
-  return trimmed ? trimmed : undefined;
+  return trimmed !== undefined && trimmed.length > 0 ? trimmed : undefined;
 }
 
 export function parseDependencyListFilters(params: RawParams): DependencyListFilters {
@@ -44,7 +45,7 @@ export function parseDependencyListFilters(params: RawParams): DependencyListFil
   };
 }
 
-export function dependencyListSearchParams(filters: Partial<DependencyListFilters>): URLSearchParams {
+function dependencyListSearchParams(filters: Partial<DependencyListFilters>): URLSearchParams {
   const params = new URLSearchParams();
   const q = filters.q?.trim();
   if (q) params.set(DEPENDENCY_LIST_PARAM.q, q.slice(0, MAX_SEARCH_LENGTH));
@@ -62,7 +63,7 @@ export function dependencyProjectHref(fullName: string, from?: Partial<Dependenc
   const [owner = "", name = ""] = fullName.split("/");
   const path = `${DEPENDENCIES_PATH}/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
   const query = from ? dependencyListSearchParams(from).toString() : "";
-  return (query ? `${path}?from=${encodeURIComponent(query)}` : path) as Route;
+  return toRoute(query ? `${path}?from=${encodeURIComponent(query)}` : path);
 }
 
 /** The list URL to return to from a project page's `?from=` value (re-parsed: it can only point at the list). */
@@ -126,12 +127,12 @@ export function applyDependencyListFilters<T extends DependencyListRow>(
 export type UpdateLevelFilter = "MAJOR" | "MINOR" | "PATCH" | "OTHER";
 
 export interface UpdateTableFilters {
-  level?: UpdateLevelFilter;
-  kind?: DependencyKindValue;
-  ecosystem?: DependencyEcosystemValue;
+  level?: UpdateLevelFilter | undefined;
+  kind?: DependencyKindValue | undefined;
+  ecosystem?: DependencyEcosystemValue | undefined;
   /** `undefined` = everything; "ACTIONABLE" (default view) = only `OUTDATED`. */
-  status?: DependencyUpdateStatusValue;
-  q?: string;
+  status?: DependencyUpdateStatusValue | undefined;
+  q?: string | undefined;
 }
 
 export interface UpdateTableRow {

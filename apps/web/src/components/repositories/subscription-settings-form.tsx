@@ -8,7 +8,7 @@ import { useId, useOptimistic, useState, useTransition, type ReactNode, type Sub
 import { toast } from "sonner";
 
 import { LocalDateTime } from "@/components/feed/relative-time";
-import { useClientNow } from "@/components/repositories/activity-grid";
+import { useClientNow } from "@/components/repositories/use-client-now";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

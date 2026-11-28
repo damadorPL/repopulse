@@ -17,19 +17,6 @@ export function createUrlSearchSyncState(initialUrlQuery: string): UrlSearchSync
 }
 
 /**
- * Records a trimmed query about to be pushed to the URL, if it differs from what
- * the URL already has or is queued to have. Returns the trimmed query.
- */
-export function recordUrlSearchPush(state: UrlSearchSyncState, rawQuery: string): string {
-  const trimmed = rawQuery.trim();
-  const expected = state.pendingPushes.at(-1) ?? state.lastUrlQuery;
-  if (trimmed !== expected) {
-    state.pendingPushes.push(trimmed);
-  }
-  return trimmed;
-}
-
-/**
  * Reconciles an incoming `urlQuery` from the router or server props.
  * Returns `true` if the change came from outside (back button, link click) and the
  * local input should reset to `nextUrlQuery`, or `false` if it was our own

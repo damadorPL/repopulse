@@ -64,9 +64,12 @@ export function toSmtpConfig(settings: StoredSmtpSettings | null | undefined): S
     throw new NotificationDeliveryError(`SMTP port "${port}" is not a valid port.`, { permanent: true });
   }
   const secure = settings.smtpSecure ?? port === 465;
-  const user = settings.smtpUser?.trim() || undefined;
-  const pass = user ? settings.smtpPassword || undefined : undefined;
-  const from = settings.smtpFrom?.trim() || defaultSmtpFrom(host, user);
+  const trimmedUser = settings.smtpUser?.trim();
+  const user = trimmedUser !== undefined && trimmedUser.length > 0 ? trimmedUser : undefined;
+  const pass =
+    user && settings.smtpPassword !== null && settings.smtpPassword.length > 0 ? settings.smtpPassword : undefined;
+  const trimmedFrom = settings.smtpFrom?.trim();
+  const from = trimmedFrom !== undefined && trimmedFrom.length > 0 ? trimmedFrom : defaultSmtpFrom(host, user);
   return { host, port, secure, user, pass, from };
 }
 
@@ -126,6 +129,8 @@ export function closeSmtpTransports(): void {
 /**
  * Verifies an SMTP configuration using an ephemeral (non-pooled) transport and closes it when done.
  * Maps SMTP authentication and connection failures to {@link NotificationDeliveryError}.
+ *
+ * @internal Exported for unit tests.
  */
 export async function verifySmtpConfig(config: SmtpConfig): Promise<void> {
   // oxlint-disable-next-line import/no-named-as-default-member -- nodemailer is CommonJS; tests spy on nodemailer.createTransport.
@@ -172,14 +177,20 @@ export function createSmtpSender(config: SmtpConfig): MailSender {
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 /** SMTP 5xx replies and authentication failures are permanent; 4xx and connection errors are retried. */
 function smtpError(error: unknown, fallbackLabel = "Sending the email failed"): NotificationDeliveryError {
-  const err = error as { code?: string; responseCode?: number; response?: string; message?: string };
+  const err = isRecord(error) ? error : {};
+  const code = typeof err.code === "string" ? err.code : undefined;
   const responseCode = typeof err.responseCode === "number" ? err.responseCode : undefined;
-  const permanent =
-    err.code === "EAUTH" || err.code === "EENVELOPE" || (responseCode !== undefined && responseCode >= 500);
-  const detail = (err.response ?? err.message ?? "unknown error").split(/\r?\n/, 1)[0]?.slice(0, 200);
-  const label = err.code === "EAUTH" ? "SMTP authentication failed" : "The SMTP server rejected the email";
+  const response = typeof err.response === "string" ? err.response : undefined;
+  const message = typeof err.message === "string" ? err.message : undefined;
+  const permanent = code === "EAUTH" || code === "EENVELOPE" || (responseCode !== undefined && responseCode >= 500);
+  const detail = (response ?? message ?? "unknown error").split(/\r?\n/, 1)[0]?.slice(0, 200);
+  const label = code === "EAUTH" ? "SMTP authentication failed" : "The SMTP server rejected the email";
   return new NotificationDeliveryError(`${permanent ? label : fallbackLabel}: ${detail}`, {
     permanent,
     cause: error,

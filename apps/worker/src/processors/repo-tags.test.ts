@@ -1,5 +1,6 @@
-import { GitHubRateLimitError, type GitTag } from "@repopulse/github";
 import { describe, expect, it, vi } from "vitest";
+
+import { GitHubRateLimitError, type GitTag } from "@repopulse/github";
 
 import { mergeFanOutPlans, type StoredRelease } from "./fan-out.js";
 import { loadSubscribers, pollRepoTags, tracksReleases, tracksTags, type SubscriberWithMode } from "./repo-tags.js";
@@ -178,9 +179,9 @@ describe("pollRepoTags", () => {
   it("skips without a token (GraphQL needs one)", async () => {
     const db = fakePrisma({ subscribers: [] });
     const fetchTags = vi.fn();
-    expect(
-      await pollRepoTags({ prisma: db.prisma as never, fetchTags }, REPO, [{ userId: null, token: undefined }], null),
-    ).toBeNull();
+    await expect(
+      pollRepoTags({ prisma: db.prisma as never, fetchTags }, REPO, [{ userId: null, token: undefined }], null),
+    ).resolves.toBeNull();
     expect(fetchTags).not.toHaveBeenCalled();
   });
 
@@ -222,8 +223,8 @@ describe("pollRepoTags", () => {
     const all401 = vi.fn(async (_params: { accessToken?: string }) => {
       throw Object.assign(new Error("Bad credentials"), { status: 401 });
     });
-    expect(
-      await pollRepoTags(
+    await expect(
+      pollRepoTags(
         { prisma: db.prisma as never, fetchTags: all401 },
         REPO,
         [
@@ -233,7 +234,7 @@ describe("pollRepoTags", () => {
         ],
         null,
       ),
-    ).toBeNull();
+    ).resolves.toBeNull();
     expect(all401.mock.calls.map(([p]) => p.accessToken)).toEqual(["t1", "t2"]);
   });
 

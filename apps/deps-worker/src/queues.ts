@@ -1,3 +1,5 @@
+import type { ConnectionOptions } from "bullmq";
+
 import {
   createDepsNotifyQueue,
   createDepsScanQueue,
@@ -12,7 +14,6 @@ import {
   type DepsSchedulerQueue,
   type DepsUpdateQueue,
 } from "@repopulse/queue";
-import type { ConnectionOptions } from "bullmq";
 
 import { createLogger } from "./logger.js";
 

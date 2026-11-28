@@ -14,8 +14,11 @@ if (process.env.NODE_ENV !== "production" && existsSync(rootEnvFile)) {
 }
 
 // The app version shown in the sidebar: `version` in apps/web/package.json, bumped with each release.
-const appVersion = (JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string })
-  .version;
+const pkgJson: unknown = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
+const appVersion =
+  typeof pkgJson === "object" && pkgJson !== null && "version" in pkgJson && typeof pkgJson.version === "string"
+    ? pkgJson.version
+    : "0.0.0";
 
 const nextConfig: NextConfig = {
   // Inlined into server and client bundles at build time.
@@ -53,6 +56,7 @@ const nextConfig: NextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "X-Frame-Options", value: "DENY" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
         ],
       },
     ];

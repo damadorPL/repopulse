@@ -1,5 +1,6 @@
-import { depsNotifyJobId, type DepsNotifyJobData } from "@repopulse/queue";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { depsNotifyJobId, type DepsNotifyJobData } from "@repopulse/queue";
 
 import {
   flushNotificationOutbox,
@@ -33,7 +34,7 @@ describe("dependency notification outbox", () => {
     queue.addBulk.mockRejectedValueOnce(new Error("Redis unavailable"));
     await expect(flushNotificationOutbox(db, queue)).rejects.toThrow("Redis unavailable");
     expect(prisma.dependencyNotificationOutbox.rows).toHaveLength(1);
-    expect(await flushNotificationOutbox(db, queue)).toBe(1);
+    await expect(flushNotificationOutbox(db, queue)).resolves.toBe(1);
     expect(queue.addBulk).toHaveBeenLastCalledWith([
       expect.objectContaining({ data, opts: { jobId: depsNotifyJobId(data) } }),
     ]);
@@ -106,7 +107,7 @@ describe("dependency notification outbox", () => {
     expect(queue.addBulk).toHaveBeenCalledTimes(MAX_FLUSH_BATCHES);
     expect(prisma.dependencyNotificationOutbox.rows).toHaveLength(5);
 
-    expect(await flushNotificationOutbox(db, queue)).toBe(5);
+    await expect(flushNotificationOutbox(db, queue)).resolves.toBe(5);
     expect(prisma.dependencyNotificationOutbox.rows).toHaveLength(0);
   });
 
@@ -127,7 +128,7 @@ describe("dependency notification outbox", () => {
       { id: "good-2", projectId: "p1", createdAt: new Date(4), payload: prPayload },
     );
 
-    expect(await flushNotificationOutbox(db, queue)).toBe(2);
+    await expect(flushNotificationOutbox(db, queue)).resolves.toBe(2);
     expect(queue.addBulk).toHaveBeenCalledWith([
       { name: "dispatch-dependency-notification", data, opts: { jobId: "good-1" } },
       { name: "dispatch-dependency-notification", data: prPayload, opts: { jobId: "good-2" } },

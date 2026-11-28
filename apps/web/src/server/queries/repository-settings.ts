@@ -82,7 +82,7 @@ export async function getRepositorySettings(
 }
 
 /** Most items the activity grid receives; a busy "Files / folders" subscription can have far more. */
-export const ACTIVITY_ITEMS_CAP = 5000;
+const ACTIVITY_ITEMS_CAP = 5000;
 
 export interface RepositoryActivity {
   /** Visible items of the last {@link ACTIVITY_WINDOW_DAYS} days, newest first (at most {@link ACTIVITY_ITEMS_CAP}). */

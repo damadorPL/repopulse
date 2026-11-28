@@ -3,16 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   basename,
   deepEqual,
-  detectLineEnding,
   dirname,
   isRecord,
-  isWithinDir,
   joinPath,
   matchesWorkspaceGlobs,
   normalizePypiName,
   relativeTo,
   resolveRelativePath,
-  stripBom,
   utf8ByteLength,
   workspaceGlobToRegExp,
 } from "./util.js";
@@ -137,21 +134,12 @@ describe("other util helpers", () => {
     expect(basename("a/b/c.json")).toBe("c.json");
     expect(basename("c.json")).toBe("c.json");
     expect(joinPath("", "a", "", "b")).toBe("a/b");
-    expect(isWithinDir("a/b", "")).toBe(true);
-    expect(isWithinDir("a/b", "a")).toBe(true);
-    expect(isWithinDir("a", "a")).toBe(true);
-    expect(isWithinDir("ab", "a")).toBe(false);
     expect(relativeTo("a/b", "")).toBe("a/b");
     expect(relativeTo("a", "a")).toBe("");
     expect(relativeTo("a/b/c", "a")).toBe("b/c");
   });
 
-  it("strips BOM, detects line endings and compares values deeply", () => {
-    expect(stripBom("\uFEFFhello")).toEqual({ text: "hello", offset: 1 });
-    expect(stripBom("hello")).toEqual({ text: "hello", offset: 0 });
-    expect(detectLineEnding("a\r\nb\n")).toBe("\r\n");
-    expect(detectLineEnding("a\nb\r\n")).toBe("\n");
-    expect(detectLineEnding("no newline")).toBe("\n");
+  it("compares values deeply", () => {
     expect(isRecord({ a: 1 })).toBe(true);
     expect(isRecord([1])).toBe(false);
     expect(isRecord(null)).toBe(false);

@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import {
   evaluateFile,
   evaluateRepoMigrationsDir,
+  evaluateStagedEnvPaths,
   evaluateStagedMigrationEntries,
   isGeneratedOrVendorPath,
   parseGitNameStatus,
@@ -27,6 +28,29 @@ function getStagedNameStatus(repoRoot: string): string {
     cwd: repoRoot,
     encoding: "utf8",
   });
+}
+
+function getBaseDiffNameStatus(repoRoot: string, baseRef: string): string {
+  return execFileSync("git", ["diff", "--name-status", `${baseRef}...HEAD`], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+}
+
+function parseBaseArg(argv: readonly string[]): { stagedOnly: boolean; baseRef: string | null } {
+  let stagedOnly = false;
+  let baseRef: string | null = null;
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i]!;
+    if (arg === "--staged") {
+      stagedOnly = true;
+    } else if (arg === "--base") {
+      baseRef = argv[++i] ?? null;
+    } else if (arg.startsWith("--base=")) {
+      baseRef = arg.slice("--base=".length) || null;
+    }
+  }
+  return { stagedOnly, baseRef };
 }
 
 function isBinaryContent(buffer: Buffer): boolean {
@@ -64,8 +88,7 @@ export function runGuardrailsCli(
   argv: readonly string[] = process.argv.slice(2),
   repoRoot: string = process.cwd(),
 ): number {
-  const args = new Set(argv);
-  const stagedOnly = args.has("--staged");
+  const { stagedOnly, baseRef } = parseBaseArg(argv);
 
   const candidateFiles = stagedOnly
     ? getGitFileList(repoRoot, ["diff", "--cached", "--name-only", "--diff-filter=ACM"])
@@ -90,6 +113,12 @@ export function runGuardrailsCli(
   if (stagedOnly) {
     const stagedEntries = parseGitNameStatus(getStagedNameStatus(repoRoot));
     violations.push(...evaluateStagedMigrationEntries(stagedEntries));
+    violations.push(...evaluateStagedEnvPaths(stagedEntries));
+  }
+
+  if (baseRef) {
+    const baseEntries = parseGitNameStatus(getBaseDiffNameStatus(repoRoot, baseRef));
+    violations.push(...evaluateStagedMigrationEntries(baseEntries));
   }
 
   violations.push(...evaluateRepoMigrationsDir(repoRoot));

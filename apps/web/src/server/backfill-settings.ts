@@ -38,7 +38,7 @@ export interface BackfillSettingView {
   max: number;
 }
 
-export const BACKFILL_ENV_VARS: Record<BackfillSettingKey, string | null> = {
+const BACKFILL_ENV_VARS: Record<BackfillSettingKey, string | null> = {
   defaultTarget: "RELEASE_BACKFILL_DEFAULT_TARGET",
   maxAgeDays: "RELEASE_BACKFILL_MAX_AGE_DAYS",
   hardCap: "RELEASE_BACKFILL_HARD_CAP",
@@ -47,7 +47,7 @@ export const BACKFILL_ENV_VARS: Record<BackfillSettingKey, string | null> = {
   deepCooldownMinutes: null,
 };
 
-export const BACKFILL_SETTING_KEYS: readonly BackfillSettingKey[] = [
+const BACKFILL_SETTING_KEYS: readonly BackfillSettingKey[] = [
   "defaultTarget",
   "maxAgeDays",
   "deepStep",
@@ -96,10 +96,6 @@ export function reapplyCandidatesWhere(defaultTarget: number): Prisma.Repository
     backfillNextPage: { not: null },
     backfillTarget: { lte: defaultTarget },
   };
-}
-
-export async function countReapplyCandidates(defaultTarget: number): Promise<number> {
-  return prisma.repository.count({ where: reapplyCandidatesWhere(defaultTarget) });
 }
 
 export interface ReapplyCandidate {

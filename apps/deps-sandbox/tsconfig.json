@@ -1,13 +1,9 @@
 {
-  "extends": "@repopulse/tsconfig/base.json",
+  "extends": "@repopulse/tsconfig/node.json",
   "compilerOptions": {
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "types": ["node"],
     "outDir": "dist",
     "rootDir": "src",
     "noEmit": false
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["src/**/*.ts"]
 }

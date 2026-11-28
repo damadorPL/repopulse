@@ -4,7 +4,7 @@ import https from "node:https";
 import { NotificationDeliveryError } from "./errors.js";
 import { createGuardedLookup, validateWebhookUrl, type InternalHostsPolicy, type ResolveAll } from "./ssrf-guard.js";
 
-export const USER_AGENT = "RepoPulse-Notifications/1.0";
+const USER_AGENT = "RepoPulse-Notifications/1.0";
 export const DEFAULT_TIMEOUT_MS = 10_000;
 /** Enough of an error response to show the service's message (Discord/Slack reply with short JSON or text). */
 const MAX_RESPONSE_BYTES = 16 * 1024;
@@ -38,16 +38,19 @@ function isTransientStatus(status: number): boolean {
   return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 /** First line of a JSON `message`/`error` field or of the plain-text body, for error messages. */
 export function describeResponseBody(body: string): string {
   const trimmed = body.trim();
   if (!trimmed) return "";
   try {
     const parsed: unknown = JSON.parse(trimmed);
-    if (parsed && typeof parsed === "object") {
-      const record = parsed as Record<string, unknown>;
+    if (isRecord(parsed)) {
       for (const key of ["message", "error", "errorDescription", "error_description"]) {
-        const value = record[key];
+        const value = parsed[key];
         if (typeof value === "string" && value.trim()) return value.trim().slice(0, 200);
       }
     }
@@ -65,7 +68,10 @@ export function describeResponseBody(body: string): string {
  */
 export const postWebhook: WebhookSender = async (request, options) => {
   // IP-literal hosts never reach the lookup function, so validate the URL itself first.
-  const url = await validateWebhookUrl(request.url.href, { policy: options.policy, resolveAll: options.resolveAll });
+  const url = await validateWebhookUrl(request.url.href, {
+    policy: options.policy,
+    ...(options.resolveAll !== undefined ? { resolveAll: options.resolveAll } : {}),
+  });
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const signals = [AbortSignal.timeout(timeoutMs), ...(options.signal ? [options.signal] : [])];
   const signal = AbortSignal.any(signals);
@@ -141,7 +147,8 @@ export const postWebhook: WebhookSender = async (request, options) => {
   }).catch((error: unknown) => {
     if (error instanceof NotificationDeliveryError) throw error;
     const timedOut = signals[0]?.aborted === true;
-    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    const rawCode = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+    const code = typeof rawCode === "string" ? rawCode : undefined;
     const detail = timedOut
       ? `timed out after ${Math.round(timeoutMs / 1000)} s`
       : code

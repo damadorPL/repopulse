@@ -37,6 +37,7 @@ const ADDITIONS = [
     lines: [
       "# docker-compose.coolify.yml passes SERVICE_PASSWORD_64_POSTGRESAPP to migrator and apps: Coolify generates it",
       "# automatically; for local compose it reuses POSTGRES_APP_PASSWORD.",
+      // oxlint-disable-next-line eslint/no-template-curly-in-string -- Literal dotenv/Coolify variable reference
       "SERVICE_PASSWORD_64_POSTGRESAPP=${POSTGRES_APP_PASSWORD}",
     ],
   },
@@ -133,6 +134,7 @@ const ADDITIONS = [
     lines: [
       "# docker-compose.coolify.yml passes SERVICE_PASSWORD_64_DEPSSANDBOX to both services: Coolify generates it",
       "# automatically; for local compose it reuses DEPS_SANDBOX_TOKEN.",
+      // oxlint-disable-next-line eslint/no-template-curly-in-string -- Literal dotenv/Coolify variable reference
       "SERVICE_PASSWORD_64_DEPSSANDBOX=${DEPS_SANDBOX_TOKEN}",
     ],
   },

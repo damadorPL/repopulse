@@ -30,28 +30,31 @@ beforeEach(() => {
 describe("setDepsEnabledAction", () => {
   it("turns the module on and off and invalidates the depsEnabled cache", async () => {
     await expect(readDepsEnabledCached(async () => false)).resolves.toBe(false);
-    expect(await setDepsEnabledAction({ enabled: true })).toEqual({ ok: true, data: { enabled: true } });
+    await expect(setDepsEnabledAction({ enabled: true })).resolves.toEqual({ ok: true, data: { enabled: true } });
     await expect(readDepsEnabledCached(async () => true)).resolves.toBe(true);
     expect(prisma.instanceSettings.upsert).toHaveBeenCalledWith({
       where: { id: 1 },
       create: { id: 1, depsEnabled: true },
       update: { depsEnabled: true },
     });
-    expect(await setDepsEnabledAction({ enabled: false })).toEqual({ ok: true, data: { enabled: false } });
+    await expect(setDepsEnabledAction({ enabled: false })).resolves.toEqual({ ok: true, data: { enabled: false } });
   });
 
   it("is super admin only", async () => {
     currentUser.isSuperAdmin = false;
-    expect(await setDepsEnabledAction({ enabled: true })).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
+    await expect(setDepsEnabledAction({ enabled: true })).resolves.toMatchObject({
+      ok: false,
+      error: { code: "FORBIDDEN" },
+    });
     expect(prisma.instanceSettings.upsert).not.toHaveBeenCalled();
   });
 
   it("validates the input", async () => {
-    expect(await setDepsEnabledAction({ enabled: "yes" } as never)).toMatchObject({
+    await expect(setDepsEnabledAction({ enabled: "yes" } as never)).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
-    expect(await setDepsEnabledAction({ enabled: true, extra: 1 } as never)).toMatchObject({
+    await expect(setDepsEnabledAction({ enabled: true, extra: 1 } as never)).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });

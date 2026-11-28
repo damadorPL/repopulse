@@ -1,7 +1,8 @@
 import { EventEmitter } from "node:events";
 
-import type * as QueueModule from "@repopulse/queue";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type * as QueueModule from "@repopulse/queue";
 
 class FakeRedis extends EventEmitter {
   readonly options: Record<string, unknown>;
@@ -71,9 +72,9 @@ describe("getRedis", () => {
 
 describe("subscribeUserEvents", () => {
   it("multiplexes multiple tabs and users on one shared Redis connection with ref-counted subscribe/unsubscribe", async () => {
-    const l1 = vi.fn();
-    const l2 = vi.fn();
-    const lOther = vi.fn();
+    const l1 = vi.fn<(message: string) => void>();
+    const l2 = vi.fn<(message: string) => void>();
+    const lOther = vi.fn<(message: string) => void>();
 
     const unsub1 = await realtime.subscribeUserEvents("u1", l1);
     const unsub2 = await realtime.subscribeUserEvents("u1", l2);
@@ -128,10 +129,10 @@ describe("subscribeUserEvents", () => {
       return conn;
     });
 
-    await expect(realtime.subscribeUserEvents("u1", vi.fn())).rejects.toThrow("redis down");
+    await expect(realtime.subscribeUserEvents("u1", vi.fn<() => void>())).rejects.toThrow("redis down");
 
     // Channel entry was removed on failure, so a subsequent subscriber triggers 0 -> 1 subscribe again.
-    const unsub = await realtime.subscribeUserEvents("u1", vi.fn());
+    const unsub = await realtime.subscribeUserEvents("u1", vi.fn<() => void>());
     expect(createdConnections[0]!.subscribe).toHaveBeenCalledTimes(2);
     await unsub();
     expect(createdConnections[0]!.unsubscribe).toHaveBeenCalledWith("user:u1:events");

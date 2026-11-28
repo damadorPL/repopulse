@@ -102,6 +102,35 @@ interface RepoData {
   owner: { login: string };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function parseRepoData(raw: unknown): RepoData {
+  if (
+    !isRecord(raw) ||
+    typeof raw.id !== "number" ||
+    typeof raw.name !== "string" ||
+    typeof raw.full_name !== "string" ||
+    typeof raw.default_branch !== "string" ||
+    typeof raw.private !== "boolean" ||
+    typeof raw.html_url !== "string" ||
+    !isRecord(raw.owner) ||
+    typeof raw.owner.login !== "string"
+  ) {
+    throw new Error("GitHub returned an unexpected repository payload.");
+  }
+  return {
+    id: raw.id,
+    name: raw.name,
+    full_name: raw.full_name,
+    default_branch: raw.default_branch,
+    private: raw.private,
+    html_url: raw.html_url,
+    owner: { login: raw.owner.login },
+  };
+}
+
 /**
  * Repository metadata (`GET /repositories/{id}` when `repositoryId` is given, which follows renames, else
  * `GET /repos/{owner}/{repo}`), the default-branch head (`GET git/ref/heads/{branch}`) and its recursive tree
@@ -128,7 +157,7 @@ export async function fetchGitTree(params: {
       params.repositoryId !== undefined
         ? await octokit.request("GET /repositories/{repository_id}", { repository_id: params.repositoryId, ...request })
         : await octokit.request("GET /repos/{owner}/{repo}", { owner: params.owner, repo: params.name, ...request });
-    const data = response.data as unknown as RepoData;
+    const data = parseRepoData(response.data);
     repository = {
       id: data.id,
       owner: data.owner.login,

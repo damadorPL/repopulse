@@ -26,8 +26,8 @@ export const TOKEN_REFRESH_MARGIN_MS = 5 * 60_000;
 
 export const PRIVATE_WITHOUT_APP_MESSAGE = "Install the GitHub App to check private repositories";
 
-export const READ_PERMISSIONS: InstallationPermissions = { contents: "read", pull_requests: "read" };
-export const WRITE_PERMISSIONS: InstallationPermissions = { contents: "write", pull_requests: "write" };
+const READ_PERMISSIONS: InstallationPermissions = { contents: "read", pull_requests: "read" };
+const WRITE_PERMISSIONS: InstallationPermissions = { contents: "write", pull_requests: "write" };
 
 export interface AppContext {
   auth: GitHubAppAuth;

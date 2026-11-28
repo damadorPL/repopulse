@@ -106,10 +106,10 @@ const NPM_LOCKFILES: ReadonlyArray<{ file: string; manager: PackageManager }> = 
 
 export const BUN_LOCKB_WARNING = "bun.lockb is binary: switch to the text bun.lock";
 export const YARN_WARNING = "Yarn: check only (update pull requests are not supported for Yarn)";
-export const PIP_TOOLS_WARNING = "pip-compile output: check only (recompile it with pip-compile)";
+const PIP_TOOLS_WARNING = "pip-compile output: check only (recompile it with pip-compile)";
 
 /** Format of a manifest file name, or `null`. Auto-detect accepts `requirements*.txt`, `requirements/*.txt`, `constraints*.txt`. */
-export function manifestFormatOf(path: string, explicit = false): ManifestFormat | null {
+function manifestFormatOf(path: string, explicit = false): ManifestFormat | null {
   const file = basename(path);
   if (file === "package.json") return "package.json";
   if (file === "pyproject.toml") return "pyproject";
@@ -214,10 +214,13 @@ export function detectManifests(tree: readonly RepoTreeEntry[], options: DetectO
 
 type FileSource = ReadonlyMap<string, string> | Readonly<Record<string, string>>;
 
+function isReadonlyMap(files: FileSource): files is ReadonlyMap<string, string> {
+  return files instanceof Map;
+}
+
 function lookup(files: FileSource, path: string): string | null {
-  if (files instanceof Map) return (files as ReadonlyMap<string, string>).get(path) ?? null;
-  const record = files as Readonly<Record<string, string>>;
-  return Object.prototype.hasOwnProperty.call(record, path) ? (record[path] ?? null) : null;
+  if (isReadonlyMap(files)) return files.get(path) ?? null;
+  return Object.prototype.hasOwnProperty.call(files, path) ? (files[path] ?? null) : null;
 }
 
 function parseJsonObject(text: string | null): Record<string, unknown> | null {
@@ -257,7 +260,7 @@ function pnpmWorkspaceGlobs(text: string | null): string[] {
 }
 
 /** `"pnpm@9.12.0+sha512…"` → `PNPM`. */
-export function packageManagerFromField(field: unknown): PackageManager | null {
+function packageManagerFromField(field: unknown): PackageManager | null {
   if (typeof field !== "string") return null;
   const name = field.split("@")[0]?.trim().toLowerCase();
   if (name === "pnpm") return "PNPM";

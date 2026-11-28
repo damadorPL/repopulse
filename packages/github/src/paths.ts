@@ -1,22 +1,12 @@
 import type { Octokit } from "@octokit/rest";
 
-import { createOctokit, isGitHubHttpError, type ResponseHeaders } from "./client.js";
+import { createOctokit, isGitHubHttpError } from "./client.js";
 import { hasNextLink, rethrowGitHubError } from "./poller.js";
 import { subjectOf } from "./tags.js";
 import { commitMatchesPath } from "./watched-paths.js";
 
-export {
-  commitMatchesAnyPath,
-  commitMatchesPath,
-  MAX_WATCHED_PATH_LENGTH,
-  MAX_WATCHED_PATHS,
-  normalizeWatchedPath,
-  parseWatchedPaths,
-  type ParsedWatchedPaths,
-} from "./watched-paths.js";
-
 /** Newest commits read per watched path per poll ("Files / folders", Slice 06). */
-export const PATH_COMMITS_PAGE_SIZE = 10;
+const PATH_COMMITS_PAGE_SIZE = 10;
 /** Changed files listed in a commit changelog before "…and N more files". */
 export const COMMIT_CHANGELOG_MAX_FILES = 50;
 /** GitHub returns at most this many files per commit detail page. */
@@ -90,6 +80,73 @@ interface CommitDetailData {
   files?: Array<{ filename: string; status: string; additions: number; deletions: number; previous_filename?: string }>;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function parseCommitAuthorBlock(raw: unknown): { name?: string | null; date?: string | null } | null {
+  if (!isRecord(raw)) return null;
+  return {
+    name: typeof raw.name === "string" ? raw.name : null,
+    date: typeof raw.date === "string" ? raw.date : null,
+  };
+}
+
+function parseCommitList(raw: unknown): CommitListItem[] {
+  if (!Array.isArray(raw)) return [];
+  const items: CommitListItem[] = [];
+  for (const entry of raw) {
+    if (!isRecord(entry) || typeof entry.sha !== "string" || typeof entry.html_url !== "string") continue;
+    const commit = isRecord(entry.commit) ? entry.commit : {};
+    items.push({
+      sha: entry.sha,
+      html_url: entry.html_url,
+      commit: {
+        message: typeof commit.message === "string" ? commit.message : "",
+        author: parseCommitAuthorBlock(commit.author),
+        committer: parseCommitAuthorBlock(commit.committer),
+      },
+      author: isRecord(entry.author) && typeof entry.author.login === "string" ? { login: entry.author.login } : null,
+    });
+  }
+  return items;
+}
+
+function parseCommitDetail(raw: unknown): CommitDetailData {
+  if (!isRecord(raw) || typeof raw.sha !== "string") {
+    throw new Error("GitHub returned an unexpected commit detail payload.");
+  }
+  const files: CommitDetailData["files"] = [];
+  if (Array.isArray(raw.files)) {
+    for (const file of raw.files) {
+      if (
+        !isRecord(file) ||
+        typeof file.filename !== "string" ||
+        typeof file.status !== "string" ||
+        typeof file.additions !== "number" ||
+        typeof file.deletions !== "number"
+      ) {
+        continue;
+      }
+      files.push({
+        filename: file.filename,
+        status: file.status,
+        additions: file.additions,
+        deletions: file.deletions,
+        ...(typeof file.previous_filename === "string" ? { previous_filename: file.previous_filename } : {}),
+      });
+    }
+  }
+  const stats = isRecord(raw.stats)
+    ? {
+        ...(typeof raw.stats.additions === "number" ? { additions: raw.stats.additions } : {}),
+        ...(typeof raw.stats.deletions === "number" ? { deletions: raw.stats.deletions } : {}),
+        ...(typeof raw.stats.total === "number" ? { total: raw.stats.total } : {}),
+      }
+    : undefined;
+  return { sha: raw.sha, ...(stats ? { stats } : {}), files };
+}
+
 function requestOptions(signal: AbortSignal | undefined) {
   return signal ? { request: { signal } } : {};
 }
@@ -97,12 +154,13 @@ function requestOptions(signal: AbortSignal | undefined) {
 /** Maps one item of the commits list. */
 export function mapCommitListItem(item: CommitListItem): PathCommitSummary {
   const date = item.commit.committer?.date ?? item.commit.author?.date;
+  const authorTrimmed = item.commit.author?.name?.trim();
   return {
     sha: item.sha,
     htmlUrl: item.html_url,
     message: item.commit.message,
     committedDate: date ? new Date(date) : new Date(0),
-    authorName: item.commit.author?.name?.trim() || null,
+    authorName: authorTrimmed !== undefined && authorTrimmed.length > 0 ? authorTrimmed : null,
     authorLogin: item.author?.login ?? null,
   };
 }
@@ -137,7 +195,7 @@ export async function fetchCommitsForPath(params: {
     });
     const etag = typeof response.headers.etag === "string" ? response.headers.etag : null;
     params.onEtag?.(etag);
-    return (response.data as unknown as CommitListItem[]).map(mapCommitListItem);
+    return parseCommitList(response.data).map(mapCommitListItem);
   } catch (error) {
     if (isGitHubHttpError(error) && error.status === 304) return [];
     // 409 "Git Repository is empty": no commits yet.
@@ -165,7 +223,7 @@ export async function fetchCommitDetail(params: {
       per_page: COMMIT_DETAIL_FILES_PAGE_SIZE,
       ...requestOptions(params.signal),
     });
-    const data = response.data as unknown as CommitDetailData;
+    const data = parseCommitDetail(response.data);
     const files = (data.files ?? []).map((file) => {
       const entry: CommitFileChange = {
         filename: file.filename,
@@ -176,6 +234,7 @@ export async function fetchCommitDetail(params: {
       if (file.previous_filename) entry.previousFilename = file.previous_filename;
       return entry;
     });
+    const linkHeader = typeof response.headers.link === "string" ? response.headers.link : undefined;
     return {
       sha: data.sha,
       stats: {
@@ -184,7 +243,7 @@ export async function fetchCommitDetail(params: {
         total: data.stats?.total ?? 0,
       },
       files,
-      filesTruncated: hasNextLink((response.headers as ResponseHeaders).link),
+      filesTruncated: hasNextLink(linkHeader),
     };
   } catch (error) {
     rethrowGitHubError(error, owner, name);

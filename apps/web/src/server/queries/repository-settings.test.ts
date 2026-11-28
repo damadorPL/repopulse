@@ -113,7 +113,7 @@ describe("getRepositorySettings", () => {
 
   it("returns null when the user does not subscribe (e.g. only another user does)", async () => {
     prisma.userSubscription.findMany.mockResolvedValue([]);
-    expect(await getRepositorySettings(USER, "vercel", "next.js")).toBeNull();
+    await expect(getRepositorySettings(USER, "vercel", "next.js")).resolves.toBeNull();
   });
 
   it.each(["TAG", "PRERELEASE"])(
@@ -150,18 +150,18 @@ describe("getRepositorySettings", () => {
 
   it("returns null for an unknown repository without looking for subscriptions", async () => {
     prisma.repository.findMany.mockResolvedValue([]);
-    expect(await getRepositorySettings(USER, "nobody", "nothing")).toBeNull();
+    await expect(getRepositorySettings(USER, "nobody", "nothing")).resolves.toBeNull();
     expect(prisma.userSubscription.findMany).not.toHaveBeenCalled();
   });
 
   it("ignores ILIKE underscore wildcard mismatches", async () => {
     prisma.repository.findMany.mockResolvedValue([{ id: "repo_other", fullName: "my-org/next.js" }]);
-    expect(await getRepositorySettings(USER, "my_org", "next.js")).toBeNull();
+    await expect(getRepositorySettings(USER, "my_org", "next.js")).resolves.toBeNull();
     expect(prisma.userSubscription.findMany).not.toHaveBeenCalled();
   });
 
   it("returns null for invalid route segments without querying", async () => {
-    expect(await getRepositorySettings(USER, "..", "x")).toBeNull();
+    await expect(getRepositorySettings(USER, "..", "x")).resolves.toBeNull();
     expect(prisma.repository.findMany).not.toHaveBeenCalled();
   });
 

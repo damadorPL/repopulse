@@ -1,3 +1,5 @@
+import { cache } from "react";
+
 import {
   GitHubAppKeyUnreadableError,
   loadGitHubAppSettings,
@@ -29,7 +31,6 @@ import {
   permissionAtLeast,
   type GitHubAppAuth,
 } from "@repopulse/github";
-import { cache } from "react";
 
 import { readIgnoreRules, type IgnoreRuleValue, type LevelCounts } from "@/lib/dependency-settings";
 import type { ActionErrorCode } from "@/server/action-result";
@@ -104,7 +105,7 @@ export interface DependencyProjectListItem {
 }
 
 /**
- * Shared projection + hydration for `getDependencyProjects` and `getDependenciesListData`.
+ * Shared projection + hydration for `getDependenciesListData`.
  */
 function buildDependencyProjectListItems(
   projects: Array<{
@@ -285,21 +286,6 @@ const DEPENDENCY_PROJECT_LIST_SELECT = {
   },
 };
 
-export async function getDependencyProjects(userId: string): Promise<DependencyProjectListItem[]> {
-  const [projects, subscriptions] = await Promise.all([
-    prisma.dependencyProject.findMany({
-      where: { userId },
-      orderBy: { fullName: "asc" },
-      select: DEPENDENCY_PROJECT_LIST_SELECT,
-    }),
-    prisma.userSubscription.findMany({ where: { userId }, select: { repositoryId: true } }),
-  ]);
-
-  const owners = await fetchPrOwnersForProjects(projects);
-  const tracked = new Set(subscriptions.map((s) => s.repositoryId));
-  return buildDependencyProjectListItems(projects, owners, tracked);
-}
-
 /**
  * Combined loader for `/dependencies`: fetches `dependencyProject` and `userSubscription` once each
  * instead of querying both tables separately for the list and the "Add projects" dialog.
@@ -348,30 +334,6 @@ export interface AddableSubscription {
   fullName: string;
   description: string | null;
   avatarUrl: string | null;
-}
-
-/** The user's tracked repositories that are not dependency projects yet (Add dialog, first tab). */
-export async function getAddableSubscriptions(userId: string): Promise<AddableSubscription[]> {
-  const [subscriptions, projects] = await Promise.all([
-    prisma.userSubscription.findMany({
-      where: { userId },
-      select: {
-        id: true,
-        repository: { select: { githubRepoId: true, fullName: true, description: true, avatarUrl: true } },
-      },
-    }),
-    prisma.dependencyProject.findMany({ where: { userId }, select: { githubRepoId: true } }),
-  ]);
-  const taken = new Set(projects.map((p) => Number(p.githubRepoId)));
-  return subscriptions
-    .filter((s) => !taken.has(Number(s.repository.githubRepoId)))
-    .map((s) => ({
-      subscriptionId: s.id,
-      fullName: s.repository.fullName,
-      description: s.repository.description,
-      avatarUrl: s.repository.avatarUrl,
-    }))
-    .toSorted((a, b) => a.fullName.localeCompare(b.fullName, undefined, { sensitivity: "base" }));
 }
 
 // ---------------------------------------------------------------------------

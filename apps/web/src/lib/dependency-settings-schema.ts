@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import {
   MAX_IGNORE_RULES,
   MAX_MANIFESTS_PER_PROJECT,
@@ -6,7 +8,6 @@ import {
   MIN_RELEASE_AGE_DAYS_MAX,
   SCAN_INTERVAL_HOURS,
 } from "@repopulse/deps/limits";
-import { z } from "zod";
 
 import {
   COMMIT_PREFIX_MAX_LENGTH,
@@ -23,9 +24,9 @@ const idSchema = z.string().min(1).max(64);
 // oxlint-disable-next-line no-control-regex -- exclude control characters from commit messages and PR titles.
 const COMMIT_PREFIX_RE = /^[^\u0000-\u001f\u007f]*$/;
 
-export const updateModeSchema = z.enum(DEPS_UPDATE_MODES, "Choose an update mode");
+const updateModeSchema = z.enum(DEPS_UPDATE_MODES, "Choose an update mode");
 
-export const addSourceSchema = z.union([
+const addSourceSchema = z.union([
   z.strictObject({ subscriptionId: idSchema }),
   z.strictObject({ repoUrlOrSlug: z.string().trim().min(1, "Enter a repository").max(500) }),
 ]);
@@ -44,7 +45,7 @@ export type AddDependencyProjectsInput = z.input<typeof addDependencyProjectsInp
 export const projectIdInput = z.strictObject({ projectId: idSchema });
 
 /** Loose shape of one ignore rule; the action re-validates with `ignoreRuleSchema` from `@repopulse/deps`. */
-export const ignoreRuleInput = z.strictObject({
+const ignoreRuleInput = z.strictObject({
   name: z.string().trim().min(1, "Enter a package name or pattern").max(214, "That name is too long"),
   versions: z.string().trim().max(256, "That range is too long").optional(),
 });

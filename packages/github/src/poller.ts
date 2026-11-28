@@ -25,11 +25,11 @@ export interface GitHubRelease {
  * identical and the stored ETag stays valid for the first conditional poll
  * (GitHub ETags are per-URL, so `per_page=10` vs `per_page=20` would never 304).
  */
-export const RELEASES_PAGE_SIZE = 20;
+const RELEASES_PAGE_SIZE = 20;
 /** Number of releases ingested when a repository is first added. */
 export const INITIAL_RELEASES_LIMIT = 10;
 /** Page size of the history backfill (GitHub's maximum). */
-export const BACKFILL_PAGE_SIZE = 100;
+const BACKFILL_PAGE_SIZE = 100;
 
 /** Matches the `Release` Prisma model (minus `id`, `repositoryId`, `discoveredAt`). */
 export interface MappedRelease {
@@ -103,10 +103,11 @@ export class GitHubRateLimitError extends Error {
 
 /** Maps a GitHub release payload to the `Release` model shape. */
 export function mapRelease(release: GitHubRelease): MappedRelease {
+  const trimmedName = release.name?.trim();
   return {
     githubReleaseId: BigInt(release.id),
     tagName: release.tag_name,
-    title: release.name?.trim() || release.tag_name,
+    title: trimmedName !== undefined && trimmedName.length > 0 ? trimmedName : release.tag_name,
     bodyMarkdown: release.body ?? "",
     htmlUrl: release.html_url,
     isPrerelease: release.prerelease,

@@ -71,10 +71,4 @@ export function readLockfile(input: ReadLockfileInput): LockfileVersions {
   return prepareLockfile(input).readFor(input.importer, input.dependencies);
 }
 
-export { prepareBunLock, readBunLock } from "./bun-lock.js";
-export { emptyLockfile, splitNameAtVersion, type LockfileVersions, type PreparedLockfile } from "./common.js";
-export { preparePackageLock, readPackageLock } from "./package-lock.js";
-export { preparePnpmLock, readPnpmLock, stripPnpmVersionSuffix } from "./pnpm-lock.js";
-export { preparePoetryLock, readPoetryLock } from "./poetry-lock.js";
-export { prepareUvLock, readUvLock } from "./uv-lock.js";
-export { prepareYarnLock, readYarnLock } from "./yarn-lock.js";
+export type { LockfileVersions, PreparedLockfile } from "./common.js";

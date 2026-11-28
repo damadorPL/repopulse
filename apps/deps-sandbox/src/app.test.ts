@@ -1,9 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
+import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { MAX_SANDBOX_BODY_BYTES } from "@repopulse/deps/limits";
 import type { ParsedLockRequest, ParsedLockResponse } from "@repopulse/deps/sandbox-contract";
-import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createSandboxServer, isAuthorized, loadConfig, type SandboxConfig, type SandboxServer } from "./app.js";
 import type { ToolVersions } from "./commands.js";
@@ -26,7 +27,9 @@ let current: SandboxServer | null = null;
 async function start(runLock: (req: ParsedLockRequest) => Promise<ParsedLockResponse>) {
   const sandbox = createSandboxServer({ config: CONFIG, tools: TOOLS, runLock: (req) => runLock(req) });
   current = sandbox;
-  await new Promise<void>((resolve) => sandbox.server.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve) => {
+    sandbox.server.listen(0, "127.0.0.1", resolve);
+  });
   const { port } = sandbox.server.address() as AddressInfo;
   return { sandbox, base: `http://127.0.0.1:${port}` };
 }
@@ -91,7 +94,7 @@ describe("sandbox server", () => {
     const { base } = await start(async () => OK);
     const res = await fetch(`${base}/health`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ status: "ok", tools: TOOLS });
+    await expect(res.json()).resolves.toEqual({ status: "ok", tools: TOOLS });
 
     const headRes = await fetch(`${base}/health`, { method: "HEAD" });
     expect(headRes.status).toBe(200);
@@ -107,7 +110,7 @@ describe("sandbox server", () => {
     for (const token of [null, "wrong-token-wrong-token"]) {
       const res = await post(base, REQUEST, token);
       expect(res.status).toBe(401);
-      expect(await res.json()).toEqual({ ok: false, code: "UNAUTHORIZED", stderrTail: "" });
+      await expect(res.json()).resolves.toEqual({ ok: false, code: "UNAUTHORIZED", stderrTail: "" });
     }
     expect(runLock).not.toHaveBeenCalled();
   });
@@ -116,7 +119,7 @@ describe("sandbox server", () => {
     const { base } = await start(async () => OK);
     let res = await post(base, "{not json");
     expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({ ok: false, code: "BAD_REQUEST" });
+    await expect(res.json()).resolves.toMatchObject({ ok: false, code: "BAD_REQUEST" });
 
     res = await post(base, { ...REQUEST, files: [{ path: "../etc/passwd", contentBase64: "c2VjcmV0" }] });
     expect(res.status).toBe(400);
@@ -130,7 +133,7 @@ describe("sandbox server", () => {
     const { base } = await start(async () => OK);
     const res = await post(base, "x".repeat(MAX_SANDBOX_BODY_BYTES + 1));
     expect(res.status).toBe(413);
-    expect(await res.json()).toMatchObject({ ok: false, code: "TOO_LARGE" });
+    await expect(res.json()).resolves.toMatchObject({ ok: false, code: "TOO_LARGE" });
 
     const chunk = new Uint8Array(1024 * 1024).fill(120);
     let sent = 0;
@@ -151,12 +154,14 @@ describe("sandbox server", () => {
       duplex: "half",
     });
     expect(streamedRes.status).toBe(413);
-    expect(await streamedRes.json()).toMatchObject({ ok: false, code: "TOO_LARGE" });
+    await expect(streamedRes.json()).resolves.toMatchObject({ ok: false, code: "TOO_LARGE" });
   });
 
   it("runs one job at a time (503 BUSY) and returns job outcomes as 200", async () => {
     let release!: () => void;
-    const gate = new Promise<void>((resolve) => (release = resolve));
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const runLock = vi.fn(async (): Promise<ParsedLockResponse> => {
       await gate;
       return OK;
@@ -168,17 +173,17 @@ describe("sandbox server", () => {
     const second = await post(base, REQUEST);
     expect(second.status).toBe(503);
     expect(second.headers.get("retry-after")).toBe("10");
-    expect(await second.json()).toMatchObject({ ok: false, code: "BUSY" });
+    await expect(second.json()).resolves.toMatchObject({ ok: false, code: "BUSY" });
 
     release();
     const res = await first;
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual(OK);
+    await expect(res.json()).resolves.toEqual(OK);
 
     runLock.mockImplementationOnce(async () => ({ ok: false, code: "COMMAND_FAILED", stderrTail: "boom" }));
     const failed = await post(base, REQUEST);
     expect(failed.status).toBe(200);
-    expect(await failed.json()).toEqual({ ok: false, code: "COMMAND_FAILED", stderrTail: "boom" });
+    await expect(failed.json()).resolves.toEqual({ ok: false, code: "COMMAND_FAILED", stderrTail: "boom" });
   });
 
   it("aborts the running job on close", async () => {
@@ -194,7 +199,9 @@ describe("sandbox server", () => {
           );
         }),
     });
-    await new Promise<void>((resolve) => sandbox.server.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) => {
+      sandbox.server.listen(0, "127.0.0.1", resolve);
+    });
     const { port } = sandbox.server.address() as AddressInfo;
     const pending = post(`http://127.0.0.1:${port}`, REQUEST);
     await vi.waitFor(() => expect(sandbox.isBusy()).toBe(true));
@@ -202,7 +209,7 @@ describe("sandbox server", () => {
     const closing = sandbox.close();
     const res = await pending;
     expect(res.status).toBe(503);
-    expect(await res.json()).toMatchObject({ code: "BUSY" });
+    await expect(res.json()).resolves.toMatchObject({ code: "BUSY" });
     await closing;
     expect(sandbox.server.listening).toBe(false);
   });
@@ -231,7 +238,9 @@ describe("sandbox server", () => {
       },
     });
     current = sandbox;
-    await new Promise<void>((resolve) => sandbox.server.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) => {
+      sandbox.server.listen(0, "127.0.0.1", resolve);
+    });
     const { port } = sandbox.server.address() as AddressInfo;
     const base = `http://127.0.0.1:${port}`;
 
@@ -253,7 +262,7 @@ describe("sandbox server", () => {
 
     const followUp = await post(base, REQUEST);
     expect(followUp.status).toBe(200);
-    expect(await followUp.json()).toEqual(OK);
+    await expect(followUp.json()).resolves.toEqual(OK);
     expect(secondSignal?.aborted).toBe(false);
   });
 
@@ -265,7 +274,7 @@ describe("sandbox server", () => {
       });
       const internalThrow = await post(base, REQUEST);
       expect(internalThrow.status).toBe(500);
-      expect(await internalThrow.json()).toEqual({ ok: false, code: "INTERNAL", stderrTail: "" });
+      await expect(internalThrow.json()).resolves.toEqual({ ok: false, code: "INTERNAL", stderrTail: "" });
 
       await sandbox.close();
       current = null;
@@ -277,12 +286,14 @@ describe("sandbox server", () => {
           ({ ok: true, lockfile: { path: "../escape", contentBase64: "e30=" } }) as unknown as ParsedLockResponse,
       });
       current = invalidSandbox;
-      await new Promise<void>((resolve) => invalidSandbox.server.listen(0, "127.0.0.1", resolve));
+      await new Promise<void>((resolve) => {
+        invalidSandbox.server.listen(0, "127.0.0.1", resolve);
+      });
       const { port } = invalidSandbox.server.address() as AddressInfo;
       const base2 = `http://127.0.0.1:${port}`;
       const invalidRes = await post(base2, REQUEST);
       expect(invalidRes.status).toBe(500);
-      expect(await invalidRes.json()).toEqual({ ok: false, code: "INTERNAL", stderrTail: "" });
+      await expect(invalidRes.json()).resolves.toEqual({ ok: false, code: "INTERNAL", stderrTail: "" });
 
       // Directly invoke the request listener after close() sets shuttingDown = true.
       await invalidSandbox.close();

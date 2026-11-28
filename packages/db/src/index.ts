@@ -33,7 +33,11 @@ export function parsePoolMax(raw = process.env.DATABASE_POOL_MAX): number {
 }
 
 function resolveApplicationName(): string {
-  return process.env.DATABASE_APP_NAME?.trim() || process.env.PGAPPNAME?.trim() || "repopulse";
+  const configured = process.env.DATABASE_APP_NAME?.trim();
+  if (configured !== undefined && configured.length > 0) return configured;
+  const pgAppName = process.env.PGAPPNAME?.trim();
+  if (pgAppName !== undefined && pgAppName.length > 0) return pgAppName;
+  return "repopulse";
 }
 
 /**
@@ -68,6 +72,7 @@ function createPrismaClient(): PrismaClient {
   // Prisma 7's `OmitOpts` generic on `PrismaClient` is invariant (`in out`), so casting back
   // to `PrismaClient` keeps `Pick<PrismaClient, "instanceSettings">` and worker signatures
   // compatible while enforcing `GLOBAL_OMIT` at runtime on every query.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Prisma 7 invariant OmitOpts generic
   return new PrismaClient({
     adapter,
     omit: GLOBAL_OMIT,
@@ -75,25 +80,23 @@ function createPrismaClient(): PrismaClient {
   }) as unknown as PrismaClient;
 }
 
+declare global {
+  var prisma: PrismaClient | undefined;
+}
+
 /**
  * Singleton Prisma client cached unconditionally on `globalThis` across both development
  * (Next.js HMR) and production (multiple route chunks / worker module evaluations) so a
  * single process never opens duplicate connection pools.
  */
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
-
-export const prisma: PrismaClient = globalForPrisma.prisma ?? createPrismaClient();
-globalForPrisma.prisma = prisma;
+export const prisma: PrismaClient = globalThis.prisma ?? createPrismaClient();
+globalThis.prisma = prisma;
 
 export * from "./generated/prisma/client.js";
 export { encryptToken, decryptToken } from "./crypto.js";
 export {
-  ADMIN_OVERVIEW_SETTINGS_SELECT,
-  BACKFILL_SETTINGS_SELECT,
   createCachedLoader,
-  DEFAULT_SETTINGS_CACHE_TTL_MS,
   GITHUB_APP_SETTINGS_SELECT,
-  GITHUB_APP_WEBHOOK_SETTINGS_SELECT,
   GitHubAppKeyUnreadableError,
   INSTANCE_SETTINGS_ID,
   loadAdminSettingsSnapshot,
@@ -105,10 +108,7 @@ export {
   SMTP_SETTINGS_SELECT,
   SmtpPasswordUnreadableError,
   loadSmtpSettings,
-  type AdminSettingsSnapshot,
   type BackfillSettingsOverrides,
-  type CachedLoaderOptions,
   type DecryptedGitHubAppSettings,
   type DecryptedSmtpSettings,
-  type GitHubAppWebhookSettings,
 } from "./instance-settings.js";

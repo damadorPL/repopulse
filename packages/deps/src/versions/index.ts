@@ -23,10 +23,6 @@ import {
   pep440Satisfies,
 } from "./pep440.js";
 
-export function isValidVersion(ecosystem: DependencyEcosystem, version: string): boolean {
-  return ecosystem === "NPM" ? semver.valid(version) !== null : parsePep440(version) !== null;
-}
-
 /** Sort comparator; invalid versions sort first. */
 export function compareVersions(ecosystem: DependencyEcosystem, a: string, b: string): number {
   if (ecosystem === "PYPI") return comparePep440(a, b);

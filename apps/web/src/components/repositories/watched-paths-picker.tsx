@@ -1,6 +1,5 @@
 "use client";
 
-import type { RepoTree } from "@repopulse/github";
 import {
   ChevronRightIcon,
   CornerLeftUpIcon,
@@ -13,6 +12,8 @@ import {
   XIcon,
 } from "lucide-react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+
+import type { RepoTree } from "@repopulse/github";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -90,8 +91,9 @@ function useRepoTree(repo: string | null, debounceMs: number): TreeState {
     if (!key || !repo) return;
     let cancelled = false;
     const timer = setTimeout(() => {
-      loadTree(repo).then(
-        (result) => {
+      void (async () => {
+        try {
+          const result = await loadTree(repo);
           if (cancelled) return;
           setLoaded({
             key,
@@ -99,11 +101,10 @@ function useRepoTree(repo: string | null, debounceMs: number): TreeState {
               ? { status: "ready", tree: result.data, index: buildRepoPathIndex(result.data) }
               : { status: "error", message: result.error.message },
           });
-        },
-        () => {
+        } catch {
           if (!cancelled) setLoaded({ key, state: { status: "error", message: "Could not reach the server." } });
-        },
-      );
+        }
+      })();
     }, debounceMs);
     return () => {
       cancelled = true;
@@ -425,7 +426,9 @@ function FolderEntryRow({
       ) : (
         <button
           type="button"
-          onClick={() => !covered && (selected || !atMax) && onToggle(entry)}
+          onClick={() => {
+            if (!covered && (selected || !atMax)) onToggle(entry);
+          }}
           className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
           tabIndex={-1}
         >

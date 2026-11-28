@@ -50,19 +50,25 @@ const STATUS_TONE: Record<DependencyUpdateStatusValue, string> = {
   UNSUPPORTED_SOURCE: "text-muted-foreground",
 };
 
-function FilterSelect({
+function FilterSelect<T extends string>({
   label,
   value,
   onChange,
   options,
 }: {
   label: string;
-  value: string | undefined;
-  onChange: (value: string | undefined) => void;
-  options: ReadonlyArray<{ value: string; label: string }>;
+  value: T | undefined;
+  onChange: (value: T | undefined) => void;
+  options: ReadonlyArray<{ value: T; label: string }>;
 }) {
   return (
-    <Select value={value ?? ALL} onValueChange={(next) => onChange(next === ALL ? undefined : next)}>
+    <Select
+      value={value ?? ALL}
+      onValueChange={(next) => {
+        const matched = options.find((option) => option.value === next);
+        onChange(matched?.value);
+      }}
+    >
       <SelectTrigger className="h-8 w-auto min-w-32 text-xs" aria-label={label}>
         <SelectValue />
       </SelectTrigger>
@@ -245,7 +251,12 @@ export function OutdatedTable({
   const onUnauthorized = () => router.push("/login");
   const onTracked = () => router.refresh();
   const set = (patch: Partial<UpdateTableFilters>) => setFilters((current) => ({ ...current, ...patch }));
-  const active = Boolean(filters.level || filters.kind || filters.ecosystem || filters.status || filters.q);
+  const active =
+    filters.level !== undefined ||
+    filters.kind !== undefined ||
+    filters.ecosystem !== undefined ||
+    filters.status !== undefined ||
+    (filters.q !== undefined && filters.q.length > 0);
 
   return (
     <div className="grid gap-3">
@@ -262,7 +273,7 @@ export function OutdatedTable({
         <FilterSelect
           label="Levels"
           value={filters.level}
-          onChange={(level) => set({ level: level as UpdateTableFilters["level"] })}
+          onChange={(level) => set({ level })}
           options={[
             { value: "MAJOR", label: "Major" },
             { value: "MINOR", label: "Minor" },
@@ -273,14 +284,14 @@ export function OutdatedTable({
         <FilterSelect
           label="Kinds"
           value={filters.kind}
-          onChange={(kind) => set({ kind: kind as UpdateTableFilters["kind"] })}
+          onChange={(kind) => set({ kind })}
           options={DEPENDENCY_KINDS.map((kind) => ({ value: kind, label: KIND_LABELS[kind] }))}
         />
         {ecosystems.length > 1 ? (
           <FilterSelect
             label="Ecosystems"
             value={filters.ecosystem}
-            onChange={(ecosystem) => set({ ecosystem: ecosystem as UpdateTableFilters["ecosystem"] })}
+            onChange={(ecosystem) => set({ ecosystem })}
             options={[
               { value: "NPM", label: "npm" },
               { value: "PYPI", label: "PyPI" },
@@ -290,7 +301,7 @@ export function OutdatedTable({
         <FilterSelect
           label="Statuses"
           value={filters.status}
-          onChange={(status) => set({ status: status as UpdateTableFilters["status"] })}
+          onChange={(status) => set({ status })}
           options={DEPENDENCY_UPDATE_STATUSES.map((status) => ({ value: status, label: STATUS_META[status].label }))}
         />
         {active ? (
@@ -311,7 +322,7 @@ export function OutdatedTable({
         byManifest.map(({ manifest, rows: manifestRows }) => (
           <div key={manifest.id} className="overflow-x-auto rounded-md border">
             <p className="border-b bg-muted/40 px-3 py-2 font-mono text-xs">{manifest.path}</p>
-            <table className="w-full min-w-4xl text-sm">
+            <table className="w-full min-w-4xl text-sm" aria-label={`Dependency updates for ${manifest.path}`}>
               <thead className="text-left text-xs text-muted-foreground">
                 <tr className="border-b">
                   <th className="px-3 py-2 font-medium">Name</th>

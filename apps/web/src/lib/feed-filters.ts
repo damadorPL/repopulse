@@ -17,11 +17,11 @@ export const MAX_SEARCH_LENGTH = 200;
 export const FEED_PAGE_SIZE = 25;
 
 export interface FeedFilters {
-  tagSlug?: string;
-  repositoryId?: string;
+  tagSlug?: string | undefined;
+  repositoryId?: string | undefined;
   onlyUnread: boolean;
-  semverType?: SemverTypeValue;
-  searchQuery?: string;
+  semverType?: SemverTypeValue | undefined;
+  searchQuery?: string | undefined;
   sort: FeedSort;
 }
 
@@ -42,7 +42,7 @@ function read(params: RawParams, key: string): string | undefined {
   const value = params instanceof URLSearchParams ? params.get(key) : params[key];
   const first = Array.isArray(value) ? value[0] : value;
   const trimmed = first?.trim();
-  return trimmed ? trimmed : undefined;
+  return trimmed !== undefined && trimmed.length > 0 ? trimmed : undefined;
 }
 
 /** Ids/slugs are short url-safe tokens; anything else is ignored rather than queried. */
@@ -69,7 +69,7 @@ export function parseReleaseParam(params: RawParams): string | undefined {
 }
 
 /** Serializes filters to search params (defaults omitted to keep URLs short). */
-export function feedSearchParams(filters: Partial<FeedFilters>, releaseId?: string | null): URLSearchParams {
+function feedSearchParams(filters: Partial<FeedFilters>, releaseId?: string | null): URLSearchParams {
   const params = new URLSearchParams();
   if (filters.tagSlug) params.set(PARAM.tag, filters.tagSlug);
   if (filters.repositoryId) params.set(PARAM.repo, filters.repositoryId);

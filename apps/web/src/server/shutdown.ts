@@ -1,6 +1,8 @@
 import { prisma } from "@repopulse/db";
 
-const globalForShutdown = globalThis as unknown as { repopulseShutdownRegistered?: boolean };
+declare global {
+  var repopulseShutdownRegistered: boolean | undefined;
+}
 
 function disconnect(): void {
   void prisma.$disconnect();
@@ -11,8 +13,8 @@ function disconnect(): void {
  * during Coolify rollouts disconnects the shared Prisma pool cleanly.
  */
 export function registerShutdownDisconnect(): void {
-  if (globalForShutdown.repopulseShutdownRegistered) return;
-  globalForShutdown.repopulseShutdownRegistered = true;
+  if (globalThis.repopulseShutdownRegistered) return;
+  globalThis.repopulseShutdownRegistered = true;
 
   process.once("SIGTERM", disconnect);
   process.once("SIGINT", disconnect);

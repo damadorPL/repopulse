@@ -3,7 +3,7 @@
 import { format } from "date-fns";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Suspense, use, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Suspense, use, useLayoutEffect, useRef, useState } from "react";
 import { browser } from "react-dom";
 
 import { Skeleton } from "@/components/ui/skeleton";
@@ -21,19 +21,9 @@ import {
 import { feedHref } from "@/lib/feed-filters";
 import { cn } from "@/lib/utils";
 
-const emptySubscribe = () => () => {};
-let cachedClientNow: Date | null = null;
-const getClientNow = () => (cachedClientNow ??= new Date());
-const getServerNow = () => null;
-const CLIENT_ACTIVITY_GRID = browser("Activity heatmap buckets updates by the viewer's local day");
+import { getClientNow } from "./use-client-now";
 
-/**
- * The current time on the client. `null` during the server render and hydration: bucketing by
- * local day needs the browser's time zone, so nothing date-dependent is rendered on the server.
- */
-export function useClientNow(): Date | null {
-  return useSyncExternalStore(emptySubscribe, getClientNow, getServerNow);
-}
+const CLIENT_ACTIVITY_GRID = browser("Activity heatmap buckets updates by the viewer's local day");
 
 const LEVEL_CLASSES = [
   "bg-muted",

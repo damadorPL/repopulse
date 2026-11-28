@@ -36,7 +36,7 @@ function hashBlock(text: string, dependency: RequirementDependency, hashes: stri
   if (second) separator = text.slice(first.span.end, second.span.start);
   else {
     let start = first.span.start;
-    while (start > 0 && /[ \t\\\r\n]/.test(text[start - 1] as string)) start--;
+    while (start > 0 && /[ \t\\\r\n]/.test(text[start - 1]!)) start--;
     separator = text.slice(start, first.span.start) || " ";
   }
   const optionText = text.slice(first.span.start, first.span.end);
@@ -109,7 +109,8 @@ export function rewriteRequirements(text: string, edits: readonly ManifestEdit[]
   if (reparsed.indexUrl !== parsed.indexUrl || reparsed.extraIndexUrls.join() !== parsed.extraIndexUrls.join())
     fail("index");
   parsed.dependencies.forEach((before, index) => {
-    const after = reparsed.dependencies[index] as RequirementDependency;
+    const after = reparsed.dependencies[index];
+    if (!after) return fail(`missing dependency at ${before.line}`);
     if (after.name !== before.name || after.marker !== before.marker || after.extras.join() !== before.extras.join()) {
       fail(`line ${before.line}`);
     }
