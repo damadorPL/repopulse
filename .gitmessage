@@ -1,0 +1,19 @@
+# <type>(<optional scope>): <concise summary> (max 100 chars)
+# Types: feat | fix | docs | chore | refactor | perf | test | ci | build | style | revert
+#
+# Blank line required between subject and body.
+# A descriptive body is required when 2+ files are staged or on release commits.
+#
+# Why / Context:
+# Explain the motivation or root cause in 1-2 sentences.
+#
+# Changes:
+# - web: ...
+# - worker: ...
+# - db / docs / ci: ...
+#
+# Operational impact (include only when applicable):
+# Migration: <migration name or notes>
+# Env: <new/changed env vars>
+# Deploy: <Coolify / Docker Compose notes>
+# BREAKING CHANGE: <breaking behavior and upgrade steps>

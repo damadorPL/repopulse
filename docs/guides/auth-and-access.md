@@ -9,7 +9,7 @@
 | Concern | File |
 | --- | --- |
 | Better Auth config, database hooks, `getCurrentUserOrThrow`, `UnauthorizedError`, `ForbiddenError` | `apps/web/src/lib/auth.ts` |
-| Client auth instance | `apps/web/src/lib/auth-client.ts` |
+| Better Auth route handler & sign-out action | `apps/web/src/app/api/auth/[...all]/route.ts`, `apps/web/src/server/actions/auth.ts` (`signOutAction`) |
 | Page and action guards | `apps/web/src/server/session.ts` |
 | Registration gate | `apps/web/src/server/registration.ts` (`admitNewGitHubUser`) |
 | Invite tokens | `apps/web/src/server/invite-tokens.ts`, `apps/web/src/lib/invites.ts` |
@@ -18,7 +18,7 @@
 | Access settings | `apps/web/src/app/(dashboard)/admin/access/page.tsx`, `server/actions/access.ts`, `server/queries/access.ts`, `components/access/*` |
 | GitHub App (Admin → GitHub App) | `apps/web/src/app/(dashboard)/admin/github-app/page.tsx`, `server/actions/github-app.ts`, `server/github-app.ts`, `server/queries/github-app.ts`, `lib/github-app*.ts`, `components/admin/github-app-settings.tsx`, `app/api/github-app/manifest/callback/route.ts`; helpers in `packages/github/src/{app,app-hook}.ts`; loader `loadGitHubAppSettings` in `packages/db/src/instance-settings.ts` |
 | App webhook route | `apps/web/src/app/api/github-app/webhook/route.ts`, `server/github-app-webhook.ts` |
-| Repository permission checks | `apps/web/src/server/queries/dependencies.ts` (`checkRepoAccess`), `apps/deps-worker/src/processors/deps-update.processor.ts` (`hasWriteAccess`) |
+| Repository permission checks | `apps/web/src/server/queries/dependencies.ts` (`checkRepoAccess`), `apps/deps-worker/src/processors/repo-access.ts` (`ownerHasPermission`, `revokePullRequestMode`) |
 | Dependencies switch (Admin → Dependencies) | `apps/web/src/app/(dashboard)/admin/dependencies/page.tsx`, `server/actions/dependencies-admin.ts` (`setDepsEnabledAction`), `server/deps-status.ts` |
 
 ## Rules
@@ -33,11 +33,11 @@
 
 ## Sign-in flow
 
-1. `/login` → `auth.api.signInSocial({ provider: "github" })` with scope `read:user user:email`.
+1. `/login` → server action calling `auth.api.signInSocial({ body: { provider: "github", callbackURL: redirectTo, errorCallbackURL: "/login" }, headers })` with scope `read:user user:email`.
 2. Better Auth OAuth callback (`/api/auth/callback/github`) runs inside a Prisma transaction (`AsyncLocalStorage` + `transaction: true`):
    - Existing users (matched by `Account` `(providerId, accountId)`) sign in directly and refresh profile/`githubLogin` + encrypted token.
    - New users run `databaseHooks.user.create.before` → `admitNewGitHubUser(inviteCookie, tx)`:
-     - `User.count() === 0` → admitted with `isSuperAdmin: true` (fresh install, under `pg_advisory_xact_lock`).
+     - `tx.user.findFirst({ select: { id: true } }) === null` → admitted with `isSuperAdmin: true` (fresh install, under `pg_advisory_xact_lock`).
      - An invite cookie with a usable token → atomically claims the invite (`updateMany … usedAt: null, expiresAt > now`, expect count 1) and links `usedById` on `account.create.before` (stale invites fall back to public registration or redirect to `/login?error=InviteInvalid`).
      - Otherwise → allowed only if `publicRegistration`, else `/login?error=InviteRequired`.
 3. `databaseHooks.account.create.before` / `update` encrypts the GitHub token onto `User.githubAccessTokenEncrypted` and clears plaintext tokens from `Account`.
@@ -58,22 +58,22 @@ Bootstrap registration takes a PostgreSQL transaction advisory lock before check
 
 - Constants (`lib/invites.ts`): `INVITE_EXPIRY_DAYS = [1, 7, 30]`, `INVITE_NOTE_MAX_LENGTH = 80`, `MAX_PENDING_INVITES = 50`, cookie `repopulse_invite` (`httpOnly`, `sameSite=lax`, 1 h).
 - Status (`inviteStatus`): `pending` | `used` | `expired`. Deleting a pending invite revokes it; deleting a used or expired one only clears the list. Accounts are never touched.
-- `/invite/<token>` shows who invited you, re-checks the token in its Server Action, sets the cookie, and starts GitHub sign-in. The atomic claim happens in the `signIn` callback.
+- `/invite/<token>` shows who invited you, re-checks the token in its Server Action, sets the cookie, and starts GitHub sign-in (`callbackURL: "/"`). The atomic claim happens in `databaseHooks.user.create.before` (`admitNewGitHubUser`), and `usedById` is linked in `databaseHooks.account.create.before`.
 
 ## GitHub App (Dependencies)
 
-The App gives scoped write access (`contents` + `pull_requests`), short-lived tokens, and bot-authored commits, and lets RepoPulse read private repositories. Sign-in scopes stay `read:user user:email`. Stored on `InstanceSettings` (`githubAppId`, `githubAppSlug`, `githubAppClientId`, `githubAppOwner`, encrypted key and webhook secret); configured when id, slug, and key are set. Every process reads it per use, so changes apply without a restart.
+The App gives scoped write access (`contents` + `pull_requests`), short-lived tokens, and bot-authored commits, and lets RepoPulse read private repositories. Sign-in scopes stay `read:user user:email`. Stored on `InstanceSettings` (`githubAppId`, `githubAppSlug`, `githubAppClientId`, `githubAppOwner`, encrypted key and webhook secret); configured when id, slug, and key are set. `web` reads `loadGitHubAppSettings` per call, while `deps-worker` caches it for 15 s via `createCachedLoader`, so Admin changes apply within seconds without a restart.
 
-- **Manifest flow** (preferred): `startGitHubAppManifestAction` (super admin; optional organization and name) sets the state cookie `repopulse_github_app_state` (random, `httpOnly`, `sameSite=lax`, `secure` in production, path `/api/github-app/manifest`, 10 minutes) and returns the form target (`/settings/apps/new` or `/organizations/<org>/settings/apps/new`) plus the manifest: name `RepoPulse (<host>)`, `public: true`, permissions `metadata: read`, `contents: write`, `pull_requests: write`, no events, webhook inactive, callback `<base>/api/github-app/manifest/callback`, setup URL `<base>/dependencies?installed=1`. Base URL comes from `APP_BASE_URL` (falling back to `AUTH_URL`).
+- **Manifest flow** (preferred): `startGitHubAppManifestAction` (super admin; optional organization and name) sets the state cookie `repopulse_github_app_state` (random, `httpOnly`, `sameSite=lax`, `secure` in production, path `/api/github-app/manifest`, 10 minutes) and returns the form target (`/settings/apps/new` or `/organizations/<org>/settings/apps/new`) plus the manifest: name `RepoPulse (<host>)`, `public: true`, permissions `metadata: read`, `contents: write`, `pull_requests: write`, no events, webhook inactive, callback `<base>/api/github-app/manifest/callback`, setup URL `<base>/dependencies?installed=1`. Base URL comes from `resolveAppBaseUrl()` (`APP_BASE_URL`, falling back to `AUTH_URL`, `NEXTAUTH_URL`, then `http://localhost:3000`).
 - **Callback** `GET /api/github-app/manifest/callback` (super admin, 404 for others): compares `state` with the cookie in constant time, clears the cookie, exchanges the code (`POST /app-manifests/{code}/conversions`), stores the App encrypted, and redirects to `/admin/github-app?created=1`, or `?error=state|code|conversion|rate_limited|unknown` (fixed codes only). Because the cookie is `secure` in production, a production instance served over plain `http` always ends with `?error=state`.
 - **Manual form** (existing App, GitHub Enterprise-like setups): `saveGitHubAppSettingsAction` validates id + PEM by signing a JWT and calling `GET /app` (the slug must match GitHub's); optional webhook secret. `removeGitHubAppSettingsAction` clears every column. Both use `getSuperAdminOrThrow()`.
 - **Installation**: users install the App per repository (`installUrl`; pre-selects the repository only together with the owner's account id). Nothing trusts the setup redirect: the next scan or page render discovers the installation per repository (`GET /repos/{o}/{r}/installation`). `/dependencies?installed=1` shows a notice.
 - **Tokens**: `createInstallationToken` narrows each token to one repository and the needed permissions (`contents: read` + `pull_requests: read` for scans, `contents: write` + `pull_requests: write` for updates, `metadata: read` for web checks). `deps-worker` caches them in memory until 5 minutes before expiry.
-- **Permission checks** (`User.githubLogin` cache; on a 404 it is re-resolved from `githubId` with `GET /user/{id}` and saved): adding a private repository needs `read`+; choosing a PR mode, "Create PR", and **every** `deps-update` job need `write` / `maintain` / `admin`. Every scan of a private repository re-checks `read`. A project whose owner lost access falls back to `NOTIFY`, releases PR ownership, and the owner is notified.
+- **Permission checks** (`User.githubLogin` cache; if missing or below the required permission, it is re-resolved from `githubId` with `GET /user/{id}` and saved): adding a private repository needs `read`+; choosing a PR mode, "Create PR", and **every** `deps-update` job need `write` / `maintain` / `admin`. Every scan of a private repository re-checks `read`. A project whose owner lost access falls back to `NOTIFY`, releases PR ownership, and the owner is notified.
 - **Webhooks** (optional): "Enable webhooks" (`enableGitHubAppWebhooksAction`, only for a public `https://` `APP_BASE_URL`) points the App hook at `<base>/api/github-app/webhook` with the saved secret (or a new random one via "Replace the secret"), stored only after GitHub accepts it. GitHub's API cannot activate the hook or subscribe to events, so the UI lists the manual steps (tick "Active", Push, and Pull request events). See [../CONTRACTS.md](../CONTRACTS.md#github-app-webhook-contract).
 - **Admin → Dependencies**: `setDepsEnabledAction` (super admin) flips `InstanceSettings.depsEnabled`; the page shows the `deps-worker` heartbeat, sandbox tool versions, App state, and instance-wide counts.
 
 ## Gotchas
 
-- `trustHost: true` (behind Coolify's proxy). `NEXTAUTH_URL` / `AUTH_URL` must include the scheme, which is why Compose uses `SERVICE_URL_WEB`.
+- `advanced.trustedProxyHeaders: true` (behind Coolify's proxy). `AUTH_URL` / `NEXTAUTH_URL` / `BETTER_AUTH_URL` must include the scheme (`APP_BASE_URL` is also added to `trustedOrigins`), which is why Compose uses `SERVICE_URL_WEB`.
 - `TOKEN_ENCRYPTION_KEY` rotation makes stored GitHub tokens, the SMTP password, and the GitHub App key / webhook secret unreadable. The next sign-in re-encrypts the GitHub token; the SMTP password and App key must be re-entered (`GitHubAppKeyUnreadableError`, `SmtpPasswordUnreadableError`).

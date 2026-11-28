@@ -20,33 +20,43 @@ Queue definitions (`QUEUE_NAMES`: `repo-scheduler`, `repo-poll`, `release-backfi
 
 - Due repository (`dueRepositoriesWhere`): has subscribers, not polled within `REPOLL_AFTER_MS` (25 min), and not `POLLING` (unless stale after 15 min). `ERROR` repositories are retried only every 6 h.
 - Enqueues in batches of 500, then hands up to `BACKFILL_SWEEP_BATCH` (10) repositories that still need history to `release-backfill` (`backfillSweepWhere`: `NONE` first, plus `QUEUED`/`RUNNING` whose job may have been lost).
-- `registerSchedule` upserts the cron (`POLL_INTERVAL_CRON`) by a fixed id (`SCHEDULER_ID`) and runs one scan at startup.
+- `registerSchedule` upserts the cron (`POLL_INTERVAL_CRON`) by a fixed id (`SCHEDULER_ID`) and runs one scan at startup. The `repo-scheduler` worker also handles the daily `db-maintenance` schedule (`registerMaintenanceSchedule`, routed by `job.name`).
+
+### `maintenance.processor.ts` → `processMaintenanceTick`
+
+- Registered on `repo-scheduler` via `registerMaintenanceSchedule` (`MAINTENANCE_SCHEDULER_ID = "db-maintenance"`, `MAINTENANCE_CRON = "17 3 * * *"`).
+- Prunes stale rows in bounded `ctid` batches (`MAINTENANCE_BATCH_SIZE = 5_000`, up to `MAINTENANCE_MAX_BATCHES = 20` batches per table) to avoid long locks:
+  - Expired `Session` and `Verification` rows (`expiresAt < now`).
+  - Unused expired `Invite` rows (`usedAt IS NULL`, older than `INVITE_RETENTION_DAYS = 30`).
+  - Stale `DependencyBranchWriteIntent` rows (older than `BRANCH_WRITE_INTENT_RETENTION_DAYS = 7`).
+  - Old read `UserReleaseState` rows (`isRead = true`, `readAt` older than `READ_STATE_RETENTION_DAYS = 90`, `source <> 'COMMIT'`). `COMMIT` state rows are never deleted because commit feed visibility depends on state row presence.
 
 ### `repo-poll.processor.ts` → `processRepoPoll`
 
 1. Load the repository and its subscriber count. Skip with `REPOSITORY_GONE` / `NO_SUBSCRIBERS`.
 2. `tokenCandidates()` (`github-tokens.ts`): up to 3 decryptable subscriber tokens (the requester first for manual syncs), then anonymous. Moves to the next only on 401.
 3. `pollRepoReleases({ etag })`: `NOT_MODIFIED` or `UPDATED`.
-4. Release step (one transaction): insert unknown releases, promote tag rows that now have a Release, `selectFreshReleases` → `planFanOut` (unread states, SSE deliveries, notification jobs; pre-releases only with `includePrereleases`; at most `INITIAL_RELEASES_LIMIT` = 10 newest per subscriber per poll, applied after filtering; notification jobs only when `mayNotify` allows: not snoozed (`snoozedUntil`) and at or above the subscription's `notificationLevel`, checked before rules), bookkeeping (`lastEtag`, `lastPolledAt`, `pollStatus`, `errorCount`).
-5. Tag step (`repo-tags.ts` → `pollRepoTags`): only when a subscriber is `TAGS_AND_COMMITS`. GraphQL newest 20 tags → store tags with no row (changelog = "commits since the previous tag" via compare API, bounded concurrency 4) → fan out fresh tags to tag-mode subscribers only. **Best effort**: any failure is logged and skipped; it never fails the poll or pauses the queue. Tag freshness compares against the newest `RELEASE`/`TAG` row only (commit rows are ignored via two indexed `source` seeks).
+4. Release step (one transaction): insert unknown releases, promote tag rows that now have a Release, `selectFreshReleases` → `planFanOut` (unread states inserted in 2,000-row chunks via `createUserReleaseStatesInBatches` in `batch-db.ts`, SSE deliveries, notification jobs; pre-releases only with `includePrereleases`; at most `INITIAL_RELEASES_LIMIT` = 10 newest per subscriber per poll, applied after filtering; notification jobs only when `mayNotify` allows: not snoozed (`snoozedUntil`) and at or above the subscription's `notificationLevel`, checked before rules).
+5. Tag step (`repo-tags.ts` → `pollRepoTags`, run concurrently with step 6): only when a subscriber is `TAGS_AND_COMMITS`. GraphQL newest 20 tags → store tags with no row (changelog = "commits since the previous tag" via compare API, bounded concurrency 4) → fan out fresh tags to tag-mode subscribers only. **Best effort**: any failure is logged and skipped; it never fails the poll or pauses the queue. Tag freshness compares against the newest `RELEASE`/`TAG` row only (commit rows are ignored via two indexed `source` seeks).
 6. Path step (`repo-paths.ts` → `pollRepoPaths`, run concurrently with `pollRepoTags`): only when a subscriber has `trackPaths` and watched paths (regardless of `trackMode`). Union of all subscribers' watched paths (deduplicated) → `fetchCommitsForPath` (REST, newest `PATH_COMMITS_PAGE_SIZE` = 10 per path, cached conditional ETag in Redis `repo:path-etag:<repoId>:<sha1>`, bounded concurrency 4; anonymous works) → `fetchCommitDetail` once per unknown commit (bounded concurrency 4; failure = stored without files; rate limit skips step) → insert `COMMIT` rows → `planPathFanOut` per subscriber, using only commits returned by the subscriber's own paths:
    - **fresh** = inserted by this poll *and* returned by a path already in `polledPaths`: `planFanOut` (unread, SSE, notification rules, 10 per user). No date comparison: a polled path's newest commits are all stored, so an unknown one is new on the branch.
    - **imported** = returned by a newly watched path: newest 10 unread, the rest read, SSE, **no** notification jobs. Commits the user already has a state for are left alone.
-   Then `polledPaths` = the paths polled now and `lastPathsPolledAt`. **Best effort** like the tag step. When no subscriber watches paths any more, the poll clears `polledPaths`, so watching a path again is a quiet import. The release step skips paths-only subscribers (`trackMode = NONE`, `tracksReleases`).
-7. After commit: publish SSE events (best effort), add notification jobs, and for manual syncs send `SYNC_COMPLETED`.
+   **Best effort** like the tag step. The release step skips paths-only subscribers (`trackMode = NONE`, `tracksReleases`).
+7. Repository bookkeeping (after steps 4–6 complete): one `prisma.repository.update` recording `pollStatus: "IDLE"`, `errorCount: 0`, `lastPolledAt`, `lastEtag` (on `UPDATED`), `lastTagsPolledAt`, `lastPathsPolledAt`, and `polledPaths` (cleared when no subscriber watches paths any more, so watching a path again is a quiet import).
+8. After commit: publish SSE events (best effort), add notification jobs, and for manual syncs send `SYNC_COMPLETED`.
 
 - Errors:
-  - `GitHubRateLimitError` → `repoPollQueue.rateLimit(rateLimitDelayMs(resetAt))` (reset + 1 s, clamped to 5 s–1 h) and `throw Worker.RateLimitError()`. No attempt is consumed.
-  - `GitHubRepositoryNotFoundError` → `errorCount++`, `ERROR` after `MAX_ERROR_COUNT` (5); returns `NOT_FOUND` without retrying.
-  - Anything else (network, 5xx, timeouts) is rethrown so BullMQ retries it. Only the last attempt counts toward `errorCount`.
+  - `GitHubRateLimitError` → `repoPollQueue.rateLimit(rateLimitDelayMs(resetAt))` (reset + 1 s, clamped to 5 s–1 h) and `throw Worker.RateLimitError()`. No attempt is consumed. Manual syncs publish `SYNC_FAILED` (`RATE_LIMITED`).
+  - `GitHubRepositoryNotFoundError` → `errorCount++`, `ERROR` after `MAX_ERROR_COUNT` (5); returns `NOT_FOUND` without retrying. Manual syncs publish `SYNC_FAILED` (`NOT_FOUND`).
+  - Anything else (network, 5xx, timeouts) is rethrown so BullMQ retries it. Only the last attempt counts toward `errorCount` and (for manual syncs) publishes `SYNC_FAILED` (`ERROR`).
 - `loadSubscribers` (`repo-tags.ts`, shared by release, tag, and path steps) selects `notificationLevel`, `snoozedUntil`, and each rule's `events`. `ruleMatches` only queues rules whose `events` contain `RELEASES`.
-- Pure decision logic lives in `fan-out.ts` (`selectFreshReleases`, `ruleMatches`, `passesNotificationLevel`, `isSnoozed`, `mayNotify`, `planFanOut`, `mergeFanOutPlans`, `rateLimitDelayMs`). Test it there.
+- Pure decision logic lives in `fan-out.ts` (`selectFreshReleases`, `ruleMatches`, `passesNotificationLevel`, `isSnoozed`, `mayNotify`, `planFanOut`, `mergeFanOutPlans`). Test it there (`rateLimitDelayMs` is imported from `@repopulse/queue`).
 
 ### `release-backfill.processor.ts` → `processReleaseBackfill`
 
 - Pages `fetchReleasesPage` (100 per page) from `backfillNextPage` and persists the next page after each one, so it resumes after a restart or pause.
-- Stores history **without** `UserReleaseState` (= read, no notifications) and skips releases newer than the newest stored one (those belong to `repo-poll`).
-- Stops at `effectiveTarget(backfillTarget, hardCap)`, at the end of history, or at `maxAgeCutoff` (automatic runs only). Final status is `DONE`, or `PARTIAL` when the hard cap stopped it.
+- Stores history **without** `UserReleaseState` (= read, no notifications), promotes existing `TAG` rows in place to `RELEASE` (quietly), and skips releases newer than the newest stored one (those belong to `repo-poll`).
+- Stops at `effectiveTarget(backfillTarget, hardCap)`, at the end of history, or at `maxAgeCutoff` (automatic runs only). Final status is `DONE`, `PARTIAL` when the hard cap stopped it, or `ERROR` on HTTP 404 / final retry failure.
 - When quota drops below `RELEASE_BACKFILL_MIN_QUOTA`, or on a rate limit, moves itself to delayed until reset (`job.moveToDelayed`), so polling never starves.
 - Publishes `HISTORY_BACKFILLED` to every subscriber. Pure logic is in `backfill-plan.ts`.
 
@@ -58,7 +68,7 @@ Queue definitions (`QUEUE_NAMES`: `repo-scheduler`, `repo-poll`, `release-backfi
 
 ## Lifecycle
 
-- Startup: health server (`:3001`) → `prisma.$connect()` (failure reported by `/health`, not a crash) → require `REDIS_URL` → `readBackfillConfig()` (fails fast on bad values) → workers → schedule. Each backfill job merges admin overrides (`applyBackfillOverrides(env, await loadBackfillOverrides(prisma))`, cached with a 15 s TTL in the worker process; env-only if read fails).
+- Startup: health server (`:3001`) → `prisma.$connect()` (failure reported by `/health`, not a crash) → require `REDIS_URL` → `readBackfillConfig()` (fails fast on bad values) → workers → schedules (`registerSchedule` + `registerMaintenanceSchedule`). Each backfill job merges admin overrides (`applyBackfillOverrides(env, await loadBackfillOverrides(prisma))`, cached with a 15 s TTL in the worker process; env-only if read fails).
 - `SIGTERM`/`SIGINT`: `worker.cancelAllJobs("shutdown")` aborts active fetches, `worker.close()` drains active jobs, then `closeSmtpTransports()`, queues, health server, Redis, and Prisma close, exiting 0. Force-exit timeout is 25 s (below Compose `stop_grace_period: 30s`).
 - `GET /health` → `200 { status: "ok", checks: { database, redis }, timestamp }` or `503`. Never leaks error details.
 - Logging: `createLogger(scope)` from `@repopulse/queue` (Pino JSON in production, `pino-pretty` in non-prod TTY).

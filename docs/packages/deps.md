@@ -18,16 +18,16 @@ Dependencies: `semver`, `smol-toml`, `yaml`, `zod`.
 
 | Export / Subpath | What |
 | --- | --- |
-| `@repopulse/deps/limits` (also root) | Browser-safe caps & defaults: `MAX_DEPENDENCY_PROJECTS_PER_USER` (50), `MAX_PROJECTS_PER_ADD` (20), `MAX_MANIFESTS_PER_PROJECT` (25), `MAX_DEPENDENCIES_PER_PROJECT` (1,000), `MAX_MANIFEST_BYTES` (1 MiB), `MAX_LOCKFILE_BYTES` (20 MiB), `MAX_SANDBOX_BODY_BYTES`, `MAX_SANDBOX_STDERR_TAIL_BYTES`, `MAX_IGNORE_RULES` (50), `SCAN_COOLDOWN_MS` (5 min), `REGISTRY_CACHE_TTL_MS` (1 h), `REGISTRY_CONCURRENCY` (8), `DIGEST_MAX_ITEMS`, `SCAN_INTERVAL_HOURS`, `MIN_RELEASE_AGE_DAYS_MAX` (30), `MAX_OPEN_PRS_MAX` (20), `DEPS_BRANCH_PREFIX`, `DEPS_WORKER_HEARTBEAT_*`, `DEPENDENCY_PROJECT_DEFAULTS` |
-| `@repopulse/deps/sandbox-contract` | Browser-safe `deps-worker` ↔ `deps-sandbox` Zod schemas: `lockRequestSchema`, `lockResponseSchema`, `sandboxHealthSchema`, `SANDBOX_PACKAGE_MANAGERS`, `LOCK_ERROR_CODES` |
-| `detectManifests(tree, opts)`, `resolveManifestGroups`, `detectManifestsWithReader`, `manifestFormatOf`, `packageManagerFromField`, `SKIPPED_DIRECTORIES`, `registry-config.ts` | Manifest & workspace detection, package manager precedence, ancestor registry config checks |
+| `@repopulse/deps/limits` (also root) | Browser-safe caps & defaults: `MAX_DEPENDENCY_PROJECTS_PER_USER` (50), `MAX_PROJECTS_PER_ADD` (20), `MAX_MANIFESTS_PER_PROJECT` (25), `MAX_DEPENDENCIES_PER_PROJECT` (1,000), `MAX_MANIFEST_BYTES` (1 MiB), `MAX_LOCKFILE_BYTES` (20 MiB), `MAX_SANDBOX_BODY_BYTES`, `MAX_SANDBOX_FILES` (2,000), `MAX_SANDBOX_STDERR_TAIL_BYTES`, `MAX_IGNORE_RULES` (50), `SCAN_COOLDOWN_MS` (5 min), `REGISTRY_CACHE_TTL_MS` (1 h), `REGISTRY_CONCURRENCY` (8), `DIGEST_MAX_ITEMS`, `SCAN_INTERVAL_HOURS`, `MIN_RELEASE_AGE_DAYS_MAX` (30), `MAX_OPEN_PRS_MAX` (20), `DEPS_BRANCH_PREFIX`, `DEPS_WORKER_HEARTBEAT_*`, `DepsWorkerHeartbeat`, `DEPENDENCY_PROJECT_DEFAULTS` |
+| `@repopulse/deps/sandbox-contract` (also root) | Browser-safe `deps-worker` ↔ `deps-sandbox` Zod schemas: `sandboxFileSchema`, `lockRequestSchema`, `lockResponseSchema`, `sandboxHealthSchema`, `SANDBOX_PACKAGE_MANAGERS`, `LOCK_ERROR_CODES` |
+| `detectManifests(tree, opts)`, `resolveManifestGroups`, `detectManifestsWithReader`, `manifestFormatOf`, `packageManagerFromField`, `SKIPPED_DIRECTORIES`, `registryConfigPaths`, `applyRegistryPolicy` | Manifest & workspace detection, package manager precedence, ancestor registry config checks (`registry-config.ts`) |
 | `parsePackageJson`, `parseRequirements` / `parseRequirementsTree` / `readRequirementsPins`, `parsePyproject`, `parsePep508`, `manifests/errors.ts` | Manifest parsers tracking JS string-offset spans per dependency |
-| `readLockfile`, `read{PackageLock,PnpmLock,BunLock,YarnLock,UvLock,PoetryLock}`, `prepareLockfile`, `PreparedLockfile` | Lockfile readers → resolved versions + format version (single-parse `prepareLockfile` shared across workspace manifests); oversized/broken files return an empty map + warning |
+| `readLockfile`, `read{Package,Pnpm,Bun,Yarn,Uv,Poetry}Lock`, `prepareLockfile`, `prepare{Package,Pnpm,Bun,Yarn,Uv,Poetry}Lock`, `PreparedLockfile` | Lockfile readers → resolved versions + format version (single-parse `prepareLockfile` shared across workspace manifests); oversized/broken files return an empty map + warning |
 | `compareVersions`, `satisfiesRange`, `maxSatisfying`, `rangeLowerBound`, `bumpRange`, `npm*`, `pep440*`, `parsePep440`, `BumpResult` | Version & range math per `RangeSyntax` (`npm`, `pep440`, `poetry`) |
-| `fetchRegistryPackage`, `fetchNpmPackage`, `fetchPypiPackage`, `RegistryCache`, `registryCacheKey`, `createMemoryRegistryCache`, `RegistryUnavailableError`, `REGISTRY_CACHE_RETENTION_MS` (7 days) | Registry clients (fixed hosts, ETag revalidation, byte caps, timeouts, single-flight dedup) |
-| `selectTarget`, `applyPolicy`, `classifyUpdate`, `groupUpdates`, `groupCapability`, `manifestCheckOnlyReason`, `manifestNeedsLockfile`, `ignoreRuleSchema`, `ignoreRulesSchema`, `isValidGroupKey`, `slugifyGroupName` | Pure policy planner and grouping engine |
+| `fetchRegistryPackage`, `fetchNpmPackage`, `fetchPypiPackage`, `NPM_REGISTRY_URL`, `PYPI_SIMPLE_URL`, `PYPI_JSON_URL`, `cachedGet`, `createLimiter`, `mapWithConcurrency`, `toGitHubRepoUrl`, `RegistryCache`, `registryCacheKey`, `createMemoryRegistryCache`, `RegistryUnavailableError`, `isRegistryUnavailableError`, `REGISTRY_CACHE_RETENTION_MS` (7 days) | Registry clients (fixed hosts, ETag revalidation, byte caps, timeouts, single-flight dedup, concurrency limiters) |
+| `selectTarget`, `applyPolicy`, `classifyUpdate`, `groupUpdates`, `groupCapability`, `manifestCheckOnlyReason`, `manifestNeedsLockfile`, `requiresPythonOverlaps`, `ignoreRuleSchema`, `ignoreRulesSchema`, `isValidIgnorePattern`, `isValidIgnoreVersions`, `ignorePatternMatches`, `isValidGroupKey`, `slugifyGroupName` | Pure policy planner and grouping engine |
 | `rewritePackageJson`, `rewriteRequirements`, `rewritePyproject`, `ManifestRewriteError` | Span edits with structural re-parse validation |
-| `depsBranchName`, `buildCommitMessage`, `buildPrTitle`, `buildPrBody`, `buildTargets`, `formatTarget`, `parseTarget`, `depsPrMarker` | PR branch, commit, and Markdown body builders |
+| `depsBranchName`, `groupKeyFromBranch`, `buildCommitMessage`, `buildPrTitle`, `buildPrBody`, `buildTargets`, `formatTarget`, `parseTarget`, `depsPrMarker`, `parseDepsPrMarker`, `markdownCodeSpan`, `escapeMarkdownText`, `PR_BODY_MAX_LENGTH` | PR branch, commit, and Markdown body builders |
 | `normalizePypiName`, `types.ts` | PEP 503 name normalization and structural types |
 
 ## Planning (`plan.ts`)
@@ -42,7 +42,7 @@ Dependencies: `semver`, `smol-toml`, `yaml`, `zod`.
 6. `LOCKFILE_ONLY` and peer dependencies require the target inside `declared`; `BUMP` bumps the range while keeping its operator **and written precision** (`>=1.2` stays `>=1.2` for `1.2.5`, leaving nothing to commit without a lockfile). If the range admits nothing → `BLOCKED_BY_RANGE`.
 7. A target equal to a `DISMISSED` version stays `DISMISSED`; a newer one becomes `OUTDATED` again.
 
-`targetVersion` is set only for `OUTDATED` and `DISMISSED` rows. `classifyUpdate` → `level` uses `classifySemver` thresholds.
+`targetVersion` is set only for `OUTDATED` and `DISMISSED` rows. `classifyUpdate` → `level` classifies major bumps (and minor bumps on `0.x`) as `MAJOR`, else `MINOR` / `PATCH` / `PRERELEASE` / `OTHER`.
 
 `groupUpdates(outdated, groupMode, maxOpenPrs)`:
 - `SINGLE` → `all`
@@ -55,15 +55,15 @@ Majors sort last; only the first `maxOpenPrs` groups get a slot. `groupCapabilit
 
 | Package manager | Manifest | Current versions from | Update PR |
 | --- | --- | --- | --- |
-| npm / pnpm / Bun | `package.json` (+ workspaces, `pnpm-workspace.yaml`) | `package-lock.json` v2/v3, `npm-shrinkwrap.json`, `pnpm-lock.yaml` v9, `bun.lock` | yes, lockfile from sandbox |
+| npm / pnpm / Bun | `package.json` (+ workspaces, `pnpm-workspace.yaml`) | `package-lock.json` v1–v3, `npm-shrinkwrap.json`, `pnpm-lock.yaml` (v6–v9, legacy <7, pnpm 11+ multi-doc), `bun.lock` | yes, lockfile from sandbox |
 | Bun (binary) | `package.json` | declared range (`bun.lockb` unreadable) | check only |
 | Yarn | `package.json` | `yarn.lock` (classic, Berry) | check only |
 | none (npm / PyPI) | `package.json` / `pyproject.toml` without lockfile | declared range | yes, manifest only |
 | pip | `requirements*.txt`, `requirements/*.txt`, `constraints*.txt` (`-r` / `-c` followed, depth 5) | `==` pins | yes, text edit + hashes |
-| uv / Poetry | `pyproject.toml` (PEP 621, PEP 735, `[tool.poetry]`) | `uv.lock` / `poetry.lock` | yes, lockfile from sandbox |
+| uv / Poetry | `pyproject.toml` (PEP 621, PEP 735, `[tool.uv]` workspaces & `dev-dependencies`, `[tool.poetry]`) | `uv.lock` / `poetry.lock` | yes, lockfile from sandbox |
 | pip-tools | `requirements.in` + compiled `.txt` | compiled pins | check only |
 
 - **npm-family detection order:** `packageManager` field, then root lockfile (`pnpm-lock.yaml` > `bun.lock` > `bun.lockb` > `yarn.lock` > `npm-shrinkwrap.json` > `package-lock.json`).
 - **Skipped directories:** `node_modules`, `.venv`, `venv`, `vendor`, `dist`, `build`, `.git`, `fixtures`, `__fixtures__`, `testdata`, `examples`. Max 25 manifests (shallowest first) unless `manifestPaths` is set.
 - **Unsupported specs:** git, file, link, workspace, `catalog:`, `npm:` aliases, URLs, `*` / dist-tags, npm/pnpm `overrides`, Yarn `resolutions` become `UNSUPPORTED_SOURCE` (never dropped). `--index-url` marks the requirements file `UNSUPPORTED_SOURCE`; `--extra-index-url` warns. Custom registries in ancestor config files fail closed as `UNSUPPORTED_SOURCE`.
-- **Registries:** npm abbreviated packument (plus full `time` document only when `minReleaseAgeDays` needs it), PyPI Simple JSON (PEP 691 / 700: upload time, yanked, `requires-python`, sha256) fetched concurrently with `/pypi/<name>/json` (`project_urls`). Cached in Redis `deps:reg:<namespace>:<name>` (fresh 1 h, `If-None-Match` revalidation, 7-day retention).
+- **Registries:** npm abbreviated packument (plus full document for publish times and `repository` URL when `includeTimes !== false`, skipped while cached `npm-time` matches the abbreviated `modified` timestamp), PyPI Simple JSON (PEP 691 / 700: upload time, yanked, `requires-python`, sha256) fetched concurrently with `/pypi/<name>/json` (`project_urls`). Cached in Redis `deps:reg:<namespace>:<name>` (fresh 1 h, `If-None-Match` revalidation, 7-day retention).

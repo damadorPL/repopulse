@@ -9,7 +9,7 @@
 | Path | Package | Role | Runtime |
 | --- | --- | --- | --- |
 | `apps/web` | `@repopulse/web` | Next.js 16 App Router UI, Server Actions, Better Auth, SSE endpoint, `GET /api/health` | Node, port 3000 |
-| `apps/worker` | `@repopulse/worker` | BullMQ workers (`repo-scheduler`, `repo-poll`, `release-backfill`, `notification-dispatch`), `GET :3001/health` | Node, port 3001 |
+| `apps/worker` | `@repopulse/worker` | BullMQ workers (`repo-scheduler` [polls + daily `db-maintenance`], `repo-poll`, `release-backfill`, `notification-dispatch`), `GET :3001/health` | Node, port 3001 |
 | `apps/deps-worker` | `@repopulse/deps-worker` | Dependencies module: BullMQ workers (`deps-scheduler`, `deps-scan`, `deps-update`, `deps-notify`), Redis heartbeat, `GET :3002/health` | Node, port 3002 |
 | `apps/deps-sandbox` | `@repopulse/deps-sandbox` | Runs package managers to regenerate lockfiles (`POST /v1/lock`, `GET /health`); no secrets, internal network only | Node + npm / pnpm / Bun / uv / Poetry, port 3003 |
 | `packages/db` | `@repopulse/db` | Prisma 7 schema and migrations, singleton client (`@prisma/adapter-pg`), AES-256-GCM crypto, instance settings loaders | library (ESM `dist/`) |
@@ -77,12 +77,11 @@ Release tracking (`trackMode`) and "Files / folders" (`trackPaths`) are independ
 
 ### 2. Scheduled polling (worker)
 
-`repo-scheduler` runs on `POLL_INTERVAL_CRON` (default `*/30 * * * *`) plus once at startup. It enqueues one `repo-poll` job per due repository (deduplicated with `poll-{repositoryId}`). `repo-poll` makes a conditional request (`If-None-Match: lastEtag`):
+`repo-scheduler` runs on `POLL_INTERVAL_CRON` (default `*/30 * * * *`) plus once at startup, enqueueing one `repo-poll` job per due repository (deduplicated with `poll-{repositoryId}`). It also runs a daily `db-maintenance` job (`17 3 * * *`) that prunes expired `Session` / `Verification` rows, unused expired `Invite` rows (> 30 d), `DependencyBranchWriteIntent` rows (> 7 d), and read non-`COMMIT` `UserReleaseState` rows (> 90 d) in bounded `ctid` batches. `repo-poll` makes a conditional request (`If-None-Match: lastEtag`):
 
 - `304` → only bookkeeping.
 - `200` → insert the new releases, then `planFanOut()`: unread rows for each subscriber (pre-releases only for subscriptions that opt in), SSE `NEW_RELEASE` events, and `notification-dispatch` jobs for matching rules.
-- With any `TAGS_AND_COMMITS` subscriber, a best-effort tag step (`pollRepoTags`) runs after the release step.
-- With any `trackPaths` subscriber, a best-effort path step (`pollRepoPaths`) runs after that: commits touching the watched paths, fanned out per subscriber.
+- After the release step, the best-effort tag step (`pollRepoTags`, when any `TAGS_AND_COMMITS` subscriber exists) and path step (`pollRepoPaths`, when any `trackPaths` subscriber exists: commits touching watched paths, fanned out per subscriber) run concurrently (`Promise.all`).
 
 Details: [apps/worker.md](./apps/worker.md).
 
@@ -92,7 +91,7 @@ Details: [apps/worker.md](./apps/worker.md).
 
 ### 4. History backfill
 
-`release-backfill` pages through older releases (100 per page) and stores them **without** `UserReleaseState`, which means read: no unread counts and no notifications. It stops at `backfillTarget`, at the end of the history, or at the age limit (automatic runs only). "Load older releases" raises the target by a step (200), up to the hard cap. All of these come from `RELEASE_BACKFILL_*` (or defaults) with per-value overrides in Admin → Release history (`InstanceSettings.backfill*`), read by the worker on every backfill job and by web for "Load older releases".
+`release-backfill` pages through older releases (100 per page) and stores them **without** `UserReleaseState`, which means read: no unread counts and no notifications. It stops at `backfillTarget`, at the end of the history, or at the age limit (automatic runs only). "Load older releases" raises the target by a step (default 200), up to the hard cap. `defaultTarget`, `maxAgeDays`, `hardCap`, and `minQuota` come from `RELEASE_BACKFILL_*` (or defaults), while `deepStep` and `deepCooldownMinutes` (default 5) are admin-setting-only; all six support overrides in Admin → Release history (`InstanceSettings.backfill*`), read by web for "Load older releases" and by the worker via a 15 s in-memory cache (`createCachedLoader`).
 
 ### 5. Live updates
 
@@ -107,7 +106,7 @@ Events (`packages/queue/src/events.ts`): `NEW_RELEASE`, `SYNC_STARTED`, `SYNC_CO
 ### 7. Dependency scan and update PR
 
 1. A user adds a project (`addDependencyProjectsAction`) or clicks "Check now", the hourly `deps-scheduler` finds it due (`nextScanAt`), or a GitHub App `push` webhook arrives → `deps-scan` (deduplicated with `deps-scan-{projectId}`).
-2. `deps-worker` reads the default-branch tree with the best credentials (App installation token → the owner's OAuth token → anonymous), detects and parses manifests and lockfiles in TypeScript, looks up the npm registry / PyPI (Redis cache), applies the project policy (`selectTarget`), and stores `DependencyManifest` / `DependencyUpdate` rows in one transaction. Then it refreshes open PR states, publishes `DEPS_SCAN_COMPLETED`, stores `DependencyNotificationOutbox` intents for `deps-notify` digests, and, in `AUTO_PR` mode, queues `deps-update` jobs.
+2. `deps-worker` reads the default-branch tree using the GitHub App installation token when installed (private repositories require the App and never fall back; public repositories without an App installation fall back from the owner's OAuth token to anonymous), detects and parses manifests and lockfiles in TypeScript, looks up the npm registry / PyPI (Redis cache), applies the project policy (`selectTarget`), and stores `DependencyManifest` / `DependencyUpdate` rows in one transaction. Then it refreshes open PR states, publishes `DEPS_SCAN_COMPLETED`, stores `DependencyNotificationOutbox` intents for `deps-notify` digests, and, in `AUTO_PR` mode, queues `deps-update` jobs.
 3. `deps-update` (or "Create PR") re-checks the mode, PR ownership, App installation, and the owner's `write` permission, recomputes the group, span-edits the manifests, asks `deps-sandbox` for the regenerated lockfile (validated by the worker), commits through the Git Data API to `repopulse/deps/<groupKey>` as `<slug>[bot]`, and opens or updates the PR. `DEPS_PULL_REQUEST_UPDATED` and `deps-notify` follow.
 4. A merged or closed PR is picked up by the next scan (sooner with the `pull_request` webhook).
 

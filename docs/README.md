@@ -2,7 +2,7 @@
 
 > **Audience:** coding agents and contributors. Every file starts with a summary and links to related guides, then lists rules (**MUST / MUST NOT**) and technical details. Paths are relative to the repo root unless noted.
 
-RepoPulse is a self-hosted tracker for GitHub releases and changelogs. Users sign in with GitHub and subscribe to repositories. A background worker polls GitHub, stores new releases, marks them unread for every subscriber, pushes live updates over SSE, and delivers notifications (Discord, Slack, ntfy, Gotify, email, custom webhooks). An optional Dependencies module checks users' own repositories for outdated npm, Bun, and PyPI dependencies and can open update pull requests through a GitHub App. It runs as a Turborepo + pnpm monorepo deployed with Docker Compose on Coolify.
+RepoPulse is a self-hosted tracker for GitHub releases and changelogs. Users sign in with GitHub and subscribe to repositories. A background worker polls GitHub, stores new releases, marks them unread for every subscriber, pushes live updates over SSE, and delivers notifications (Discord, Slack, ntfy, Gotify, email, custom webhooks). An optional Dependencies module checks users' own repositories for outdated npm (npm, pnpm, Bun, Yarn) and PyPI (pip, pip-tools, uv, Poetry) dependencies and can open update pull requests through a GitHub App. It runs as a Turborepo + pnpm monorepo deployed with Docker Compose on Coolify.
 
 ## Documentation Index
 
@@ -32,6 +32,8 @@ RepoPulse is a self-hosted tracker for GitHub releases and changelogs. Users sig
 | [packages/github.md](./packages/github.md) | `@repopulse/github`: Octokit wrapper, SemVer classifier, ETag/GraphQL/commit polling, GitHub App, Git Data API |
 | [packages/notifications.md](./packages/notifications.md) | `@repopulse/notifications`: channel formatters, dispatchers, two-layer SSRF guard, and SMTP |
 | [packages/queue.md](./packages/queue.md) | `@repopulse/queue`: BullMQ queue factories, deduplication helpers, Redis/SSE contracts, health, and Pino logger |
+
+> Config-only package: `packages/tsconfig` (`@repopulse/tsconfig`) provides shared `base.json` and `nextjs.json` TypeScript configs (no `src/` directory or separate guide; see [ARCHITECTURE.md](./ARCHITECTURE.md#workspaces)).
 
 ### Cross-Service Guides (`docs/guides/`)
 
@@ -73,4 +75,3 @@ Other sources:
 - [`apps/web/AGENTS.md`](../apps/web/AGENTS.md): includes the Next.js 16 bundled-docs notice maintained by `next dev`.
 - [`README.md`](../README.md): repository overview and quick start.
 - [`CHANGELOG.md`](../CHANGELOG.md): Keep a Changelog release history (**update `## [Unreleased]` with every user-visible change**).
-- [`PRD/`](../PRD/): historical product specs and implementation summaries (where they disagree with code or `docs/`, the code wins).

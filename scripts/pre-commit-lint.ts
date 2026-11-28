@@ -49,7 +49,6 @@ function isIgnoredPath(relPath: string): boolean {
     norm.endsWith("/next-env.d.ts") ||
     norm === "pnpm-lock.yaml" ||
     norm === "CHANGELOG.md" ||
-    norm.startsWith("PRD/") ||
     norm.startsWith("docs/")
   );
 }

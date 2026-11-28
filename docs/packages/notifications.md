@@ -10,7 +10,7 @@
 | --- | --- |
 | Browser-safe channel metadata (labels, placeholders, hints, masking) | `packages/notifications/src/channels.ts` |
 | Release & dependency dispatchers | `packages/notifications/src/{dispatcher,dependency-dispatcher}.ts` |
-| Formatters (Discord, Slack, ntfy, Gotify, email, custom, dependencies) | `packages/notifications/src/formatters/{discord,slack,ntfy-gotify,email,custom,dependencies,markdown}.ts` |
+| Formatters (Discord, Slack, ntfy, Gotify, email, custom, dependencies) | `packages/notifications/src/formatters/{discord,slack,ntfy-gotify,email,custom,dependencies}.ts`, `packages/notifications/src/markdown.ts` |
 | HTTP sender & two-layer SSRF guard | `packages/notifications/src/{http,ssrf-guard}.ts` |
 | Worker rule matching (`ruleMatches`) & delivery | `apps/worker/src/processors/{fan-out.ts,notification.processor.ts}` |
 | Dependency worker notification jobs & delivery | `apps/deps-worker/src/processors/{notify-jobs,deps-notify.processor}.ts` |
@@ -25,7 +25,7 @@
 - **MUST** check `events` wherever a rule is matched: releases require `RELEASES`, dependency digests require `DEPENDENCY_UPDATES`, and PR notices require `DEPENDENCY_PULL_REQUESTS`. Tag-scoped rules may only have `RELEASES` (`validateEventsForScope`), and every rule needs ≥ 1 event.
 - **MUST** pass `{ smtp }` to `dispatchNotification` / `dispatchDependencyNotification` for email rules (never read `SMTP_*` from env; there are no such variables).
 - **MUST** display destinations only through `maskDestination` (webhook URLs carry secrets).
-- **MUST** classify errors via `NotificationDeliveryError({ permanent: true })` for unrecoverable failures (4xx except 408/425/429, redirects, blocked URLs, missing SMTP, SMTP 5xx/auth). Everything else is transient.
+- **MUST** classify errors via `NotificationDeliveryError({ permanent: true })` for unrecoverable failures (4xx except 408/425/429, redirects, blocked URLs, missing SMTP, SMTP 5xx/auth/envelope). Everything else is transient.
 - **MUST** use `.js` extensions on relative ESM imports and rebuild `packages/*` after edits.
 
 ## Channels
@@ -64,7 +64,7 @@
 
 - Stored on `InstanceSettings`: `smtpHost` (`null` = off), `smtpPort` (default `587`), `smtpSecure` (`null` = auto: TLS on 465 else STARTTLS; `true` = implicit TLS; `false` = STARTTLS), `smtpUser`, `smtpPasswordEncrypted` (AES-256-GCM), `smtpFrom` (`null` → `defaultSmtpFrom(host, user)`).
 - `saveSmtpSettingsAction` (super admin; Zod schema in `apps/web/src/lib/smtp-schema.ts`): empty `password` keeps the saved password; `clearPassword` or empty username drops it. `SmtpPasswordUnreadableError` produces a permanent failure telling the admin to re-enter the password.
-- `sendSmtpTestEmailAction({ to? })` and `sendTestNotificationAction({ ruleId })` dispatch immediately (not queued) with a 10 s per-target cooldown.
+- `sendSmtpTestEmailAction({ to? })` and `sendTestNotificationAction({ ruleId })` dispatch immediately (not queued) with a 10 s cooldown (per-rule for `sendTestNotificationAction`, process-wide for `sendSmtpTestEmailAction`).
 
 ## Public Exports (`packages/notifications/src/index.ts`)
 
@@ -74,6 +74,6 @@
 | `dispatchNotification`, `dispatchDependencyNotification` | Release and dependency notification dispatchers (`NotificationDeliveryError`, `WebhookUrlError`, `isNotificationDeliveryError`) |
 | `buildTestRelease`, `resolveAppBaseUrl`, `releaseReaderUrl` | Test payload and link builders (`APP_BASE_URL` → `AUTH_URL` → `NEXTAUTH_URL`) |
 | `toSmtpConfig`, `defaultSmtpFrom`, `createSmtpSender`, `renderReleaseEmail`, `verifySmtpConfig`, `closeSmtpTransports`, `SMTP_NOT_CONFIGURED_MESSAGE` | Email formatting, pooled transport, verification, and shutdown cleanup |
-| `format{Discord,Slack,CustomWebhook}Payload`, `build{Ntfy,Gotify}Request`, `formatGotifyMessage`, `resolveGotifyEndpoint` | Release channel formatters |
-| `formatDependency*Payload`, `buildDependency*Request`, `renderDependencyEmail`, `buildDependencyContext`, `dependencyHeadline`, `dependencyLevelLabel`, `DIGEST_MAX_ITEMS` | Dependency channel formatters |
+| `DISCORD_COLORS`, `format{Discord,Slack,CustomWebhook}Payload`, `build{Ntfy,Gotify}Request`, `formatGotifyMessage`, `resolveGotifyEndpoint` | Release channel formatters |
+| `formatDependency*Payload`, `formatDependencyGotifyMessage`, `buildDependency*Request`, `renderDependencyEmail`, `buildDependencyContext`, `dependencyHeadline`, `dependencyLevelLabel`, `DIGEST_MAX_ITEMS` | Dependency channel formatters |
 | `validateWebhookUrl`, `createGuardedLookup`, `classifyAddress`, `parseInternalHostsPolicy`, `internalHostsPolicyFromEnv`, `postWebhook` | Two-layer SSRF guard and HTTP webhook sender |

@@ -14,10 +14,10 @@
 | `web` | `apps/web/Dockerfile` (standalone Next output, `node apps/web/server.js`, user `nextjs`, `HOSTNAME="::"`) | UI and SSE on 3000. `stop_grace_period: 20s` | `wget localhost:3000/api/health` |
 | `worker` | `apps/worker/Dockerfile` target `runner` (`node apps/worker/dist/index.js`) | Jobs, health on 3001. `stop_grace_period: 30s` | `wget localhost:3001/health` |
 | `deps-worker` | `apps/deps-worker/Dockerfile` target `runner` (`node apps/deps-worker/dist/index.js`, user `node`) | Dependency scans, PRs, notifications; health on 3002. Networks `default` + `deps_sandbox`. `stop_grace_period: 30s` | `wget localhost:3002/health` |
-| `deps-sandbox` | `apps/deps-sandbox/Dockerfile` (`node:26-trixie-slim`, Python 3.13, `tini`, uid `10001`) | Lockfile regeneration on 3003. Network `deps_sandbox` only | `fetch 127.0.0.1:3003/health` |
+| `deps-sandbox` | `apps/deps-sandbox/Dockerfile` (`node:26-trixie-slim`, Python 3.13, `tini`, uid `10001`) | Lockfile regeneration on 3003. Network `deps_sandbox` only. `stop_grace_period: 30s` | `fetch 127.0.0.1:3003/health` |
 | `deps-egress` | `deploy/deps-egress/Dockerfile`: `ubuntu/squid:6.6-24.04_edge` pinned by digest with `squid.conf` baked in | Sandbox's only outbound route (port 3128). Networks `default` + `deps_sandbox` (alias `deps-egress`) | TCP `:3128` |
 
-Startup order: `postgres` and `redis` healthy → `migrator` completed successfully → `web`, `worker`, and `deps-worker`. `deps-sandbox` and `deps-egress` have no database dependency and start right away.
+Startup order: `postgres` healthy → `migrator` completed successfully; once `postgres` and `redis` are healthy and `migrator` has exited 0, `web`, `worker`, and `deps-worker` start. `deps-sandbox` and `deps-egress` have no database dependency and start right away.
 
 ## Environment in Compose
 
@@ -31,11 +31,13 @@ Startup order: `postgres` and `redis` healthy → `migrator` completed successfu
 
 ## Rules
 
-- **MUST** keep `web` and `worker` on the same `TOKEN_ENCRYPTION_KEY` and `RELEASE_BACKFILL_*` values (or override release history in Admin → Release history).
+- **MUST** keep `web`, `worker`, and `deps-worker` on the same `TOKEN_ENCRYPTION_KEY` (used to decrypt user OAuth tokens, SMTP credentials, and GitHub App keys/webhook secrets), and keep `web` and `worker` on the same `RELEASE_BACKFILL_*` values (or override release history in Admin → Release history).
 - **MUST** pass every new variable explicitly in each service's `environment:`. Compose does not forward variables implicitly.
 - **MUST** use `SERVICE_URL_WEB` (with scheme) for URLs; `SERVICE_FQDN_WEB` is a bare host in Coolify 4.5.
 - Migrations run automatically on every deploy (`migrator`). A failing migration blocks `web`, `worker`, and `deps-worker`, so test locally first ([../packages/db.md](../packages/db.md#migrations)).
-- The sandbox token comes from Coolify's `SERVICE_PASSWORD_64_DEPSSANDBOX`: Coolify generates and stores it on first deploy and passes the same value to `deps-worker` and `deps-sandbox` as `DEPS_SANDBOX_TOKEN`. **MUST NOT** rename it or replace it with `${DEPS_SANDBOX_TOKEN}` (Coolify omits unset variables from runtime `.env`, causing `deps-sandbox` to crash-loop). Outside Coolify, set `SERVICE_PASSWORD_64_DEPSSANDBOX` (`.env.example` reuses `${DEPS_SANDBOX_TOKEN}`).
+- Coolify generates and stores two magic variables on first deploy:
+  - `SERVICE_PASSWORD_64_POSTGRESAPP`: passed to `migrator` (`POSTGRES_APP_PASSWORD`) and runtime `DATABASE_URL`s (`web`, `worker`, `deps-worker`). **MUST NOT** rename it or replace it with `${POSTGRES_APP_PASSWORD}` (Coolify omits unset variables from runtime `.env`, causing `migrator` to skip creating `repopulse_app` and runtime services to fail DB auth). Outside Coolify, set `SERVICE_PASSWORD_64_POSTGRESAPP` (`.env.example` reuses `${POSTGRES_APP_PASSWORD}`).
+  - `SERVICE_PASSWORD_64_DEPSSANDBOX`: passed to `deps-worker` and `deps-sandbox` as `DEPS_SANDBOX_TOKEN`. **MUST NOT** rename it or replace it with `${DEPS_SANDBOX_TOKEN}` (Coolify omits unset variables from runtime `.env`, causing `deps-sandbox` to crash-loop). Outside Coolify, set `SERVICE_PASSWORD_64_DEPSSANDBOX` (`.env.example` reuses `${DEPS_SANDBOX_TOKEN}`).
 - **MUST NOT** give `deps-sandbox` extra environment, volumes, `env_file`, or networks, or relax its hardening ([../apps/deps-sandbox.md](../apps/deps-sandbox.md)).
 - **MUST** keep `deps_sandbox` `internal: true`, and verify after first deploy (below).
 - **MUST NOT** bind-mount repository files (`./deploy/...:/path`) in `docker-compose.coolify.yml`: Coolify keeps only the generated compose file and `.env` on the host, so missing source paths turn into empty directories. Bake config files into images via `build:` (as `deploy/deps-egress/Dockerfile` does for `squid.conf`).
@@ -64,10 +66,15 @@ Startup order: `postgres` and `redis` healthy → `migrator` completed successfu
 
 ## Local Full-Stack Smoke Test
 
+`docker-compose.coolify.yml` publishes no host `ports:` (Coolify routes to `web:3000` over Docker networking). Use `pnpm env:setup` (or copy `.env.example` and fill every secret, including `POSTGRES_APP_PASSWORD` and `DEPS_SANDBOX_TOKEN`, plus `SERVICE_URL_WEB=http://localhost:3000`), then start the stack:
+
 ```sh
-cp .env.example .env     # fill in secrets (incl. DEPS_SANDBOX_TOKEN); SERVICE_URL_WEB=http://localhost:3000
-docker compose -f docker-compose.coolify.yml up --build
+pnpm env:setup           # generates POSTGRES_*, POSTGRES_APP_PASSWORD, REDIS_PASSWORD, AUTH_SECRET, TOKEN_ENCRYPTION_KEY, DEPS_SANDBOX_TOKEN
+docker compose -f docker-compose.coolify.yml up --build -d
+docker compose -f docker-compose.coolify.yml exec web wget -qO- http://localhost:3000/api/health
 ```
+
+To open the UI from the host at `http://localhost:3000`, pass a local override file mapping `ports: ["127.0.0.1:3000:3000"]` on `web`.
 
 ## Upgrading PostgreSQL 16/18 → 19 and Redis 7 → 8
 

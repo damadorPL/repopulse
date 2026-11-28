@@ -22,7 +22,6 @@
     "**/next-env.d.ts",
     "pnpm-lock.yaml",
     "CHANGELOG.md",
-    "PRD/**",
     "docs/**"
   ]
 }

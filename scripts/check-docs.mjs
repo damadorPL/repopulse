@@ -48,6 +48,7 @@ function discoverActiveMarkdownFiles() {
   const candidates = [
     "README.md",
     "AGENTS.md",
+    "CHANGELOG.md",
     ...walkMarkdown(path.join(ROOT, "apps"), (rel) => /^apps\/[^/]+\/AGENTS\.md$/.test(rel)),
     ...walkMarkdown(path.join(ROOT, "packages"), (rel) => /^packages\/[^/]+\/AGENTS\.md$/.test(rel)),
     ...walkMarkdown(path.join(ROOT, "docs"), (rel) => rel.endsWith(".md")),
@@ -338,13 +339,27 @@ function checkWorkspaceCoverage() {
   return { errors, workspaceCount: workspaces.length };
 }
 
+/**
+ * Ensures the obsolete top-level PRD/ directory is not reintroduced.
+ * @returns {string[]}
+ */
+function checkNoLegacyPrdDir() {
+  for (const entry of readdirSync(ROOT, { withFileTypes: true })) {
+    if (entry.isDirectory() && entry.name.toLowerCase() === "prd") {
+      return ["Legacy PRD/ directory must not exist; keep current repository documentation in docs/."];
+    }
+  }
+  return [];
+}
+
 function main() {
   const files = discoverActiveMarkdownFiles();
   const linkCheck = checkMarkdownLinks(files);
   const agentsCheck = checkAgentsMdHygiene();
   const coverageCheck = checkWorkspaceCoverage();
+  const prdErrors = checkNoLegacyPrdDir();
 
-  const errors = [...linkCheck.errors, ...agentsCheck.errors, ...coverageCheck.errors];
+  const errors = [...linkCheck.errors, ...agentsCheck.errors, ...coverageCheck.errors, ...prdErrors];
   if (errors.length > 0) {
     console.error(`docs:check failed with ${errors.length} error(s):`);
     for (const err of errors) {

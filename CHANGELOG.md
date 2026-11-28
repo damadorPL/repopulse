@@ -1,10 +1,22 @@
 # Changelog
 
-All notable changes to RepoPulse are documented here, one entry per implementation slice.
-Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Implementation details of each slice are in
-[`PRD/`](./PRD/); architecture and conventions are in [`docs/`](./docs/README.md).
+All notable changes to RepoPulse are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Current architecture and conventions live in [`docs/`](./docs/README.md).
 
 ## [Unreleased]
+
+### Added
+
+- **Git commit template & `commit-msg` hook (`.gitmessage`, `.githooks/commit-msg`, `scripts/commit-msg-lint.ts`)**: Enforces Conventional Commits (`type(scope?): summary`, max 100 chars) and requires a non-empty commit body (why/context, grouped changes by workspace/area, and operational impact when applicable) on multi-file commits (`>= 2` staged files) and release commits (with `SKIP_COMMIT_MSG_HOOK=1` escape hatch). Configured automatically via `scripts/install-hooks.ts` (`commit.template = .gitmessage`).
+- **Enriched annotated release tags (`.github/workflows/release.yml`)**: Annotated `v<version>` tags created by the Release workflow now include the release title and `CHANGELOG.md` notes.
+
+### Changed
+
+- **Single source of truth in `docs/` (`scripts/check-docs.mjs`)**: `pnpm docs:check` now validates relative links and anchors in `CHANGELOG.md` and fails if a legacy `PRD/` directory exists.
+
+### Removed
+
+- **Legacy `PRD/` folder**: Removed the obsolete `PRD/` specifications and slice summaries along with their ignore rules and dead links so [`docs/`](./docs/README.md) is the sole source of current repository documentation.
 
 ## [0.9.8.9] — 2026-11-28 — Web UI refactoring, ConfirmDialog & Next.js after() logging
 
@@ -681,7 +693,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
     callback (`admitGitHubUser`) claims the invite and creates the account in one transaction, so a link can't be used
     twice.
   - New sign-in errors on `/login`: `InviteRequired` and `InviteInvalid`.
-- **Slice 05: notifications (Discord, Slack, ntfy, Gotify, email, custom webhooks).** Details: [`slice_05_implementation_summary.md`](./PRD/slice_05_implementation_summary.md)
+- **Slice 05: notifications (Discord, Slack, ntfy, Gotify, email, custom webhooks).**
   - New `@repopulse/notifications` package:
     - `dispatchNotification()` plus formatters for Discord embeds, Slack Block Kit, ntfy, Gotify, SMTP email (nodemailer
       10.1.2, HTML + text) and generic JSON webhooks.
@@ -696,7 +708,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
   - Email uses the SMTP server from **Settings → Email** (see above).
   - New optional settings `ALLOW_INTERNAL_WEBHOOK_HOSTS` and `APP_BASE_URL`, on both `web` (for Send Test) and `worker`.
     Add them to existing env files with `pnpm env:sync`.
-- **Slice 04c: tag tracking ("Releases + tags").** Details: [`slice_04c_implementation_summary.md`](./PRD/slice_04c_implementation_summary.md)
+- **Slice 04c: tag tracking ("Releases + tags").**
   - Migration `20261101090000_tag_tracking`: enum `ReleaseSource`, plus `Release.source` / `tagSha`. `githubReleaseId` is now optional,
     with a new unique key `(repositoryId, source, tagName)`. Also adds `Repository.lastTagsPolledAt`.
   - Each subscription chooses `RELEASES` or `TAGS_AND_COMMITS`: in the Add dialog, or with the "Tags" toggle on each repository card.
@@ -705,7 +717,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
     The tag step is best effort and never breaks release polling.
   - When a tag later gets a GitHub Release, its row is promoted in place: one entry, no second notification for tag-mode users.
   - The feed and reader show a "Tag" badge on tag entries.
-- **Slice 04b: release history backfill.** Details: [`slice_04b_implementation_summary.md`](./PRD/slice_04b_implementation_summary.md)
+- **Slice 04b: release history backfill.**
   - Migration `20261031120000_release_backfill`: enum `BackfillStatus`, plus `Repository.backfillStatus`, `backfillNextPage`, `backfillTarget`,
     `backfilledAt` and `backfillRequestedAt`.
   - `fetchReleasesPage()` in `@repopulse/github`: 100 per page, never conditional, with `Link`-header paging.
@@ -765,8 +777,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [0.4.0] — 2026-10-31 — Slice 04: BullMQ worker, ETag polling & live SSE updates
 
-Details: [`slice_04_implementation_summary.md`](./PRD/slice_04_implementation_summary.md)
-
 ### Added
 
 - **`@repopulse/queue`** workspace package: queue and job names, job payload types, jobId helpers, default job options, the Redis connection
@@ -794,7 +804,6 @@ Details: [`slice_04_implementation_summary.md`](./PRD/slice_04_implementation_su
 
 ## [0.3.0] — 2026-10-31 — Slice 03: Dashboard panel UI, tags & Markdown changelog reader
 
-Details: [`slice_03_implementation_summary.md`](./PRD/slice_03_implementation_summary.md)
 
 ### Added
 
@@ -834,7 +843,6 @@ Details: [`slice_03_implementation_summary.md`](./PRD/slice_03_implementation_su
 
 ## [0.2.0] — 2026-10-31 — Slice 02: GitHub OAuth & shared GitHub ingestion package
 
-Details: [`slice_02_implementation_summary.md`](./PRD/slice_02_implementation_summary.md)
 
 ### Added
 

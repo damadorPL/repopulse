@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+set -eu
+
+if [ "${SKIP_COMMIT_MSG_HOOK:-0}" = "1" ]; then
+  echo "[commit-msg] Skipping commit-msg check (SKIP_COMMIT_MSG_HOOK=1)."
+  exit 0
+fi
+
+node scripts/commit-msg-lint.ts "$1"

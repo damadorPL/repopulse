@@ -8,7 +8,7 @@ const config: KnipConfig = {
   include: ["nsExports", "nsTypes"],
   workspaces: {
     ".": {
-      entry: ["scripts/install-hooks.ts!", "scripts/pre-commit-lint.ts!"],
+      entry: ["scripts/install-hooks.ts!", "scripts/pre-commit-lint.ts!", "scripts/commit-msg-lint.ts!"],
       project: ["scripts/**/*.{mjs,ts}"],
     },
     "apps/web": {

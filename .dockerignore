@@ -8,7 +8,6 @@
 .env
 .env.*
 !.env.example
-PRD
 docs/
 README.md
 CHANGELOG.md

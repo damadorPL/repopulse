@@ -51,11 +51,21 @@ jobs:
         env:
           TAG: ${{ steps.meta.outputs.tag }}
           VERSION: ${{ steps.meta.outputs.version }}
+          TITLE: ${{ steps.meta.outputs.title }}
+          HAS_NOTES: ${{ steps.meta.outputs.has_notes }}
         run: |
           if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag -a "$TAG" "$GITHUB_SHA" -m "Release $VERSION"
+            if [ "$HAS_NOTES" = "true" ]; then
+              {
+                printf '%s\n\n' "$TITLE"
+                cat "${RUNNER_TEMP}/release-notes.md"
+              } > "${RUNNER_TEMP}/tag-message.txt"
+            else
+              printf '%s\n' "${TITLE:-Release $VERSION}" > "${RUNNER_TEMP}/tag-message.txt"
+            fi
+            git tag -a "$TAG" "$GITHUB_SHA" -F "${RUNNER_TEMP}/tag-message.txt"
             git push origin "refs/tags/$TAG"
           fi
 

@@ -20,7 +20,7 @@
 - **MUST NOT** give `deps-sandbox` any secret beyond `DEPS_SANDBOX_TOKEN` (≥ 16 chars, constant-time SHA-256 bearer check, stripped from `process.env` at startup): no `DATABASE_URL`, `REDIS_URL`, GitHub token, volume, or `env_file`.
 - **MUST** keep `apps/deps-sandbox/docker-entrypoint.sh` filtering PID 1's environment via `exec env -i` with its explicit allowlist (Coolify injects `.env` into compose service configs, and child package managers run under the same uid). Add any new sandbox env var to that allowlist.
 - **MUST** build child process environments from scratch (`buildSandboxEnv`, never inheriting `process.env`) with scripts disabled, `UV_NO_BUILD=1`, `UV_PYTHON_DOWNLOADS=never`, pnpm auto-download off, Corepack/Yarn absent, and `DEPS_EGRESS_PROXY` (`http://deps-egress:3128` by default).
-- **MUST** refuse custom registries (`UNSUPPORTED_REGISTRY`) instead of silently stripping config files (prevents dependency confusion). Risky files (`.npmrc`, `.yarnrc*`, `.pnpmfile.*`, `bunfig.toml`, `.bunfig.toml`, `pip.conf`, `pip.ini`, `poetry.toml`, `uv.toml`, `.env*`) and `[tool.uv.index]` / Poetry sources / `pnpm-workspace.yaml` custom registries are checked, and risky config files are deleted before tool execution.
+- **MUST** refuse custom registries (`UNSUPPORTED_REGISTRY`) instead of silently stripping config files (prevents dependency confusion). Risky files (`.npmrc`, `.yarnrc*`, `.pnpmfile.{cjs,mjs}`, `bunfig.toml`, `.bunfig.toml`, `pip.conf`, `pip.ini`, `poetry.toml`, `uv.toml`, `.env`, `.env.*`), stripped directory segments (`node_modules`, `.git`, `.yarn`, `.poetry`, `.venv`), and `[tool.uv.index]` / Poetry sources / `pnpm-workspace.yaml` custom registries are checked in `prepareFiles`, and risky config files / stripped directories are dropped before writing the job tree to disk.
 - **MUST** validate package names (`isValidNpmName`, `isValidPythonName`) and versions (`isValidVersion`) before building command argument arrays (never shell strings).
 - **MUST** reject pinned unsupported tool majors (`packageManager`, `devEngines`) or lockfile versions outside supported formats (`UNSUPPORTED_TOOL_VERSION`), and verify output lockfile format matches input format.
 - **MUST** process at most one `/v1/lock` job at a time (concurrent requests receive `503 BUSY` with `Retry-After: 10`), bound output capture to 1 MiB, and kill the entire process group on timeout (`DEPS_SANDBOX_TIMEOUT_MS`, default 300,000 ms) or client disconnect abort.
@@ -33,9 +33,9 @@ See [../CONTRACTS.md](../CONTRACTS.md#sandbox-http-contract) for the full `POST 
 
 | Manager | Command (`cwd` = workspace root) | `LOCKFILE_ONLY` variant | Supported lockfile formats |
 | --- | --- | --- | --- |
-| `NPM` | `npm install --package-lock-only --ignore-scripts --no-audit --no-fund` | `npm update <names> --package-lock-only …` | `package-lock.json` v2 / v3, `npm-shrinkwrap.json` (v1 refused) |
+| `NPM` | `npm install --package-lock-only --ignore-scripts --no-audit --no-fund` | `npm update --package-lock-only … <names>` | `package-lock.json` v2 / v3, `npm-shrinkwrap.json` (v1 refused) |
 | `PNPM` | `pnpm install --no-frozen-lockfile --lockfile-only --ignore-scripts --ignore-pnpmfile` | `pnpm update [--recursive] --no-save --lockfile-only … <names>` | `pnpm-lock.yaml` major `9` |
-| `BUN` | `bun install --lockfile-only --ignore-scripts --no-env-file` | `bun update <names>`, restore manifests, then `bun install …` | `bun.lock` text v1 / v2 |
+| `BUN` | `bun install --lockfile-only --ignore-scripts --no-env-file` | `bun update [--recursive] --lockfile-only … <names>`, restore manifests, then `bun install …` | `bun.lock` text v1 / v2 |
 | `UV` | `uv lock --upgrade-package <name>==<version> …` | same | `uv.lock` `version = 1` |
 | `POETRY` | `poetry --no-plugins --no-interaction --no-ansi lock` | `poetry --no-plugins --no-interaction --no-ansi update --lock <names>` | `poetry.lock` `lock-version = "2.x"` |
 

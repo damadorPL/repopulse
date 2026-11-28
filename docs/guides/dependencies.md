@@ -21,18 +21,18 @@
 
 | Service | Holds | Network | Does |
 | --- | --- | --- | --- |
-| `deps-worker` | `DATABASE_URL`, `REDIS_URL`, `TOKEN_ENCRYPTION_KEY` (decrypts App key & OAuth tokens), installation tokens (memory only), `DEPS_SANDBOX_TOKEN` | `default` + `deps_sandbox` | Scans, update PRs, notifications. Parses untrusted files as text only |
+| `deps-worker` | `DATABASE_URL`, `REDIS_URL`, `TOKEN_ENCRYPTION_KEY` (decrypts App key, SMTP password & OAuth tokens), installation tokens (memory only), `DEPS_SANDBOX_TOKEN` | `default` + `deps_sandbox` | Scans, update PRs, notifications. Parses untrusted files as text only |
 | `deps-sandbox` | `DEPS_SANDBOX_TOKEN` (stripped from `process.env` at startup; `docker-entrypoint.sh` `env -i`) | `deps_sandbox` only (`internal: true`) | `POST /v1/lock`: runs `npm` / `pnpm` / `Bun` / `uv` / `Poetry` in lockfile-only mode, returns lockfile |
 | `deps-egress` | nothing | `default` + `deps_sandbox` | Squid: `CONNECT` on 443 to `registry.npmjs.org`, `registry.yarnpkg.com`, `pypi.org`, `files.pythonhosted.org`; denies everything else, private ranges included |
 | `web` | as core | `default` | Pages, actions, `POST /api/github-app/webhook` (enqueue only) |
 
-GitHub App credentials are **not** environment variables: they live encrypted on `InstanceSettings` and every process reads them per use (`loadGitHubAppSettings`), so Admin changes apply without a restart.
+GitHub App credentials are **not** environment variables: they live encrypted on `InstanceSettings`; `web` reads them per call (`loadGitHubAppSettings`), while `deps-worker` caches them for 15 s via `createCachedLoader`, so Admin changes apply within seconds without a restart.
 
 ## Lifecycle
 
 - **Projects (`DependencyProject`)** are per user, unique on `(userId, githubRepoId)`, and independent of release subscriptions: `repositoryId` only powers the quick-add picker and the "Tracked" badge (`SetNull`).
 - **Adding (`addDependencyProjectsAction`):** 1–20 sources, max 50 projects per user. Reads the repo with the user's OAuth token, falling back to an App installation token for private repositories (requires the App installed **and** user's `read` permission). PR mode is offered only for a single repository and requires `write`. First scan is queued immediately (`trigger: "add"`), and unless `notifyOnFirstScan` was ticked, marks initial outdated rows notified without sending.
-- **PR ownership (`DependencyPrOwner`):** switching to `MANUAL_PR` / `AUTO_PR` claims `DependencyPrOwner` (PK `githubRepoId`) inside the settings transaction (`CONFLICT` naming the owner otherwise); `NOTIFY` or removing the project releases it. Losing access (App uninstalled, permission below `write`) during a scan/update switches the project to `NOTIFY`, releases ownership, and sends an `access_lost` notification.
+- **PR ownership (`DependencyPrOwner`):** switching to `MANUAL_PR` / `AUTO_PR` claims `DependencyPrOwner` (PK `githubRepoId`) inside the settings transaction (`CONFLICT` naming the owner otherwise); `NOTIFY` or removing the project releases it. Losing `read` access on a private repository during a scan, or App uninstallation / losing `write` access during an update, switches a PR-mode project to `NOTIFY`, releases ownership, and sends an `access_lost` notification.
 - **Module off (`InstanceSettings.depsEnabled = false`):** sidebar link is hidden, `/dependencies` explains it, actions that queue work return `UNAVAILABLE`, every processor returns `SKIPPED` / `DISABLED`, and the webhook route returns `204`.
 
 ## Webhooks Overview

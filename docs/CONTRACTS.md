@@ -6,7 +6,7 @@
 
 ## Server Action Contract
 
-Defined in `apps/web/src/server/action-result.ts`. Server Actions never throw raw errors to the browser; they return a serializable `ActionResult<T>`:
+Defined in `apps/web/src/server/action-result.ts`. Server Actions never throw raw errors to the browser; they return a serializable `ActionResult<T>` (except redirect-only `signOutAction` in `apps/web/src/server/actions/auth.ts`, which returns `Promise<void>` and calls `redirect("/login")`):
 
 ```ts
 type ActionErrorCode =
@@ -27,7 +27,7 @@ type ActionResult<T> =
 
 - `toActionError(error, action)` maps `UnauthorizedError` → `UNAUTHORIZED`, `ForbiddenError` → `FORBIDDEN`, `InvalidRepositoryInputError` → `INVALID_INPUT`, `GitHubRepositoryNotFoundError` → `NOT_FOUND`, `GitHubRateLimitError` → `RATE_LIMITED`, and logs + redacts unexpected errors as `INTERNAL`.
 - Actions hitting Redis wrap operations in `withRedisTimeout()` and map `RealtimeUnavailableError` → `UNAVAILABLE`.
-- Zod schemas live in server-only `src/lib/*-schema.ts` modules (never imported by client components) and are validated via `safeParse` → `invalidInput(parsed.error)`.
+- Shared Zod schemas live in server-only `src/lib/*-schema.ts` modules (and action-local schemas inline inside `"use server"` action modules, never imported by client components) and are validated via `safeParse` → `invalidInput(parsed.error)`.
 
 ## Realtime SSE Contract
 
@@ -45,7 +45,7 @@ Defined in `@repopulse/queue/events` (`packages/queue/src/events.ts`, browser-sa
 | `SYNC_FAILED` | `repositoryId`, `repositoryName`, `reason: "NOT_FOUND" \| "RATE_LIMITED" \| "ERROR"`, `message` | `worker` (`repo-poll`, manual only) |
 | `HISTORY_BACKFILLED` | `repositoryId`, `repositoryName`, `added` | `worker` (`release-backfill`) |
 | `DEPS_SCAN_COMPLETED` | `projectId`, `fullName`, `outdated`, `majors` | `deps-worker` (`deps-scan`) |
-| `DEPS_SCAN_FAILED` | `projectId`, `fullName`, `message` (user-safe) | `deps-worker` (`deps-scan`, manual only) |
+| `DEPS_SCAN_FAILED` | `projectId`, `fullName`, `message` (user-safe) | `deps-worker` (`deps-scan`, when `requestedByUserId` is set — `manual` and `add` scans) |
 | `DEPS_PULL_REQUEST_UPDATED` | `projectId`, `fullName`, `groupKey`, `state: "OPEN" \| "MERGED" \| "CLOSED" \| "EDITED" \| "FAILED"`, `number`, `htmlUrl`, `message?` | `deps-worker` (`deps-scan` / `deps-update`) |
 
 Changing `RealtimeEvent`: update the union and `parseRealtimeEvent` in `packages/queue/src/events.ts`, `packages/queue/src/events.test.ts`, worker publishers, and `apps/web/src/components/realtime/sse-listener.tsx`.
@@ -63,59 +63,62 @@ Defined in `@repopulse/queue` (`packages/queue/src/{names,deps,queues}.ts`).
 
 | Queue | Job name | Payload | Dedup / jobId | Concurrency | Options |
 | --- | --- | --- | --- | --- | --- |
-| `repo-scheduler` | `scan-due-repositories` | `{}` | repeatable `repo-scheduler-cron` | 1 | `removeOnComplete: true`, `removeOnFail: { count: 50 }` |
-| `repo-poll` | `poll-repository` | `{ repositoryId, trigger: "schedule" \| "manual", requestedByUserId? }` | `poll-{repositoryId}` (`keepLastIfActive: true`) | `REPO_POLL_CONCURRENCY` (5), limiter 10/s | 3 attempts, exp. 30 s; priority manual `1` / scheduled `10`; `removeOnComplete: { count: 200 }`, `removeOnFail: { age: 7d, count: 200 }`, `keepLogs: 50` |
-| `release-backfill` | `backfill-releases` | `{ repositoryId, trigger: "add" \| "sweep" \| "deep" \| "retry" }` | `backfill-{repositoryId}` (`keepLastIfActive: true`) | 2 | 3 attempts, exp. 60 s; priority requested `1` / automatic `10`; `removeOnComplete: { count: 200 }`, `removeOnFail: { age: 7d, count: 200 }`, `keepLogs: 50` |
-| `notification-dispatch` | `dispatch-notification` | `{ ruleId, releaseId, userId }` | `notify-{ruleId}-{releaseId}` | `NOTIFICATION_CONCURRENCY` (10) | 3 attempts, exp. 5 s; retained 7 d (`count: 5000`) for dedup |
+| `repo-scheduler` | `scan-due-repositories` | `{}` | repeatable `repo-scheduler-cron` (`POLL_INTERVAL_CRON`, default `*/30 * * * *`) + startup `repo-scheduler-cron-startup` | 1 | `removeOnComplete: true`, `removeOnFail: { count: 50 }` |
+| `repo-scheduler` | `db-maintenance` | `{}` | repeatable `db-maintenance` (`17 3 * * *`) | 1 | `removeOnComplete: true`, `removeOnFail: { count: 50 }` |
+| `repo-poll` | `poll-repository` | `{ repositoryId, trigger: "schedule" \| "manual", requestedByUserId? }` | dedup `poll-{repositoryId}` (`keepLastIfActive: true`) | `REPO_POLL_CONCURRENCY` (5), limiter 10/s | 3 attempts, exp. 30 s; priority manual `1` / scheduled `10`; `removeOnComplete: { count: 200 }`, `removeOnFail: { age: 7d, count: 200 }`, `keepLogs: 50` |
+| `release-backfill` | `backfill-releases` | `{ repositoryId, trigger: "add" \| "sweep" \| "deep" \| "retry" }` | dedup `backfill-{repositoryId}` (`keepLastIfActive: true`) | 2 | 3 attempts, exp. 60 s; priority requested `1` / automatic `10`; `removeOnComplete: { count: 200 }`, `removeOnFail: { age: 7d, count: 200 }`, `keepLogs: 50` |
+| `notification-dispatch` | `dispatch-notification` | `{ ruleId, releaseId, userId }` | `jobId`: `notify-{ruleId}-{releaseId}` | `NOTIFICATION_CONCURRENCY` (10) | 3 attempts, exp. 5 s; retained 7 d (`count: 5000`) for `jobId` dedup |
 
 ### Dependencies Queues (`DEPS_QUEUE_NAMES`, consumed by `apps/deps-worker`)
 
 | Queue | Job name | Payload | Dedup / jobId | Concurrency | Options |
 | --- | --- | --- | --- | --- | --- |
-| `deps-scheduler` | `scan-due-dependency-projects` | `{}` | repeatable `deps-scheduler-cron` (`DEPS_SCAN_CRON`, default `17 * * * *`) | 1 | `removeOnComplete: true`, `removeOnFail: { count: 50 }` |
-| `deps-scan` | `scan-dependency-project` | `{ projectId, trigger: "add" \| "schedule" \| "manual" \| "webhook", requestedByUserId? }` | `deps-scan-{projectId}` (`keepLastIfActive: true`) | `DEPS_SCAN_CONCURRENCY` (3), limiter 10/s | 3 attempts, exp. 60 s; priority manual/add `1`, schedule/webhook `10`; `lockDuration: 120s`; `keepLogs: 50` |
-| `deps-update` | `update-dependency-group` | `{ projectId, groupKey, trigger: "manual" \| "auto" }` (`groupKey` `[a-z0-9-]` only) | `deps-update-{projectId}-{groupKey}` (`keepLastIfActive: true`) | `DEPS_UPDATE_CONCURRENCY` (1), limiter 5/s | 2 attempts, exp. 120 s; priority manual `1` / auto `10`; `lockDuration: 120s`; `keepLogs: 50` |
-| `deps-notify` | `dispatch-dependency-notification` | `{ ruleId, projectId, kind: "digest", scanId, updateIds }` or `{ …, kind: "pull_request", prId, event, dedupKey }` | `deps-notify-{ruleId}-{scanId \| prId-dedupKey}` | 5 | 3 attempts, exp. 5 s; retained 7 d (`count: 5000`) for dedup |
+| `deps-scheduler` | `scan-due-dependency-projects` | `{}` | repeatable `deps-scheduler-cron` (`DEPS_SCAN_CRON`, default `17 * * * *`) + startup `deps-scheduler-cron-startup` | 1 | `removeOnComplete: true`, `removeOnFail: { count: 50 }` |
+| `deps-scan` | `scan-dependency-project` | `{ projectId, trigger: "add" \| "schedule" \| "manual" \| "webhook", requestedByUserId? }` | dedup `deps-scan-{projectId}` (`keepLastIfActive: true`) | `DEPS_SCAN_CONCURRENCY` (3), limiter 10/s | 3 attempts, exp. 60 s; priority manual/add `1`, schedule/webhook `10`; `lockDuration: 120s`; `removeOnComplete: { count: 200 }`, `removeOnFail: { age: 7d, count: 200 }`, `keepLogs: 50` |
+| `deps-update` | `update-dependency-group` | `{ projectId, groupKey, trigger: "manual" \| "auto" }` (`groupKey` `[a-z0-9-]` only) | dedup `deps-update-{projectId}-{groupKey}` (`keepLastIfActive: true`) | `DEPS_UPDATE_CONCURRENCY` (1), limiter 5/s | 2 attempts, exp. 120 s; priority manual `1` / auto `10`; `lockDuration: 120s`; `removeOnComplete: { count: 200 }`, `removeOnFail: { age: 7d, count: 200 }`, `keepLogs: 50` |
+| `deps-notify` | `dispatch-dependency-notification` | `{ ruleId, projectId, kind: "digest", scanId, updateIds }` or `{ …, kind: "pull_request", prId, event: "opened" \| "updated" \| "edited" \| "access_lost", dedupKey }` | `jobId`: `deps-notify-{ruleId}-{scanId \| prId-dedupKey}` (non-`[A-Za-z0-9_-]` replaced with `-`) | 5 | 3 attempts, exp. 5 s; retained 7 d (`count: 5000`) for `jobId` dedup |
 
-Producers for `DEPS_QUEUE_NAMES`: `apps/web` (add project, "Check now", re-checks, "Create PR"), `POST /api/github-app/webhook` (`trigger: "webhook"`), and `apps/deps-worker` (scheduler, auto PRs, outbox notification dispatcher).
+Producers for `DEPS_QUEUE_NAMES`: `apps/web` (add project, "Check now", re-checks, "Create PR"), `POST /api/github-app/webhook` (`trigger: "webhook"`), and `apps/deps-worker` (scheduler, auto PRs, digest outbox notification dispatcher, and direct PR event notifications from `deps-scan` / `deps-update`).
 
 ## Sandbox HTTP Contract
 
 Defined in `@repopulse/deps/sandbox-contract` (`packages/deps/src/sandbox-contract.ts`, Zod schemas validated by both `deps-worker` and `deps-sandbox`):
 
-- **`GET /health`** (no auth) → `200` `{ status: "ok", tools: { npm, pnpm, bun, uv, poetry } }`.
+- **`GET` / `HEAD /health`** (no auth; other methods → `405`) → `200` `{ status: "ok", tools: { npm, pnpm, bun, uv, poetry } }`.
 - **`POST /v1/lock`**:
   - Header: `Authorization: Bearer <DEPS_SANDBOX_TOKEN>` (constant-time SHA-256 check).
   - Body (≤ 30 MiB): `{ packageManager: "NPM" | "PNPM" | "BUN" | "UV" | "POETRY", workdir, files: { path, contentBase64 }[] (≤ 2,000), upgrade: { name, version }[], lockfileOnly, expectLockfile }`.
   - Response (always matches `lockResponseSchema`): `{ ok: true, lockfile }` or `{ ok: false, code, stderrTail }`.
-  - Protocol HTTP statuses: `400 BAD_REQUEST`, `401 UNAUTHORIZED`, `413 TOO_LARGE`, `503 BUSY` (single active job at a time; includes `Retry-After: 10`), `500 INTERNAL`.
-  - Job outcome HTTP status `200`: `ok: true`, or `ok: false` with `UNSUPPORTED_REGISTRY`, `UNSUPPORTED_TOOL_VERSION`, `TIMEOUT`, `COMMAND_FAILED`, `LOCKFILE_MISSING`, or oversized lockfile.
+  - Protocol HTTP statuses: `400 BAD_REQUEST`, `401 UNAUTHORIZED`, `404` / `405 BAD_REQUEST` (unknown path / non-`POST` method), `413 TOO_LARGE`, `503 BUSY` (single active job at a time; includes `Retry-After: 10`), `500 INTERNAL`.
+  - Job outcome HTTP status `200`: `ok: true`, or `ok: false` with `UNSUPPORTED_REGISTRY`, `UNSUPPORTED_TOOL_VERSION`, `TIMEOUT`, `COMMAND_FAILED`, `LOCKFILE_MISSING`, or oversized lockfile (`TOO_LARGE`).
 
 ## GitHub App Webhook Contract
 
 Endpoint: `POST /api/github-app/webhook` (`apps/web/src/app/api/github-app/webhook/route.ts`). Public route authenticated solely by `X-Hub-Signature-256` (HMAC-SHA256, constant time). Performs **no database writes**; only enqueues `deps-scan` (`trigger: "webhook"`).
 
 Check order:
-`413` (body > 5 MiB) → `404` (no GitHub App configured) → `503` (missing or unreadable webhook secret) → `401` (invalid `X-Hub-Signature-256`) → `204` (module disabled or event other than `push` / `pull_request`) → `400` (invalid JSON) → `202 { queued }`.
+`413` (body > 5 MiB) → `404` (no GitHub App configured) → `503` (missing or unreadable webhook secret) → `401` (invalid `X-Hub-Signature-256`) → `204` (module disabled or event other than `push` / `pull_request`) → `400` (invalid JSON object) → `204` (no matching projects / ignored push or PR action) → `202 { queued }`. Redis unavailability (`RealtimeUnavailableError`) or other DB/infrastructure errors return `503`.
 
 - `push` to a branch matching a project's stored `defaultBranch`: queues every project (any user) whose dependency files changed (any manifest/lockfile name or explicit `manifestPaths`), or all matching-branch projects if the commit file list is missing, empty, or truncated at GitHub's 2,048 cap.
 - `pull_request` `closed` on a `repopulse/deps/*` head branch: queues the PR owner's project.
 
 ## Custom Notification Webhook Payloads
 
-Delivered via `postWebhook` (`packages/notifications`) with `X-RepoPulse-Event` set to the event name, two-layer SSRF validation, 10 s timeout, no redirects, and `agent: false`:
+Delivered via `postWebhook` (`packages/notifications`) with `X-RepoPulse-Event` set to the event name (or `"test"` on test deliveries where `test: true`), two-layer SSRF validation, 10 s timeout, no redirects, and `agent: false`:
 
 | `X-RepoPulse-Event` | JSON shape | Trigger |
 | --- | --- | --- |
-| `release.published` | `{ event: "release.published", test, repository, release, links }` | `dispatchNotification()` |
-| `dependencies.outdated` | `{ event: "dependencies.outdated", test, repository, updates, totalUpdates, pullRequest: null, links }` | `dispatchDependencyNotification()` (`kind: "digest"`) |
-| `dependencies.pull_request` | `{ event: "dependencies.pull_request", test, repository, updates, totalUpdates, pullRequest: { event, number, url, title }, links }` | `dispatchDependencyNotification()` (`kind: "pull_request"`) |
+| `release.published` | `{ event: "release.published", test, repository, release, rule: { id, tag }, links }` | `dispatchNotification()` |
+| `dependencies.outdated` | `{ event: "dependencies.outdated", test, repository, updates, totalUpdates, pullRequest: null, rule: { id }, links }` | `dispatchDependencyNotification()` (`kind: "digest"`) |
+| `dependencies.pull_request` | `{ event: "dependencies.pull_request", test, repository, updates, totalUpdates, pullRequest: { event, number, url, title }, rule: { id }, links }` | `dispatchDependencyNotification()` (`kind: "pull_request"`) |
 
 ## Redis Key Schema
 
 | Key | Written by | TTL / Lifecycle |
 | --- | --- | --- |
 | `user:{userId}:events` | `worker`, `deps-worker`, `web` (Pub/Sub) | Transient Pub/Sub channel |
+| `repo:path-etag:{repositoryId}:{sha1(path)}` | `worker` (`repo-paths`, per-watched-path commit list `ETag`) | 7 days |
 | `deps:worker:heartbeat` | `deps-worker` every 30 s (`{ at, sandbox: health \| null }`) | 90 s |
 | `deps:reg:<npm\|npm-time\|pypi\|pypi-meta>:<name>` | `deps-worker` (registry body + `ETag`) | 7 days (fresh 1 h, then conditional `If-None-Match`) |
+| `deps:tree:{githubRepoId}:{commitSha}` | `deps-worker` (Git tree snapshot `{ entries, truncated }`, ≤ 2 MiB) | 24 hours |
 | `deps:blob:<sha>`, `deps:lockread:<key>` | `deps-worker` (blob text & parsed lockfile reads; may hold private manifests) | 7 days |

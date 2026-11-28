@@ -43,7 +43,7 @@ Enums: `PollStatus`, `SemverType` (`MAJOR`, `MINOR`, `PATCH`, `PRERELEASE`, `OTH
 - **Visibility (`visibleReleasesWhere`, `apps/web/src/server/queries/feed.ts`):** `isDraft = false`, user subscribes to the repository, not a pre-release (unless `includePrereleases`), and source matches subscription mode (`RELEASE` in `RELEASES`/`TAGS_AND_COMMITS`, `TAG` in `TAGS_AND_COMMITS`, `COMMIT` with `trackPaths` **and** a `UserReleaseState` row for that user).
 - **Unread:** rows are created only for genuinely new releases. On add, initial 10 releases are unread. On poll, only items published after the newest stored release (`selectFreshReleases`). Backfill and extra releases of a first poll stay read.
 - **Tag promotion:** when a GitHub Release appears for a tag already stored as `source = TAG`, the row is updated in place (one entry). `TAGS_AND_COMMITS` subscribers keep their read state and receive no second notification.
-- **Commit states follow watched paths (`apps/web/src/server/commit-states.ts`):** adding a repo with `trackPaths`, turning it on, or changing paths drops states of commits that no longer match and seeds matching stored commits (newest 10 unread, older read) via `commitMatchesPath`.
+- **Commit states follow watched paths (`apps/web/src/server/commit-states.ts`):** adding a repo with `trackPaths`, turning it on, or changing paths drops states of commits that no longer match and seeds matching stored commits (newest 10 unread, older read) via `syncCommitStates` (`planCommitStates` / `commitMatchesAnyPath`).
 - **Per-subscription notification settings (`apps/worker/src/processors/fan-out.ts` → `mayNotify`):** while `snoozedUntil > now`, or when release is below `notificationLevel` (`MINOR_AND_UP` skips `PATCH`/`PRERELEASE`/`OTHER` and pre-releases; `MAJOR_ONLY` keeps `MAJOR`; `NONE` skips all; commits are `OTHER`), no notification job is queued. Unread states and SSE are unaffected, and snooze is not retroactive.
 - **Pre-releases toggled after adding (`updateSubscriptionSettingsAction`):** on → stored pre-releases among the 10 newest visible items get unread states; off → user's unread states on pre-releases of that repository are deleted.
 - **Read cursor:** feed pages by keyset `(publishedAt, id)` (`encodeFeedCursor` / `afterCursorWhere`).
@@ -74,22 +74,23 @@ import { prisma, encryptToken, decryptToken, loadSmtpSettings, INSTANCE_SETTINGS
 import { loadDepsEnabled, loadGitHubAppSettings } from "@repopulse/db";
 ```
 
-- `prisma` (aliased `db`) is a singleton cached unconditionally on `globalThis` using `@prisma/adapter-pg` (`max` from `DATABASE_POOL_MAX` default `10`, `idleTimeoutMillis: 30_000`, `connectionTimeoutMillis: 10_000`, `query_timeout: 35_000`, `application_name` from `DATABASE_APP_NAME`/`PGAPPNAME`, and `statementNameGenerator` intentionally omitted for PgBouncer compatibility and custom plans matching partial indexes). Never instantiate extra clients. All `DateTime` columns use `TIMESTAMPTZ(3)`.
+- `prisma` is a singleton cached unconditionally on `globalThis` using `@prisma/adapter-pg` (`max` via `parsePoolMax()` from `DATABASE_POOL_MAX` in `[1, 100]` default `10`, `idleTimeoutMillis: 30_000`, `connectionTimeoutMillis: 10_000`, `query_timeout: 35_000`, `application_name` from `DATABASE_APP_NAME`/`PGAPPNAME`, and `statementNameGenerator` intentionally omitted for PgBouncer compatibility and custom plans matching partial indexes). Never instantiate extra clients. All `DateTime` columns use `TIMESTAMPTZ(3)`.
 - `GLOBAL_OMIT` excludes `User.githubAccessTokenEncrypted`, `InstanceSettings.smtpPasswordEncrypted`, `githubAppPrivateKeyEncrypted`, and `githubAppWebhookSecretEncrypted` by default; server-side readers must opt in explicitly via `select` or `omit: { ...: false }`.
 - `packages/db/prisma.config.ts` loads root `.env` outside production.
 - Client components in `apps/web` **MUST NOT** import `@repopulse/db`; use local string unions instead, and convert `BigInt` `githubRepoId` values to `Number` at DTO boundaries.
 
 | Export | What |
 | --- | --- |
-| `prisma` / `db` | Singleton `PrismaClient` with `PrismaPg` adapter and `GLOBAL_OMIT` |
+| `prisma` | Singleton `PrismaClient` with `PrismaPg` adapter and `GLOBAL_OMIT` |
+| `parsePoolMax(raw?)` | Parses `DATABASE_POOL_MAX` as an integer in `[1, 100]`, falling back to `10` |
 | `* from generated/prisma/client` | Model types (`User`, `Release`, …), enums, `Prisma` namespace |
 | `encryptToken(plain)` / `decryptToken(cipher)` | AES-256-GCM with `TOKEN_ENCRYPTION_KEY` (64 hex chars, format `ivHex:tagHex:cipherHex`, zeroizes derived key) |
 | `INSTANCE_SETTINGS_ID` | `1`, id of the single `InstanceSettings` row |
-| `loadBackfillOverrides(client)`, `BACKFILL_SETTINGS_SELECT`, `NO_BACKFILL_OVERRIDES` | Admin overrides of release history settings (`null` = keep env/default) |
-| `loadSmtpSettings(client)`, `SMTP_SETTINGS_SELECT`, `SmtpPasswordUnreadableError` | Reads & decrypts SMTP config (`null` if unconfigured; throws on unreadable password) |
+| `loadBackfillOverrides(client)`, `BACKFILL_SETTINGS_SELECT`, `NO_BACKFILL_OVERRIDES`, `BackfillSettingsOverrides` | Admin overrides of release history settings (`null` = keep env/default) |
+| `loadSmtpSettings(client)`, `SMTP_SETTINGS_SELECT`, `DecryptedSmtpSettings`, `SmtpPasswordUnreadableError` | Reads & decrypts SMTP columns (`null` if the `InstanceSettings` row does not exist yet; pass to `toSmtpConfig` to check whether `smtpHost` is configured; throws on unreadable password) |
 | `loadGitHubAppSettings(client)`, `GITHUB_APP_SETTINGS_SELECT`, `DecryptedGitHubAppSettings`, `GitHubAppKeyUnreadableError` | Reads & decrypts GitHub App config (`null` unless id, slug, and key are all set) |
 | `loadGitHubAppWebhookSettings(client)`, `GITHUB_APP_WEBHOOK_SETTINGS_SELECT`, `GitHubAppWebhookSettings` | Single-query webhook loader for `depsEnabled` + decrypted webhook secret |
 | `loadAdminSettingsSnapshot(client)`, `ADMIN_OVERVIEW_SETTINGS_SELECT`, `AdminSettingsSnapshot` | Single-query safe snapshot of all settings for `/admin` |
 | `loadDepsEnabled(client)` | Admin → Dependencies switch (`false` without a row) |
-| `createCachedLoader(load, ttlMs?)`, `DEFAULT_SETTINGS_CACHE_TTL_MS` | In-memory TTL + single-flight cache wrapper (default 15 s) for worker settings reads |
+| `createCachedLoader(load, options?)`, `CachedLoaderOptions`, `DEFAULT_SETTINGS_CACHE_TTL_MS` | In-memory TTL + single-flight cache wrapper (`options`: `{ ttlMs?, now? }`, default 15 s, exposes `.invalidate()`) for worker settings reads |
 | `packages/db/dist/bootstrap-app-role.js` | CLI entrypoint run by `migrator` to provision the least-privilege `repopulse_app` role, role-level timeouts, and `pg_stat_statements` |
