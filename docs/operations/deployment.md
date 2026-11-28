@@ -8,7 +8,7 @@
 
 | Service | Image / build | Purpose | Health |
 | --- | --- | --- | --- |
-| `postgres` | `deploy/postgres/Dockerfile` (`postgres:19-alpine3.24` with PG 16 and 18 binaries bundled for in-place upgrade), volume `postgres_data:/var/lib/postgresql`, `shm_size: 256m`, `stop_grace_period: 60s` | State (tuned for SSD/OLTP, `pg_stat_statements`, slow-query/lock logging) | `pg_isready` (`start_period: 60s`) |
+| `postgres` | `postgres:19-alpine3.24` with tuned `postgres -c …` flags, volume `postgres_data:/var/lib/postgresql`, `shm_size: 256m`, `stop_grace_period: 60s` | State (tuned for SSD/OLTP, `pg_stat_statements`, slow-query/lock logging) | `pg_isready` (`start_period: 30s`) |
 | `redis` | `redis:8-alpine`, `--appendonly yes --maxmemory-policy noeviction --requirepass`, volume `redis_data` | BullMQ + Pub/Sub. **`noeviction` is required by BullMQ** | `redis-cli ping` |
 | `migrator` | `apps/worker/Dockerfile` target `migrator` | `prisma migrate deploy` + `bootstrap-app-role.js`, exits 0 (`restart: "no"`) | — |
 | `web` | `apps/web/Dockerfile` (standalone Next output, `node apps/web/server.js`, user `nextjs`, `HOSTNAME="::"`) | UI and SSE on 3000. `stop_grace_period: 20s` | `wget localhost:3000/api/health` |
@@ -76,18 +76,13 @@ docker compose -f docker-compose.coolify.yml exec web wget -qO- http://localhost
 
 To open the UI from the host at `http://localhost:3000`, pass a local override file mapping `ports: ["127.0.0.1:3000:3000"]` on `web`.
 
-## Upgrading PostgreSQL 16/18 → 19 and Redis 7 → 8
+## Baseline & Existing Databases
 
-- **Redis 7 → 8:** upgrades in-place automatically on deploy.
-- **PostgreSQL 16/18 → 19:** `deploy/postgres/Dockerfile` bundles PG 16, 18, and 19 binaries (`alpine3.24`). On first boot with an existing PG 16 or 18 `postgres_data` volume (`/var/lib/postgresql`), `docker-entrypoint-upgrade.sh` moves `/var/lib/postgresql/18/docker` (`18-pre-upgrade`) or legacy `/var/lib/postgresql/PG_VERSION` (`16-pre-upgrade`), runs crash recovery, matches superuser/encoding/locale/checksum settings, and runs `pg_upgrade` in copy mode into `/var/lib/postgresql/19/docker`, preserving `pg_hba.conf`. For PG 16 → 19 upgrades, it runs `vacuumdb --all --analyze-in-stages` immediately so planner statistics are populated before traffic resumes. Once verified, you may reclaim disk space with `rm -rf /var/lib/postgresql/16-pre-upgrade /var/lib/postgresql/18-pre-upgrade` inside the `postgres` container. Subsequent boots hand off directly to `docker-entrypoint.sh`.
+- **Current baseline:** Fresh installs initialize directly on PostgreSQL 19 (`postgres:19-alpine3.24`) and the squashed Prisma baseline migration `20261128000000_init`.
+- **Existing databases:** If an existing PostgreSQL 19 database already has the previous schema applied, mark the squashed baseline as applied once before running `prisma migrate deploy`: `cd packages/db && npx prisma migrate resolve --applied 20261128000000_init`.
 
 ## External PostgreSQL, Backups & Diagnostics
 
-- **External / managed PostgreSQL:** `pg_trgm` is required (`20261127143000_performance_indexes`). If `migrator` connects as a non-superuser role on PG 15+, grant `CREATE` on schema `public` (or pre-install `CREATE EXTENSION IF NOT EXISTS pg_trgm;`) before first deploy. If `POSTGRES_APP_PASSWORD` is set, `bootstrap-app-role.js` provisions `POSTGRES_APP_USER` and attempts `CREATE EXTENSION IF NOT EXISTS pg_stat_statements` (best-effort).
+- **External / managed PostgreSQL:** `pg_trgm` is required (`20261128000000_init`). If `migrator` connects as a non-superuser role on PG 15+, grant `CREATE` on schema `public` (or pre-install `CREATE EXTENSION IF NOT EXISTS pg_trgm;`) before first deploy. If `POSTGRES_APP_PASSWORD` is set, `bootstrap-app-role.js` provisions `POSTGRES_APP_USER` and attempts `CREATE EXTENSION IF NOT EXISTS pg_stat_statements` (best-effort).
 - **Backups:** Take logical backups with `pg_dump --format=custom --no-owner --no-acl -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f repopulse.dump` and test restores regularly with `pg_restore` into a scratch database.
-- **Diagnostics:** `deploy/postgres/Dockerfile` preloads `pg_stat_statements` and logs slow queries (`>= 500 ms`), lock waits, and temp files. Query top total-time statements via `SELECT query, calls, total_exec_time, mean_exec_time FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 20;`.
-
-## Upgrading from Legacy Releases
-
-- **From pre-Dependencies (< 0.9.0):** deploy runs `20261103090000_dependency_projects` + `20261103100000_github_app` migrations and starts `deps-worker`/`deps-sandbox`/`deps-egress`. Verify `deps_sandbox` internal network check; module stays off until enabled in Admin → Dependencies; existing notification rules retain `[RELEASES]`.
-- **From env-based SMTP (< 0.5.0):** deploy runs `isAdmin` → `isSuperAdmin` and SMTP migrations; re-enter SMTP settings in **Admin → Email**, remove old `SMTP_*` env vars, and use `SERVICE_URL_WEB` instead of `SERVICE_FQDN_WEB`.
+- **Diagnostics:** The `postgres` service command in `docker-compose.coolify.yml` preloads `pg_stat_statements` and logs slow queries (`>= 500 ms`), lock waits, and temp files. Query top total-time statements via `SELECT query, calls, total_exec_time, mean_exec_time FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 20;`.

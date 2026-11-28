@@ -133,7 +133,9 @@ async function queueRecheck(projectId: string, userId: string, caller: string): 
   } catch (error) {
     after(() => {
       console.warn(
-        `[${caller}] could not queue a re-check of ${projectId}`,
+        "[%s] could not queue a re-check of %s",
+        caller,
+        projectId,
         error instanceof Error ? error.message : error,
       );
     });
@@ -350,7 +352,9 @@ async function fetchRepository(ref: RepoRefInput, userToken: string | undefined)
     if (!isGitHubHttpError(error) || (error.status !== 404 && error.status !== 403)) {
       after(() => {
         console.warn(
-          `[addDependencyProjectsAction] could not read ${ref.owner}/${ref.name}`,
+          "[addDependencyProjectsAction] could not read %s/%s",
+          ref.owner,
+          ref.name,
           error instanceof Error ? error.message : error,
         );
       });
@@ -376,7 +380,9 @@ async function fetchRepository(ref: RepoRefInput, userToken: string | undefined)
     if (rateLimited) throw rateLimited;
     after(() => {
       console.warn(
-        `[addDependencyProjectsAction] App read of ${ref.owner}/${ref.name} failed`,
+        "[addDependencyProjectsAction] App read of %s/%s failed",
+        ref.owner,
+        ref.name,
         error instanceof Error ? error.message : error,
       );
     });
@@ -550,7 +556,8 @@ export async function addDependencyProjectsAction(
           scansQueued = false;
           after(() => {
             console.warn(
-              `[addDependencyProjectsAction] could not queue the first scan of ${project.projectId}`,
+              "[addDependencyProjectsAction] could not queue the first scan of %s",
+              project.projectId,
               error instanceof Error ? error.message : error,
             );
           });

@@ -1,6 +1,6 @@
 {
   "name": "@repopulse/web",
-  "version": "0.9.8.10",
+  "version": "0.9.8.11",
   "private": true,
   "type": "module",
   "scripts": {

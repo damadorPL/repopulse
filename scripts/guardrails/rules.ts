@@ -14,6 +14,7 @@ const IGNORE_DIRECTIVE_RE = /guardrail-ignore:\s*([a-z0-9-]+(?:\/[a-z0-9-]+)+)\s
 
 const DEPENDENCY_SECTIONS = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] as const;
 
+const MIGRATION_BASELINE_TIMESTAMP = "20261128000000";
 const MIGRATION_FOLDER_RE = /^\d{14}_[a-z0-9_]+$/;
 const MIGRATION_SQL_PATH_RE = /^packages\/db\/prisma\/migrations\/([^/]+)\/migration\.sql$/;
 const MIGRATION_ANY_PATH_RE = /^packages\/db\/prisma\/migrations\/([^/]+)\/.+$/;
@@ -434,10 +435,18 @@ export function parseGitNameStatus(output: string): StagedStatusEntry[] {
   return entries;
 }
 
+function isPreBaselineMigrationPath(filePath: string): boolean {
+  const match = filePath.match(MIGRATION_SQL_PATH_RE);
+  if (!match) return false;
+  const folder = match[1] ?? "";
+  if (!MIGRATION_FOLDER_RE.test(folder)) return false;
+  return folder.slice(0, 14) < MIGRATION_BASELINE_TIMESTAMP;
+}
+
 /**
  * Rule 5: `migrations/no-shipped-migration-edits`
  * Forbid modifying (`M`), deleting (`D`), or renaming (`R`) existing `migration.sql` files.
- * Newly added (`A`) migrations are permitted.
+ * Newly added (`A`) migrations and retiring pre-baseline (`< 20261128000000`) migrations are permitted.
  */
 export function evaluateStagedMigrationEntries(entries: readonly StagedStatusEntry[]): GuardrailViolation[] {
   const violations: GuardrailViolation[] = [];
@@ -447,6 +456,9 @@ export function evaluateStagedMigrationEntries(entries: readonly StagedStatusEnt
 
     if (entry.status === "M" || entry.status === "D") {
       if (MIGRATION_SQL_PATH_RE.test(entry.path)) {
+        if (entry.status === "D" && isPreBaselineMigrationPath(entry.path)) {
+          continue;
+        }
         const verb = entry.status === "M" ? "Modified" : "Deleted";
         violations.push({
           ruleId: "migrations/no-shipped-migration-edits",
@@ -461,6 +473,15 @@ export function evaluateStagedMigrationEntries(entries: readonly StagedStatusEnt
     }
 
     if (entry.status === "R") {
+      const isBaselineSquashRename =
+        entry.previousPath !== undefined &&
+        isPreBaselineMigrationPath(entry.previousPath) &&
+        MIGRATION_SQL_PATH_RE.test(entry.path) &&
+        !isPreBaselineMigrationPath(entry.path);
+      if (isBaselineSquashRename) {
+        continue;
+      }
+
       const touchesShipped =
         (entry.previousPath !== undefined && MIGRATION_SQL_PATH_RE.test(entry.previousPath)) ||
         MIGRATION_SQL_PATH_RE.test(entry.path);

@@ -3,10 +3,13 @@
 All notable changes to RepoPulse are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Current architecture and conventions live in [`docs/`](./docs/README.md).
 
-## [Unreleased]
+## [0.9.8.11] — 2026-11-28 — PostgreSQL 19 baseline, static analysis & Docker builds
 
 ### Changed
 
+- **PostgreSQL baseline & Docker build cleanup (`deploy/postgres`, `docker-compose.*.yml`, `packages/db`)**:
+  - Removed `deploy/postgres/` (`Dockerfile` and `docker-entrypoint-upgrade.sh` bundling PG 16/18 binaries) and switched both `docker-compose.coolify.yml` and `docker-compose.dev.yml` to the official `postgres:19-alpine3.24` image with tuned `postgres -c ...` command flags.
+  - Squashed the 19 historical Prisma migrations into a single current-state baseline migration (`20261128000000_init`) and updated `scripts/guardrails/rules.ts` to allow retiring pre-baseline migrations while enforcing immutability from `20261128000000_init` onward. Existing databases already on the previous schema should mark the baseline applied once with `npx prisma migrate resolve --applied 20261128000000_init` (inside `packages/db`).
 - **Static-analysis, TypeScript 7, Knip, Oxlint, React Doctor & supply-chain modernization (`@repopulse/tsconfig`, `.oxlintrc.json`, `.oxfmtrc.json`, `knip.ts`, `doctor.config.json`, `pnpm-workspace.yaml`, `stylelint.config.mjs`, `scripts/`)**:
   - Enabled `exactOptionalPropertyTypes: true` in `packages/tsconfig/base.json`, extracted shared `@repopulse/tsconfig/node.json`, removed redundant declarations/no-op compiler flags, and remediated strict optional property usages across packages, apps, and scripts.
   - Unified Knip v6 into `knip` + `knip --strict` with typed `defineConfig`, `includeSubpathExports: true`, `treatTagHintsAsErrors: true`, `@internal` helper tags, and pruned unused exports and dead helpers across `packages/*`, `apps/worker`, `apps/deps-worker`, and `apps/web`.

@@ -10,11 +10,40 @@ x-redis-url: &redis-url redis://:${REDIS_PASSWORD}@redis:6379
 
 services:
   postgres:
-    # PostgreSQL 19 with PG 16 and 18 binaries bundled so existing PG 16/18 volumes upgrade automatically on first boot.
-    build:
-      context: ./deploy/postgres
-      dockerfile: Dockerfile
+    image: postgres:19-alpine3.24
     restart: unless-stopped
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.track=top
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=768MB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
+      - -c
+      - jit=off
+      - -c
+      - wal_compression=zstd
+      - -c
+      - idle_in_transaction_session_timeout=60s
+      - -c
+      - idle_session_timeout=10min
+      - -c
+      - log_min_duration_statement=500
+      - -c
+      - log_lock_waits=on
+      - -c
+      - log_temp_files=0
     shm_size: 256m
     stop_grace_period: 60s
     environment:
@@ -28,7 +57,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 60s
+      start_period: 30s
 
   redis:
     image: redis:8-alpine

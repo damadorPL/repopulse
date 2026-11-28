@@ -49,7 +49,7 @@ The email falls back to `<githubId>+<login>@users.noreply.github.com` when GitHu
 
 Bootstrap registration takes a PostgreSQL transaction advisory lock before checking whether the instance is empty and creating its first super admin. Concurrent initial callbacks recheck after the winning transaction commits and then follow ordinary registration/invite rules.
 
-- Exactly one in practice: the first account. Migration `20261101120000_invites_registration` made the oldest existing account admin, and `20261101150000_super_admin_smtp_settings` renamed `isAdmin` → `isSuperAdmin`.
+- Exactly one in practice: the first account (`User.isSuperAdmin`).
 - There is no UI to transfer the role. To change it, update the column directly:
   `UPDATE "User" SET "isSuperAdmin" = (id = '<newId>');`
 - Pages owned by the super admin: `/admin` (overview), `/admin/access`, `/admin/email`, `/admin/history`, `/admin/github-app`, and `/admin/dependencies`. Legacy `/settings/access` and `/settings/email` redirect there (`next.config.ts`).

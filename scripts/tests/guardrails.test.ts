@@ -207,12 +207,14 @@ describe("guardrail file rules", () => {
     }
   });
 
-  it("enforces migrations/no-shipped-migration-edits on staged M/D/R entries and allows A", () => {
+  it("enforces migrations/no-shipped-migration-edits on staged M/D/R entries and allows A and pre-baseline retirement", () => {
     const rawStatus = [
-      "A\tpackages/db/prisma/migrations/20261127180000_brand_new/migration.sql",
-      "M\tpackages/db/prisma/migrations/20261031000000_init/migration.sql",
+      "A\tpackages/db/prisma/migrations/20261129000000_brand_new/migration.sql",
+      "M\tpackages/db/prisma/migrations/20261128000000_init/migration.sql",
+      "D\tpackages/db/prisma/migrations/20261128120000_extra/migration.sql",
+      "R100\tpackages/db/prisma/migrations/20261128090000_tag_tracking/migration.sql\tpackages/db/prisma/migrations/20261128090000_tag_renamed/migration.sql",
       "D\tpackages/db/prisma/migrations/20261031120000_release_backfill/migration.sql",
-      "R100\tpackages/db/prisma/migrations/20261101090000_tag_tracking/migration.sql\tpackages/db/prisma/migrations/20261101090000_tag_renamed/migration.sql",
+      "R100\tpackages/db/prisma/migrations/20261031000000_init/migration.sql\tpackages/db/prisma/migrations/20261128000000_init/migration.sql",
       "M\tpackages/db/prisma/schema.prisma",
     ].join("\n");
 
@@ -221,13 +223,13 @@ describe("guardrail file rules", () => {
     expect(violations).toHaveLength(3);
     expect(violations.every((v) => v.ruleId === "migrations/no-shipped-migration-edits")).toBe(true);
     expect(violations.map((v) => v.filePath)).toEqual([
-      "packages/db/prisma/migrations/20261031000000_init/migration.sql",
-      "packages/db/prisma/migrations/20261031120000_release_backfill/migration.sql",
-      "packages/db/prisma/migrations/20261101090000_tag_tracking/migration.sql",
+      "packages/db/prisma/migrations/20261128000000_init/migration.sql",
+      "packages/db/prisma/migrations/20261128120000_extra/migration.sql",
+      "packages/db/prisma/migrations/20261128090000_tag_tracking/migration.sql",
     ]);
 
     const cleanEntries = parseGitNameStatus(
-      "A\tpackages/db/prisma/migrations/20261127180000_new_migration/migration.sql\nM\tapps/web/src/app/page.tsx\n",
+      "A\tpackages/db/prisma/migrations/20261129000000_new_migration/migration.sql\nM\tapps/web/src/app/page.tsx\n",
     );
     expect(evaluateStagedMigrationEntries(cleanEntries)).toEqual([]);
   });
@@ -289,7 +291,7 @@ describe("guardrail file rules", () => {
       git(["init", "-q"]);
       git(["config", "user.email", "test@repopulse.local"]);
       git(["config", "user.name", "Test"]);
-      const migDir = join(tempRoot, "packages/db/prisma/migrations/20261031000000_init");
+      const migDir = join(tempRoot, "packages/db/prisma/migrations/20261128000000_init");
       mkdirSync(migDir, { recursive: true });
       writeFileSync(join(migDir, "migration.sql"), "CREATE TABLE a (id int);\n", "utf8");
       git(["add", "."]);

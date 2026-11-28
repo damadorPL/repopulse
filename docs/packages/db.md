@@ -7,7 +7,7 @@
 ## Rules
 
 - **MUST** add a new migration folder for every schema change: `packages/db/prisma/migrations/<YYYYMMDDHHMMSS>_<snake_name>/migration.sql`.
-- **MUST NOT** edit or delete a migration that has already shipped: `20261031000000_init`, `20261031120000_release_backfill`, `20261101090000_tag_tracking`, `20261101120000_invites_registration`, `20261101150000_super_admin_smtp_settings`, `20261101180000_path_tracking`, `20261101210000_combined_tracking`, `20261101230000_backfill_settings`, `20261102120000_subscription_settings`, `20261103090000_dependency_projects`, `20261103100000_github_app`, `20261103130000_dependency_branch_write_intents`, `20261103131000_dependency_notification_outbox`, `20261127090000_audit_indexes`, `20261127100000_better_auth`, `20261127143000_performance_indexes`, `20261127153000_feed_covering_indexes`, `20261127160000_audit_query_indexes`, `20261127170000_postgresql_best_practices`.
+- **MUST NOT** edit or delete a migration that has already shipped (starting from baseline `20261128000000_init`).
 - **MUST** keep migration SQL and `schema.prisma` aligned and review `prisma migrate diff` carefully: partial, covering (`INCLUDE`), GIN (`searchVector`), extended statistics (`Release_visibility_stats`), `fillfactor`/autovacuum parameters, and domain `CHECK` constraints are raw-SQL-managed (`packages/db/src/migrations.test.ts` guards against accidental drops).
 - **MUST** use renames (`ALTER TABLE … RENAME COLUMN`) instead of drop + add when renaming columns so data is preserved.
 - **MUST** use `INSTANCE_SETTINGS_ID` (`1`) rather than a literal when touching `InstanceSettings`, and always `upsert` (missing row = defaults).
