@@ -11,25 +11,28 @@
 
 # ---- Build stages: same shape as apps/worker/Dockerfile ----------------------------------------------------------
 FROM node:26-trixie-slim AS base
-RUN npm install -g pnpm@12.23.0 turbo@2.11.13
+RUN npm install -g --no-audit --no-fund pnpm@12.23.0 turbo@2.11.13
 WORKDIR /app
 
 # Stage 1: prune the monorepo down to @repopulse/deps-sandbox and its workspace deps
 FROM base AS pruner
 COPY . .
-RUN npx turbo prune @repopulse/deps-sandbox --docker
+RUN turbo prune @repopulse/deps-sandbox --docker
 
 # Stage 2: install deps (cached on lockfile/package.json) and build
 FROM base AS installer
 COPY --from=pruner /app/out/json/ .
 COPY --from=pruner /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
-RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile
+# `--filter @repopulse/deps-sandbox...` skips root devDependencies (oxlint, vitest, react-doctor, etc.).
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile --filter @repopulse/deps-sandbox...
 COPY --from=pruner /app/out/full/ .
-RUN pnpm turbo run build --filter=@repopulse/deps-sandbox
+RUN --mount=type=cache,id=turbo-debian,target=/app/.turbo/cache \
+    turbo run build --filter=@repopulse/deps-sandbox
 
 # Stage 3: drop devDependencies (typescript, tsx, vitest, ...) and unused TypeScript sources in place
 FROM installer AS prod-deps
-RUN CI=true pnpm prune --prod \
+RUN CI=true pnpm prune --prod --ignore-scripts --filter @repopulse/deps-sandbox... \
  && rm -rf node_modules/.cache .turbo apps/*/.turbo packages/*/.turbo apps/*/src packages/*/src \
  && find apps packages -not -path '*/node_modules/*' -name '*.test.ts' -delete
 

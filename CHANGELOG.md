@@ -5,6 +5,10 @@ Current architecture and conventions live in [`docs/`](./docs/README.md).
 
 ## [Unreleased]
 
+### Changed
+
+- **Faster Coolify / Docker production builds (`.dockerignore`, `turbo.json`, `apps/web/next.config.ts`, `apps/*/Dockerfile`)**: Excluded test files, Vitest configs, and lint/agent configs from the Docker build context; filtered `pnpm install` and `pnpm prune` per app (`--filter @repopulse/<app>...`) so root devDependencies (`oxlint`, `vitest`, `react-doctor`, `stylelint`, `knip`, etc.) are never installed in container builds; mounted a shared BuildKit Turborepo cache (`/app/.turbo/cache`) across Alpine services to reuse `prisma generate` and `@repopulse/*` builds; and added `SKIP_TYPECHECK=1` in `apps/web/Dockerfile` so production `next build` skips redundant TypeScript checking (still enforced in `pnpm verify` and CI).
+
 ## [0.9.8.10] — 2026-11-28 — Notification rule editing, My version UX, toast feedback & React Doctor gate
 
 ### Added

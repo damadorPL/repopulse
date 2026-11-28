@@ -3,26 +3,32 @@
 #   docker build -f apps/web/Dockerfile -t repopulse-web .
 FROM node:26-alpine AS base
 RUN apk add --no-cache libc6-compat openssl
-RUN npm install -g pnpm@12.23.0 turbo@2.11.13
+RUN npm install -g --no-audit --no-fund pnpm@12.23.0 turbo@2.11.13
 WORKDIR /app
 
 # ---- Stage 1: prune the monorepo down to @repopulse/web and its workspace deps
 FROM base AS pruner
 COPY . .
-RUN npx turbo prune @repopulse/web --docker
+RUN turbo prune @repopulse/web --docker
 
 # ---- Stage 2: install deps (cached on lockfile/package.json) and build
 FROM base AS installer
-ENV NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    SKIP_TYPECHECK=1
 COPY --from=pruner /app/out/json/ .
 COPY --from=pruner /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
 # turbo prune preserves the `allowBuilds` block in out/json/pnpm-workspace.yaml,
 # so Prisma's install scripts run (pnpm blocks build scripts otherwise).
-RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile
+# `--filter @repopulse/web...` skips root devDependencies (oxlint, vitest, react-doctor, etc.).
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile --filter @repopulse/web...
 COPY --from=pruner /app/out/full/ .
 # `build` depends on `^db:generate`, so `prisma generate` runs here on Alpine and
 # writes the Prisma 7 client into packages/db/src/generated, compiled into db/dist.
-RUN --mount=type=cache,id=nextjs,target=/app/apps/web/.next/cache pnpm turbo run build --filter=@repopulse/web
+# Sharing `id=turbo-alpine` across web/worker/deps-worker reuses compiled @repopulse/* packages.
+RUN --mount=type=cache,id=turbo-alpine,target=/app/.turbo/cache \
+    --mount=type=cache,id=nextjs,target=/app/apps/web/.next/cache \
+    turbo run build --filter=@repopulse/web
 
 # ---- Stage 3: minimal runtime image (default target)
 FROM node:26-alpine AS runner

@@ -23,6 +23,11 @@ const nextConfig: NextConfig = {
   output: "standalone",
   reactCompiler: true,
   typedRoutes: true,
+  // Production Docker/Coolify builds set SKIP_TYPECHECK=1 to avoid repeating `tsc`
+  // (already enforced by `pnpm verify` and CI). Local and CI builds still typecheck.
+  typescript: {
+    ignoreBuildErrors: process.env.SKIP_TYPECHECK === "1",
+  },
   // Trace from the monorepo root so pnpm-symlinked workspace packages
   // (e.g. @repopulse/db) and their deps are copied into .next/standalone.
   outputFileTracingRoot: monorepoRoot,

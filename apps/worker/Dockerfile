@@ -4,13 +4,13 @@
 #   docker build -f apps/worker/Dockerfile -t repopulse-worker .        # runner (default)
 FROM node:26-alpine AS base
 RUN apk add --no-cache libc6-compat openssl
-RUN npm install -g pnpm@12.23.0 turbo@2.11.13
+RUN npm install -g --no-audit --no-fund pnpm@12.23.0 turbo@2.11.13
 WORKDIR /app
 
 # ---- Stage 1: prune the monorepo down to @repopulse/worker and its workspace deps
 FROM base AS pruner
 COPY . .
-RUN npx turbo prune @repopulse/worker --docker
+RUN turbo prune @repopulse/worker --docker
 
 # ---- Stage 2: install deps (cached on lockfile/package.json) and build
 FROM base AS installer
@@ -19,17 +19,21 @@ COPY --from=pruner /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
 # turbo prune preserves the `allowBuilds` block in out/json/pnpm-workspace.yaml,
 # so Prisma's install scripts run (pnpm blocks build scripts otherwise) and the
 # linux-musl schema engine used by `prisma migrate deploy` is downloaded.
-RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile
+# `--filter @repopulse/worker...` skips root devDependencies (oxlint, vitest, react-doctor, etc.).
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile --filter @repopulse/worker...
 COPY --from=pruner /app/out/full/ .
 # `build` depends on `^db:generate`, so `prisma generate` runs here on Alpine and
 # writes the Prisma 7 client (Rust-free, wasm query compiler) into packages/db/src/generated.
-RUN pnpm turbo run build --filter=@repopulse/worker
+# Sharing `id=turbo-alpine` across web/worker/deps-worker reuses compiled @repopulse/* packages.
+RUN --mount=type=cache,id=turbo-alpine,target=/app/.turbo/cache \
+    turbo run build --filter=@repopulse/worker
 
 # ---- Stage 3: drop devDependencies (typescript, tsx, vitest, ...) and unused TypeScript sources in place.
 # The `prisma` CLI is a runtime dependency of @repopulse/db, so migrations still
 # work, and the generated client (compiled into packages/db/dist) is untouched.
 FROM installer AS prod-deps
-RUN CI=true pnpm prune --prod \
+RUN CI=true pnpm prune --prod --ignore-scripts --filter @repopulse/worker... \
  && rm -rf node_modules/.cache .turbo apps/*/.turbo packages/*/.turbo apps/*/src packages/*/src \
  && find apps packages -not -path '*/node_modules/*' -name '*.test.ts' -delete
 

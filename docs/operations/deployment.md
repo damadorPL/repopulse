@@ -45,9 +45,9 @@ Startup order: `postgres` healthy → `migrator` completed successfully; once `p
 
 ## Docker Images (How They Build)
 
-1. `pruner`: `turbo prune @repopulse/<app> --docker` in each app `Dockerfile`.
-2. `installer`: `pnpm install --frozen-lockfile` (`allowBuilds` in `pnpm-workspace.yaml` allows Prisma install scripts) with BuildKit cache mounts, then `pnpm turbo run build --filter=@repopulse/<app>` (runs `^db:generate`).
-3. `runner`: minimal runtime. `web` copies `.next/standalone` and `.next/static` (`outputFileTracingRoot` at monorepo root); `worker`, `deps-worker`, and `deps-sandbox` prune devDependencies and strip `src/` and `*.test.ts`. `deps-sandbox` installs pinned tools (SHA-256 verified `uv`, per-platform npm packages for `pnpm`/`Bun` without install scripts), strips Corepack/Yarn, and runs as `sandbox` under `tini`.
+1. `pruner`: `turbo prune @repopulse/<app> --docker` in each app `Dockerfile`. `.dockerignore` excludes tests, test helpers, docs, and lint/tool configs so non-runtime edits do not invalidate build layers.
+2. `installer`: `pnpm install --frozen-lockfile --filter @repopulse/<app>...` (skipping root devDependencies like linters and test runners, while `allowBuilds` in `pnpm-workspace.yaml` allows Prisma install scripts) with BuildKit cache mounts for the pnpm store and Turborepo cache (`/app/.turbo/cache`, shared across Alpine services so `^db:generate` and `@repopulse/*` builds are reused), then `turbo run build --filter=@repopulse/<app>`. `apps/web/Dockerfile` sets `SKIP_TYPECHECK=1` so `next build` skips redundant `tsc` (already enforced by `pnpm verify` and CI).
+3. `runner`: minimal runtime. `web` copies `.next/standalone` and `.next/static` (`outputFileTracingRoot` at monorepo root); `worker`, `deps-worker`, and `deps-sandbox` prune devDependencies (`pnpm prune --prod --ignore-scripts --filter ...`) and strip `src/` and `*.test.ts`. `deps-sandbox` installs pinned tools (SHA-256 verified `uv`, per-platform npm packages for `pnpm`/`Bun` without install scripts), strips Corepack/Yarn, and runs as `sandbox` under `tini`.
 
 ## Dependencies services: network and hardening
 
