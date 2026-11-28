@@ -60,7 +60,13 @@ export default async function NotificationSettingsPage() {
         ) : (
           <ul className="divide-y overflow-hidden rounded-lg border bg-card">
             {rules.map((rule) => (
-              <NotificationRuleItem key={rule.id} rule={rule} />
+              <NotificationRuleItem
+                key={rule.id}
+                rule={rule}
+                tags={tags}
+                smtpConfigured={smtpConfigured}
+                canConfigureSmtp={user.isSuperAdmin}
+              />
             ))}
           </ul>
         )}

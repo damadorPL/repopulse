@@ -106,7 +106,7 @@ export function RepoListToolbar({
                 handleQueryChange("");
               }
             }}
-            placeholder="Search repositories, notes, tags or paths"
+            placeholder="Search repositories, notes, versions, tags or paths"
             aria-label="Search tracked repositories"
             maxLength={200}
             className="pr-14 pl-8 [&::-webkit-search-cancel-button]:hidden"

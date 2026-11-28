@@ -241,6 +241,7 @@ export function AddRepoModal({
       if (!result.ok) {
         if (result.error.code === "UNAUTHORIZED") router.push("/login");
         setError(result.error.message);
+        toast.error(result.error.message);
         return;
       }
       const { fullName, repositoryId } = result.data;

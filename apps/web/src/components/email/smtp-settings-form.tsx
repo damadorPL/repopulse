@@ -256,6 +256,7 @@ export function SmtpSettingsForm({ settings, adminEmail }: { settings: SmtpSetti
   function handleError(code: string, message: string) {
     if (code === "UNAUTHORIZED") router.push("/login");
     setError(message);
+    toast.error(message);
   }
 
   function submit(event: SubmitEvent<HTMLFormElement>) {

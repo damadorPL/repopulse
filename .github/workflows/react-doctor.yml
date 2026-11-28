@@ -32,5 +32,5 @@ jobs:
 
       - uses: millionco/react-doctor@v2
         with:
-          blocking: error
+          blocking: warning
           version: "0.9.23"

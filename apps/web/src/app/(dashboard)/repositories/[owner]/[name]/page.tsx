@@ -215,8 +215,10 @@ function RepositoryHeader({
             <div className="flex items-center gap-1">
               <dt>Your version</dt>
               <dd>
-                <code className="font-mono text-foreground">{settings.currentVersion}</code>
-                {settings.versionStatus ? ` · ${formatVersionStatus(settings.versionStatus)}` : null}
+                <a href="#notifications" className="hover:underline" title="Edit or remove your version">
+                  <code className="font-mono text-foreground">{settings.currentVersion}</code>
+                  {settings.versionStatus ? ` · ${formatVersionStatus(settings.versionStatus)}` : null}
+                </a>
               </dd>
             </div>
           ) : null}

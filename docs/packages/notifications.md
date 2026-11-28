@@ -45,7 +45,7 @@
 
 1. **Release Fan-out (`planFanOut` in `apps/worker`):** for every subscriber receiving a release as unread, each enabled rule where `ruleMatches()` holds (`events` includes `RELEASES`, channel is deliverable, untagged or tag matches subscription, and `MAJOR` if `onlyMajorReleases`) queues `notify-{ruleId}-{releaseId}`.
 2. **Release Job (`processNotification`):** re-checks rule (`EVENT_DISABLED` if `RELEASES` was removed), release, subscription, tag, snooze, and notification level. Permanent failures become `UnrecoverableError`.
-3. **Rule Events:** `NotificationRule.events` defaults to `[RELEASES]`. Existing rules can be edited via `updateNotificationRuleEventsAction` (re-checks tag scope: tag-scoped rules reject dependency events with `TAG_SCOPED_EVENTS_MESSAGE`).
+3. **Rule Events:** `NotificationRule.events` defaults to `[RELEASES]`. Existing rules can be edited via `updateNotificationRuleAction` (re-checks tag scope: tag-scoped rules reject dependency events with `TAG_SCOPED_EVENTS_MESSAGE`).
 4. **Dependency Digests (`DEPENDENCY_UPDATES`):** `OUTDATED` rows with `notifiedAt = null` at or above `project.notificationLevel` (`passesDependencyNotificationLevel`) queue `deps-notify` via durable `DependencyNotificationOutbox` intents (max `DIGEST_MAX_ITEMS` = 25 items per digest, highest level first + "… and N more", link to `<APP_BASE_URL>/dependencies/<owner>/<name>`). First scan is silent unless `notifyOnFirstScan`.
 5. **Dependency PR Notices (`DEPENDENCY_PULL_REQUESTS`):** `opened`, `updated` (commit with new versions), `edited` (external branch push), and `access_lost` (fallback to `NOTIFY`). Suppressed when `notificationLevel = NONE`.
 

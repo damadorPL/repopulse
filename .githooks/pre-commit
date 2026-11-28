@@ -12,5 +12,5 @@ node scripts/guardrails.ts --staged
 echo "[pre-commit] Checking documentation links & AGENTS.md hygiene..."
 node scripts/check-docs.mjs
 
-echo "[pre-commit] Checking formatting & linting on staged files..."
+echo "[pre-commit] Checking formatting, linting & React Doctor on staged files..."
 node scripts/pre-commit-lint.ts

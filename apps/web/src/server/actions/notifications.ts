@@ -13,7 +13,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { getCurrentUserOrThrow } from "@/lib/auth";
-import { validateEventsForScope, type NotificationEventValue } from "@/lib/notification-events";
+import { normalizeEvents, validateEventsForScope, type NotificationEventValue } from "@/lib/notification-events";
 import { notificationEventsSchema } from "@/lib/notification-events-schema";
 import { fail, invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
 import { normalizeDestination } from "@/server/notification-destination";
@@ -38,7 +38,18 @@ const createInput = z.strictObject({
   events: notificationEventsSchema,
 });
 const toggleInput = z.object({ ruleId: id, enabled: z.boolean() });
-const eventsInput = z.strictObject({ ruleId: id, events: notificationEventsSchema });
+const updateInput = z
+  .strictObject({
+    ruleId: id,
+    tagId: id.nullable().optional(),
+    destinationUrl: z.string().max(2048, "The destination can be at most 2048 characters").optional(),
+    onlyMajorReleases: z.boolean().optional(),
+    events: notificationEventsSchema.optional(),
+  })
+  .refine(
+    (value) => Object.entries<unknown>(value).some(([key, field]) => key !== "ruleId" && field !== undefined),
+    "Nothing to update.",
+  );
 const ruleInput = z.object({ ruleId: id });
 
 const lastTestAt = new Map<string, number>();
@@ -113,30 +124,63 @@ export async function toggleNotificationRuleAction(input: {
 }
 
 /**
- * Changes what a rule fires for (Slice 08), so existing rules can opt into dependency notifications
- * without re-entering their destination. Jobs already queued re-check `events` before sending.
+ * Updates a notification rule's tag scope, destination, major-release filter, and/or events.
+ * Jobs already queued re-check the rule's fields before sending.
  */
-export async function updateNotificationRuleEventsAction(input: {
+export async function updateNotificationRuleAction(input: {
   ruleId: string;
-  events: NotificationEventValue[];
+  tagId?: string | null;
+  destinationUrl?: string;
+  onlyMajorReleases?: boolean;
+  events?: NotificationEventValue[];
 }): Promise<ActionResult<NotificationRuleView>> {
   try {
     const user = await getCurrentUserOrThrow();
-    const parsed = eventsInput.safeParse(input);
+    const parsed = updateInput.safeParse(input);
     if (!parsed.success) return invalidInput(parsed.error);
-    const { ruleId, events } = parsed.data;
+    const { ruleId, tagId, destinationUrl, onlyMajorReleases, events } = parsed.data;
 
     const rule = await prisma.notificationRule.findFirst({
       where: { id: ruleId, userId: user.id },
-      select: { tagId: true },
+      select: { id: true, channel: true, tagId: true, events: true, onlyMajorReleases: true },
     });
     if (!rule) return fail("NOT_FOUND", "Notification rule not found.");
-    const scopeError = validateEventsForScope(events, rule.tagId !== null);
+
+    const nextTagId = tagId !== undefined ? tagId : rule.tagId;
+    const nextEvents = events !== undefined ? events : normalizeEvents(rule.events);
+    const scopeError = validateEventsForScope(nextEvents, nextTagId !== null);
     if (scopeError) return fail("INVALID_INPUT", scopeError);
+
+    if (tagId !== undefined && tagId !== null) {
+      const tag = await prisma.tag.findFirst({ where: { id: tagId, userId: user.id }, select: { id: true } });
+      if (!tag) return fail("NOT_FOUND", "That tag no longer exists. Refresh and try again.");
+    }
+
+    let nextDestinationUrl: string | null | undefined;
+    if (destinationUrl !== undefined) {
+      if (!isDeliverableChannel(rule.channel)) {
+        return fail("INVALID_INPUT", "This rule's channel cannot be edited.");
+      }
+      const smtpConfigured = rule.channel === "EMAIL_INSTANT" ? await isSmtpConfigured() : false;
+      const normalized = await normalizeDestination(rule.channel, destinationUrl, { smtpConfigured });
+      if (!normalized.ok) return normalized;
+      nextDestinationUrl = normalized.data;
+    }
+
+    const data: {
+      tagId?: string | null;
+      destinationUrl?: string | null;
+      onlyMajorReleases?: boolean;
+      events?: NotificationEventValue[];
+    } = {};
+    if (tagId !== undefined) data.tagId = tagId;
+    if (nextDestinationUrl !== undefined) data.destinationUrl = nextDestinationUrl;
+    if (onlyMajorReleases !== undefined) data.onlyMajorReleases = onlyMajorReleases;
+    if (events !== undefined) data.events = events;
 
     const { count } = await prisma.notificationRule.updateMany({
       where: { id: ruleId, userId: user.id },
-      data: { events },
+      data,
     });
     if (count === 0) return fail("NOT_FOUND", "Notification rule not found.");
     const updated = await prisma.notificationRule.findFirst({
@@ -147,7 +191,7 @@ export async function updateNotificationRuleEventsAction(input: {
     revalidatePath(SETTINGS_PATH);
     return ok(toNotificationRuleView(updated));
   } catch (error) {
-    return toActionError(error, "updateNotificationRuleEventsAction");
+    return toActionError(error, "updateNotificationRuleAction");
   }
 }
 

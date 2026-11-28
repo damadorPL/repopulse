@@ -25,7 +25,7 @@ pnpm lint                          # oxlint --type-aware --deny-warnings (.oxlin
 pnpm lint:css                      # Stylelint CSS & Tailwind v4 check
 pnpm lint:manifests                # Sherif workspace package.json hygiene check
 pnpm knip                          # Dead code, unused exports, and dependency check (knip:strict for prod deps)
-pnpm doctor                        # React Doctor static analysis on apps/web
+pnpm doctor                        # React Doctor static analysis on apps/web (verbose; blocks on errors & warnings)
 pnpm format:check                  # Verify Oxfmt formatting (run `pnpm format` to fix)
 pnpm test                          # Vitest across all workspaces and scripts/
 pnpm --filter @repopulse/web build # Production Next.js build (required for web changes)
@@ -48,4 +48,4 @@ pnpm env:sync                      # Sync missing keys between .env.example and 
 - **Keep `AGENTS.md` Timeless & Lean:** Enforce `<= 120` lines root and `<= 60` lines per subpackage; never add changelogs, history sections, slice labels, version banners, or commit hashes.
 - **Docs & Changelog:** [`docs/`](./docs/README.md) is the sole source of truth for current repository architecture and guides (no `PRD/` directory). Update affected `docs/` files when behavior changes, and record user-visible changes, migrations, and env vars in `CHANGELOG.md` under `## [Unreleased]`.
 - **Commit Messages:** Follow Conventional Commits (`type(scope?): summary`, `<= 100` chars). Commits touching `>= 2` files or releasing a version must include a blank line and body explaining why/context, grouped changes by workspace/area, and operational impact (`Migration:`, `Env:`, `Deploy:`, `BREAKING CHANGE:`) when applicable (`.gitmessage`, `.githooks/commit-msg`).
-- **Verification & Git:** Verify changes with `pnpm verify` (runs guardrails, manifests, packages build, typecheck, oxlint, stylelint, knip, knip:strict, format:check, react-doctor, tests, docs:check, and `@repopulse/web` build). Work on `main`; commit or push only when asked; never stage `.env*` files.
+- **Verification & Git:** Verify changes with `pnpm verify` (runs guardrails, manifests, packages build, typecheck, oxlint, stylelint, knip, knip:strict, format:check, react-doctor, tests, docs:check, and `@repopulse/web` build). Always inspect the full `pnpm doctor` / React Doctor output (never skip truncated logs) and resolve every reported error and warning (`0 issues`). Work on `main`; commit or push only when asked; never stage `.env*` files.

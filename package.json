@@ -19,7 +19,7 @@
     "knip": "knip",
     "knip:production": "knip --production",
     "knip:strict": "knip --strict --dependencies",
-    "doctor": "react-doctor --no-telemetry .",
+    "doctor": "react-doctor --no-telemetry --verbose .",
     "doctor:design": "react-doctor design --no-telemetry .",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",

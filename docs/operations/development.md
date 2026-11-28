@@ -27,7 +27,7 @@ The first GitHub account to sign in becomes the super admin. After pulling chang
 | `pnpm lint` / `pnpm lint:css` | Oxlint (`typeAware`, `denyWarnings`, `.oxlintrc.json`) and Stylelint (`stylelint.config.mjs`) |
 | `pnpm lint:manifests` | Sherif workspace `package.json` manifest hygiene check |
 | `pnpm knip` / `pnpm knip:production` / `pnpm knip:strict` | Knip unused code/exports check, production-only check, and strict production dependency isolation |
-| `pnpm doctor` / `pnpm doctor:design` | React Doctor static audit on `apps/web` (`doctor.config.json`) |
+| `pnpm doctor` / `pnpm doctor:design` | React Doctor static audit on `apps/web` (`doctor.config.json`, `--verbose`, blocks on errors and warnings) |
 | `pnpm check:guardrails` | RepoPulse pinned-deps, SQL/secret safety, migration, and isolation guardrails |
 | `pnpm format` / `pnpm format:check` | Format / verify formatting with Oxfmt (`.oxfmtrc.json`) |
 | `pnpm docs:check` | Validate relative links/anchors (including `CHANGELOG.md`), `AGENTS.md` hygiene, workspace doc coverage, and no `PRD/` folder |
@@ -46,7 +46,7 @@ The first GitHub account to sign in becomes the super admin. After pulling chang
 
 Engineering rules, workspace boundaries, Next.js 16 / React 19 gotchas, Vitest mocking conventions, and error-redaction standards are consolidated in [../CODING_STANDARDS.md](../CODING_STANDARDS.md).
 
-GitHub Actions CI (`.github/workflows/ci.yml` + `.github/workflows/react-doctor.yml`) runs on `push` to `main` and `pull_request`: `ci` (`check:guardrails` → `lint:manifests` → `db:generate` → `packages/* build` → `typecheck` → `lint` → `lint:css` → `knip` → `knip:strict` → `format:check` → `docs:check` → `doctor` → `test` → `@repopulse/web build` → `pnpm audit --audit-level=high`), and React Doctor checks (runs on both `pull_request` and `push` to `main`). Installing dependencies via `pnpm install` runs `prepare` (`scripts/install-hooks.ts`) to configure `core.hooksPath = .githooks` and `commit.template = .gitmessage`. Before commits, `.githooks/pre-commit` runs staged guardrails, `docs:check`, and staged `oxfmt --check` / `oxlint` (`scripts/pre-commit-lint.ts`; set `SKIP_PRECOMMIT_HOOK=1` to bypass), and `.githooks/commit-msg` validates commit messages (`scripts/commit-msg-lint.ts`).
+GitHub Actions CI (`.github/workflows/ci.yml` + `.github/workflows/react-doctor.yml`) runs on `push` to `main` and `pull_request`: `ci` (`check:guardrails` → `lint:manifests` → `db:generate` → `packages/* build` → `typecheck` → `lint` → `lint:css` → `knip` → `knip:strict` → `format:check` → `docs:check` → `doctor` → `test` → `@repopulse/web build` → `pnpm audit --audit-level=high`), and React Doctor checks (runs on both `pull_request` and `push` to `main` with `blocking: warning`). Installing dependencies via `pnpm install` runs `prepare` (`scripts/install-hooks.ts`) to configure `core.hooksPath = .githooks` and `commit.template = .gitmessage`. Before commits, `.githooks/pre-commit` runs staged guardrails, `docs:check`, and staged `oxfmt --check`, `oxlint`, and React Doctor (`scripts/pre-commit-lint.ts`; set `SKIP_PRECOMMIT_HOOK=1` to bypass), and `.githooks/commit-msg` validates commit messages (`scripts/commit-msg-lint.ts`).
 
 ## Git & Release Workflow
 

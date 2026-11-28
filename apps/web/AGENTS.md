@@ -11,6 +11,7 @@ Guidance for coding agents working in the Next.js App Router UI, Server Actions,
 - **Client Bundle Isolation:** Client components and shared `lib/*` modules must never import `@repopulse/db`, `server/*` (except type-only imports), or `*-schema.ts`. Use browser-safe subpaths (`@repopulse/queue/events`, `@repopulse/notifications/channels`, `@repopulse/github/watched-paths`, `@repopulse/deps/limits`).
 - **Feed, CSP & Sanitization:** Route feed/unread queries through `visibleReleasesWhere()`. Render release notes only via server-side `ChangelogMarkdown` (`rehype-sanitize`). Preserve `src/proxy.ts` CSP nonces and semantic dark/light theme tokens.
 - **Next.js & React Rules:** `params`, `searchParams`, and `cookies()` are async Promises. Respect `reactCompiler` and `typedRoutes`. Rebuild `packages/*` before running web tests/builds after package edits.
+- **React Doctor Zero-Issue Gate:** Always run `pnpm doctor` and inspect its full output (`doctor.config.json` uses `blocking: "warning"`). Every error and warning must be resolved (`0 issues`) before finishing web changes.
 
 ## 2. Commands
 
@@ -19,6 +20,7 @@ pnpm --filter @repopulse/web build
 pnpm --filter @repopulse/web typecheck
 pnpm --filter @repopulse/web lint
 pnpm --filter @repopulse/web test
+pnpm doctor
 ```
 
 <!-- BEGIN:nextjs-agent-rules -->

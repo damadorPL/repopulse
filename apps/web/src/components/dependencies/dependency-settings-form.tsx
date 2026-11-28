@@ -197,6 +197,7 @@ export function DependencySettingsForm({
       if (!result.ok) {
         if (result.error.code === "UNAUTHORIZED") router.push("/login");
         setError(result.error.message);
+        toast.error(result.error.message);
         return;
       }
       setPathsDraft("");
@@ -425,6 +426,7 @@ export function IgnoreRulesEditor({ projectId, rules }: { projectId: string; rul
   function handleError(code: string, message: string) {
     if (code === "UNAUTHORIZED") router.push("/login");
     setError(message);
+    toast.error(message);
   }
 
   function add(event: SubmitEvent<HTMLFormElement>) {

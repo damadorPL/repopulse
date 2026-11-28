@@ -174,6 +174,7 @@ export function CreateGitHubAppForm({ appBaseUrl, replaces }: { appBaseUrl: stri
       if (!result.ok) {
         if (result.error.code === "UNAUTHORIZED") router.push("/login");
         setError(result.error.message);
+        toast.error(result.error.message);
         return;
       }
       setTarget(result.data);
@@ -272,6 +273,7 @@ export function ManualGitHubAppForm({ app }: { app: GitHubAppView }) {
       if (!result.ok) {
         if (result.error.code === "UNAUTHORIZED") router.push("/login");
         setError(result.error.message);
+        toast.error(result.error.message);
         return;
       }
       setPrivateKey("");
@@ -491,6 +493,7 @@ export function GitHubAppWebhooksCard({ app, target }: { app: GitHubAppView; tar
       if (!result.ok) {
         if (result.error.code === "UNAUTHORIZED") router.push("/login");
         setError(result.error.message);
+        toast.error(result.error.message);
         return;
       }
       setDone(true);

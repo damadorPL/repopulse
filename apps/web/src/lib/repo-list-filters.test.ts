@@ -25,6 +25,7 @@ function row(fullName: string, extra: RowExtra = {}): RepoListRow {
     subscribedAt: day(1),
     latestActivityAt: null,
     note: null,
+    currentVersion: null,
     tags: [],
     ...rest,
     repository: {
@@ -81,6 +82,12 @@ describe("repositorySettingsHref / repoListHrefFrom", () => {
     expect(repositorySettingsHref("vercel/next.js", filters({ q: "next", sort: "stars" }))).toBe(
       "/repositories/vercel/next.js?from=q%3Dnext%26sort%3Dstars",
     );
+    expect(repositorySettingsHref("vercel/next.js", undefined, "my-version")).toBe(
+      "/repositories/vercel/next.js#my-version",
+    );
+    expect(repositorySettingsHref("vercel/next.js", filters({ q: "next" }), "my-version")).toBe(
+      "/repositories/vercel/next.js?from=q%3Dnext#my-version",
+    );
   });
 
   it("returns to the list with the same filters, and only to the list", () => {
@@ -113,6 +120,7 @@ describe("applyRepoListFilters", () => {
       trackPaths: true,
       watchedPaths: ["packages/next/src"],
       note: "Blocked on v16 because of the router",
+      currentVersion: "v15.4.0",
       tags: [{ name: "Frontend", slug: "frontend" }],
       repository: { starsCount: 120000 },
     }),
@@ -179,6 +187,7 @@ describe("applyRepoListFilters", () => {
     expect(search("backend")).toEqual(["acme/api"]);
     expect(search("router")).toEqual(["vercel/next.js"]);
     expect(search("packages/next")).toEqual(["vercel/next.js"]);
+    expect(search("v15.4.0")).toEqual(["vercel/next.js"]);
     expect(search("acme frontend")).toEqual([]);
   });
 
@@ -190,6 +199,7 @@ describe("applyRepoListFilters", () => {
     ]);
     expect(names(applyRepoListFilters(rows, filters({ statuses: ["unread", "error"] }), unread))).toEqual(["acme/api"]);
     expect(names(applyRepoListFilters(rows, filters({ statuses: ["paths"] }), unread))).toEqual(["vercel/next.js"]);
+    expect(names(applyRepoListFilters(rows, filters({ statuses: ["version"] }), unread))).toEqual(["vercel/next.js"]);
     expect(names(applyRepoListFilters(rows, filters({ statuses: ["pinned"] }), unread))).toEqual([]);
   });
 });

@@ -171,7 +171,7 @@ export function TrackingSettings({
   function handleError(code: string, message: string, inline: boolean) {
     if (code === "UNAUTHORIZED") router.push("/login");
     if (inline) setPathsError(message);
-    else toast.error(message);
+    toast.error(message);
   }
 
   function save(next: Tracking, nextPaths?: string[], onDone?: () => void) {

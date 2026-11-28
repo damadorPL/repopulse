@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { useOptionalUnread } from "@/components/layout/unread-context";
 import { PARAM } from "@/lib/feed-filters";
+import { versionTagCandidates } from "@/lib/version-compare";
 import type { ActionResult } from "@/server/action-result";
 import { getReleaseDrawerAction } from "@/server/actions/feed";
 import { toggleReleaseReadAction } from "@/server/actions/release-state";
@@ -87,6 +88,7 @@ interface ReaderDrawerContextValue {
   getEntryPromise: (releaseId: string) => Promise<ActionResult<DrawerEntry>>;
   closeRelease: () => void;
   setRead: (releaseId: string, isRead: boolean, item?: FeedItem) => Promise<boolean>;
+  clearDrawerCache: (patch?: { repositoryId: string; currentVersion: string | null }) => void;
 }
 
 const ReaderListContext = createContext<ReaderListContextValue | null>(null);
@@ -152,9 +154,24 @@ export function ReaderProvider({
     return true;
   }
 
-  function resetReadOverrides() {
+  function clearDrawerCache(patch?: { repositoryId: string; currentVersion: string | null }) {
     drawerPromiseCache.clear();
     resolvedDrawerDetails.clear();
+    if (!patch) return;
+    setPreview((current) => {
+      if (!current || current.repository.id !== patch.repositoryId) return current;
+      const candidates = patch.currentVersion ? versionTagCandidates(patch.currentVersion) : [];
+      const isMyVersion = current.source !== "COMMIT" && candidates.includes(current.tagName);
+      return {
+        ...current,
+        isMyVersion,
+        newerThanMine: isMyVersion ? false : patch.currentVersion === null ? false : current.newerThanMine,
+      };
+    });
+  }
+
+  function resetReadOverrides() {
+    clearDrawerCache();
     setReadOverrides({});
     setReadEpoch((epoch) => epoch + 1);
   }
@@ -172,6 +189,7 @@ export function ReaderProvider({
     getEntryPromise: getOrFetchDrawerEntry,
     closeRelease,
     setRead,
+    clearDrawerCache,
   };
 
   return (

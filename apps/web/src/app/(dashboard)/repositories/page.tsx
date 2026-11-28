@@ -229,12 +229,22 @@ export default async function RepositoriesPage({ searchParams }: PageProps<"/rep
                         </dd>
                       </div>
                     ) : null}
-                    {entry.currentVersion && entry.versionStatus ? (
+                    {entry.currentVersion ? (
                       <div className="flex min-w-0 items-center gap-1">
-                        <PackageCheckIcon className="size-3.5 shrink-0" aria-hidden />
                         <dt className="sr-only">Your version</dt>
-                        <dd className="truncate" title={`Your version: ${entry.currentVersion}`}>
-                          {formatVersionStatus(entry.versionStatus)}
+                        <dd className="min-w-0">
+                          <Link
+                            href={repositorySettingsHref(repo.fullName, filters, "my-version")}
+                            prefetch={false}
+                            className="flex min-w-0 items-center gap-1 hover:text-foreground"
+                            title="Edit or remove your version in repository settings"
+                          >
+                            <PackageCheckIcon className="size-3.5 shrink-0" aria-hidden />
+                            <span className="truncate">
+                              Your version <code className="font-mono text-foreground">{entry.currentVersion}</code>
+                              {entry.versionStatus ? ` · ${formatVersionStatus(entry.versionStatus)}` : ""}
+                            </span>
+                          </Link>
                         </dd>
                       </div>
                     ) : null}

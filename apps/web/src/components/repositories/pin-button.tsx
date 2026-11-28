@@ -27,13 +27,16 @@ export function PinButton({
   const label = pinned ? `Unpin ${fullName}` : `Pin ${fullName} to the top`;
 
   function toggle() {
+    const nextPinned = !pinned;
     startTransition(async () => {
-      setPinned(!pinned);
-      const result = await updateSubscriptionSettingsAction({ subscriptionId, isPinned: !pinned });
+      setPinned(nextPinned);
+      const result = await updateSubscriptionSettingsAction({ subscriptionId, isPinned: nextPinned });
       if (!result.ok) {
         if (result.error.code === "UNAUTHORIZED") router.push("/login");
         toast.error(result.error.message);
+        return;
       }
+      toast.success(nextPinned ? `Pinned ${fullName}` : `Unpinned ${fullName}`);
     });
   }
 

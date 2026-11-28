@@ -26,13 +26,38 @@ describe("getNotificationRules", () => {
         createdAt,
         tag: null,
       },
+      {
+        id: "r2",
+        channel: "EMAIL_INSTANT",
+        destinationUrl: null,
+        onlyMajorReleases: true,
+        events: ["RELEASES"],
+        enabled: true,
+        createdAt,
+        tag: null,
+      },
+      {
+        id: "r3",
+        channel: "EMAIL_INSTANT",
+        destinationUrl: "alerts@example.com",
+        onlyMajorReleases: false,
+        events: ["RELEASES"],
+        enabled: true,
+        createdAt,
+        tag: null,
+      },
     ]);
 
     const rules = await getNotificationRules("u1");
     expect(prisma.notificationRule.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: "u1" } }));
-    expect(rules).toHaveLength(1);
+    expect(rules).toHaveLength(3);
     expect(rules[0]!.events).toEqual(["RELEASES", "DEPENDENCY_PULL_REQUESTS"]);
     expect(rules[0]!.destination).not.toContain("super-secret-token");
+    expect(rules[0]!.usesAccountEmail).toBe(false);
     expect(rules[0]).not.toHaveProperty("destinationUrl");
+    expect(rules[1]!.usesAccountEmail).toBe(true);
+    expect(rules[1]).not.toHaveProperty("destinationUrl");
+    expect(rules[2]!.usesAccountEmail).toBe(false);
+    expect(rules[2]!.destination).toBe("alerts@example.com");
   });
 });

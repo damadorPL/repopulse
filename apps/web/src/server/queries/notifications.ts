@@ -12,6 +12,7 @@ export interface NotificationRuleView {
   id: string;
   channel: NotificationChannel;
   destination: string;
+  usesAccountEmail: boolean;
   tag: TagPill | null;
   onlyMajorReleases: boolean;
   /** What the rule fires for (Slice 08), in `NOTIFICATION_EVENTS` order. */
@@ -42,7 +43,12 @@ export function toNotificationRuleView(rule: {
   tag: TagPill | null;
 }): NotificationRuleView {
   const { destinationUrl, ...rest } = rule;
-  return { ...rest, events: normalizeEvents(rule.events), destination: maskDestination(rule.channel, destinationUrl) };
+  return {
+    ...rest,
+    events: normalizeEvents(rule.events),
+    destination: maskDestination(rule.channel, destinationUrl),
+    usesAccountEmail: rule.channel === "EMAIL_INSTANT" && !destinationUrl,
+  };
 }
 
 export async function getNotificationRules(userId: string): Promise<NotificationRuleView[]> {

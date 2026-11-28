@@ -1,7 +1,7 @@
 {
   "$schema": "https://react.doctor/schema/config.json",
   "rootDir": "apps/web",
-  "blocking": "error",
+  "blocking": "warning",
   "adoptExistingLintConfig": true,
   "categories": {
     "Security": "error"

@@ -33,11 +33,13 @@ export function CreateInviteForm() {
       if (!result.ok) {
         if (result.error.code === "UNAUTHORIZED") router.push("/login");
         setError(result.error.message);
+        toast.error(result.error.message);
         return;
       }
       setLink(`${window.location.origin}/invite/${result.data.token}`);
       setCopied(false);
       setNote("");
+      toast.success("Invite link created");
     });
   }
 

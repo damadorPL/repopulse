@@ -158,6 +158,7 @@ export function AddNotificationRuleForm({
       if (!result.ok) {
         if (result.error.code === "UNAUTHORIZED") router.push("/login");
         setError(result.error.message);
+        toast.error(result.error.message);
         return;
       }
       const rule = result.data;
@@ -178,6 +179,7 @@ export function AddNotificationRuleForm({
   return (
     <form
       onSubmit={submit}
+      noValidate
       className="grid gap-4 rounded-lg border bg-card p-4 sm:p-5"
       aria-labelledby="add-rule-heading"
     >

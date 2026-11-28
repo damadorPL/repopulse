@@ -50,11 +50,13 @@ function DrawerHeader({
   read,
   toggling,
   onToggleRead,
+  onVersionChange,
 }: {
   item: FeedItem;
   read: boolean;
   toggling: boolean;
   onToggleRead: () => void;
+  onVersionChange: (currentVersion: string | null) => void;
 }) {
   return (
     <header className="border-b px-5 pt-5 pr-12 pb-4">
@@ -107,6 +109,7 @@ function DrawerHeader({
             fullName={item.repository.fullName}
             tagName={item.tagName}
             isMyVersion={item.isMyVersion}
+            onVersionChange={onVersionChange}
           />
         ) : null}
       </div>
@@ -116,7 +119,7 @@ function DrawerHeader({
 
 function LoadedDrawerView({ item, body }: { item: FeedItem; body: ReactNode }) {
   const { isRead } = useReaderList();
-  const { setRead } = useReaderDrawer();
+  const { setRead, clearDrawerCache } = useReaderDrawer();
   const [toggling, startToggle] = useTransition();
   const read = isRead(item);
 
@@ -130,7 +133,15 @@ function LoadedDrawerView({ item, body }: { item: FeedItem; body: ReactNode }) {
 
   return (
     <>
-      <DrawerHeader item={item} read={read} toggling={toggling} onToggleRead={toggleRead} />
+      <DrawerHeader
+        item={item}
+        read={read}
+        toggling={toggling}
+        onToggleRead={toggleRead}
+        onVersionChange={(nextVersion) =>
+          clearDrawerCache({ repositoryId: item.repository.id, currentVersion: nextVersion })
+        }
+      />
       <div className="flex-1 overflow-y-auto p-5">{body}</div>
     </>
   );

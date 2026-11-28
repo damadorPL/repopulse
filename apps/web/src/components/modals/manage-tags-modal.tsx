@@ -127,6 +127,7 @@ function CreateTagForm() {
       const result = await createTagAction({ name, colorHex: color });
       if (!result.ok) {
         setError(result.error.message);
+        toast.error(result.error.message);
         return;
       }
       toast.success(`Created tag "${result.data.name}"`);
@@ -188,9 +189,11 @@ function TagRow({ tag }: { tag: SidebarTag }) {
       });
       if (!result.ok) {
         setError(result.error.message);
+        toast.error(result.error.message);
         return;
       }
       setMode("view");
+      toast.success(`Updated tag “${result.data.name}”`);
     });
   }
 

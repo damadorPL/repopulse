@@ -36,6 +36,7 @@ export function TagSettings({
   const [tags, setTags] = useOptimistic(assigned);
 
   function remove(tagId: string) {
+    const removed = tags.find((tag) => tag.id === tagId);
     startTransition(async () => {
       const next = tags.filter((tag) => tag.id !== tagId);
       setTags(next);
@@ -43,7 +44,9 @@ export function TagSettings({
       if (!result.ok) {
         if (result.error.code === "UNAUTHORIZED") router.push("/login");
         toast.error(result.error.message);
+        return;
       }
+      toast.success(removed ? `Removed tag “${removed.name}” from ${fullName}` : `Updated tags for ${fullName}`);
     });
   }
 

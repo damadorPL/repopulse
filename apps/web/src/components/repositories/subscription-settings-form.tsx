@@ -23,6 +23,7 @@ import {
   type NotificationLevelValue,
   type SubscriptionSettingsInput,
 } from "@/lib/subscription-settings";
+import { cn } from "@/lib/utils";
 import { formatVersionStatus, type VersionStatus } from "@/lib/version-compare";
 import { updateSubscriptionSettingsAction } from "@/server/actions/repositories";
 
@@ -30,18 +31,23 @@ type Patch = Omit<SubscriptionSettingsInput, "subscriptionId">;
 type FieldErrorState = { field: string; message: string } | null;
 
 function Row({
+  anchorId,
   label,
   htmlFor,
   hint,
   children,
 }: {
+  anchorId?: string;
   label: string;
   htmlFor?: string;
   hint?: string;
   children: ReactNode;
 }) {
   return (
-    <div className="grid gap-1.5 sm:grid-cols-[14rem_1fr] sm:items-start sm:gap-4">
+    <div
+      id={anchorId}
+      className={cn("grid gap-1.5 sm:grid-cols-[14rem_1fr] sm:items-start sm:gap-4", anchorId && "scroll-mt-20")}
+    >
       <div>
         {htmlFor ? <Label htmlFor={htmlFor}>{label}</Label> : <span className="text-sm font-medium">{label}</span>}
         {hint ? <p className="mt-1 text-xs text-muted-foreground">{hint}</p> : null}
@@ -217,6 +223,7 @@ function MyVersionRow({
   error,
   onChange,
   onSubmit,
+  onClear,
 }: {
   id: string;
   versionDraft: string;
@@ -227,9 +234,15 @@ function MyVersionRow({
   error: FieldErrorState;
   onChange: (value: string) => void;
   onSubmit: (event: SubmitEvent<HTMLFormElement>) => void;
+  onClear: () => void;
 }) {
   return (
-    <Row label="My version" htmlFor={id} hint="The version you run. Releases newer than it are marked in the feed.">
+    <Row
+      anchorId="my-version"
+      label="My version"
+      htmlFor={id}
+      hint="The version you currently run. Marked as “Your version” in the feed, with newer releases labeled “Newer than yours” and your status shown on Tracked Repositories (filter by “My version”)."
+    >
       <form onSubmit={onSubmit} className="flex flex-wrap items-center gap-2">
         <Input
           id={id}
@@ -244,6 +257,11 @@ function MyVersionRow({
         <Button type="submit" size="sm" disabled={pending || !versionDirty}>
           Save
         </Button>
+        {currentVersion ? (
+          <Button type="button" variant="outline" size="sm" disabled={pending} onClick={onClear}>
+            Remove
+          </Button>
+        ) : null}
         {currentVersion ? (
           <span className="text-sm text-muted-foreground">
             {versionStatus ? formatVersionStatus(versionStatus) : "No stored release matches this version."}
@@ -327,8 +345,12 @@ export function SubscriptionSettingsForm({
     save(
       "version",
       { currentVersion: value || null },
-      value ? `Your version of ${fullName} is ${value}` : "Version cleared",
+      value ? `Your version of ${fullName} is ${value}` : `Removed your version of ${fullName}`,
     );
+  }
+
+  function clearVersion() {
+    save("version", { currentVersion: null }, `Removed your version of ${fullName}`);
   }
 
   const levelOption = NOTIFICATION_LEVEL_OPTIONS.find((option) => option.value === level);
@@ -404,6 +426,7 @@ export function SubscriptionSettingsForm({
           error={error}
           onChange={setVersionDraft}
           onSubmit={submitVersion}
+          onClear={clearVersion}
         />
       ) : null}
     </div>

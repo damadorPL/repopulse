@@ -23,12 +23,13 @@ export const REPO_LIST_SORT_OPTIONS: ReadonlyArray<{ value: RepoListSort; label:
   { value: "stars", label: "Most stars" },
 ];
 
-export const REPO_LIST_STATUSES = ["unread", "error", "paths", "pinned"] as const;
+export const REPO_LIST_STATUSES = ["unread", "error", "paths", "pinned", "version"] as const;
 export type RepoListStatus = (typeof REPO_LIST_STATUSES)[number];
 
 export const REPO_LIST_STATUS_OPTIONS: ReadonlyArray<{ value: RepoListStatus; label: string }> = [
   { value: "pinned", label: "Pinned" },
   { value: "unread", label: "Unread" },
+  { value: "version", label: "My version" },
   { value: "paths", label: "Files / folders" },
   { value: "error", label: "Sync failed" },
 ];
@@ -94,11 +95,12 @@ export function repoListHref(filters: Partial<RepoListFilters> = {}): Route {
  * The settings page of a tracked repository. `from` carries the list's query string, so the page's
  * back link returns to the same search, sort and filters.
  */
-export function repositorySettingsHref(fullName: string, from?: Partial<RepoListFilters>): Route {
+export function repositorySettingsHref(fullName: string, from?: Partial<RepoListFilters>, hash?: string): Route {
   const [owner = "", name = ""] = fullName.split("/");
   const path = `/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
   const query = from ? repoListSearchParams(from).toString() : "";
-  return (query ? `${path}?from=${encodeURIComponent(query)}` : path) as Route;
+  const suffix = hash ? `#${hash}` : "";
+  return (query ? `${path}?from=${encodeURIComponent(query)}${suffix}` : `${path}${suffix}`) as Route;
 }
 
 /** The list URL to return to from a settings page's `?from=` value (re-parsed, so it can only point at the list). */
@@ -121,6 +123,7 @@ export interface RepoListRow {
   subscribedAt: Date;
   latestActivityAt: Date | null;
   note: string | null;
+  currentVersion: string | null;
   tags: Array<{ name: string; slug: string }>;
   repository: {
     id: string;
@@ -138,6 +141,7 @@ function haystack(row: RepoListRow): string {
     row.repository.fullName,
     row.repository.description ?? "",
     row.note ?? "",
+    row.currentVersion ?? "",
     ...row.tags.map((t) => t.name),
     ...row.watchedPaths,
   ]
@@ -175,6 +179,7 @@ export function applyRepoListFilters<T extends RepoListRow>(
       if (status === "error" && row.repository.pollStatus !== "ERROR") return false;
       if (status === "paths" && !row.trackPaths) return false;
       if (status === "pinned" && !row.isPinned) return false;
+      if (status === "version" && !row.currentVersion) return false;
     }
     if (words.length > 0) {
       const text = haystack(row);

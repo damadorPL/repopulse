@@ -5,13 +5,18 @@ Current architecture and conventions live in [`docs/`](./docs/README.md).
 
 ## [Unreleased]
 
+## [0.9.8.10] — 2026-11-28 — Notification rule editing, My version UX, toast feedback & React Doctor gate
+
 ### Added
 
+- **Full notification rule editing & `My version` overview filter (`apps/web`)**: Replaced the events-only rule modal with a full rule editor (`updateNotificationRuleAction` and `EditRuleButton`) covering repository tag scope, destination URL/email, notification events, and the major-releases-only filter; added a `My version` status filter chip, version search matching, and direct `#my-version` settings links on `/repositories`, plus an interactive `Your version` popover in the changelog drawer with explanation text, settings link, and one-click removal.
 - **Git commit template & `commit-msg` hook (`.gitmessage`, `.githooks/commit-msg`, `scripts/commit-msg-lint.ts`)**: Enforces Conventional Commits (`type(scope?): summary`, max 100 chars) and requires a non-empty commit body (why/context, grouped changes by workspace/area, and operational impact when applicable) on multi-file commits (`>= 2` staged files) and release commits (with `SKIP_COMMIT_MSG_HOOK=1` escape hatch). Configured automatically via `scripts/install-hooks.ts` (`commit.template = .gitmessage`).
 - **Enriched annotated release tags (`.github/workflows/release.yml`)**: Annotated `v<version>` tags created by the Release workflow now include the release title and `CHANGELOG.md` notes.
 
 ### Changed
 
+- **Strict React Doctor zero-warning gate & agent rules (`doctor.config.json`, `package.json`, `.github/workflows/react-doctor.yml`, `scripts/pre-commit-lint.ts`, `AGENTS.md`, `apps/web/AGENTS.md`)**: Configured React Doctor with `blocking: "warning"` and `--verbose` output, added staged React Doctor checks to `.githooks/pre-commit` (with full scan when `doctor.config.json` is staged), aligned the GitHub Actions workflow (`blocking: warning`), and required inspecting full React Doctor output and resolving all warnings and errors before finishing web changes.
+- **Consistent toast notifications & `My version` UX (`apps/web`)**: Added consistent success and error toast feedback across notification rule toggles/edits/creation, repository pinning/tags/tracking, tag management, invite creation, SMTP/backfill/GitHub App admin settings, and dependency actions; updated `My version` badges, settings (`Remove` button + `#my-version` anchor), and `ReaderProvider` preview sync so tracked versions are clear and easy to manage.
 - **Single source of truth in `docs/` (`scripts/check-docs.mjs`)**: `pnpm docs:check` now validates relative links and anchors in `CHANGELOG.md` and fails if a legacy `PRD/` directory exists.
 
 ### Removed

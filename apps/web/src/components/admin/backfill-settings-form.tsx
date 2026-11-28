@@ -427,6 +427,7 @@ export function BackfillSettingsForm({
       const result = await saveBackfillSettingsAction(parsed.input);
       if (!result.ok) {
         setError(result.error.message);
+        toast.error(result.error.message);
         return;
       }
       setSaved(result.data);

@@ -19,9 +19,12 @@ const FORMAT_EXTENSIONS = new Set([
 const LINT_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 const BATCH_SIZE = 100;
 
+export type DoctorMode = "none" | "staged" | "full";
+
 export interface StagedLintBuckets {
   formatFiles: string[];
   lintFiles: string[];
+  doctorMode: DoctorMode;
 }
 
 export type ExecRunner = (toolArgs: readonly string[], cwd: string) => number;
@@ -53,23 +56,30 @@ function isIgnoredPath(relPath: string): boolean {
   );
 }
 
-/** Partitions staged repository-relative paths into Oxfmt and Oxlint file buckets. */
+/** Partitions staged repository-relative paths into Oxfmt, Oxlint, and React Doctor buckets. */
 export function partitionStagedFiles(paths: readonly string[]): StagedLintBuckets {
   const formatFiles: string[] = [];
   const lintFiles: string[] = [];
   const seen = new Set<string>();
+  let hasDoctorConfig = false;
+  let hasWebLintFile = false;
 
   for (const rawPath of paths) {
     const relPath = toPosixPath(rawPath).replace(/^\.\//, "").trim();
     if (!relPath || seen.has(relPath) || isIgnoredPath(relPath)) continue;
     seen.add(relPath);
+    if (relPath === "doctor.config.json") hasDoctorConfig = true;
 
     const ext = extname(relPath).toLowerCase();
     if (FORMAT_EXTENSIONS.has(ext)) formatFiles.push(relPath);
-    if (LINT_EXTENSIONS.has(ext)) lintFiles.push(relPath);
+    if (LINT_EXTENSIONS.has(ext)) {
+      lintFiles.push(relPath);
+      if (relPath.startsWith("apps/web/")) hasWebLintFile = true;
+    }
   }
 
-  return { formatFiles, lintFiles };
+  const doctorMode: DoctorMode = hasDoctorConfig ? "full" : hasWebLintFile ? "staged" : "none";
+  return { formatFiles, lintFiles, doctorMode };
 }
 
 function getStagedFiles(repoRoot: string): string[] {
@@ -116,7 +126,7 @@ function runInBatches(baseArgs: readonly string[], files: readonly string[], cwd
   return 0;
 }
 
-/** Runs `oxfmt --check` and `oxlint` on staged files, returning exit code `0` on success. */
+/** Runs `oxfmt --check`, `oxlint`, and React Doctor on staged files, returning exit code `0` on success. */
 export function runPreCommitLint(
   deps: {
     cwd?: string;
@@ -130,8 +140,8 @@ export function runPreCommitLint(
   const runner = deps.runner ?? runPnpmExec;
   const log = deps.log ?? ((msg: string) => console.log(msg));
 
-  const { formatFiles, lintFiles } = partitionStagedFiles(staged);
-  if (formatFiles.length === 0 && lintFiles.length === 0) {
+  const { formatFiles, lintFiles, doctorMode } = partitionStagedFiles(staged);
+  if (formatFiles.length === 0 && lintFiles.length === 0 && doctorMode === "none") {
     log("[pre-commit] No staged code or config files to format/lint.");
     return 0;
   }
@@ -146,6 +156,20 @@ export function runPreCommitLint(
     log(`[pre-commit] Linting ${lintFiles.length} staged file(s)...`);
     const lintStatus = runInBatches(["oxlint"], lintFiles, cwd, runner);
     if (lintStatus !== 0) return lintStatus;
+  }
+
+  if (doctorMode !== "none") {
+    log(
+      doctorMode === "full"
+        ? "[pre-commit] Running full React Doctor audit (doctor.config.json staged)..."
+        : "[pre-commit] Running React Doctor on staged web files...",
+    );
+    const doctorArgs =
+      doctorMode === "full"
+        ? ["react-doctor", "--no-telemetry", "--verbose", "."]
+        : ["react-doctor", "--no-telemetry", "--staged", "--verbose", "."];
+    const doctorStatus = runner(doctorArgs, cwd);
+    if (doctorStatus !== 0) return doctorStatus;
   }
 
   return 0;

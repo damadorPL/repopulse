@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLinkIcon } from "lucide-react";
+import { ExternalLinkIcon, PackageCheckIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { FeedItem } from "@/server/queries/feed";
@@ -22,7 +22,7 @@ function VersionComparisonBadge({ newerThanMine, isMyVersion }: { newerThanMine:
     return (
       <span
         className="inline-flex items-center rounded-md border border-dashed px-1.5 py-0.5 text-[11px] text-muted-foreground"
-        title="Newer than the version you set as yours"
+        title="Published after the version you set as yours. Open a release or repository settings to update it."
       >
         Newer than yours
       </span>
@@ -30,7 +30,11 @@ function VersionComparisonBadge({ newerThanMine, isMyVersion }: { newerThanMine:
   }
   if (isMyVersion) {
     return (
-      <span className="inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] text-muted-foreground">
+      <span
+        className="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] text-muted-foreground"
+        title="The version you marked as currently running. Open this release or go to repository settings to edit or remove it."
+      >
+        <PackageCheckIcon className="size-3" aria-hidden />
         Your version
       </span>
     );

@@ -1,17 +1,24 @@
 "use client";
 
-import { channelLabel } from "@repopulse/notifications/channels";
-import { LoaderCircleIcon, SendIcon, SlidersHorizontalIcon, TrashIcon } from "lucide-react";
+import {
+  CHANNEL_INFO,
+  channelLabel,
+  isDeliverableChannel,
+  type DeliverableChannel,
+} from "@repopulse/notifications/channels";
+import { LoaderCircleIcon, PencilIcon, SendIcon, TrashIcon } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useOptimistic, useState, useTransition } from "react";
+import { useId, useOptimistic, useState, useTransition, type SubmitEvent } from "react";
 import { toast } from "sonner";
 
-import { TagPill } from "@/components/feed/tag-pill";
+import { TagDot, TagPill } from "@/components/feed/tag-pill";
 import { ChannelIcon } from "@/components/notifications/channel-icon";
 import { NotificationEventCheckboxes } from "@/components/notifications/notification-event-checkboxes";
 import { sendTestWithToast } from "@/components/notifications/send-test";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
@@ -23,17 +30,95 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { NOTIFICATION_EVENT_LABELS, type NotificationEventValue } from "@/lib/notification-events";
+import {
+  isEventAllowedForScope,
+  NOTIFICATION_EVENT_LABELS,
+  type NotificationEventValue,
+} from "@/lib/notification-events";
 import { cn } from "@/lib/utils";
 import {
   deleteNotificationRuleAction,
   toggleNotificationRuleAction,
-  updateNotificationRuleEventsAction,
+  updateNotificationRuleAction,
 } from "@/server/actions/notifications";
+import type { TagPill as TagPillData } from "@/server/queries/feed";
 import type { NotificationRuleView } from "@/server/queries/notifications";
 
-export function NotificationRuleItem({ rule }: { rule: NotificationRuleView }) {
+const ALL = "__all__";
+
+interface EditRuleDraft {
+  scope: string;
+  destination: string;
+  onlyMajor: boolean;
+  events: NotificationEventValue[];
+}
+
+function createRuleDraft(rule: NotificationRuleView, isEmail: boolean): EditRuleDraft {
+  return {
+    scope: rule.tag?.id ?? ALL,
+    destination: isEmail && !rule.usesAccountEmail ? rule.destination : "",
+    onlyMajor: rule.onlyMajorReleases,
+    events: rule.events,
+  };
+}
+
+function resolveEditScopeTags(rule: NotificationRuleView, tags: TagPillData[]): TagPillData[] {
+  if (!rule.tag || tags.some((tag) => tag.id === rule.tag?.id)) return tags;
+  return [...tags, rule.tag];
+}
+
+function computeRulePatch(params: {
+  rule: NotificationRuleView;
+  draft: EditRuleDraft;
+  initial: EditRuleDraft;
+  isEmail: boolean;
+  smtpConfigured: boolean;
+  pending: boolean;
+}) {
+  const { rule, draft, initial, isEmail, smtpConfigured, pending } = params;
+  const tagScoped = draft.scope !== ALL;
+  const effectiveEvents = draft.events.filter((event) => isEventAllowedForScope(event, tagScoped));
+  const scopeChanged = draft.scope !== initial.scope;
+  const onlyMajorChanged = draft.onlyMajor !== initial.onlyMajor;
+  const eventsChanged =
+    effectiveEvents.length !== rule.events.length ||
+    effectiveEvents.some((event, index) => event !== rule.events[index]);
+  const destinationChanged = isEmail
+    ? draft.destination.trim() !== initial.destination
+    : draft.destination.trim() !== "";
+  const dirty = scopeChanged || onlyMajorChanged || eventsChanged || destinationChanged;
+  const saveBlocked =
+    pending || effectiveEvents.length === 0 || !dirty || (isEmail && destinationChanged && !smtpConfigured);
+
+  return {
+    tagScoped,
+    effectiveEvents,
+    saveBlocked,
+    patch: {
+      ...(scopeChanged ? { tagId: draft.scope === ALL ? null : draft.scope } : {}),
+      ...(destinationChanged ? { destinationUrl: draft.destination } : {}),
+      ...(onlyMajorChanged ? { onlyMajorReleases: draft.onlyMajor } : {}),
+      ...(eventsChanged ? { events: effectiveEvents } : {}),
+    },
+  };
+}
+
+export function NotificationRuleItem({
+  rule,
+  tags,
+  smtpConfigured,
+  canConfigureSmtp = false,
+}: {
+  rule: NotificationRuleView;
+  tags: TagPillData[];
+  smtpConfigured: boolean;
+  canConfigureSmtp?: boolean;
+}) {
+  const router = useRouter();
   const label = channelLabel(rule.channel);
   const [enabled, setOptimisticEnabled] = useOptimistic(rule.enabled);
   const [toggling, startToggle] = useTransition();
@@ -43,7 +128,12 @@ export function NotificationRuleItem({ rule }: { rule: NotificationRuleView }) {
     startToggle(async () => {
       setOptimisticEnabled(next);
       const result = await toggleNotificationRuleAction({ ruleId: rule.id, enabled: next });
-      if (!result.ok) toast.error(result.error.message);
+      if (!result.ok) {
+        if (result.error.code === "UNAUTHORIZED") router.push("/login");
+        toast.error(result.error.message);
+        return;
+      }
+      toast.success(next ? `${label} rule enabled` : `${label} rule paused`);
     });
   }
 
@@ -93,7 +183,7 @@ export function NotificationRuleItem({ rule }: { rule: NotificationRuleView }) {
         </div>
       </div>
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex flex-wrap items-center gap-2">
         <Switch
           checked={enabled}
           disabled={toggling}
@@ -101,7 +191,13 @@ export function NotificationRuleItem({ rule }: { rule: NotificationRuleView }) {
           aria-label={`${enabled ? "Disable" : "Enable"} ${label} rule`}
           title={enabled ? "Enabled" : "Disabled"}
         />
-        <EditEventsButton rule={rule} label={label} />
+        <EditRuleButton
+          rule={rule}
+          label={label}
+          tags={tags}
+          smtpConfigured={smtpConfigured}
+          canConfigureSmtp={canConfigureSmtp}
+        />
         <Button variant="outline" size="sm" onClick={test} disabled={testing}>
           {testing ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <SendIcon />}
           Send Test
@@ -112,87 +208,315 @@ export function NotificationRuleItem({ rule }: { rule: NotificationRuleView }) {
   );
 }
 
-function EditEventsButton({ rule, label }: { rule: NotificationRuleView; label: string }) {
-  const router = useRouter();
-  const [open, setOpen] = useState(false);
-  const [events, setEvents] = useState<NotificationEventValue[]>(rule.events);
-  const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+function EditRuleScopeField({
+  id,
+  value,
+  tags,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  tags: TagPillData[];
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor={id}>Repositories</Label>
+      <Select value={value} onValueChange={onChange} disabled={disabled}>
+        <SelectTrigger id={id} className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL}>All repositories</SelectItem>
+          {tags.map((tag) => (
+            <SelectItem key={tag.id} value={tag.id}>
+              <TagDot color={tag.colorHex} />
+              Tagged “{tag.name}”
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
 
-  function save() {
+function EditRuleDestinationField({
+  id,
+  channel,
+  currentDestination,
+  value,
+  onChange,
+  pending,
+  smtpConfigured,
+  canConfigureSmtp,
+  invalid,
+}: {
+  id: string;
+  channel: DeliverableChannel | null;
+  currentDestination: string;
+  value: string;
+  onChange: (next: string) => void;
+  pending: boolean;
+  smtpConfigured: boolean;
+  canConfigureSmtp: boolean;
+  invalid: boolean;
+}) {
+  if (!channel) return null;
+  const info = CHANNEL_INFO[channel];
+  const isEmail = info.destination === "email";
+  const emailUnavailable = isEmail && !smtpConfigured;
+
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor={id}>
+        {isEmail ? info.destinationLabel : `New ${info.destinationLabel.toLowerCase()} (optional)`}
+      </Label>
+      <Input
+        id={id}
+        type={isEmail ? "email" : "url"}
+        inputMode={isEmail ? "email" : "url"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={isEmail ? info.placeholder : "Leave empty to keep current URL"}
+        autoComplete="off"
+        spellCheck={false}
+        disabled={pending || emailUnavailable}
+        className="font-mono text-[13px]"
+        aria-invalid={invalid ? true : undefined}
+        aria-describedby={`${id}-hint`}
+      />
+      <p id={`${id}-hint`} className="text-xs text-muted-foreground">
+        {emailUnavailable ? (
+          canConfigureSmtp ? (
+            <>
+              Email needs an SMTP server.{" "}
+              <Link href="/admin/email" className="font-medium text-foreground underline underline-offset-2">
+                Set it up in Admin → Email
+              </Link>
+              .
+            </>
+          ) : (
+            "Email isn't set up on this RepoPulse instance yet. Ask the super admin to configure SMTP."
+          )
+        ) : isEmail ? (
+          info.hint
+        ) : (
+          <>
+            Current: <code className="font-mono text-[11px]">{currentDestination}</code>. Leave empty to keep it.
+          </>
+        )}
+      </p>
+    </div>
+  );
+}
+
+function EditRuleMajorCheckbox({
+  id,
+  checked,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  checked: boolean;
+  disabled: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <Label htmlFor={id} className="items-start font-normal">
+      <Checkbox
+        id={id}
+        className="mt-0.5"
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={(v) => onChange(v === true)}
+      />
+      <span className="grid gap-0.5">
+        Only major releases
+        <span className="text-xs text-muted-foreground">
+          Skip minor, patch and pre-releases (for example v2.0.0, but not v2.0.1). Dependency notifications follow each
+          project&apos;s own notification level.
+        </span>
+      </span>
+    </Label>
+  );
+}
+
+function EditRuleForm({
+  rule,
+  label,
+  tags,
+  smtpConfigured,
+  canConfigureSmtp,
+  pending,
+  onPendingChange,
+  onSaved,
+}: {
+  rule: NotificationRuleView;
+  label: string;
+  tags: TagPillData[];
+  smtpConfigured: boolean;
+  canConfigureSmtp: boolean;
+  pending: boolean;
+  onPendingChange: (start: () => Promise<void>) => void;
+  onSaved: () => void;
+}) {
+  const router = useRouter();
+  const ids = { scope: useId(), dest: useId(), major: useId() };
+  const channel = isDeliverableChannel(rule.channel) ? rule.channel : null;
+  const isEmail = channel !== null && CHANNEL_INFO[channel].destination === "email";
+  const initial = createRuleDraft(rule, isEmail);
+  const scopeTags = resolveEditScopeTags(rule, tags);
+
+  const [draft, setDraft] = useState<EditRuleDraft>(() => createRuleDraft(rule, isEmail));
+  const [error, setError] = useState<string | null>(null);
+
+  const { tagScoped, effectiveEvents, saveBlocked, patch } = computeRulePatch({
+    rule,
+    draft,
+    initial,
+    isEmail,
+    smtpConfigured,
+    pending,
+  });
+
+  function save(event: SubmitEvent<HTMLFormElement>) {
+    event.preventDefault();
     setError(null);
-    startTransition(async () => {
-      const result = await updateNotificationRuleEventsAction({ ruleId: rule.id, events });
+    onPendingChange(async () => {
+      const result = await updateNotificationRuleAction({ ruleId: rule.id, ...patch });
       if (!result.ok) {
         if (result.error.code === "UNAUTHORIZED") router.push("/login");
         setError(result.error.message);
+        toast.error(result.error.message);
         return;
       }
-      setOpen(false);
+      onSaved();
       toast.success(`${label} rule updated`);
     });
   }
 
   return (
+    <form onSubmit={save} noValidate className="grid gap-4">
+      <DialogHeader>
+        <DialogTitle>Edit {label} rule</DialogTitle>
+        <DialogDescription>
+          Update which repositories trigger this rule, where alerts go, and which events are sent.
+        </DialogDescription>
+      </DialogHeader>
+
+      <EditRuleScopeField
+        id={ids.scope}
+        value={draft.scope}
+        tags={scopeTags}
+        disabled={pending}
+        onChange={(scope) => setDraft((current) => ({ ...current, scope }))}
+      />
+
+      <EditRuleDestinationField
+        id={ids.dest}
+        channel={channel}
+        currentDestination={rule.destination}
+        value={draft.destination}
+        onChange={(destination) => {
+          setDraft((current) => ({ ...current, destination }));
+          setError(null);
+        }}
+        pending={pending}
+        smtpConfigured={smtpConfigured}
+        canConfigureSmtp={canConfigureSmtp}
+        invalid={error !== null}
+      />
+
+      <NotificationEventCheckboxes
+        idPrefix={`rule-${rule.id}-event`}
+        value={effectiveEvents}
+        onChange={(events) => {
+          setDraft((current) => ({ ...current, events }));
+          setError(null);
+        }}
+        tagScoped={tagScoped}
+        disabled={pending}
+      />
+
+      <EditRuleMajorCheckbox
+        id={ids.major}
+        checked={draft.onlyMajor}
+        disabled={pending}
+        onChange={(onlyMajor) => setDraft((current) => ({ ...current, onlyMajor }))}
+      />
+
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+
+      <DialogFooter>
+        <DialogClose asChild>
+          <Button type="button" variant="outline" disabled={pending}>
+            Cancel
+          </Button>
+        </DialogClose>
+        <Button type="submit" disabled={saveBlocked}>
+          {pending ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : null}
+          {pending ? "Saving…" : "Save changes"}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
+
+function EditRuleButton({
+  rule,
+  label,
+  tags,
+  smtpConfigured,
+  canConfigureSmtp,
+}: {
+  rule: NotificationRuleView;
+  label: string;
+  tags: TagPillData[];
+  smtpConfigured: boolean;
+  canConfigureSmtp: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
+
+  return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (pending) return;
-        if (next) {
-          setEvents(rule.events);
-          setError(null);
-        }
-        setOpen(next);
+        if (!pending) setOpen(next);
       }}
     >
       <DialogTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="text-muted-foreground"
-          aria-label={`Choose what the ${label} rule notifies about`}
-        >
-          <SlidersHorizontalIcon />
+        <Button variant="outline" size="sm" aria-label={`Edit ${label} rule`}>
+          <PencilIcon />
+          Edit
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>What should this {label} rule notify about?</DialogTitle>
-          <DialogDescription>
-            {rule.tag
-              ? `This rule is limited to repositories tagged “${rule.tag.name}”, so it can only notify about releases.`
-              : "Pick one or more."}
-          </DialogDescription>
-        </DialogHeader>
-        <NotificationEventCheckboxes
-          idPrefix={`rule-${rule.id}-event`}
-          value={events}
-          onChange={setEvents}
-          tagScoped={rule.tag !== null}
-          disabled={pending}
-        />
-        {error ? (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
+      <DialogContent className="sm:max-w-lg">
+        {open ? (
+          <EditRuleForm
+            rule={rule}
+            label={label}
+            tags={tags}
+            smtpConfigured={smtpConfigured}
+            canConfigureSmtp={canConfigureSmtp}
+            pending={pending}
+            onPendingChange={(run) => startTransition(run)}
+            onSaved={() => setOpen(false)}
+          />
         ) : null}
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="outline" disabled={pending}>
-              Cancel
-            </Button>
-          </DialogClose>
-          <Button onClick={save} disabled={pending || events.length === 0}>
-            {pending ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : null}
-            Save
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
 
 function DeleteRuleButton({ ruleId, label }: { ruleId: string; label: string }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
@@ -200,6 +524,7 @@ function DeleteRuleButton({ ruleId, label }: { ruleId: string; label: string }) 
     startTransition(async () => {
       const result = await deleteNotificationRuleAction({ ruleId });
       if (!result.ok) {
+        if (result.error.code === "UNAUTHORIZED") router.push("/login");
         toast.error(result.error.message);
         return;
       }

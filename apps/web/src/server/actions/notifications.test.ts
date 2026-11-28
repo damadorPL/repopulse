@@ -44,8 +44,12 @@ vi.mock("@repopulse/notifications/channels", () => ({
   DELIVERABLE_CHANNELS: ["DISCORD_WEBHOOK", "EMAIL_INSTANT"],
   maskDestination: (_channel: string, url: string | null) => (url ? "masked" : ""),
 }));
+const normalizeDestination = vi.fn(async (channel: string, raw: string) => ({
+  ok: true,
+  data: channel === "EMAIL_INSTANT" && raw.trim() === "" ? null : raw.trim(),
+}));
 vi.mock("@/server/notification-destination", () => ({
-  normalizeDestination: vi.fn(async (_channel: string, raw: string) => ({ ok: true, data: raw })),
+  normalizeDestination,
 }));
 vi.mock("@/server/smtp-settings", () => ({ getSmtpConfig, isSmtpConfigured: vi.fn(async () => true) }));
 
@@ -54,7 +58,7 @@ const {
   deleteNotificationRuleAction,
   sendTestNotificationAction,
   toggleNotificationRuleAction,
-  updateNotificationRuleEventsAction,
+  updateNotificationRuleAction,
 } = await import("./notifications");
 
 function ruleRow(extra: Record<string, unknown> = {}) {
@@ -237,42 +241,118 @@ describe("sendTestNotificationAction", () => {
   });
 });
 
-describe("updateNotificationRuleEventsAction", () => {
-  it("updates the user's own rule", async () => {
+describe("updateNotificationRuleAction", () => {
+  it("updates events, scope, major-only flag, and destination on the user's own rule", async () => {
     prisma.notificationRule.findFirst
-      .mockResolvedValueOnce({ tagId: null })
-      .mockResolvedValueOnce(ruleRow({ events: ["RELEASES", "DEPENDENCY_UPDATES"] }));
+      .mockResolvedValueOnce({
+        id: "r1",
+        channel: "DISCORD_WEBHOOK",
+        tagId: null,
+        events: ["RELEASES"],
+        onlyMajorReleases: false,
+      })
+      .mockResolvedValueOnce(
+        ruleRow({
+          events: ["RELEASES", "DEPENDENCY_UPDATES"],
+          onlyMajorReleases: true,
+          destinationUrl: "https://discord.com/api/webhooks/2/new",
+        }),
+      );
     prisma.notificationRule.updateMany.mockResolvedValue({ count: 1 });
-    const result = await updateNotificationRuleEventsAction({
+    const result = await updateNotificationRuleAction({
       ruleId: "r1",
       events: ["DEPENDENCY_UPDATES", "RELEASES"],
+      onlyMajorReleases: true,
+      destinationUrl: "https://discord.com/api/webhooks/2/new",
     });
-    expect(result).toMatchObject({ ok: true, data: { events: ["RELEASES", "DEPENDENCY_UPDATES"] } });
+    expect(result).toMatchObject({
+      ok: true,
+      data: { events: ["RELEASES", "DEPENDENCY_UPDATES"], onlyMajorReleases: true },
+    });
     expect(prisma.notificationRule.findFirst.mock.calls[0]![0].where).toEqual({ id: "r1", userId: "u1" });
     expect(prisma.notificationRule.updateMany).toHaveBeenCalledWith({
       where: { id: "r1", userId: "u1" },
-      data: { events: ["RELEASES", "DEPENDENCY_UPDATES"] },
+      data: {
+        events: ["RELEASES", "DEPENDENCY_UPDATES"],
+        onlyMajorReleases: true,
+        destinationUrl: "https://discord.com/api/webhooks/2/new",
+      },
     });
   });
 
-  it("returns NOT_FOUND for someone else's rule", async () => {
+  it("clears custom email recipient back to account email when destinationUrl is empty", async () => {
+    prisma.notificationRule.findFirst
+      .mockResolvedValueOnce({
+        id: "r2",
+        channel: "EMAIL_INSTANT",
+        tagId: null,
+        events: ["RELEASES"],
+        onlyMajorReleases: false,
+      })
+      .mockResolvedValueOnce(ruleRow({ id: "r2", channel: "EMAIL_INSTANT", destinationUrl: null }));
+    prisma.notificationRule.updateMany.mockResolvedValue({ count: 1 });
+
+    const result = await updateNotificationRuleAction({ ruleId: "r2", destinationUrl: "" });
+    expect(result).toMatchObject({ ok: true, data: { usesAccountEmail: true } });
+    expect(normalizeDestination).toHaveBeenCalledWith("EMAIL_INSTANT", "", { smtpConfigured: true });
+    expect(prisma.notificationRule.updateMany).toHaveBeenCalledWith({
+      where: { id: "r2", userId: "u1" },
+      data: { destinationUrl: null },
+    });
+  });
+
+  it("returns NOT_FOUND for someone else's rule or a foreign tagId", async () => {
     prisma.notificationRule.findFirst.mockResolvedValueOnce(null);
-    expect(await updateNotificationRuleEventsAction({ ruleId: "r1", events: ["RELEASES"] })).toMatchObject({
+    expect(await updateNotificationRuleAction({ ruleId: "r1", events: ["RELEASES"] })).toMatchObject({
+      ok: false,
+      error: { code: "NOT_FOUND" },
+    });
+
+    prisma.notificationRule.findFirst.mockResolvedValueOnce({
+      id: "r1",
+      channel: "DISCORD_WEBHOOK",
+      tagId: null,
+      events: ["RELEASES"],
+      onlyMajorReleases: false,
+    });
+    prisma.tag.findFirst.mockResolvedValueOnce(null);
+    expect(await updateNotificationRuleAction({ ruleId: "r1", tagId: "foreign-tag" })).toMatchObject({
       ok: false,
       error: { code: "NOT_FOUND" },
     });
     expect(prisma.notificationRule.updateMany).not.toHaveBeenCalled();
   });
 
-  it("refuses dependency events on a tag-scoped rule and empty lists", async () => {
-    prisma.notificationRule.findFirst.mockResolvedValueOnce({ tagId: "t1" });
-    expect(
-      await updateNotificationRuleEventsAction({ ruleId: "r1", events: ["DEPENDENCY_PULL_REQUESTS"] }),
-    ).toMatchObject({
+  it("refuses dependency events on a tag-scoped rule, switching to tag scope with dependency events, empty event lists, and empty patches", async () => {
+    prisma.notificationRule.findFirst.mockResolvedValueOnce({
+      id: "r1",
+      channel: "DISCORD_WEBHOOK",
+      tagId: "t1",
+      events: ["RELEASES"],
+      onlyMajorReleases: false,
+    });
+    expect(await updateNotificationRuleAction({ ruleId: "r1", events: ["DEPENDENCY_PULL_REQUESTS"] })).toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
-    expect(await updateNotificationRuleEventsAction({ ruleId: "r1", events: [] })).toMatchObject({
+
+    prisma.notificationRule.findFirst.mockResolvedValueOnce({
+      id: "r1",
+      channel: "DISCORD_WEBHOOK",
+      tagId: null,
+      events: ["RELEASES", "DEPENDENCY_UPDATES"],
+      onlyMajorReleases: false,
+    });
+    expect(await updateNotificationRuleAction({ ruleId: "r1", tagId: "t1" })).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_INPUT" },
+    });
+
+    expect(await updateNotificationRuleAction({ ruleId: "r1", events: [] })).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_INPUT" },
+    });
+    expect(await updateNotificationRuleAction({ ruleId: "r1" })).toMatchObject({
       ok: false,
       error: { code: "INVALID_INPUT" },
     });
