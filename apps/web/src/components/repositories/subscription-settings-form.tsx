@@ -27,6 +27,7 @@ import { formatVersionStatus, type VersionStatus } from "@/lib/version-compare";
 import { updateSubscriptionSettingsAction } from "@/server/actions/repositories";
 
 type Patch = Omit<SubscriptionSettingsInput, "subscriptionId">;
+type FieldErrorState = { field: string; message: string } | null;
 
 function Row({
   label,
@@ -50,9 +51,208 @@ function Row({
   );
 }
 
+function FieldError({ error, field }: { error: FieldErrorState; field: string }) {
+  if (error?.field !== field) return null;
+  return (
+    <p role="alert" className="text-sm text-destructive">
+      {error.message}
+    </p>
+  );
+}
+
 /** Local `YYYY-MM-DD` of a date, for `<input type="date">`. */
 function dateInputValue(date: Date): string {
   return format(date, "yyyy-MM-dd");
+}
+
+function SnoozeControl({
+  id,
+  fullName,
+  snoozed,
+  snoozedUntil,
+  minDate,
+  pending,
+  error,
+  onSave,
+}: {
+  id: string;
+  fullName: string;
+  snoozed: boolean;
+  snoozedUntil: string | null;
+  minDate: string | undefined;
+  pending: boolean;
+  error: FieldErrorState;
+  onSave: (field: string, patch: Patch, success: string) => void;
+}) {
+  const [snoozeDate, setSnoozeDate] = useState("");
+
+  function snoozeUntilDate() {
+    if (!snoozeDate) return;
+    const [y, m, d] = snoozeDate.split("-").map(Number);
+    // Through the end of the chosen day, in the viewer's time zone.
+    const until = new Date(y!, m! - 1, d! + 1);
+    onSave(
+      "snooze",
+      { snoozedUntil: until.toISOString() },
+      `Notifications of ${fullName} snoozed until ${format(until, "PPp")}`,
+    );
+  }
+
+  return (
+    <Row
+      label="Snooze"
+      htmlFor={id}
+      hint="Pause external notifications for a while. Nothing is sent for what happened meanwhile."
+    >
+      {snoozed && snoozedUntil ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-500/10 px-2 py-1 text-sm text-amber-800 dark:text-amber-300">
+            <BellOffIcon className="size-3.5" aria-hidden />
+            Snoozed until <LocalDateTime date={snoozedUntil} />
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={pending}
+            onClick={() => onSave("snooze", { snoozedUntil: null }, "Snooze ended")}
+          >
+            End snooze
+          </Button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          {SNOOZE_PRESETS.map((preset) => (
+            <Button
+              key={preset.key}
+              variant="outline"
+              size="sm"
+              disabled={pending}
+              onClick={() => {
+                const until = snoozeUntil(preset.days);
+                onSave(
+                  "snooze",
+                  { snoozedUntil: until.toISOString() },
+                  `Notifications of ${fullName} snoozed for ${preset.label}`,
+                );
+              }}
+            >
+              {preset.label}
+            </Button>
+          ))}
+          <div className="flex items-center gap-2">
+            <Input
+              id={id}
+              type="date"
+              value={snoozeDate}
+              min={minDate}
+              onChange={(event) => setSnoozeDate(event.target.value)}
+              className="h-8 w-40"
+              aria-label="Snooze until the end of"
+            />
+            <Button variant="outline" size="sm" disabled={pending || !snoozeDate} onClick={snoozeUntilDate}>
+              Snooze until
+            </Button>
+          </div>
+        </div>
+      )}
+      <FieldError error={error} field="snooze" />
+    </Row>
+  );
+}
+
+function NoteRow({
+  id,
+  noteDraft,
+  noteDirty,
+  pending,
+  error,
+  onChange,
+  onSubmit,
+}: {
+  id: string;
+  noteDraft: string;
+  noteDirty: boolean;
+  pending: boolean;
+  error: FieldErrorState;
+  onChange: (value: string) => void;
+  onSubmit: (event: SubmitEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <Row
+      label="Note"
+      htmlFor={id}
+      hint="Only you see it. Shown on the repository card and included in the list search."
+    >
+      <form onSubmit={onSubmit} className="grid gap-2">
+        <textarea
+          id={id}
+          value={noteDraft}
+          onChange={(event) => onChange(event.target.value)}
+          maxLength={NOTE_MAX_LENGTH}
+          rows={3}
+          placeholder="Why you track it, what blocks an upgrade…"
+          className="min-h-20 w-full rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs outline-hidden placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm"
+        />
+        <div className="flex items-center gap-2">
+          <Button type="submit" size="sm" disabled={pending || !noteDirty}>
+            Save note
+          </Button>
+          <span className="ml-auto text-xs text-muted-foreground tabular-nums">
+            {noteDraft.length.toLocaleString("en")} / {NOTE_MAX_LENGTH.toLocaleString("en")}
+          </span>
+        </div>
+        <FieldError error={error} field="note" />
+      </form>
+    </Row>
+  );
+}
+
+function MyVersionRow({
+  id,
+  versionDraft,
+  versionDirty,
+  currentVersion,
+  versionStatus,
+  pending,
+  error,
+  onChange,
+  onSubmit,
+}: {
+  id: string;
+  versionDraft: string;
+  versionDirty: boolean;
+  currentVersion: string | null;
+  versionStatus: VersionStatus | null;
+  pending: boolean;
+  error: FieldErrorState;
+  onChange: (value: string) => void;
+  onSubmit: (event: SubmitEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <Row label="My version" htmlFor={id} hint="The version you run. Releases newer than it are marked in the feed.">
+      <form onSubmit={onSubmit} className="flex flex-wrap items-center gap-2">
+        <Input
+          id={id}
+          value={versionDraft}
+          onChange={(event) => onChange(event.target.value)}
+          maxLength={CURRENT_VERSION_MAX_LENGTH}
+          placeholder="v2.4.1"
+          autoComplete="off"
+          spellCheck={false}
+          className="h-8 w-48 font-mono"
+        />
+        <Button type="submit" size="sm" disabled={pending || !versionDirty}>
+          Save
+        </Button>
+        {currentVersion ? (
+          <span className="text-sm text-muted-foreground">
+            {versionStatus ? formatVersionStatus(versionStatus) : "No stored release matches this version."}
+          </span>
+        ) : null}
+      </form>
+      <FieldError error={error} field="version" />
+    </Row>
+  );
 }
 
 /**
@@ -85,8 +285,7 @@ export function SubscriptionSettingsForm({
   const [level, setLevel] = useOptimistic(notificationLevel);
   const [noteDraft, setNoteDraft] = useState(note ?? "");
   const [versionDraft, setVersionDraft] = useState(currentVersion ?? "");
-  const [snoozeDate, setSnoozeDate] = useState("");
-  const [error, setError] = useState<{ field: string; message: string } | null>(null);
+  const [error, setError] = useState<FieldErrorState>(null);
   const ids = { level: useId(), note: useId(), version: useId(), snooze: useId() };
 
   // Saved values changed (here, or "Set as my version" in the reader): follow them.
@@ -117,14 +316,6 @@ export function SubscriptionSettingsForm({
     });
   }
 
-  function errorFor(field: string) {
-    return error?.field === field ? (
-      <p role="alert" className="text-sm text-destructive">
-        {error.message}
-      </p>
-    ) : null;
-  }
-
   function submitNote(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     save("note", { note: noteDraft.trim() ? noteDraft : null }, noteDraft.trim() ? "Note saved" : "Note removed");
@@ -140,21 +331,7 @@ export function SubscriptionSettingsForm({
     );
   }
 
-  function snoozeUntilDate() {
-    if (!snoozeDate) return;
-    const [y, m, d] = snoozeDate.split("-").map(Number);
-    // Through the end of the chosen day, in the viewer's time zone.
-    const until = new Date(y!, m! - 1, d! + 1);
-    save(
-      "snooze",
-      { snoozedUntil: until.toISOString() },
-      `Notifications of ${fullName} snoozed until ${format(until, "PPp")}`,
-    );
-  }
-
   const levelOption = NOTIFICATION_LEVEL_OPTIONS.find((option) => option.value === level);
-  const noteDirty = noteDraft !== (note ?? "");
-  const versionDirty = versionDraft.trim() !== (currentVersion ?? "");
 
   return (
     <div className="grid gap-6">
@@ -192,123 +369,42 @@ export function SubscriptionSettingsForm({
             Notification rules
           </Link>
         </p>
-        {errorFor("level")}
+        <FieldError error={error} field="level" />
       </Row>
 
-      <Row
-        label="Snooze"
-        htmlFor={ids.snooze}
-        hint="Pause external notifications for a while. Nothing is sent for what happened meanwhile."
-      >
-        {snoozed && snoozedUntil ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-500/10 px-2 py-1 text-sm text-amber-800 dark:text-amber-300">
-              <BellOffIcon className="size-3.5" aria-hidden />
-              Snoozed until <LocalDateTime date={snoozedUntil} />
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={pending}
-              onClick={() => save("snooze", { snoozedUntil: null }, "Snooze ended")}
-            >
-              End snooze
-            </Button>
-          </div>
-        ) : (
-          <div className="flex flex-wrap items-center gap-2">
-            {SNOOZE_PRESETS.map((preset) => (
-              <Button
-                key={preset.key}
-                variant="outline"
-                size="sm"
-                disabled={pending}
-                onClick={() => {
-                  const until = snoozeUntil(preset.days);
-                  save(
-                    "snooze",
-                    { snoozedUntil: until.toISOString() },
-                    `Notifications of ${fullName} snoozed for ${preset.label}`,
-                  );
-                }}
-              >
-                {preset.label}
-              </Button>
-            ))}
-            <div className="flex items-center gap-2">
-              <Input
-                id={ids.snooze}
-                type="date"
-                value={snoozeDate}
-                min={minDate}
-                onChange={(event) => setSnoozeDate(event.target.value)}
-                className="h-8 w-40"
-                aria-label="Snooze until the end of"
-              />
-              <Button variant="outline" size="sm" disabled={pending || !snoozeDate} onClick={snoozeUntilDate}>
-                Snooze until
-              </Button>
-            </div>
-          </div>
-        )}
-        {errorFor("snooze")}
-      </Row>
+      <SnoozeControl
+        id={ids.snooze}
+        fullName={fullName}
+        snoozed={snoozed}
+        snoozedUntil={snoozedUntil}
+        minDate={minDate}
+        pending={pending}
+        error={error}
+        onSave={save}
+      />
 
-      <Row
-        label="Note"
-        htmlFor={ids.note}
-        hint="Only you see it. Shown on the repository card and included in the list search."
-      >
-        <form onSubmit={submitNote} className="grid gap-2">
-          <textarea
-            id={ids.note}
-            value={noteDraft}
-            onChange={(event) => setNoteDraft(event.target.value)}
-            maxLength={NOTE_MAX_LENGTH}
-            rows={3}
-            placeholder="Why you track it, what blocks an upgrade…"
-            className="min-h-20 w-full rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs outline-hidden placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 md:text-sm"
-          />
-          <div className="flex items-center gap-2">
-            <Button type="submit" size="sm" disabled={pending || !noteDirty}>
-              Save note
-            </Button>
-            <span className="ml-auto text-xs text-muted-foreground tabular-nums">
-              {noteDraft.length.toLocaleString("en")} / {NOTE_MAX_LENGTH.toLocaleString("en")}
-            </span>
-          </div>
-          {errorFor("note")}
-        </form>
-      </Row>
+      <NoteRow
+        id={ids.note}
+        noteDraft={noteDraft}
+        noteDirty={noteDraft !== (note ?? "")}
+        pending={pending}
+        error={error}
+        onChange={setNoteDraft}
+        onSubmit={submitNote}
+      />
 
       {tracksReleases ? (
-        <Row
-          label="My version"
-          htmlFor={ids.version}
-          hint="The version you run. Releases newer than it are marked in the feed."
-        >
-          <form onSubmit={submitVersion} className="flex flex-wrap items-center gap-2">
-            <Input
-              id={ids.version}
-              value={versionDraft}
-              onChange={(event) => setVersionDraft(event.target.value)}
-              maxLength={CURRENT_VERSION_MAX_LENGTH}
-              placeholder="v2.4.1"
-              autoComplete="off"
-              spellCheck={false}
-              className="h-8 w-48 font-mono"
-            />
-            <Button type="submit" size="sm" disabled={pending || !versionDirty}>
-              Save
-            </Button>
-            {currentVersion ? (
-              <span className="text-sm text-muted-foreground">
-                {versionStatus ? formatVersionStatus(versionStatus) : "No stored release matches this version."}
-              </span>
-            ) : null}
-          </form>
-          {errorFor("version")}
-        </Row>
+        <MyVersionRow
+          id={ids.version}
+          versionDraft={versionDraft}
+          versionDirty={versionDraft.trim() !== (currentVersion ?? "")}
+          currentVersion={currentVersion}
+          versionStatus={versionStatus}
+          pending={pending}
+          error={error}
+          onChange={setVersionDraft}
+          onSubmit={submitVersion}
+        />
       ) : null}
     </div>
   );

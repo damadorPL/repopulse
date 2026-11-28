@@ -63,9 +63,7 @@ export function SseListener() {
       }
     };
 
-    if (typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", onVisibilityChange);
-    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     const refresh = () => {
       if (refreshTimer) clearTimeout(refreshTimer);
@@ -189,9 +187,7 @@ export function SseListener() {
 
     return () => {
       source.close();
-      if (typeof document !== "undefined") {
-        document.removeEventListener("visibilitychange", onVisibilityChange);
-      }
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       if (flushTimer) clearTimeout(flushTimer);
       if (refreshTimer) clearTimeout(refreshTimer);
     };

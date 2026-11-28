@@ -3,7 +3,8 @@
 import { format } from "date-fns";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Suspense, use, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { browser } from "react-dom";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -24,6 +25,7 @@ const emptySubscribe = () => () => {};
 let cachedClientNow: Date | null = null;
 const getClientNow = () => (cachedClientNow ??= new Date());
 const getServerNow = () => null;
+const CLIENT_ACTIVITY_GRID = browser("Activity heatmap buckets updates by the viewer's local day");
 
 /**
  * The current time on the client. `null` during the server render and hydration: bucketing by
@@ -58,6 +60,136 @@ const WEEKDAY_ROWS = [
   { key: "sat", label: "" },
 ] as const;
 
+function ActivityHeatmap({
+  weeks,
+  months,
+  buckets,
+  thresholds,
+  onOpenBucket,
+}: {
+  weeks: ReturnType<typeof buildWeeks>;
+  months: ReturnType<typeof monthLabels>;
+  buckets: Map<string, DayBucket>;
+  thresholds: ReturnType<typeof activityThresholds>;
+  onOpenBucket: (bucket: DayBucket) => void;
+}) {
+  return (
+    <div className="inline-grid min-w-max grid-cols-[auto_1fr] gap-x-2 text-[10px] text-muted-foreground">
+      <span />
+      <div className="relative h-4" style={{ width: `${weeks.length * 13 - 3}px` }} aria-hidden>
+        {months.map((month) => (
+          <span
+            key={`${month.index}-${month.label}`}
+            className="absolute top-0"
+            style={{ left: `${month.index * 13}px` }}
+          >
+            {month.label}
+          </span>
+        ))}
+      </div>
+      <div className="grid grid-rows-7 gap-[3px]" aria-hidden>
+        {WEEKDAY_ROWS.map((row) => (
+          <span key={row.key} className="h-2.5 leading-[10px]">
+            {row.label}
+          </span>
+        ))}
+      </div>
+      <div
+        className="grid grid-flow-col grid-rows-7 gap-[3px]"
+        role="group"
+        aria-label="Updates per day over the last year"
+      >
+        {weeks.flatMap((week) =>
+          week.map((day) => {
+            if (day.outOfRange) return <span key={day.key} className="size-2.5" aria-hidden />;
+            const bucket = buckets.get(day.key);
+            const level = levelFor(bucket?.count ?? 0, thresholds);
+            const label = describeDay(day.date, bucket);
+            return (
+              <button
+                key={day.key}
+                type="button"
+                title={label}
+                aria-label={label}
+                disabled={!bucket}
+                onClick={() => bucket && onOpenBucket(bucket)}
+                className={cn(
+                  "size-2.5 rounded-[2px] outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default",
+                  LEVEL_CLASSES[level],
+                  bucket?.hasMajor && "ring-1 ring-amber-500 ring-offset-1 ring-offset-card dark:ring-amber-400",
+                )}
+              />
+            );
+          }),
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ClientActivityHeatmap({ repositoryId, items }: { repositoryId: string; items: ActivityItem[] }) {
+  use(CLIENT_ACTIVITY_GRID);
+  const router = useRouter();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const now = getClientNow();
+  const buckets = bucketByLocalDay(items);
+  const weeks = buildWeeks(now);
+  const months = monthLabels(weeks);
+  const thresholds = activityThresholds([...buckets.values()].map((b) => b.count));
+
+  // Newest week in view on narrow screens.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollLeft = el.scrollWidth;
+  }, []);
+
+  return (
+    <div ref={scrollRef} className="overflow-x-auto pb-1">
+      <ActivityHeatmap
+        weeks={weeks}
+        months={months}
+        buckets={buckets}
+        thresholds={thresholds}
+        onOpenBucket={(bucket) => router.push(feedHref({ repositoryId }, bucket.newestId))}
+      />
+    </div>
+  );
+}
+
+function ClientActivityHistoryNote({
+  firstStoredAt,
+  truncated,
+  shownCount,
+  total,
+  showHistoryLink,
+}: {
+  firstStoredAt: string | null;
+  truncated: boolean;
+  shownCount: number;
+  total: number;
+  showHistoryLink: boolean;
+}) {
+  use(CLIENT_ACTIVITY_GRID);
+  const weeks = buildWeeks(getClientNow());
+  // "Shallow" history: the stored rows start inside the grid window, so older squares are empty for lack of data.
+  const firstStored = firstStoredAt ? new Date(firstStoredAt) : null;
+  const shallow = weeks.length > 0 && firstStored !== null && firstStored > weeks[0]![0]!.date;
+
+  if (!shallow && !truncated) return null;
+  return (
+    <p className="text-xs text-muted-foreground">
+      {truncated
+        ? `Showing the newest ${shownCount.toLocaleString("en")} updates of the last year.`
+        : `Based on ${total.toLocaleString("en")} stored update${total === 1 ? "" : "s"} since ${format(firstStored!, "d MMM yyyy")}.`}{" "}
+      {shallow && showHistoryLink ? (
+        <Link href="#history" className="font-medium text-foreground hover:underline">
+          Load older releases to fill the grid.
+        </Link>
+      ) : null}
+    </p>
+  );
+}
+
 /**
  * GitHub-style heatmap of a repository's updates over the last 53 weeks (Slice 07). Bucketed in the
  * browser by local day. A day with a major release gets a ring; clicking a day opens its newest
@@ -82,87 +214,22 @@ export function ActivityGrid({
   /** Link the shallow-history note to the History section ("Load older releases"). */
   showHistoryLink: boolean;
 }) {
-  const router = useRouter();
-  const now = useClientNow();
   const [source, setSource] = useState<ActivitySource | "ALL">("ALL");
-  const scrollRef = useRef<HTMLDivElement>(null);
 
   const filtered = source === "ALL" ? items : items.filter((item) => item.source === source);
-  const buckets = now ? bucketByLocalDay(filtered) : new Map<string, DayBucket>();
-  const weeks = now ? buildWeeks(now) : [];
-  const months = monthLabels(weeks);
-  const thresholds = activityThresholds([...buckets.values()].map((b) => b.count));
-
-  // Newest week in view on narrow screens.
-  useLayoutEffect(() => {
-    if (weeks.length === 0) return;
-    const el = scrollRef.current;
-    if (el) el.scrollLeft = el.scrollWidth;
-  }, [weeks.length]);
-
   const filterOptions = SOURCE_FILTERS.filter((option) => option.value === "ALL" || sources.includes(option.value));
-  // "Shallow" history: the stored rows start inside the grid window, so older squares are empty for lack of data.
-  const firstStored = firstStoredAt ? new Date(firstStoredAt) : null;
-  const shallow = weeks.length > 0 && firstStored !== null && firstStored > weeks[0]![0]!.date;
 
   return (
     <div className="space-y-3">
-      <div ref={scrollRef} className="overflow-x-auto pb-1">
-        {now ? (
-          <div className="inline-grid min-w-max grid-cols-[auto_1fr] gap-x-2 text-[10px] text-muted-foreground">
-            <span />
-            <div className="relative h-4" style={{ width: `${weeks.length * 13 - 3}px` }} aria-hidden>
-              {months.map((month) => (
-                <span
-                  key={`${month.index}-${month.label}`}
-                  className="absolute top-0"
-                  style={{ left: `${month.index * 13}px` }}
-                >
-                  {month.label}
-                </span>
-              ))}
-            </div>
-            <div className="grid grid-rows-7 gap-[3px]" aria-hidden>
-              {WEEKDAY_ROWS.map((row) => (
-                <span key={row.key} className="h-2.5 leading-[10px]">
-                  {row.label}
-                </span>
-              ))}
-            </div>
-            <div
-              className="grid grid-flow-col grid-rows-7 gap-[3px]"
-              role="group"
-              aria-label="Updates per day over the last year"
-            >
-              {weeks.flatMap((week) =>
-                week.map((day) => {
-                  if (day.outOfRange) return <span key={day.key} className="size-2.5" aria-hidden />;
-                  const bucket = buckets.get(day.key);
-                  const level = levelFor(bucket?.count ?? 0, thresholds);
-                  const label = describeDay(day.date, bucket);
-                  return (
-                    <button
-                      key={day.key}
-                      type="button"
-                      title={label}
-                      aria-label={label}
-                      disabled={!bucket}
-                      onClick={() => bucket && router.push(feedHref({ repositoryId }, bucket.newestId))}
-                      className={cn(
-                        "size-2.5 rounded-[2px] outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default",
-                        LEVEL_CLASSES[level],
-                        bucket?.hasMajor && "ring-1 ring-amber-500 ring-offset-1 ring-offset-card dark:ring-amber-400",
-                      )}
-                    />
-                  );
-                }),
-              )}
-            </div>
+      <Suspense
+        fallback={
+          <div className="overflow-x-auto pb-1">
+            <Skeleton className="h-[106px] w-full max-w-[700px]" />
           </div>
-        ) : (
-          <Skeleton className="h-[106px] w-full max-w-[700px]" />
-        )}
-      </div>
+        }
+      >
+        <ClientActivityHeatmap repositoryId={repositoryId} items={filtered} />
+      </Suspense>
 
       <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
         {filterOptions.length > 2 ? (
@@ -200,18 +267,15 @@ export function ActivityGrid({
         </div>
       </div>
 
-      {shallow || truncated ? (
-        <p className="text-xs text-muted-foreground">
-          {truncated
-            ? `Showing the newest ${items.length.toLocaleString("en")} updates of the last year.`
-            : `Based on ${total.toLocaleString("en")} stored update${total === 1 ? "" : "s"} since ${format(firstStored!, "d MMM yyyy")}.`}{" "}
-          {shallow && showHistoryLink ? (
-            <Link href="#history" className="font-medium text-foreground hover:underline">
-              Load older releases to fill the grid.
-            </Link>
-          ) : null}
-        </p>
-      ) : null}
+      <Suspense fallback={null}>
+        <ClientActivityHistoryNote
+          firstStoredAt={firstStoredAt}
+          truncated={truncated}
+          shownCount={items.length}
+          total={total}
+          showHistoryLink={showHistoryLink}
+        />
+      </Suspense>
     </div>
   );
 }

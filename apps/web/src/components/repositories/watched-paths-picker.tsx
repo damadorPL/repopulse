@@ -115,7 +115,7 @@ function useRepoTree(repo: string | null, debounceMs: number): TreeState {
   return loaded?.key === key ? loaded.state : { status: "loading" };
 }
 
-// ---- Picker ------------------------------------------------------------------------------
+// ---- Picker helpers & subcomponents ------------------------------------------------------
 
 function KindIcon({ kind, className }: { kind: RepoPathKind | undefined; className?: string }) {
   const Icon = kind === "file" ? FileIcon : FolderIcon;
@@ -148,6 +148,423 @@ function addWatchedPath(current: string[], raw: string): { paths: string[] } | {
   const next = addCoveringPath(current, path);
   if (next.length > MAX_WATCHED_PATHS) return { error: `Watch at most ${MAX_WATCHED_PATHS} paths.` };
   return { paths: next };
+}
+
+function buildPathOptions(
+  index: RepoPathIndex | null,
+  query: string,
+  normalizedDraft: string | null,
+  paths: string[],
+): Option[] {
+  if (!index) return [];
+  const entries: Option[] = searchRepoPaths(index, query, SUGGESTION_LIMIT).map((suggestion) => ({
+    type: "entry",
+    suggestion,
+    covered: coveringPath(suggestion.path, paths),
+  }));
+  // Offer the typed text as-is when it isn't an exact match: a path not on the default branch yet.
+  const exact = entries.some((option) => option.type === "entry" && option.suggestion.path === normalizedDraft);
+  if (normalizedDraft && !exact && !coveringPath(normalizedDraft, paths)) {
+    entries.push({ type: "raw", path: normalizedDraft });
+  }
+  return entries;
+}
+
+function commitWatchedPathsText(
+  paths: string[],
+  text: string,
+): { nextPaths: string[]; rejectedText: string; message: string | null } {
+  let nextPaths = paths;
+  const rejected: string[] = [];
+  let message: string | null = null;
+  for (const entry of text.split(/[\n,]/)) {
+    if (!entry.trim()) continue;
+    const result = addWatchedPath(nextPaths, entry);
+    if ("error" in result) {
+      rejected.push(entry.trim());
+      message ??= result.error;
+    } else {
+      nextPaths = result.paths;
+    }
+  }
+  return { nextPaths, rejectedText: rejected.join(", "), message };
+}
+
+function pickerPlaceholder(atMax: boolean, pathCount: number): string {
+  if (atMax) return `${MAX_WATCHED_PATHS} paths watched`;
+  return pathCount > 0 ? "Add another file or folder…" : WATCHED_PATHS_PLACEHOLDER;
+}
+
+function handleComboboxKeyDown(
+  event: KeyboardEvent<HTMLInputElement>,
+  ctx: {
+    optionsCount: number;
+    activeOption: Option | undefined;
+    showList: boolean;
+    draft: string;
+    paths: string[];
+    setListOpen: (open: boolean) => void;
+    setActive: (updater: (current: number) => number) => void;
+    choose: (option: Option) => void;
+    commitText: (text: string) => void;
+    changeDraft: (next: string) => void;
+    changePaths: (next: string[]) => void;
+  },
+) {
+  switch (event.key) {
+    case "ArrowDown":
+    case "ArrowUp": {
+      if (ctx.optionsCount === 0) return;
+      event.preventDefault();
+      ctx.setListOpen(true);
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      const count = ctx.optionsCount;
+      ctx.setActive((current) => (current < 0 ? (step === 1 ? 0 : count - 1) : (current + step + count) % count));
+      return;
+    }
+    case "Enter":
+      if (ctx.activeOption) {
+        event.preventDefault();
+        ctx.choose(ctx.activeOption);
+      } else if (ctx.draft.trim()) {
+        event.preventDefault();
+        ctx.commitText(ctx.draft);
+      }
+      return;
+    case "Tab":
+      if (!event.shiftKey && ctx.activeOption?.type === "entry" && ctx.activeOption.suggestion.kind === "dir") {
+        const next = `${ctx.activeOption.suggestion.path}/`;
+        if (ctx.draft !== next) {
+          event.preventDefault();
+          ctx.changeDraft(next);
+        }
+      }
+      return;
+    case ",":
+      event.preventDefault();
+      ctx.commitText(ctx.draft);
+      return;
+    case "Backspace":
+      if (ctx.draft === "" && ctx.paths.length > 0) ctx.changePaths(ctx.paths.slice(0, -1));
+      return;
+    case "Escape":
+      if (ctx.showList) {
+        event.preventDefault();
+        event.stopPropagation();
+        ctx.setListOpen(false);
+      }
+      return;
+  }
+}
+
+function WatchedPathChips({
+  paths,
+  tree,
+  onRemove,
+}: {
+  paths: string[];
+  tree: TreeState;
+  onRemove: (path: string) => void;
+}) {
+  if (paths.length === 0) return null;
+  const index = tree.status === "ready" ? tree.index : null;
+  const checkMissing = index !== null && tree.status === "ready" && !tree.tree.truncated;
+
+  return (
+    <ul className="flex flex-wrap gap-1.5" aria-label="Watched paths">
+      {paths.map((path) => {
+        const kind = index?.kinds.get(path);
+        const missing = checkMissing && kind === undefined;
+        return (
+          <li key={path}>
+            <span
+              className={cn(
+                "inline-flex max-w-full items-center gap-1 rounded-md border bg-secondary py-0.5 pr-0.5 pl-1.5 font-mono text-xs",
+                missing && "border-amber-500/40 bg-amber-500/10",
+              )}
+              title={missing ? `${path} is not on the default branch yet. It is still watched.` : path}
+            >
+              <KindIcon kind={kind} />
+              <span className="truncate">{path}</span>
+              <button
+                type="button"
+                onClick={() => onRemove(path)}
+                className="rounded-sm p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
+                aria-label={`Stop watching ${path}`}
+              >
+                <XIcon className="size-3" />
+              </button>
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function suggestionRightHint(covered: string | null, suggestion: PathSuggestion, highlighted: boolean): string | null {
+  if (covered) return covered === suggestion.path ? "Watched" : `In ${covered}/`;
+  if (highlighted && suggestion.kind === "dir") return "Tab to open";
+  return null;
+}
+
+function PathSuggestionsList({
+  listId,
+  options,
+  active,
+  query,
+  onSetActive,
+  onChoose,
+}: {
+  listId: string;
+  options: Option[];
+  active: number;
+  query: string;
+  onSetActive: (index: number) => void;
+  onChoose: (option: Option) => void;
+}) {
+  return (
+    <ul
+      id={listId}
+      role="listbox"
+      aria-label="Matching files and folders"
+      className="max-h-56 overflow-y-auto rounded-md border bg-popover p-1 text-xs shadow-sm"
+    >
+      {options.map((option, position) => {
+        const highlighted = position === active;
+        const common = {
+          id: `${listId}-${position}`,
+          onMouseDown: (event: MouseEvent) => event.preventDefault(),
+          onMouseMove: () => onSetActive(position),
+          onClick: () => onChoose(option),
+        };
+        if (option.type === "raw") {
+          return (
+            <li
+              key="raw"
+              role="option"
+              aria-selected={highlighted}
+              {...common}
+              className={cn(
+                "flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5",
+                highlighted && "bg-accent",
+              )}
+            >
+              <PlusIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+              <span className="min-w-0 truncate">
+                Watch <span className="font-mono">{option.path}</span>
+              </span>
+              <span className="ml-auto shrink-0 text-muted-foreground">not on the default branch</span>
+            </li>
+          );
+        }
+        const { suggestion, covered } = option;
+        return (
+          <li
+            key={suggestion.path}
+            role="option"
+            aria-selected={highlighted}
+            {...common}
+            aria-disabled={covered ? true : undefined}
+            className={cn(
+              "flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5",
+              highlighted && "bg-accent",
+              covered && "cursor-default opacity-60",
+            )}
+          >
+            <KindIcon kind={suggestion.kind} />
+            <span className="min-w-0 truncate font-mono">
+              <Highlighted text={suggestion.path} start={suggestion.matchStart} length={query.length} />
+              {suggestion.kind === "dir" ? "/" : null}
+            </span>
+            <span className="ml-auto shrink-0 text-muted-foreground">
+              {suggestionRightHint(covered, suggestion, highlighted)}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function FolderEntryRow({
+  entry,
+  selected,
+  covered,
+  atMax,
+  onToggle,
+  onOpenFolder,
+}: {
+  entry: RepoPathEntry;
+  selected: boolean;
+  covered: string | null;
+  atMax: boolean;
+  onToggle: (entry: RepoPathEntry) => void;
+  onOpenFolder: (path: string) => void;
+}) {
+  return (
+    <li className="flex items-center gap-2 rounded-sm px-1.5 py-1 hover:bg-accent">
+      <Checkbox
+        checked={selected || covered !== null}
+        disabled={covered !== null || (!selected && atMax)}
+        onCheckedChange={() => onToggle(entry)}
+        aria-label={`Watch ${entry.path}`}
+        title={covered ? `Included in ${covered}/` : undefined}
+      />
+      {entry.kind === "dir" ? (
+        <button
+          type="button"
+          onClick={() => onOpenFolder(entry.path)}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          aria-label={`Open ${entry.path}`}
+        >
+          <KindIcon kind="dir" />
+          <span className="truncate font-mono">{entry.name}</span>
+          <ChevronRightIcon className="ml-auto size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => !covered && (selected || !atMax) && onToggle(entry)}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          tabIndex={-1}
+        >
+          <KindIcon kind="file" />
+          <span className="truncate font-mono">{entry.name}</span>
+        </button>
+      )}
+    </li>
+  );
+}
+
+function RepoFolderBrowser({
+  browserId,
+  repo,
+  folder,
+  index,
+  paths,
+  atMax,
+  onSetFolder,
+  onToggleEntry,
+}: {
+  browserId: string;
+  repo: string | null;
+  folder: string;
+  index: RepoPathIndex;
+  paths: string[];
+  atMax: boolean;
+  onSetFolder: (folder: string) => void;
+  onToggleEntry: (entry: RepoPathEntry) => void;
+}) {
+  const children = index.children.get(folder) ?? [];
+  const folderSegments = folder ? folder.split("/") : [];
+  const pathSet = new Set(paths);
+
+  return (
+    <div id={browserId} className="rounded-md border text-xs">
+      <nav aria-label="Folder" className="flex flex-wrap items-center gap-0.5 border-b px-2 py-1.5">
+        <button
+          type="button"
+          onClick={() => onSetFolder("")}
+          className={cn("rounded-sm px-1 hover:bg-accent", folder === "" && "font-medium")}
+        >
+          {rootLabel(repo)}
+        </button>
+        {folderSegments.map((segment, position) => {
+          const path = folderSegments.slice(0, position + 1).join("/");
+          return (
+            <span key={path} className="flex items-center gap-0.5">
+              <ChevronRightIcon className="size-3 text-muted-foreground" aria-hidden />
+              <button
+                type="button"
+                onClick={() => onSetFolder(path)}
+                className={cn("rounded-sm px-1 font-mono hover:bg-accent", path === folder && "font-medium")}
+                aria-current={path === folder ? "location" : undefined}
+              >
+                {segment}
+              </button>
+            </span>
+          );
+        })}
+      </nav>
+      <ul className="max-h-60 overflow-y-auto p-1">
+        {folder !== "" ? (
+          <li>
+            <button
+              type="button"
+              onClick={() => onSetFolder(folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "")}
+              className="flex w-full items-center gap-2 rounded-sm px-1.5 py-1 text-muted-foreground hover:bg-accent"
+            >
+              <CornerLeftUpIcon className="size-3.5" aria-hidden />
+              Up
+            </button>
+          </li>
+        ) : null}
+        {children.slice(0, BROWSER_ROW_LIMIT).map((entry) => {
+          const selected = pathSet.has(entry.path);
+          const covered = selected ? null : coveringPath(entry.path, paths);
+          return (
+            <FolderEntryRow
+              key={entry.path}
+              entry={entry}
+              selected={selected}
+              covered={covered}
+              atMax={atMax}
+              onToggle={onToggleEntry}
+              onOpenFolder={onSetFolder}
+            />
+          );
+        })}
+        {children.length > BROWSER_ROW_LIMIT ? (
+          <li className="px-1.5 py-1 text-muted-foreground">
+            …and {children.length - BROWSER_ROW_LIMIT} more. Type a name above to find them.
+          </li>
+        ) : null}
+        {children.length === 0 ? <li className="px-1.5 py-1 text-muted-foreground">Empty folder.</li> : null}
+      </ul>
+    </div>
+  );
+}
+
+function TreeStatusMessage({ tree }: { tree: TreeState }) {
+  if (tree.status === "idle") return "Enter the repository to browse its files.";
+  if (tree.status === "loading") {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <LoaderCircleIcon className="size-3 motion-safe:animate-spin" aria-hidden />
+        Loading files…
+      </span>
+    );
+  }
+  if (tree.status === "error") {
+    return `Couldn't list the files: ${tree.message.replace(/\.$/, "")}. You can still type paths.`;
+  }
+  return `${tree.tree.dirs.length.toLocaleString("en")} folders, ${tree.tree.files.length.toLocaleString("en")} files on ${tree.tree.defaultBranch}.${
+    tree.tree.truncated ? " Large repository: not every file is listed, type any path." : ""
+  }`;
+}
+
+function PickerStatusBar({
+  statusId,
+  tree,
+  pathCount,
+  atMax,
+}: {
+  statusId: string;
+  tree: TreeState;
+  pathCount: number;
+  atMax: boolean;
+}) {
+  return (
+    <p id={statusId} className="flex items-start justify-between gap-3 text-xs text-muted-foreground">
+      <span className="min-w-0">
+        <TreeStatusMessage tree={tree} />
+      </span>
+      <span className={cn("shrink-0 tabular-nums", atMax && "text-foreground")}>
+        {pathCount}/{MAX_WATCHED_PATHS}
+      </span>
+    </p>
+  );
 }
 
 /**
@@ -205,21 +622,7 @@ export function WatchedPathsPicker({
 
   const atMax = paths.length >= MAX_WATCHED_PATHS;
   const query = draft.trim().replace(/^(\.\/|\/)+/, "");
-  const normalizedDraft = normalizeWatchedPath(draft);
-
-  const entries: Option[] = index
-    ? searchRepoPaths(index, query, SUGGESTION_LIMIT).map((suggestion) => ({
-        type: "entry",
-        suggestion,
-        covered: coveringPath(suggestion.path, paths),
-      }))
-    : [];
-  // Offer the typed text as-is when it isn't an exact match: a path not on the default branch yet.
-  const exact = entries.some((option) => option.type === "entry" && option.suggestion.path === normalizedDraft);
-  if (index && normalizedDraft && !exact && !coveringPath(normalizedDraft, paths))
-    entries.push({ type: "raw", path: normalizedDraft });
-  const options = entries;
-
+  const options = buildPathOptions(index, query, normalizeWatchedPath(draft), paths);
   const showList = listOpen && options.length > 0;
   const activeOption = showList && active >= 0 && active < options.length ? options[active] : undefined;
 
@@ -238,27 +641,16 @@ export function WatchedPathsPicker({
 
   /** Commits typed or pasted text (comma- or newline-separated). Invalid entries stay in the field. */
   function commitText(text: string): void {
-    let next = paths;
-    const rejected: string[] = [];
-    let message: string | null = null;
-    for (const entry of text.split(/[\n,]/)) {
-      if (!entry.trim()) continue;
-      const result = addWatchedPath(next, entry);
-      if ("error" in result) {
-        rejected.push(entry.trim());
-        message ??= result.error;
-      } else next = result.paths;
-    }
-    if (next !== paths) onPathsChange(next);
-    onDraftChange(rejected.join(", "));
+    const { nextPaths, rejectedText, message } = commitWatchedPathsText(paths, text);
+    if (nextPaths !== paths) onPathsChange(nextPaths);
+    onDraftChange(rejectedText);
     setLocalError(message);
     setActive(-1);
   }
 
   function choose(option: Option) {
     if (option.type === "raw") return commitText(option.path);
-    if (option.covered) return;
-    commitText(option.suggestion.path);
+    if (!option.covered) commitText(option.suggestion.path);
   }
 
   function toggleEntry(entry: RepoPathEntry) {
@@ -268,92 +660,11 @@ export function WatchedPathsPicker({
     else changePaths(result.paths);
   }
 
-  function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    const count = options.length;
-    switch (event.key) {
-      case "ArrowDown":
-      case "ArrowUp": {
-        if (count === 0) return;
-        event.preventDefault();
-        setListOpen(true);
-        const step = event.key === "ArrowDown" ? 1 : -1;
-        setActive((current) => (current < 0 ? (step === 1 ? 0 : count - 1) : (current + step + count) % count));
-        return;
-      }
-      case "Enter":
-        if (activeOption) {
-          event.preventDefault();
-          choose(activeOption);
-        } else if (draft.trim()) {
-          event.preventDefault();
-          commitText(draft);
-        }
-        // Otherwise the form submits.
-        return;
-      case "Tab":
-        // Tab into a highlighted folder: keep typing below it.
-        if (!event.shiftKey && activeOption?.type === "entry" && activeOption.suggestion.kind === "dir") {
-          const next = `${activeOption.suggestion.path}/`;
-          if (draft !== next) {
-            event.preventDefault();
-            changeDraft(next);
-          }
-        }
-        return;
-      case ",":
-        event.preventDefault();
-        commitText(draft);
-        return;
-      case "Backspace":
-        if (draft === "" && paths.length > 0) changePaths(paths.slice(0, -1));
-        return;
-      case "Escape":
-        if (showList) {
-          event.preventDefault();
-          event.stopPropagation();
-          setListOpen(false);
-        }
-        return;
-    }
-  }
-
   const shownError = localError ?? error ?? null;
-  const children = index ? (index.children.get(folder) ?? []) : [];
-  const folderSegments = folder ? folder.split("/") : [];
-  const pathSet = new Set(paths);
 
   return (
     <div className="grid gap-2">
-      {paths.length > 0 ? (
-        <ul className="flex flex-wrap gap-1.5" aria-label="Watched paths">
-          {paths.map((path) => {
-            const kind = index?.kinds.get(path);
-            const missing = index !== null && tree.status === "ready" && !tree.tree.truncated && kind === undefined;
-            return (
-              <li key={path}>
-                <span
-                  className={cn(
-                    "inline-flex max-w-full items-center gap-1 rounded-md border bg-secondary py-0.5 pr-0.5 pl-1.5 font-mono text-xs",
-                    missing && "border-amber-500/40 bg-amber-500/10",
-                  )}
-                  title={missing ? `${path} is not on the default branch yet. It is still watched.` : path}
-                >
-                  <KindIcon kind={kind} />
-                  <span className="truncate">{path}</span>
-                  <button
-                    type="button"
-                    onClick={() => changePaths(paths.filter((p) => p !== path))}
-                    className="rounded-sm p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
-                    aria-label={`Stop watching ${path}`}
-                  >
-                    <XIcon className="size-3" />
-                  </button>
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
+      <WatchedPathChips paths={paths} tree={tree} onRemove={(path) => changePaths(paths.filter((p) => p !== path))} />
 
       <div className="flex gap-2">
         <div className="relative min-w-0 flex-1">
@@ -370,7 +681,21 @@ export function WatchedPathsPicker({
             aria-describedby={[statusId, shownError ? errorId : null, describedBy].filter(Boolean).join(" ")}
             value={draft}
             onChange={(event) => changeDraft(event.target.value)}
-            onKeyDown={onKeyDown}
+            onKeyDown={(event) =>
+              handleComboboxKeyDown(event, {
+                optionsCount: options.length,
+                activeOption,
+                showList,
+                draft,
+                paths,
+                setListOpen,
+                setActive,
+                choose,
+                commitText,
+                changeDraft,
+                changePaths,
+              })
+            }
             onFocus={() => setListOpen(true)}
             onBlur={() => setListOpen(false)}
             onPaste={(event) => {
@@ -379,13 +704,7 @@ export function WatchedPathsPicker({
               event.preventDefault();
               commitText(`${draft}${text}`);
             }}
-            placeholder={
-              atMax
-                ? `${MAX_WATCHED_PATHS} paths watched`
-                : paths.length > 0
-                  ? "Add another file or folder…"
-                  : WATCHED_PATHS_PLACEHOLDER
-            }
+            placeholder={pickerPlaceholder(atMax, paths.length)}
             autoComplete="off"
             spellCheck={false}
             className="h-8 pl-8 font-mono text-xs"
@@ -407,183 +726,30 @@ export function WatchedPathsPicker({
       </div>
 
       {showList ? (
-        <ul
-          id={listId}
-          role="listbox"
-          aria-label="Matching files and folders"
-          className="max-h-56 overflow-y-auto rounded-md border bg-popover p-1 text-xs shadow-sm"
-        >
-          {options.map((option, position) => {
-            const highlighted = position === active;
-            const common = {
-              id: `${listId}-${position}`,
-              onMouseDown: (event: MouseEvent) => event.preventDefault(),
-              onMouseMove: () => setActive(position),
-              onClick: () => choose(option),
-            };
-            if (option.type === "raw") {
-              return (
-                <li
-                  key="raw"
-                  role="option"
-                  aria-selected={highlighted}
-                  {...common}
-                  className={cn(
-                    "flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5",
-                    highlighted && "bg-accent",
-                  )}
-                >
-                  <PlusIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                  <span className="min-w-0 truncate">
-                    Watch <span className="font-mono">{option.path}</span>
-                  </span>
-                  <span className="ml-auto shrink-0 text-muted-foreground">not on the default branch</span>
-                </li>
-              );
-            }
-            const { suggestion, covered } = option;
-            return (
-              <li
-                key={suggestion.path}
-                role="option"
-                aria-selected={highlighted}
-                {...common}
-                aria-disabled={covered ? true : undefined}
-                className={cn(
-                  "flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5",
-                  highlighted && "bg-accent",
-                  covered && "cursor-default opacity-60",
-                )}
-              >
-                <KindIcon kind={suggestion.kind} />
-                <span className="min-w-0 truncate font-mono">
-                  <Highlighted text={suggestion.path} start={suggestion.matchStart} length={query.length} />
-                  {suggestion.kind === "dir" ? "/" : null}
-                </span>
-                <span className="ml-auto shrink-0 text-muted-foreground">
-                  {covered
-                    ? covered === suggestion.path
-                      ? "Watched"
-                      : `In ${covered}/`
-                    : highlighted && suggestion.kind === "dir"
-                      ? "Tab to open"
-                      : null}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
+        <PathSuggestionsList
+          listId={listId}
+          options={options}
+          active={active}
+          query={query}
+          onSetActive={setActive}
+          onChoose={choose}
+        />
       ) : null}
 
       {browsing && index ? (
-        <div id={browserId} className="rounded-md border text-xs">
-          <nav aria-label="Folder" className="flex flex-wrap items-center gap-0.5 border-b px-2 py-1.5">
-            <button
-              type="button"
-              onClick={() => setFolder("")}
-              className={cn("rounded-sm px-1 hover:bg-accent", folder === "" && "font-medium")}
-            >
-              {rootLabel(repo)}
-            </button>
-            {folderSegments.map((segment, position) => {
-              const path = folderSegments.slice(0, position + 1).join("/");
-              return (
-                <span key={path} className="flex items-center gap-0.5">
-                  <ChevronRightIcon className="size-3 text-muted-foreground" aria-hidden />
-                  <button
-                    type="button"
-                    onClick={() => setFolder(path)}
-                    className={cn("rounded-sm px-1 font-mono hover:bg-accent", path === folder && "font-medium")}
-                    aria-current={path === folder ? "location" : undefined}
-                  >
-                    {segment}
-                  </button>
-                </span>
-              );
-            })}
-          </nav>
-          <ul className="max-h-60 overflow-y-auto p-1">
-            {folder !== "" ? (
-              <li>
-                <button
-                  type="button"
-                  onClick={() => setFolder(folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "")}
-                  className="flex w-full items-center gap-2 rounded-sm px-1.5 py-1 text-muted-foreground hover:bg-accent"
-                >
-                  <CornerLeftUpIcon className="size-3.5" aria-hidden />
-                  Up
-                </button>
-              </li>
-            ) : null}
-            {children.slice(0, BROWSER_ROW_LIMIT).map((entry) => {
-              const selected = pathSet.has(entry.path);
-              const covered = selected ? null : coveringPath(entry.path, paths);
-              return (
-                <li key={entry.path} className="flex items-center gap-2 rounded-sm px-1.5 py-1 hover:bg-accent">
-                  <Checkbox
-                    checked={selected || covered !== null}
-                    disabled={covered !== null || (!selected && atMax)}
-                    onCheckedChange={() => toggleEntry(entry)}
-                    aria-label={`Watch ${entry.path}`}
-                    title={covered ? `Included in ${covered}/` : undefined}
-                  />
-                  {entry.kind === "dir" ? (
-                    <button
-                      type="button"
-                      onClick={() => setFolder(entry.path)}
-                      className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-                      aria-label={`Open ${entry.path}`}
-                    >
-                      <KindIcon kind="dir" />
-                      <span className="truncate font-mono">{entry.name}</span>
-                      <ChevronRightIcon className="ml-auto size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => !covered && (selected || !atMax) && toggleEntry(entry)}
-                      className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-                      tabIndex={-1}
-                    >
-                      <KindIcon kind="file" />
-                      <span className="truncate font-mono">{entry.name}</span>
-                    </button>
-                  )}
-                </li>
-              );
-            })}
-            {children.length > BROWSER_ROW_LIMIT ? (
-              <li className="px-1.5 py-1 text-muted-foreground">
-                …and {children.length - BROWSER_ROW_LIMIT} more. Type a name above to find them.
-              </li>
-            ) : null}
-            {children.length === 0 ? <li className="px-1.5 py-1 text-muted-foreground">Empty folder.</li> : null}
-          </ul>
-        </div>
+        <RepoFolderBrowser
+          browserId={browserId}
+          repo={repo}
+          folder={folder}
+          index={index}
+          paths={paths}
+          atMax={atMax}
+          onSetFolder={setFolder}
+          onToggleEntry={toggleEntry}
+        />
       ) : null}
 
-      <p id={statusId} className="flex items-start justify-between gap-3 text-xs text-muted-foreground">
-        <span className="min-w-0">
-          {tree.status === "idle" ? "Enter the repository to browse its files." : null}
-          {tree.status === "loading" ? (
-            <span className="inline-flex items-center gap-1.5">
-              <LoaderCircleIcon className="size-3 motion-safe:animate-spin" aria-hidden />
-              Loading files…
-            </span>
-          ) : null}
-          {tree.status === "error"
-            ? `Couldn't list the files: ${tree.message.replace(/\.$/, "")}. You can still type paths.`
-            : null}
-          {tree.status === "ready"
-            ? `${tree.tree.dirs.length.toLocaleString("en")} folders, ${tree.tree.files.length.toLocaleString("en")} files on ${tree.tree.defaultBranch}.${
-                tree.tree.truncated ? " Large repository: not every file is listed, type any path." : ""
-              }`
-            : null}
-        </span>
-        <span className={cn("shrink-0 tabular-nums", atMax && "text-foreground")}>
-          {paths.length}/{MAX_WATCHED_PATHS}
-        </span>
-      </p>
+      <PickerStatusBar statusId={statusId} tree={tree} pathCount={paths.length} atMax={atMax} />
 
       {shownError ? (
         <p id={errorId} role="alert" className="text-xs text-destructive">

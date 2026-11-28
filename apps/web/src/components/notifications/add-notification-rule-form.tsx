@@ -28,6 +28,94 @@ import type { TagPill } from "@/server/queries/feed";
 /** Radix Select can't hold an empty value, so "all repositories" gets a sentinel. */
 const ALL = "__all__";
 
+function DestinationHint({
+  hint,
+  emailUnavailable,
+  canConfigureSmtp,
+}: {
+  hint: string;
+  emailUnavailable: boolean;
+  canConfigureSmtp: boolean;
+}) {
+  if (!emailUnavailable) return hint;
+  if (canConfigureSmtp) {
+    return (
+      <>
+        Email needs an SMTP server.{" "}
+        <Link href="/admin/email" className="font-medium text-foreground underline underline-offset-2">
+          Set it up in Admin → Email
+        </Link>
+        .
+      </>
+    );
+  }
+  return "Email isn't set up on this RepoPulse instance yet. Ask the super admin to configure SMTP.";
+}
+
+function RuleScopeFields({
+  channel,
+  scope,
+  tags,
+  smtpConfigured,
+  onChannelChange,
+  onScopeChange,
+}: {
+  channel: DeliverableChannel;
+  scope: string;
+  tags: TagPill[];
+  smtpConfigured: boolean;
+  onChannelChange: (channel: DeliverableChannel) => void;
+  onScopeChange: (scope: string) => void;
+}) {
+  return (
+    /* items-start: the Repositories column can carry a hint, which would otherwise stretch the Channel column. */
+    <div className="grid items-start gap-4 sm:grid-cols-2">
+      <div className="grid gap-2">
+        <Label htmlFor="rule-channel">Channel</Label>
+        <Select value={channel} onValueChange={(value) => onChannelChange(value as DeliverableChannel)}>
+          <SelectTrigger id="rule-channel" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {DELIVERABLE_CHANNELS.map((value) => (
+              <SelectItem key={value} value={value}>
+                <ChannelGlyph channel={value} className="text-muted-foreground" />
+                {CHANNEL_INFO[value].label}
+                {value === "EMAIL_INSTANT" && !smtpConfigured ? (
+                  <span className="text-xs text-muted-foreground">· SMTP not configured</span>
+                ) : null}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="rule-scope">Repositories</Label>
+        <Select value={scope} onValueChange={onScopeChange}>
+          <SelectTrigger id="rule-scope" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>All repositories</SelectItem>
+            {tags.map((tag) => (
+              <SelectItem key={tag.id} value={tag.id}>
+                <TagDot color={tag.colorHex} />
+                Tagged “{tag.name}”
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {tags.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            Create tags in the sidebar to limit a rule to some repositories.
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function AddNotificationRuleForm({
   tags,
   smtpConfigured,
@@ -102,58 +190,18 @@ export function AddNotificationRuleForm({
         </p>
       </div>
 
-      {/* items-start: the Repositories column can carry a hint, which would otherwise stretch the Channel column. */}
-      <div className="grid items-start gap-4 sm:grid-cols-2">
-        <div className="grid gap-2">
-          <Label htmlFor="rule-channel">Channel</Label>
-          <Select
-            value={channel}
-            onValueChange={(value) => {
-              setChannel(value as DeliverableChannel);
-              setDestination("");
-              setError(null);
-            }}
-          >
-            <SelectTrigger id="rule-channel" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {DELIVERABLE_CHANNELS.map((value) => (
-                <SelectItem key={value} value={value}>
-                  <ChannelGlyph channel={value} className="text-muted-foreground" />
-                  {CHANNEL_INFO[value].label}
-                  {value === "EMAIL_INSTANT" && !smtpConfigured ? (
-                    <span className="text-xs text-muted-foreground">· SMTP not configured</span>
-                  ) : null}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="rule-scope">Repositories</Label>
-          <Select value={scope} onValueChange={setScope}>
-            <SelectTrigger id="rule-scope" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>All repositories</SelectItem>
-              {tags.map((tag) => (
-                <SelectItem key={tag.id} value={tag.id}>
-                  <TagDot color={tag.colorHex} />
-                  Tagged “{tag.name}”
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {tags.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              Create tags in the sidebar to limit a rule to some repositories.
-            </p>
-          ) : null}
-        </div>
-      </div>
+      <RuleScopeFields
+        channel={channel}
+        scope={scope}
+        tags={tags}
+        smtpConfigured={smtpConfigured}
+        onChannelChange={(next) => {
+          setChannel(next);
+          setDestination("");
+          setError(null);
+        }}
+        onScopeChange={setScope}
+      />
 
       <div className="grid gap-2">
         <Label htmlFor="rule-destination">{info.destinationLabel}</Label>
@@ -173,19 +221,7 @@ export function AddNotificationRuleForm({
           aria-describedby="rule-destination-hint"
         />
         <p id="rule-destination-hint" className="text-xs text-muted-foreground">
-          {!emailUnavailable ? (
-            info.hint
-          ) : canConfigureSmtp ? (
-            <>
-              Email needs an SMTP server.{" "}
-              <Link href="/admin/email" className="font-medium text-foreground underline underline-offset-2">
-                Set it up in Admin → Email
-              </Link>
-              .
-            </>
-          ) : (
-            "Email isn't set up on this RepoPulse instance yet. Ask the super admin to configure SMTP."
-          )}
+          <DestinationHint hint={info.hint} emailUnavailable={emailUnavailable} canConfigureSmtp={canConfigureSmtp} />
         </p>
       </div>
 

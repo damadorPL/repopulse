@@ -2,11 +2,12 @@
 
 import type { Route } from "next";
 import { useSearchParams } from "next/navigation";
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { useOptionalUnread } from "@/components/layout/unread-context";
 import { PARAM } from "@/lib/feed-filters";
+import type { ActionResult } from "@/server/action-result";
 import { getReleaseDrawerAction } from "@/server/actions/feed";
 import { toggleReleaseReadAction } from "@/server/actions/release-state";
 import type { FeedItem } from "@/server/queries/feed";
@@ -18,6 +19,44 @@ export interface DrawerEntry {
   content: ReactNode;
 }
 
+const drawerPromiseCache = new Map<string, Promise<ActionResult<DrawerEntry>>>();
+const resolvedDrawerDetails = new Map<string, FeedItem>();
+
+function getOrFetchDrawerEntry(releaseId: string): Promise<ActionResult<DrawerEntry>> {
+  const existing = drawerPromiseCache.get(releaseId);
+  if (existing) {
+    drawerPromiseCache.delete(releaseId);
+    drawerPromiseCache.set(releaseId, existing);
+    return existing;
+  }
+
+  const promise = getReleaseDrawerAction({ releaseId }).then(
+    (result) => {
+      if (result.ok) {
+        resolvedDrawerDetails.set(releaseId, result.data.detail);
+      } else if (result.error.code !== "NOT_FOUND") {
+        toast.error(result.error.message);
+      }
+      return result;
+    },
+    () => {
+      const message = "Could not load release notes.";
+      toast.error(message);
+      return { ok: false as const, error: { code: "INTERNAL" as const, message } };
+    },
+  );
+
+  drawerPromiseCache.set(releaseId, promise);
+  if (drawerPromiseCache.size > MAX_CLIENT_DRAWER_CACHE) {
+    const oldest = drawerPromiseCache.keys().next().value;
+    if (oldest !== undefined) {
+      drawerPromiseCache.delete(oldest);
+      resolvedDrawerDetails.delete(oldest);
+    }
+  }
+  return promise;
+}
+
 function currentHrefWithRelease(releaseId: string | null): Route {
   const params = new URLSearchParams(window.location.search);
   if (releaseId) params.set(PARAM.release, releaseId);
@@ -26,10 +65,13 @@ function currentHrefWithRelease(releaseId: string | null): Route {
   return (query ? `${window.location.pathname}?${query}` : window.location.pathname) as Route;
 }
 
+function closeRelease() {
+  window.history.pushState(null, "", currentHrefWithRelease(null));
+}
+
 /**
  * Client state shared by the feed list and the changelog drawer, split into list vs drawer slices so
- * async drawer loads (`preview`, `loadedEntry`, `isLoadingDetail`) do not re-render `ReleaseFeedList`
- * or unrelated `ReleaseCard` rows.
+ * async drawer state does not re-render `ReleaseFeedList` or unrelated `ReleaseCard` rows.
  */
 interface ReaderListContextValue {
   selectedId: string | null;
@@ -42,8 +84,7 @@ interface ReaderListContextValue {
 
 interface ReaderDrawerContextValue {
   preview: FeedItem | null;
-  loadedEntry: DrawerEntry | null;
-  isLoadingDetail: boolean;
+  getEntryPromise: (releaseId: string) => Promise<ActionResult<DrawerEntry>>;
   closeRelease: () => void;
   setRead: (releaseId: string, isRead: boolean, item?: FeedItem) => Promise<boolean>;
 }
@@ -63,65 +104,26 @@ export function ReaderProvider({
   const unread = useOptionalUnread();
 
   const [preview, setPreview] = useState<FeedItem | null>(null);
-  const [loadedEntries, setLoadedEntries] = useState<Record<string, DrawerEntry>>({});
-  const [failedIds, setFailedIds] = useState<Record<string, boolean>>({});
   const [readOverrides, setReadOverrides] = useState<Record<string, boolean>>({});
   const [readEpoch, setReadEpoch] = useState(0);
 
   const selectedId = urlReleaseId;
-  const hasSsrDetail = Boolean(selectedId && initialDetail?.id === selectedId);
-  const loadedEntry = selectedId ? (loadedEntries[selectedId] ?? null) : null;
-  const hasFailed = Boolean(selectedId && failedIds[selectedId]);
-  const isLoadingDetail = Boolean(selectedId && !hasSsrDetail && !loadedEntry && !hasFailed);
 
-  useEffect(() => {
-    if (!selectedId || hasSsrDetail || loadedEntry || hasFailed) return;
-    let cancelled = false;
-
-    void getReleaseDrawerAction({ releaseId: selectedId }).then((result) => {
-      if (cancelled) return;
-      if (!result.ok) {
-        setFailedIds((current) => ({ ...current, [selectedId]: true }));
-        if (result.error.code !== "NOT_FOUND") {
-          toast.error(result.error.message);
-        }
-        return;
-      }
-      setLoadedEntries((current) => {
-        const keys = Object.keys(current);
-        const next = { ...current, [selectedId]: result.data };
-        if (keys.length >= MAX_CLIENT_DRAWER_CACHE) {
-          const oldest = keys[0];
-          if (oldest && oldest !== selectedId) delete next[oldest];
-        }
-        return next;
-      });
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedId, hasSsrDetail, loadedEntry, hasFailed]);
-
-  const openRelease = useCallback((item: FeedItem) => {
+  function openRelease(item: FeedItem) {
+    void getOrFetchDrawerEntry(item.id);
     setPreview(item);
     window.history.pushState(null, "", currentHrefWithRelease(item.id));
-  }, []);
+  }
 
-  const closeRelease = useCallback(() => {
-    window.history.pushState(null, "", currentHrefWithRelease(null));
-  }, []);
-
-  const isRead = useCallback(
-    (item: { id: string; isRead: boolean }) => readOverrides[item.id] ?? item.isRead,
-    [readOverrides],
-  );
+  function isRead(item: { id: string; isRead: boolean }) {
+    return readOverrides[item.id] ?? item.isRead;
+  }
 
   async function setRead(releaseId: string, nextIsRead: boolean, item?: FeedItem) {
     const targetItem =
       item ??
       (preview?.id === releaseId ? preview : undefined) ??
-      loadedEntries[releaseId]?.detail ??
+      resolvedDrawerDetails.get(releaseId) ??
       (initialDetail?.id === releaseId ? initialDetail : undefined);
 
     const previous = readOverrides[releaseId];
@@ -150,11 +152,12 @@ export function ReaderProvider({
     return true;
   }
 
-  const resetReadOverrides = useCallback(() => {
+  function resetReadOverrides() {
+    drawerPromiseCache.clear();
+    resolvedDrawerDetails.clear();
     setReadOverrides({});
-    setLoadedEntries({});
     setReadEpoch((epoch) => epoch + 1);
-  }, []);
+  }
 
   const listValue: ReaderListContextValue = {
     selectedId,
@@ -166,8 +169,7 @@ export function ReaderProvider({
 
   const drawerValue: ReaderDrawerContextValue = {
     preview,
-    loadedEntry,
-    isLoadingDetail,
+    getEntryPromise: getOrFetchDrawerEntry,
     closeRelease,
     setRead,
   };

@@ -71,69 +71,256 @@ function toDraft(settings: BackfillSettingView[]): Draft {
   return Object.fromEntries(settings.map((s) => [s.key, s.override === null ? "" : String(s.override)])) as Draft;
 }
 
-export function BackfillSettingsForm({
-  settings,
-  candidates = EMPTY_CANDIDATES,
-  reapplyCandidates,
+function resolveEffectiveTarget(rawTarget: string, fallback: number): number {
+  const trimmed = rawTarget.trim();
+  if (trimmed === "") return fallback;
+  const parsed = Number(trimmed);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function parseBackfillDraft(
+  draft: Draft,
+  byKey: Map<Key, BackfillSettingView>,
+): { input: BackfillSettingsInput } | { error: string } {
+  const input = {} as Record<Key, number | null>;
+  for (const key of Object.keys(draft) as Key[]) {
+    const raw = draft[key].trim();
+    if (raw === "") {
+      input[key] = null;
+      continue;
+    }
+    const value = Number(raw);
+    const { min, max } = byKey.get(key)!;
+    if (!Number.isInteger(value) || value < min || value > max) {
+      return {
+        error: `${COPY[key].label}: enter a whole number from ${numberFormat.format(min)} to ${numberFormat.format(max)}, or leave it empty.`,
+      };
+    }
+    input[key] = value;
+  }
+  return { input: input satisfies BackfillSettingsInput };
+}
+
+function BackfillFieldRow({
+  setting,
+  value,
+  onChange,
+  onReset,
 }: {
-  settings: BackfillSettingView[];
-  candidates?: ReapplyCandidate[];
-  reapplyCandidates?: number;
+  setting: BackfillSettingView;
+  value: string;
+  onChange: (value: string) => void;
+  onReset: () => void;
+}) {
+  const copy = COPY[setting.key];
+  const id = `backfill-${setting.key}`;
+  const fallbackLabel =
+    setting.fallbackSource === "env"
+      ? `${setting.envVar} = ${numberFormat.format(setting.fallback)}`
+      : `default ${numberFormat.format(setting.fallback)}`;
+
+  return (
+    <div className="grid gap-1.5 sm:grid-cols-[minmax(0,1fr)_14rem] sm:items-start sm:gap-4">
+      <div className="grid gap-0.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <Label htmlFor={id}>{copy.label}</Label>
+          {setting.source === "admin" ? (
+            <Badge variant="secondary" className="text-[10px]">
+              Custom
+            </Badge>
+          ) : null}
+        </div>
+        <p id={`${id}-hint`} className="text-xs text-muted-foreground">
+          {copy.hint}
+        </p>
+      </div>
+      <div className="grid gap-1">
+        <div className="flex items-center gap-1.5">
+          <div className="relative flex-1">
+            <Input
+              id={id}
+              type="number"
+              inputMode="numeric"
+              min={setting.min}
+              max={setting.max}
+              step={1}
+              value={value}
+              placeholder={String(setting.fallback)}
+              onChange={(event) => onChange(event.target.value)}
+              aria-describedby={`${id}-hint ${id}-fallback`}
+              className="pr-19 tabular-nums"
+            />
+            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-muted-foreground">
+              {copy.unit}
+            </span>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className={cn(value === "" && "invisible")}
+            onClick={onReset}
+            aria-label={`Reset ${copy.label} to ${fallbackLabel}`}
+            title={`Reset to ${fallbackLabel}`}
+          >
+            <RotateCcwIcon />
+          </Button>
+        </div>
+        <p id={`${id}-fallback`} className="text-[11px] text-muted-foreground">
+          Empty = {fallbackLabel}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function ReapplyCandidateRow({ repo, effectiveTarget }: { repo: ReapplyCandidate; effectiveTarget: number }) {
+  const missing = Math.max(0, effectiveTarget - repo.releaseCount);
+  return (
+    <li className="flex items-center justify-between gap-3 px-3.5 py-2.5 hover:bg-muted/30">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <RepoAvatar
+          src={repo.avatarUrl}
+          name={repo.fullName.split("/")[1] ?? repo.fullName}
+          className="size-6 text-[10px]"
+        />
+        <div className="min-w-0">
+          <Link
+            href={repositorySettingsHref(repo.fullName)}
+            className="block truncate text-sm font-medium hover:underline"
+          >
+            {repo.fullName}
+          </Link>
+          {repo.oldestRelease ? (
+            <p className="truncate text-[11px] text-muted-foreground">
+              oldest: <span className="font-mono text-foreground/80">{repo.oldestRelease.tagName}</span>
+              {" · "}
+              <RelativeTime date={repo.oldestRelease.publishedAt} />
+            </p>
+          ) : (
+            <p className="text-[11px] text-muted-foreground italic">no releases stored yet</p>
+          )}
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-4">
+        <span className="hidden text-xs text-muted-foreground tabular-nums sm:inline">
+          {numberFormat.format(repo.releaseCount)} stored
+        </span>
+        {missing > 0 ? (
+          <Badge
+            variant="outline"
+            className="border-amber-500/20 bg-amber-500/10 font-mono text-xs text-amber-700 tabular-nums dark:text-amber-400"
+          >
+            +{numberFormat.format(missing)} missing
+          </Badge>
+        ) : (
+          <Badge
+            variant="secondary"
+            className="font-mono text-xs tabular-nums"
+            title={`Has reached target of ${effectiveTarget} releases; more older releases exist on GitHub`}
+          >
+            At target ({numberFormat.format(effectiveTarget)})
+          </Badge>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function ReapplySummaryHeader({
+  candidatesCount,
+  candidateCount,
+  effectiveTarget,
+  totalMissing,
+}: {
+  candidatesCount: number;
+  candidateCount: number;
+  effectiveTarget: number;
+  totalMissing: number;
+}) {
+  const countText =
+    candidateCount === 0
+      ? "No repository has older releases left to import right now."
+      : `${numberFormat.format(candidateCount)} ${candidateCount === 1 ? "repository has" : "repositories have"} older releases on GitHub.`;
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="grid gap-1">
+        <h3 id="reapply-heading" className="font-medium">
+          Apply to existing repositories
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          New settings apply to repositories added from now on. To give repositories already imported the new automatic
+          target and age limit, re-run their automatic import. <span className="tabular-nums">{countText}</span>{" "}
+          {candidatesCount > 0 && totalMissing > 0 ? (
+            <span className="tabular-nums">
+              Across these repositories, approximately {numberFormat.format(totalMissing)} releases are missing to reach
+              the target of {numberFormat.format(effectiveTarget)}.
+            </span>
+          ) : null}{" "}
+          Imported history stays read and sends no notifications.
+        </p>
+      </div>
+      {candidatesCount > 0 ? (
+        <Badge variant="outline" className="font-mono text-xs tabular-nums">
+          {candidateCount} {candidateCount === 1 ? "repo" : "repos"} · {numberFormat.format(totalMissing)} missing
+        </Badge>
+      ) : null}
+    </div>
+  );
+}
+
+function ReapplyCandidatesList({
+  candidates,
+  effectiveTarget,
+}: {
+  candidates: ReapplyCandidate[];
+  effectiveTarget: number;
+}) {
+  if (candidates.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
+        No repository has older releases left to import right now.
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-md border bg-muted/20">
+      <div className="flex items-center justify-between border-b px-3.5 py-2 text-xs font-medium text-muted-foreground">
+        <span>Repository</span>
+        <div className="flex items-center gap-6">
+          <span className="hidden sm:inline">Stored</span>
+          <span>Missing releases</span>
+        </div>
+      </div>
+      <ul className="max-h-72 divide-y overflow-y-auto">
+        {candidates.map((repo) => (
+          <ReapplyCandidateRow key={repo.id} repo={repo} effectiveTarget={effectiveTarget} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ReapplySection({
+  candidates,
+  candidateCount,
+  effectiveTarget,
+  totalMissing,
+  dirty,
+  saving,
+}: {
+  candidates: ReapplyCandidate[];
+  candidateCount: number;
+  effectiveTarget: number;
+  totalMissing: number;
+  dirty: boolean;
+  saving: boolean;
 }) {
   const router = useRouter();
-  const [saved, setSaved] = useState(settings);
-  const [draft, setDraft] = useState<Draft>(() => toDraft(settings));
-  const [error, setError] = useState<string | null>(null);
   const [confirmingReapply, setConfirmingReapply] = useState(false);
-  const [saving, startSaving] = useTransition();
   const [reapplying, startReapplying] = useTransition();
-
-  const byKey = new Map(saved.map((s) => [s.key, s]));
-  const savedDraft = toDraft(saved);
-  const dirty = (Object.keys(draft) as Key[]).some((key) => draft[key].trim() !== savedDraft[key]);
-
-  const candidateCount = candidates.length > 0 ? candidates.length : (reapplyCandidates ?? 0);
-  const rawTarget = draft.defaultTarget.trim();
-  const effectiveTarget =
-    rawTarget !== "" && Number.isInteger(Number(rawTarget)) && Number(rawTarget) >= 0
-      ? Number(rawTarget)
-      : (byKey.get("defaultTarget")?.value ?? 100);
-  const totalMissing = candidates.reduce((sum, c) => sum + Math.max(0, effectiveTarget - c.releaseCount), 0);
-
-  function submit(event: SubmitEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    const input = {} as Record<Key, number | null>;
-    for (const key of Object.keys(draft) as Key[]) {
-      const raw = draft[key].trim();
-      if (raw === "") {
-        input[key] = null;
-        continue;
-      }
-      const value = Number(raw);
-      const { min, max } = byKey.get(key)!;
-      if (!Number.isInteger(value) || value < min || value > max) {
-        setError(
-          `${COPY[key].label}: enter a whole number from ${numberFormat.format(min)} to ${numberFormat.format(max)}, or leave it empty.`,
-        );
-        return;
-      }
-      input[key] = value;
-    }
-    startSaving(async () => {
-      const result = await saveBackfillSettingsAction(input satisfies BackfillSettingsInput);
-      if (!result.ok) {
-        setError(result.error.message);
-        return;
-      }
-      setSaved(result.data);
-      setDraft(toDraft(result.data));
-      toast.success("Release history settings saved", {
-        description: "They apply to the next import, without a restart.",
-      });
-      router.refresh();
-    });
-  }
 
   function reapply() {
     startReapplying(async () => {
@@ -157,76 +344,118 @@ export function BackfillSettingsForm({
   }
 
   return (
+    <section aria-labelledby="reapply-heading" className="space-y-4 rounded-lg border bg-card p-4 sm:p-5">
+      <ReapplySummaryHeader
+        candidatesCount={candidates.length}
+        candidateCount={candidateCount}
+        effectiveTarget={effectiveTarget}
+        totalMissing={totalMissing}
+      />
+
+      <ReapplyCandidatesList candidates={candidates} effectiveTarget={effectiveTarget} />
+
+      {confirmingReapply ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed p-3 text-sm">
+          <span className="mr-auto">
+            Re-run the automatic import for {numberFormat.format(candidateCount)}{" "}
+            {candidateCount === 1 ? "repository" : "repositories"}
+            {totalMissing > 0 ? ` (~${numberFormat.format(totalMissing)} releases missing)` : ""}? This uses GitHub API
+            quota.
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setConfirmingReapply(false)}
+            disabled={reapplying}
+          >
+            Cancel
+          </Button>
+          <Button type="button" size="sm" onClick={reapply} disabled={reapplying}>
+            {reapplying ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : null}
+            {reapplying ? "Queuing…" : "Re-run import"}
+          </Button>
+        </div>
+      ) : (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setConfirmingReapply(true)}
+          disabled={candidateCount === 0 || dirty || saving}
+          title={dirty ? "Save your changes first." : undefined}
+        >
+          Re-run automatic import…
+        </Button>
+      )}
+    </section>
+  );
+}
+
+export function BackfillSettingsForm({
+  settings,
+  candidates = EMPTY_CANDIDATES,
+  reapplyCandidates,
+}: {
+  settings: BackfillSettingView[];
+  candidates?: ReapplyCandidate[];
+  reapplyCandidates?: number;
+}) {
+  const router = useRouter();
+  const [saved, setSaved] = useState(settings);
+  const [draft, setDraft] = useState<Draft>(() => toDraft(settings));
+  const [error, setError] = useState<string | null>(null);
+  const [saving, startSaving] = useTransition();
+
+  const byKey = new Map(saved.map((s) => [s.key, s]));
+  const savedDraft = toDraft(saved);
+  const dirty = (Object.keys(draft) as Key[]).some((key) => draft[key].trim() !== savedDraft[key]);
+
+  const candidateCount = candidates.length > 0 ? candidates.length : (reapplyCandidates ?? 0);
+  const effectiveTarget = resolveEffectiveTarget(draft.defaultTarget, byKey.get("defaultTarget")?.value ?? 100);
+  const totalMissing = candidates.reduce((sum, c) => sum + Math.max(0, effectiveTarget - c.releaseCount), 0);
+
+  function submit(event: SubmitEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    const parsed = parseBackfillDraft(draft, byKey);
+    if ("error" in parsed) {
+      setError(parsed.error);
+      return;
+    }
+    startSaving(async () => {
+      const result = await saveBackfillSettingsAction(parsed.input);
+      if (!result.ok) {
+        setError(result.error.message);
+        return;
+      }
+      setSaved(result.data);
+      setDraft(toDraft(result.data));
+      toast.success("Release history settings saved", {
+        description: "They apply to the next import, without a restart.",
+      });
+      router.refresh();
+    });
+  }
+
+  return (
     <div className="space-y-6">
       <form onSubmit={submit} className="space-y-5 rounded-lg border bg-card p-4 sm:p-5" noValidate>
         {GROUPS.map((group) => (
           <fieldset key={group.title} className="grid gap-4">
             <legend className="mb-3 text-sm font-medium">{group.title}</legend>
-            {group.keys.map((key) => {
-              const setting = byKey.get(key)!;
-              const copy = COPY[key];
-              const id = `backfill-${key}`;
-              const fallbackLabel =
-                setting.fallbackSource === "env"
-                  ? `${setting.envVar} = ${numberFormat.format(setting.fallback)}`
-                  : `default ${numberFormat.format(setting.fallback)}`;
-              return (
-                <div key={key} className="grid gap-1.5 sm:grid-cols-[minmax(0,1fr)_14rem] sm:items-start sm:gap-4">
-                  <div className="grid gap-0.5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Label htmlFor={id}>{copy.label}</Label>
-                      {setting.source === "admin" ? (
-                        <Badge variant="secondary" className="text-[10px]">
-                          Custom
-                        </Badge>
-                      ) : null}
-                    </div>
-                    <p id={`${id}-hint`} className="text-xs text-muted-foreground">
-                      {copy.hint}
-                    </p>
-                  </div>
-                  <div className="grid gap-1">
-                    <div className="flex items-center gap-1.5">
-                      <div className="relative flex-1">
-                        <Input
-                          id={id}
-                          type="number"
-                          inputMode="numeric"
-                          min={setting.min}
-                          max={setting.max}
-                          step={1}
-                          value={draft[key]}
-                          placeholder={String(setting.fallback)}
-                          onChange={(event) => {
-                            setDraft((current) => ({ ...current, [key]: event.target.value }));
-                            setError(null);
-                          }}
-                          aria-describedby={`${id}-hint ${id}-fallback`}
-                          className="pr-19 tabular-nums"
-                        />
-                        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-muted-foreground">
-                          {copy.unit}
-                        </span>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        className={cn(draft[key] === "" && "invisible")}
-                        onClick={() => setDraft((current) => ({ ...current, [key]: "" }))}
-                        aria-label={`Reset ${copy.label} to ${fallbackLabel}`}
-                        title={`Reset to ${fallbackLabel}`}
-                      >
-                        <RotateCcwIcon />
-                      </Button>
-                    </div>
-                    <p id={`${id}-fallback`} className="text-[11px] text-muted-foreground">
-                      Empty = {fallbackLabel}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
+            {group.keys.map((key) => (
+              <BackfillFieldRow
+                key={key}
+                setting={byKey.get(key)!}
+                value={draft[key]}
+                onChange={(value) => {
+                  setDraft((current) => ({ ...current, [key]: value }));
+                  setError(null);
+                }}
+                onReset={() => setDraft((current) => ({ ...current, [key]: "" }))}
+              />
+            ))}
           </fieldset>
         ))}
 
@@ -249,141 +478,14 @@ export function BackfillSettingsForm({
         </div>
       </form>
 
-      <section aria-labelledby="reapply-heading" className="space-y-4 rounded-lg border bg-card p-4 sm:p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="grid gap-1">
-            <h3 id="reapply-heading" className="font-medium">
-              Apply to existing repositories
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              New settings apply to repositories added from now on. To give repositories already imported the new
-              automatic target and age limit, re-run their automatic import.{" "}
-              <span className="tabular-nums">
-                {candidateCount === 0
-                  ? "No repository has older releases left to import right now."
-                  : `${numberFormat.format(candidateCount)} ${candidateCount === 1 ? "repository has" : "repositories have"} older releases on GitHub.`}
-              </span>{" "}
-              {candidates.length > 0 && totalMissing > 0 ? (
-                <span className="tabular-nums">
-                  Across these repositories, approximately {numberFormat.format(totalMissing)} releases are missing to
-                  reach the target of {numberFormat.format(effectiveTarget)}.
-                </span>
-              ) : null}{" "}
-              Imported history stays read and sends no notifications.
-            </p>
-          </div>
-          {candidates.length > 0 ? (
-            <Badge variant="outline" className="font-mono text-xs tabular-nums">
-              {candidateCount} {candidateCount === 1 ? "repo" : "repos"} · {numberFormat.format(totalMissing)} missing
-            </Badge>
-          ) : null}
-        </div>
-
-        {candidates.length > 0 ? (
-          <div className="rounded-md border bg-muted/20">
-            <div className="flex items-center justify-between border-b px-3.5 py-2 text-xs font-medium text-muted-foreground">
-              <span>Repository</span>
-              <div className="flex items-center gap-6">
-                <span className="hidden sm:inline">Stored</span>
-                <span>Missing releases</span>
-              </div>
-            </div>
-            <ul className="max-h-72 divide-y overflow-y-auto">
-              {candidates.map((repo) => {
-                const missing = Math.max(0, effectiveTarget - repo.releaseCount);
-                return (
-                  <li key={repo.id} className="flex items-center justify-between gap-3 px-3.5 py-2.5 hover:bg-muted/30">
-                    <div className="flex min-w-0 items-center gap-2.5">
-                      <RepoAvatar
-                        src={repo.avatarUrl}
-                        name={repo.fullName.split("/")[1] ?? repo.fullName}
-                        className="size-6 text-[10px]"
-                      />
-                      <div className="min-w-0">
-                        <Link
-                          href={repositorySettingsHref(repo.fullName)}
-                          className="block truncate text-sm font-medium hover:underline"
-                        >
-                          {repo.fullName}
-                        </Link>
-                        {repo.oldestRelease ? (
-                          <p className="truncate text-[11px] text-muted-foreground">
-                            oldest: <span className="font-mono text-foreground/80">{repo.oldestRelease.tagName}</span>
-                            {" · "}
-                            <RelativeTime date={repo.oldestRelease.publishedAt} />
-                          </p>
-                        ) : (
-                          <p className="text-[11px] text-muted-foreground italic">no releases stored yet</p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-4">
-                      <span className="hidden text-xs text-muted-foreground tabular-nums sm:inline">
-                        {numberFormat.format(repo.releaseCount)} stored
-                      </span>
-                      {missing > 0 ? (
-                        <Badge
-                          variant="outline"
-                          className="border-amber-500/20 bg-amber-500/10 font-mono text-xs text-amber-700 tabular-nums dark:text-amber-400"
-                        >
-                          +{numberFormat.format(missing)} missing
-                        </Badge>
-                      ) : (
-                        <Badge
-                          variant="secondary"
-                          className="font-mono text-xs tabular-nums"
-                          title={`Has reached target of ${effectiveTarget} releases; more older releases exist on GitHub`}
-                        >
-                          At target ({numberFormat.format(effectiveTarget)})
-                        </Badge>
-                      )}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ) : (
-          <div className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
-            No repository has older releases left to import right now.
-          </div>
-        )}
-
-        {confirmingReapply ? (
-          <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed p-3 text-sm">
-            <span className="mr-auto">
-              Re-run the automatic import for {numberFormat.format(candidateCount)}{" "}
-              {candidateCount === 1 ? "repository" : "repositories"}
-              {totalMissing > 0 ? ` (~${numberFormat.format(totalMissing)} releases missing)` : ""}? This uses GitHub
-              API quota.
-            </span>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => setConfirmingReapply(false)}
-              disabled={reapplying}
-            >
-              Cancel
-            </Button>
-            <Button type="button" size="sm" onClick={reapply} disabled={reapplying}>
-              {reapplying ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : null}
-              {reapplying ? "Queuing…" : "Re-run import"}
-            </Button>
-          </div>
-        ) : (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setConfirmingReapply(true)}
-            disabled={candidateCount === 0 || dirty || saving}
-            title={dirty ? "Save your changes first." : undefined}
-          >
-            Re-run automatic import…
-          </Button>
-        )}
-      </section>
+      <ReapplySection
+        candidates={candidates}
+        candidateCount={candidateCount}
+        effectiveTarget={effectiveTarget}
+        totalMissing={totalMissing}
+        dirty={dirty}
+        saving={saving}
+      />
     </div>
   );
 }

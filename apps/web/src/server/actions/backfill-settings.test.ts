@@ -24,6 +24,7 @@ vi.mock("@/lib/auth", () => ({
   getCurrentUserOrThrow: vi.fn(async () => currentUser),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("next/server", () => ({ after: vi.fn((fn: () => void) => fn()) }));
 vi.mock("@repopulse/db", () => ({ prisma, INSTANCE_SETTINGS_ID: 1 }));
 vi.mock("@repopulse/github", () => ({
   GitHubRateLimitError: class extends Error {},

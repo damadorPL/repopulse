@@ -23,6 +23,105 @@ function samePaths(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((path, i) => path === b[i]);
 }
 
+function notifyTrackingImports(fullName: string, data: { importingPaths: boolean; importingTags: boolean }) {
+  toast.success(`Tracking of ${fullName} updated`);
+  if (data.importingPaths) {
+    toast.info(`Importing commits of ${fullName}…`, {
+      description: "Recent commits that change the watched paths appear in the feed in a moment.",
+    });
+  }
+  if (data.importingTags) {
+    toast.info(`Importing the Git tags of ${fullName}…`, {
+      description: "Tags without a GitHub release appear in the feed in a moment.",
+    });
+  }
+}
+
+function WatchedPathsForm({
+  pathsId,
+  fullName,
+  enabling,
+  paths,
+  draft,
+  pathsError,
+  dirty,
+  pending,
+  onPathsChange,
+  onDraftChange,
+  onSubmit,
+  onCancel,
+}: {
+  pathsId: string;
+  fullName: string;
+  enabling: boolean;
+  paths: string[];
+  draft: string;
+  pathsError: string | null;
+  dirty: boolean;
+  pending: boolean;
+  onPathsChange: (next: string[]) => void;
+  onDraftChange: (next: string) => void;
+  onSubmit: (event: SubmitEvent<HTMLFormElement>) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <form onSubmit={onSubmit} className="grid gap-2">
+      <Label htmlFor={pathsId} className="sr-only">
+        Watched files and folders
+      </Label>
+      <WatchedPathsPicker
+        id={pathsId}
+        repo={fullName}
+        paths={paths}
+        onPathsChange={onPathsChange}
+        draft={draft}
+        onDraftChange={onDraftChange}
+        error={pathsError}
+        describedBy={`${pathsId}-help`}
+      />
+      <p id={`${pathsId}-help`} className="text-xs text-muted-foreground">
+        Commits on the default branch that change these paths show up in the feed. A folder matches every file inside
+        it.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="submit" size="sm" disabled={pending || !dirty || (paths.length === 0 && !draft.trim())}>
+          {pending ? "Saving…" : enabling ? "Save and watch" : "Save paths"}
+        </Button>
+        {dirty ? (
+          <Button type="button" variant="ghost" size="sm" disabled={pending} onClick={onCancel}>
+            Cancel
+          </Button>
+        ) : null}
+      </div>
+    </form>
+  );
+}
+
+function PrereleaseToggleRow({
+  id,
+  checked,
+  pending,
+  onChange,
+}: {
+  id: string;
+  checked: boolean;
+  pending: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="grid gap-1.5 sm:grid-cols-[14rem_1fr] sm:items-start sm:gap-4">
+      <div className="flex items-center gap-2">
+        <Switch id={id} checked={checked} onCheckedChange={onChange} disabled={pending} />
+        <Label htmlFor={id}>Include pre-releases</Label>
+      </div>
+      <p className="text-xs text-muted-foreground sm:pt-0.5">
+        Alpha, beta and release candidates. Turning this on marks the stored pre-releases among the 10 newest updates as
+        unread; turning it off removes unread pre-releases from your feed.
+      </p>
+    </div>
+  );
+}
+
 /**
  * The Tracking section of the repository settings page (Slice 07): release mode, "Files / folders"
  * with the watched paths editor inline, and "Include pre-releases". Saves through the same actions
@@ -88,17 +187,7 @@ export function TrackingSettings({
         return;
       }
       onDone?.();
-      toast.success(`Tracking of ${fullName} updated`);
-      if (result.data.importingPaths) {
-        toast.info(`Importing commits of ${fullName}…`, {
-          description: "Recent commits that change the watched paths appear in the feed in a moment.",
-        });
-      }
-      if (result.data.importingTags) {
-        toast.info(`Importing the Git tags of ${fullName}…`, {
-          description: "Tags without a GitHub release appear in the feed in a moment.",
-        });
-      }
+      notifyTrackingImports(fullName, result.data);
     });
   }
 
@@ -201,68 +290,38 @@ export function TrackingSettings({
           </p>
         </div>
         {editorOpen ? (
-          <form onSubmit={submitPaths} className="grid gap-2">
-            <Label htmlFor={pathsId} className="sr-only">
-              Watched files and folders
-            </Label>
-            <WatchedPathsPicker
-              id={pathsId}
-              repo={fullName}
-              paths={paths}
-              onPathsChange={(next) => {
-                setPaths(next);
-                setPathsError(null);
-              }}
-              draft={draft}
-              onDraftChange={(next) => {
-                setDraft(next);
-                setPathsError(null);
-              }}
-              error={pathsError}
-              describedBy={`${pathsId}-help`}
-            />
-            <p id={`${pathsId}-help`} className="text-xs text-muted-foreground">
-              Commits on the default branch that change these paths show up in the feed. A folder matches every file
-              inside it.
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button type="submit" size="sm" disabled={pending || !dirty || (paths.length === 0 && !draft.trim())}>
-                {pending ? "Saving…" : enabling ? "Save and watch" : "Save paths"}
-              </Button>
-              {dirty ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={pending}
-                  onClick={() => {
-                    setEnabling(null);
-                    setPaths(watchedPaths);
-                    setDraft("");
-                    setPathsError(null);
-                  }}
-                >
-                  Cancel
-                </Button>
-              ) : null}
-            </div>
-          </form>
+          <WatchedPathsForm
+            pathsId={pathsId}
+            fullName={fullName}
+            enabling={enabling !== null}
+            paths={paths}
+            draft={draft}
+            pathsError={pathsError}
+            dirty={dirty}
+            pending={pending}
+            onPathsChange={(next) => {
+              setPaths(next);
+              setPathsError(null);
+            }}
+            onDraftChange={(next) => {
+              setDraft(next);
+              setPathsError(null);
+            }}
+            onSubmit={submitPaths}
+            onCancel={() => {
+              setEnabling(null);
+              setPaths(watchedPaths);
+              setDraft("");
+              setPathsError(null);
+            }}
+          />
         ) : (
           <p className="text-sm text-muted-foreground">Off</p>
         )}
       </div>
 
       {optimistic.trackMode !== "NONE" ? (
-        <div className="grid gap-1.5 sm:grid-cols-[14rem_1fr] sm:items-start sm:gap-4">
-          <div className="flex items-center gap-2">
-            <Switch id={prereleaseId} checked={prereleases} onCheckedChange={togglePrereleases} disabled={pending} />
-            <Label htmlFor={prereleaseId}>Include pre-releases</Label>
-          </div>
-          <p className="text-xs text-muted-foreground sm:pt-0.5">
-            Alpha, beta and release candidates. Turning this on marks the stored pre-releases among the 10 newest
-            updates as unread; turning it off removes unread pre-releases from your feed.
-          </p>
-        </div>
+        <PrereleaseToggleRow id={prereleaseId} checked={prereleases} pending={pending} onChange={togglePrereleases} />
       ) : null}
     </div>
   );

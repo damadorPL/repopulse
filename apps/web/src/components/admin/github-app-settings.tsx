@@ -24,7 +24,6 @@ import {
   githubAppWebhookSettingsUrls,
   type GitHubAppWebhookTarget,
 } from "@/lib/github-app";
-import { cn } from "@/lib/utils";
 import {
   enableGitHubAppWebhooksAction,
   removeGitHubAppSettingsAction,
@@ -45,89 +44,106 @@ function ErrorText({ children }: { children: string | null }) {
   );
 }
 
+function appStatusMeta(app: GitHubAppView): {
+  title: string;
+  description: string;
+  badgeLabel: string;
+  badgeClass: string;
+} {
+  if (!app.configured) {
+    return {
+      title: "No GitHub App yet",
+      description:
+        "Dependency checks work without an App (notify only). Update pull requests and private repositories need one.",
+      badgeLabel: "Not configured",
+      badgeClass: "text-muted-foreground",
+    };
+  }
+  return {
+    title: app.slug ?? "GitHub App",
+    description: "Members install this App on the repositories RepoPulse may open dependency update pull requests in.",
+    badgeLabel: app.keyReadable ? "Configured" : "Key unreadable",
+    badgeClass: app.keyReadable
+      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+      : "bg-amber-500/10 text-amber-700 dark:text-amber-400",
+  };
+}
+
+function ConfiguredAppDetails({ app }: { app: GitHubAppView }) {
+  return (
+    <>
+      <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+        <div>
+          <dt className="text-xs text-muted-foreground">App ID</dt>
+          <dd className="font-mono tabular-nums">{app.appId}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Slug</dt>
+          <dd className="font-mono">{app.slug}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Owner</dt>
+          <dd>{app.owner ?? "Unknown"}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Credentials</dt>
+          <dd className="flex flex-wrap gap-1.5">
+            <Badge variant="outline" className="rounded-full text-[11px]">
+              <KeyRoundIcon className="size-3" aria-hidden />
+              {app.keyReadable ? "Key saved" : "Key saved, can't be decrypted"}
+            </Badge>
+            <Badge variant="outline" className="rounded-full text-[11px] text-muted-foreground">
+              {app.webhookSecretSaved ? "Webhook secret saved" : "No webhook secret"}
+            </Badge>
+          </dd>
+        </div>
+      </dl>
+      {!app.keyReadable ? (
+        <p role="alert" className="text-sm text-amber-700 dark:text-amber-400">
+          The saved private key can&apos;t be decrypted (was <code className="text-[12px]">TOKEN_ENCRYPTION_KEY</code>{" "}
+          changed?). Generate a new key in the App&apos;s settings on GitHub and save it below.
+        </p>
+      ) : null}
+      <div className="flex flex-wrap gap-2">
+        {app.settingsUrl ? (
+          <Button asChild variant="outline" size="sm">
+            <a href={app.settingsUrl} target="_blank" rel="noopener noreferrer">
+              <ExternalLinkIcon />
+              App settings on GitHub
+            </a>
+          </Button>
+        ) : null}
+        {app.publicUrl ? (
+          <Button asChild variant="outline" size="sm">
+            <a href={app.publicUrl} target="_blank" rel="noopener noreferrer">
+              <ExternalLinkIcon />
+              Public page (install)
+            </a>
+          </Button>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
 export function GitHubAppStatusCard({ app }: { app: GitHubAppView }) {
+  const meta = appStatusMeta(app);
+
   return (
     <section aria-labelledby="github-app-status" className="grid gap-4 rounded-lg border bg-card p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 id="github-app-status" className="font-medium">
-            {app.configured ? (app.slug ?? "GitHub App") : "No GitHub App yet"}
+            {meta.title}
           </h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            {app.configured
-              ? "Members install this App on the repositories RepoPulse may open dependency update pull requests in."
-              : "Dependency checks work without an App (notify only). Update pull requests and private repositories need one."}
-          </p>
+          <p className="mt-0.5 text-sm text-muted-foreground">{meta.description}</p>
         </div>
-        <Badge
-          variant="secondary"
-          className={cn(
-            app.configured && app.keyReadable
-              ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-              : app.configured
-                ? "bg-amber-500/10 text-amber-700 dark:text-amber-400"
-                : "text-muted-foreground",
-          )}
-        >
-          {app.configured ? (app.keyReadable ? "Configured" : "Key unreadable") : "Not configured"}
+        <Badge variant="secondary" className={meta.badgeClass}>
+          {meta.badgeLabel}
         </Badge>
       </div>
 
-      {app.configured ? (
-        <>
-          <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
-            <div>
-              <dt className="text-xs text-muted-foreground">App ID</dt>
-              <dd className="font-mono tabular-nums">{app.appId}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Slug</dt>
-              <dd className="font-mono">{app.slug}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Owner</dt>
-              <dd>{app.owner ?? "Unknown"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Credentials</dt>
-              <dd className="flex flex-wrap gap-1.5">
-                <Badge variant="outline" className="rounded-full text-[11px]">
-                  <KeyRoundIcon className="size-3" aria-hidden />
-                  {app.keyReadable ? "Key saved" : "Key saved, can't be decrypted"}
-                </Badge>
-                <Badge variant="outline" className="rounded-full text-[11px] text-muted-foreground">
-                  {app.webhookSecretSaved ? "Webhook secret saved" : "No webhook secret"}
-                </Badge>
-              </dd>
-            </div>
-          </dl>
-          {!app.keyReadable ? (
-            <p role="alert" className="text-sm text-amber-700 dark:text-amber-400">
-              The saved private key can&apos;t be decrypted (was{" "}
-              <code className="text-[12px]">TOKEN_ENCRYPTION_KEY</code> changed?). Generate a new key in the App&apos;s
-              settings on GitHub and save it below.
-            </p>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            {app.settingsUrl ? (
-              <Button asChild variant="outline" size="sm">
-                <a href={app.settingsUrl} target="_blank" rel="noopener noreferrer">
-                  <ExternalLinkIcon />
-                  App settings on GitHub
-                </a>
-              </Button>
-            ) : null}
-            {app.publicUrl ? (
-              <Button asChild variant="outline" size="sm">
-                <a href={app.publicUrl} target="_blank" rel="noopener noreferrer">
-                  <ExternalLinkIcon />
-                  Public page (install)
-                </a>
-              </Button>
-            ) : null}
-          </div>
-        </>
-      ) : null}
+      {app.configured ? <ConfiguredAppDetails app={app} /> : null}
     </section>
   );
 }
@@ -411,7 +427,8 @@ export function RemoveGitHubAppButton() {
   );
 }
 
-function ExternalLink({ href, children }: { href: string; children: string }) {
+function MaybeExternalLink({ href, children }: { href: string | undefined; children: string }) {
+  if (!href) return children;
   return (
     <a
       href={href}
@@ -422,6 +439,37 @@ function ExternalLink({ href, children }: { href: string; children: string }) {
       {children}
       <ExternalLinkIcon className="size-3" aria-hidden />
     </a>
+  );
+}
+
+function WebhookSetupInstructions({
+  links,
+  webhookSecretSaved,
+}: {
+  links: ReturnType<typeof githubAppWebhookSettingsUrls> | null;
+  webhookSecretSaved: boolean;
+}) {
+  return (
+    <ol className="grid list-decimal gap-2 pl-5 text-sm">
+      <li>
+        <span className="font-medium">Enable webhooks</span> below. RepoPulse sets this URL and a webhook secret on the
+        App (content type JSON, SSL verification on)
+        {webhookSecretSaved ? ", reusing the saved secret" : ""}.
+      </li>
+      <li>
+        In the App&apos;s <MaybeExternalLink href={links?.general}>General settings</MaybeExternalLink>, under Webhook,
+        tick <span className="font-medium">Active</span> and save. GitHub&apos;s API can&apos;t switch this on.
+      </li>
+      <li>
+        In <MaybeExternalLink href={links?.events}>Permissions &amp; events</MaybeExternalLink>, under Subscribe to
+        events, tick <span className="font-medium">Push</span> and <span className="font-medium">Pull request</span> and
+        save.
+      </li>
+      <li>
+        Optional: <MaybeExternalLink href={links?.advanced}>Advanced</MaybeExternalLink> lists recent deliveries. The
+        ping GitHub sends after activation should show 204.
+      </li>
+    </ol>
   );
 }
 
@@ -471,33 +519,7 @@ export function GitHubAppWebhooksCard({ app, target }: { app: GitHubAppView; tar
           <p className="text-xs text-muted-foreground">
             Delivery URL: <code className="text-[11px] break-all">{target.url}</code>
           </p>
-          <ol className="grid list-decimal gap-2 pl-5 text-sm">
-            <li>
-              <span className="font-medium">Enable webhooks</span> below. RepoPulse sets this URL and a webhook secret
-              on the App (content type JSON, SSL verification on)
-              {app.webhookSecretSaved ? ", reusing the saved secret" : ""}.
-            </li>
-            <li>
-              In the App&apos;s{" "}
-              {links ? <ExternalLink href={links.general}>General settings</ExternalLink> : "General settings"}, under
-              Webhook, tick <span className="font-medium">Active</span> and save. GitHub&apos;s API can&apos;t switch
-              this on.
-            </li>
-            <li>
-              In{" "}
-              {links ? (
-                <ExternalLink href={links.events}>Permissions &amp; events</ExternalLink>
-              ) : (
-                "Permissions & events"
-              )}
-              , under Subscribe to events, tick <span className="font-medium">Push</span> and{" "}
-              <span className="font-medium">Pull request</span> and save.
-            </li>
-            <li>
-              Optional: {links ? <ExternalLink href={links.advanced}>Advanced</ExternalLink> : "Advanced"} lists recent
-              deliveries. The ping GitHub sends after activation should show 204.
-            </li>
-          </ol>
+          <WebhookSetupInstructions links={links} webhookSecretSaved={app.webhookSecretSaved} />
           <ErrorText>{error}</ErrorText>
           {done ? (
             <p role="status" className="text-sm text-emerald-700 dark:text-emerald-400">

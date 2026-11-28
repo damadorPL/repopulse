@@ -9,6 +9,7 @@ import {
   type BackfillSettingKey,
 } from "@repopulse/queue";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { z } from "zod";
 
 import { fail, invalidInput, ok, toActionError, type ActionResult } from "@/server/action-result";
@@ -120,7 +121,12 @@ export async function reapplyBackfillSettingsAction(): Promise<ActionResult<{ qu
         try {
           await enqueueReleaseBackfill({ repositoryId, trigger: "sweep" }, RELEASE_BACKFILL_PRIORITY.automatic);
         } catch (error) {
-          console.warn("[reapplyBackfillSettingsAction] could not queue the backfill; the scheduler sweep will", error);
+          after(() => {
+            console.warn(
+              "[reapplyBackfillSettingsAction] could not queue the backfill; the scheduler sweep will",
+              error,
+            );
+          });
           return;
         }
         await enqueueSequentially(index + 1);

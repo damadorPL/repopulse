@@ -18,6 +18,80 @@ import { TagDot } from "./tag-pill";
 
 const ALL = "all";
 
+interface FilterChip {
+  key: string;
+  label: ReactNode;
+  clear: Partial<FeedFilters>;
+}
+
+function buildFilterChips(
+  filters: FeedFilters,
+  tag: { name: string; colorHex: string } | null,
+  repositoryName: string | null,
+): FilterChip[] {
+  const chips: FilterChip[] = [];
+  if (filters.tagSlug) {
+    chips.push({
+      key: "tag",
+      label: (
+        <>
+          {tag ? <TagDot color={tag.colorHex} /> : null}
+          Tag: {tag?.name ?? filters.tagSlug}
+        </>
+      ),
+      clear: { tagSlug: undefined },
+    });
+  }
+  if (filters.repositoryId) {
+    chips.push({ key: "repo", label: <>Repo: {repositoryName ?? "unknown"}</>, clear: { repositoryId: undefined } });
+  }
+  if (filters.searchQuery) {
+    chips.push({ key: "q", label: <>Search: “{filters.searchQuery}”</>, clear: { searchQuery: undefined } });
+  }
+  return chips;
+}
+
+function ActiveFilterChips({
+  filters,
+  tag,
+  repositoryName,
+}: {
+  filters: FeedFilters;
+  tag: { name: string; colorHex: string } | null;
+  repositoryName: string | null;
+}) {
+  const chips = buildFilterChips(filters, tag, repositoryName);
+  if (chips.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {chips.map((chip) => (
+        <Link
+          key={chip.key}
+          href={feedHref({ ...filters, ...chip.clear })}
+          prefetch={false}
+          scroll={false}
+          className="inline-flex max-w-full items-center gap-1.5 rounded-full border bg-secondary/60 py-0.5 pr-1.5 pl-2.5 text-xs hover:bg-secondary"
+        >
+          <span className="flex min-w-0 items-center gap-1.5 truncate">{chip.label}</span>
+          <XIcon className="size-3 shrink-0" aria-hidden />
+          <span className="sr-only">Remove filter</span>
+        </Link>
+      ))}
+      {chips.length > 1 ? (
+        <Link
+          href={feedHref({ onlyUnread: filters.onlyUnread, sort: filters.sort })}
+          prefetch={false}
+          scroll={false}
+          className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+        >
+          Clear all
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
 export function FeedFilterBar({
   filters,
   tag,
@@ -60,26 +134,6 @@ export function FeedFilterBar({
           : `Marked ${result.data.count} release${result.data.count === 1 ? "" : "s"} as read`,
       );
     });
-  }
-
-  const chips: { key: string; label: ReactNode; clear: Partial<FeedFilters> }[] = [];
-  if (filters.tagSlug) {
-    chips.push({
-      key: "tag",
-      label: (
-        <>
-          {tag ? <TagDot color={tag.colorHex} /> : null}
-          Tag: {tag?.name ?? filters.tagSlug}
-        </>
-      ),
-      clear: { tagSlug: undefined },
-    });
-  }
-  if (filters.repositoryId) {
-    chips.push({ key: "repo", label: <>Repo: {repositoryName ?? "unknown"}</>, clear: { repositoryId: undefined } });
-  }
-  if (filters.searchQuery) {
-    chips.push({ key: "q", label: <>Search: “{filters.searchQuery}”</>, clear: { searchQuery: undefined } });
   }
 
   return (
@@ -139,33 +193,7 @@ export function FeedFilterBar({
         </Button>
       </div>
 
-      {chips.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-2">
-          {chips.map((chip) => (
-            <Link
-              key={chip.key}
-              href={feedHref({ ...filters, ...chip.clear })}
-              prefetch={false}
-              scroll={false}
-              className="inline-flex max-w-full items-center gap-1.5 rounded-full border bg-secondary/60 py-0.5 pr-1.5 pl-2.5 text-xs hover:bg-secondary"
-            >
-              <span className="flex min-w-0 items-center gap-1.5 truncate">{chip.label}</span>
-              <XIcon className="size-3 shrink-0" aria-hidden />
-              <span className="sr-only">Remove filter</span>
-            </Link>
-          ))}
-          {chips.length > 1 ? (
-            <Link
-              href={feedHref({ onlyUnread: filters.onlyUnread, sort: filters.sort })}
-              prefetch={false}
-              scroll={false}
-              className="text-xs text-muted-foreground hover:text-foreground hover:underline"
-            >
-              Clear all
-            </Link>
-          ) : null}
-        </div>
-      ) : null}
+      <ActiveFilterChips filters={filters} tag={tag} repositoryName={repositoryName} />
     </div>
   );
 }

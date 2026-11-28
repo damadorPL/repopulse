@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Impleme
 
 ## [Unreleased]
 
+## [0.9.8.9] — 2026-11-28 — Web UI refactoring, ConfirmDialog & Next.js after() logging
+
+### Changed
+
+- **Web UI components & pages (`apps/web`)**: Extracted shared `ConfirmDialog` (`apps/web/src/components/ui/confirm-dialog.tsx`) for destructive action confirmations, simplified client-side focus/effect/state patterns across dashboard pages and forms, and deferred non-critical server action warning logs with Next.js `after()` (`backfill-settings.ts`, `dependencies.ts`, `repositories.ts`).
+
 ## [0.9.8.8] — 2026-11-27 — Node 26 alignment, native ESM & ES2025 target
 
 ### Changed

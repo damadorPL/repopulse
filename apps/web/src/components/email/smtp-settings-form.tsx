@@ -32,6 +32,202 @@ function toFormState(view: SmtpSettingsView): FormState {
   return { host: view.host, port: String(view.port), security: view.security, user: view.user, from: view.from };
 }
 
+function isSmtpFormDirty(form: FormState, savedForm: FormState, password: string, clearPassword: boolean): boolean {
+  return (
+    (Object.keys(form) as (keyof FormState)[]).some((key) => form[key].trim() !== savedForm[key].trim()) ||
+    password !== "" ||
+    clearPassword
+  );
+}
+
+function SmtpCredentialsFields({
+  user,
+  password,
+  clearPassword,
+  savedHasPassword,
+  hasUser,
+  onUserChange,
+  onPasswordChange,
+  onClearPasswordChange,
+}: {
+  user: string;
+  password: string;
+  clearPassword: boolean;
+  savedHasPassword: boolean;
+  hasUser: boolean;
+  onUserChange: (value: string) => void;
+  onPasswordChange: (value: string) => void;
+  onClearPasswordChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="grid items-start gap-4 sm:grid-cols-2">
+      <div className="grid gap-2">
+        <Label htmlFor="smtp-user">
+          Username <span className="font-normal text-muted-foreground">(optional)</span>
+        </Label>
+        <Input
+          id="smtp-user"
+          value={user}
+          onChange={(e) => onUserChange(e.target.value)}
+          placeholder="releases@example.com"
+          autoComplete="off"
+          spellCheck={false}
+          maxLength={320}
+        />
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor="smtp-password">Password</Label>
+        <Input
+          id="smtp-password"
+          type="password"
+          value={password}
+          onChange={(e) => onPasswordChange(e.target.value)}
+          placeholder={savedHasPassword && !clearPassword ? "Saved. Leave empty to keep it" : ""}
+          autoComplete="new-password"
+          disabled={!hasUser || clearPassword}
+          maxLength={1024}
+          aria-describedby="smtp-password-hint"
+        />
+        {savedHasPassword && hasUser ? (
+          <Label className="font-normal text-muted-foreground">
+            <Checkbox checked={clearPassword} onCheckedChange={(v) => onClearPasswordChange(v === true)} />
+            Remove the saved password
+          </Label>
+        ) : (
+          <p id="smtp-password-hint" className="text-xs text-muted-foreground">
+            {hasUser ? "Stored encrypted and never shown again." : "Enter a username to sign in to the server."}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SmtpFormActions({
+  enabled,
+  busy,
+  dirty,
+  saving,
+  removing,
+  confirmingRemove,
+  onConfirmChange,
+  onRemove,
+}: {
+  enabled: boolean;
+  busy: boolean;
+  dirty: boolean;
+  saving: boolean;
+  removing: boolean;
+  confirmingRemove: boolean;
+  onConfirmChange: (confirming: boolean) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button type="submit" disabled={busy || !dirty}>
+        {saving ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <SaveIcon />}
+        {enabled ? "Save changes" : "Turn on email"}
+      </Button>
+      {enabled ? (
+        confirmingRemove ? (
+          <>
+            <Button type="button" variant="destructive" disabled={busy} onClick={onRemove}>
+              {removing ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <PowerOffIcon />}
+              Remove SMTP settings
+            </Button>
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => onConfirmChange(false)}>
+              Cancel
+            </Button>
+            <p className="basis-full text-xs text-muted-foreground">
+              Email rules stay, but stop delivering until SMTP is set up again.
+            </p>
+          </>
+        ) : (
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => onConfirmChange(true)}>
+            <PowerOffIcon />
+            Turn off email
+          </Button>
+        )
+      ) : null}
+    </div>
+  );
+}
+
+function SmtpTestEmailSection({
+  enabled,
+  dirty,
+  adminEmail,
+}: {
+  enabled: boolean;
+  dirty: boolean;
+  adminEmail: string;
+}) {
+  const router = useRouter();
+  const [testTo, setTestTo] = useState("");
+  const [testing, startTesting] = useTransition();
+
+  function sendTest() {
+    startTesting(async () => {
+      const id = toast.loading("Sending a test email…");
+      const result = await sendSmtpTestEmailAction({ to: testTo });
+      if (result.ok) {
+        toast.success("Test email sent", {
+          id,
+          description: `Accepted by the SMTP server for ${result.data.to}. Check the inbox.`,
+        });
+        return;
+      }
+      if (result.error.code === "UNAUTHORIZED") router.push("/login");
+      toast.error(result.error.code === "DELIVERY_FAILED" ? "Test email failed" : result.error.message, {
+        id,
+        description: result.error.code === "DELIVERY_FAILED" ? result.error.message : undefined,
+      });
+    });
+  }
+
+  return (
+    <section aria-labelledby="smtp-test-heading" className="grid gap-4 rounded-lg border bg-card p-4 sm:p-5">
+      <div>
+        <h2 id="smtp-test-heading" className="font-medium">
+          Send a test email
+        </h2>
+        <p className="mt-0.5 text-sm text-muted-foreground">
+          Delivers the sample v1.0.0 release through the saved settings.
+        </p>
+      </div>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Label htmlFor="smtp-test-to" className="sr-only">
+          Recipient
+        </Label>
+        <Input
+          id="smtp-test-to"
+          type="email"
+          inputMode="email"
+          value={testTo}
+          onChange={(e) => setTestTo(e.target.value)}
+          placeholder={adminEmail}
+          autoComplete="off"
+          spellCheck={false}
+          disabled={!enabled}
+          className="sm:max-w-sm"
+        />
+        <Button type="button" variant="outline" disabled={!enabled || dirty || testing} onClick={sendTest}>
+          {testing ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <SendIcon />}
+          Send test email
+        </Button>
+      </div>
+      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <MailCheckIcon className="size-3.5 shrink-0" aria-hidden />
+        {!enabled
+          ? "Turn on email first."
+          : dirty
+            ? "Save your changes first: the test uses the saved settings."
+            : `Leave the address empty to send it to ${adminEmail}.`}
+      </p>
+    </section>
+  );
+}
+
 export function SmtpSettingsForm({ settings, adminEmail }: { settings: SmtpSettingsView; adminEmail: string }) {
   const router = useRouter();
   const [saved, setSaved] = useState(settings);
@@ -40,17 +236,10 @@ export function SmtpSettingsForm({ settings, adminEmail }: { settings: SmtpSetti
   const [clearPassword, setClearPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
-  const [testTo, setTestTo] = useState("");
   const [saving, startSaving] = useTransition();
   const [removing, startRemoving] = useTransition();
-  const [testing, startTesting] = useTransition();
 
-  const savedForm = toFormState(saved);
-  const dirty =
-    (Object.keys(form) as (keyof FormState)[]).some((key) => form[key].trim() !== savedForm[key].trim()) ||
-    password !== "" ||
-    clearPassword;
-  const hasUser = form.user.trim() !== "";
+  const dirty = isSmtpFormDirty(form, toFormState(saved), password, clearPassword);
   const busy = saving || removing;
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
@@ -101,25 +290,6 @@ export function SmtpSettingsForm({ settings, adminEmail }: { settings: SmtpSetti
       if (!result.ok) return handleError(result.error.code, result.error.message);
       applySaved(result.data);
       toast.success("Email is off", { description: "The SMTP settings were removed." });
-    });
-  }
-
-  function sendTest() {
-    startTesting(async () => {
-      const id = toast.loading("Sending a test email…");
-      const result = await sendSmtpTestEmailAction({ to: testTo });
-      if (result.ok) {
-        toast.success("Test email sent", {
-          id,
-          description: `Accepted by the SMTP server for ${result.data.to}. Check the inbox.`,
-        });
-        return;
-      }
-      if (result.error.code === "UNAUTHORIZED") router.push("/login");
-      toast.error(result.error.code === "DELIVERY_FAILED" ? "Test email failed" : result.error.message, {
-        id,
-        description: result.error.code === "DELIVERY_FAILED" ? result.error.message : undefined,
-      });
     });
   }
 
@@ -197,52 +367,19 @@ export function SmtpSettingsForm({ settings, adminEmail }: { settings: SmtpSetti
           </p>
         </div>
 
-        <div className="grid items-start gap-4 sm:grid-cols-2">
-          <div className="grid gap-2">
-            <Label htmlFor="smtp-user">
-              Username <span className="font-normal text-muted-foreground">(optional)</span>
-            </Label>
-            <Input
-              id="smtp-user"
-              value={form.user}
-              onChange={(e) => update("user", e.target.value)}
-              placeholder="releases@example.com"
-              autoComplete="off"
-              spellCheck={false}
-              maxLength={320}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="smtp-password">Password</Label>
-            <Input
-              id="smtp-password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={saved.hasPassword && !clearPassword ? "Saved. Leave empty to keep it" : ""}
-              autoComplete="new-password"
-              disabled={!hasUser || clearPassword}
-              maxLength={1024}
-              aria-describedby="smtp-password-hint"
-            />
-            {saved.hasPassword && hasUser ? (
-              <Label className="font-normal text-muted-foreground">
-                <Checkbox
-                  checked={clearPassword}
-                  onCheckedChange={(v) => {
-                    setClearPassword(v === true);
-                    if (v === true) setPassword("");
-                  }}
-                />
-                Remove the saved password
-              </Label>
-            ) : (
-              <p id="smtp-password-hint" className="text-xs text-muted-foreground">
-                {hasUser ? "Stored encrypted and never shown again." : "Enter a username to sign in to the server."}
-              </p>
-            )}
-          </div>
-        </div>
+        <SmtpCredentialsFields
+          user={form.user}
+          password={password}
+          clearPassword={clearPassword}
+          savedHasPassword={saved.hasPassword}
+          hasUser={form.user.trim() !== ""}
+          onUserChange={(value) => update("user", value)}
+          onPasswordChange={setPassword}
+          onClearPasswordChange={(checked) => {
+            setClearPassword(checked);
+            if (checked) setPassword("");
+          }}
+        />
 
         <div className="grid gap-2">
           <Label htmlFor="smtp-from">
@@ -270,74 +407,19 @@ export function SmtpSettingsForm({ settings, adminEmail }: { settings: SmtpSetti
           </p>
         ) : null}
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="submit" disabled={busy || !dirty}>
-            {saving ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <SaveIcon />}
-            {saved.enabled ? "Save changes" : "Turn on email"}
-          </Button>
-          {saved.enabled ? (
-            confirmingRemove ? (
-              <>
-                <Button type="button" variant="destructive" disabled={busy} onClick={remove}>
-                  {removing ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <PowerOffIcon />}
-                  Remove SMTP settings
-                </Button>
-                <Button type="button" variant="ghost" disabled={busy} onClick={() => setConfirmingRemove(false)}>
-                  Cancel
-                </Button>
-                <p className="basis-full text-xs text-muted-foreground">
-                  Email rules stay, but stop delivering until SMTP is set up again.
-                </p>
-              </>
-            ) : (
-              <Button type="button" variant="ghost" disabled={busy} onClick={() => setConfirmingRemove(true)}>
-                <PowerOffIcon />
-                Turn off email
-              </Button>
-            )
-          ) : null}
-        </div>
+        <SmtpFormActions
+          enabled={saved.enabled}
+          busy={busy}
+          dirty={dirty}
+          saving={saving}
+          removing={removing}
+          confirmingRemove={confirmingRemove}
+          onConfirmChange={setConfirmingRemove}
+          onRemove={remove}
+        />
       </form>
 
-      <section aria-labelledby="smtp-test-heading" className="grid gap-4 rounded-lg border bg-card p-4 sm:p-5">
-        <div>
-          <h2 id="smtp-test-heading" className="font-medium">
-            Send a test email
-          </h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            Delivers the sample v1.0.0 release through the saved settings.
-          </p>
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Label htmlFor="smtp-test-to" className="sr-only">
-            Recipient
-          </Label>
-          <Input
-            id="smtp-test-to"
-            type="email"
-            inputMode="email"
-            value={testTo}
-            onChange={(e) => setTestTo(e.target.value)}
-            placeholder={adminEmail}
-            autoComplete="off"
-            spellCheck={false}
-            disabled={!saved.enabled}
-            className="sm:max-w-sm"
-          />
-          <Button type="button" variant="outline" disabled={!saved.enabled || dirty || testing} onClick={sendTest}>
-            {testing ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <SendIcon />}
-            Send test email
-          </Button>
-        </div>
-        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <MailCheckIcon className="size-3.5 shrink-0" aria-hidden />
-          {!saved.enabled
-            ? "Turn on email first."
-            : dirty
-              ? "Save your changes first: the test uses the saved settings."
-              : `Leave the address empty to send it to ${adminEmail}.`}
-        </p>
-      </section>
+      <SmtpTestEmailSection enabled={saved.enabled} dirty={dirty} adminEmail={adminEmail} />
     </div>
   );
 }

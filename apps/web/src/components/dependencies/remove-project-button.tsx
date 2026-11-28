@@ -7,16 +7,7 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { removeDependencyProjectAction } from "@/server/actions/dependencies";
 
 /** Danger zone: removes the project (and its PR ownership); open pull requests stay on GitHub. */
@@ -48,32 +39,21 @@ export function RemoveProjectButton({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !pending && setOpen(next)}>
-      <DialogTrigger asChild>
+    <ConfirmDialog
+      open={open}
+      onOpenChange={setOpen}
+      pending={pending}
+      trigger={
         <Button variant="destructive" size="sm">
           <TrashIcon />
           Remove project
         </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Stop checking {fullName}?</DialogTitle>
-          <DialogDescription>
-            Its dependency results, settings and pull request history in RepoPulse are removed, and RepoPulse stops
-            managing pull requests for it. Open pull requests stay on GitHub. Tracking its releases is not affected.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="outline" disabled={pending}>
-              Cancel
-            </Button>
-          </DialogClose>
-          <Button variant="destructive" onClick={remove} disabled={pending}>
-            {pending ? "Removing…" : "Remove project"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      }
+      title={`Stop checking ${fullName}?`}
+      description="Its dependency results, settings and pull request history in RepoPulse are removed, and RepoPulse stops managing pull requests for it. Open pull requests stay on GitHub. Tracking its releases is not affected."
+      confirmLabel="Remove project"
+      pendingLabel="Removing…"
+      onConfirm={remove}
+    />
   );
 }

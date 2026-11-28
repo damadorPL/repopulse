@@ -42,6 +42,25 @@ export async function generateMetadata({ params }: PageProps<"/dependencies/[own
   return { title: `${slug} · Dependencies · RepoPulse` };
 }
 
+function countOutdatedLevels(updates: DependencyProjectDetail["updates"]): LevelCounts {
+  const outdated: LevelCounts = { major: 0, minor: 0, patch: 0, other: 0 };
+  for (const row of updates) {
+    if (row.status !== "OUTDATED") continue;
+    if (row.level === "MAJOR") outdated.major++;
+    else if (row.level === "MINOR") outdated.minor++;
+    else if (row.level === "PATCH") outdated.patch++;
+    else outdated.other++;
+  }
+  return outdated;
+}
+
+function canonicalProjectHref(fullName: string, rawFrom: string | string[] | undefined): Route {
+  const from = Array.isArray(rawFrom) ? rawFrom[0] : rawFrom;
+  const [canonicalOwner = "", canonicalName = ""] = fullName.split("/");
+  const path = `/dependencies/${encodeURIComponent(canonicalOwner)}/${encodeURIComponent(canonicalName)}`;
+  return (from ? `${path}?from=${encodeURIComponent(from)}` : path) as Route;
+}
+
 function Section({
   id,
   title,
@@ -124,6 +143,154 @@ async function ProjectSettingsFormContent({
   );
 }
 
+function ScanStatusValue({
+  scanStatus,
+  lastScannedAt,
+}: {
+  scanStatus: DependencyProjectDetail["scanStatus"];
+  lastScannedAt: DependencyProjectDetail["lastScannedAt"];
+}) {
+  if (scanStatus === "SCANNING") return "Re-checking…";
+  if (scanStatus === "QUEUED") return "Check queued…";
+  return lastScannedAt ? <RelativeTime date={lastScannedAt} /> : "never";
+}
+
+function ProjectHeader({ project, busy }: { project: DependencyProjectDetail; busy: boolean }) {
+  const packageManagers = [...new Set(project.manifests.map((m) => m.packageManager))].toSorted();
+
+  return (
+    <header className="flex flex-col gap-4 sm:flex-row sm:items-start">
+      <RepoAvatar src={project.avatarUrl} name={project.name} className="size-12" />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="truncate text-xl font-semibold tracking-tight">{project.fullName}</h1>
+          {project.isPrivate ? (
+            <LockIcon className="size-4 text-muted-foreground" aria-label="Private repository" />
+          ) : null}
+          <a
+            href={`https://github.com/${project.fullName}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-muted-foreground hover:text-foreground"
+            aria-label={`${project.fullName} on GitHub`}
+            title="Open on GitHub"
+          >
+            <ExternalLinkIcon className="size-4" />
+          </a>
+          <Badge variant="outline">{updateModeLabel(project.settings.updateMode)}</Badge>
+          {project.tracked ? (
+            <Link href={repositorySettingsHref(project.fullName)}>
+              <Badge variant="secondary">Tracked</Badge>
+            </Link>
+          ) : null}
+        </div>
+        <dl className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <div className="flex items-center gap-1">
+            <GitBranchIcon className="size-3.5" aria-hidden />
+            <dt className="sr-only">Default branch</dt>
+            <dd className="font-mono">{project.defaultBranch}</dd>
+          </div>
+          {packageManagers.length > 0 ? (
+            <div className="flex items-center gap-1">
+              <dt className="sr-only">Package managers</dt>
+              <dd>{packageManagers.map((pm) => PACKAGE_MANAGER_LABELS[pm]).join(", ")}</dd>
+            </div>
+          ) : null}
+          <div className="flex items-center gap-1">
+            <dt>{busy ? "Status" : "Checked"}</dt>
+            <dd>
+              <ScanStatusValue scanStatus={project.scanStatus} lastScannedAt={project.lastScannedAt} />
+            </dd>
+          </div>
+          {project.nextScanAt && !busy ? (
+            <div className="flex items-center gap-1">
+              <dt>Next check</dt>
+              <dd>
+                <RelativeTime date={project.nextScanAt} />
+              </dd>
+            </div>
+          ) : null}
+        </dl>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <CheckNowButton projectId={project.id} fullName={project.fullName} busy={busy} />
+      </div>
+    </header>
+  );
+}
+
+function ScanErrorAlert({ scanError }: { scanError: string | null }) {
+  return (
+    <p
+      role="alert"
+      className="flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200"
+    >
+      <TriangleExclamationPointIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
+      <span>
+        <span className="font-medium">The last check failed.</span> {scanError ?? "Try “Check now” again later."}
+      </span>
+    </p>
+  );
+}
+
+function ManifestsTable({
+  manifests,
+  lastScannedAt,
+}: {
+  manifests: DependencyProjectDetail["manifests"];
+  lastScannedAt: DependencyProjectDetail["lastScannedAt"];
+}) {
+  if (manifests.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        {lastScannedAt ? "No supported manifest was found." : "Not checked yet."}
+      </p>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-md border">
+      <table className="w-full min-w-xl text-sm">
+        <thead className="text-left text-xs text-muted-foreground">
+          <tr className="border-b">
+            <th className="px-3 py-2 font-medium">Path</th>
+            <th className="p-2 font-medium">Package manager</th>
+            <th className="p-2 font-medium">Lockfile</th>
+            <th className="p-2 text-right font-medium">Dependencies</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {manifests.map((manifest) => (
+            <tr key={manifest.id} className="align-top">
+              <td className="px-3 py-2">
+                <code className="font-mono text-xs">{manifest.path}</code>
+                {manifest.warnings.map((warning) => (
+                  <span
+                    key={warning}
+                    className="mt-1 flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400"
+                  >
+                    <TriangleExclamationPointIcon className="mt-0.5 size-3 shrink-0" aria-hidden />
+                    {warning}
+                  </span>
+                ))}
+              </td>
+              <td className="p-2 text-xs">{PACKAGE_MANAGER_LABELS[manifest.packageManager]}</td>
+              <td className="p-2">
+                {manifest.lockfilePath ? (
+                  <code className="font-mono text-xs">{manifest.lockfilePath}</code>
+                ) : (
+                  <span className="text-xs text-muted-foreground">—</span>
+                )}
+              </td>
+              <td className="p-2 text-right tabular-nums">{manifest.dependencyCount}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /**
  * A dependency project (Slice 08 §3.7.3): header with the App status, outdated table, planned and
  * past pull requests, settings, detected manifests and the danger zone. Only the signed-in user's
@@ -156,10 +323,7 @@ export default async function DependencyProjectPage({
 
   // Canonical casing: /dependencies/Vercel/Next.js → /dependencies/vercel/next.js.
   if (`${parseRepoSegment(owner)}/${parseRepoSegment(name)}` !== project.fullName) {
-    const from = Array.isArray(query.from) ? query.from[0] : query.from;
-    const [canonicalOwner = "", canonicalName = ""] = project.fullName.split("/");
-    const path = `/dependencies/${encodeURIComponent(canonicalOwner)}/${encodeURIComponent(canonicalName)}`;
-    redirect((from ? `${path}?from=${encodeURIComponent(from)}` : path) as Route);
+    redirect(canonicalProjectHref(project.fullName, query.from));
   }
 
   // Start slow external / Redis status queries eagerly so primary page chrome streams immediately.
@@ -167,17 +331,8 @@ export default async function DependencyProjectPage({
     loadGitHubToken(user, "DependencyProjectPage"),
   );
   const workerPromise = readDepsWorkerStatus();
-  const outdated: LevelCounts = { major: 0, minor: 0, patch: 0, other: 0 };
-  for (const row of project.updates) {
-    if (row.status !== "OUTDATED") continue;
-    if (row.level === "MAJOR") outdated.major++;
-    else if (row.level === "MINOR") outdated.minor++;
-    else if (row.level === "PATCH") outdated.patch++;
-    else outdated.other++;
-  }
+  const outdated = countOutdatedLevels(project.updates);
   const busy = project.scanStatus === "QUEUED" || project.scanStatus === "SCANNING";
-  const packageManagers = [...new Set(project.manifests.map((m) => m.packageManager))].toSorted();
-  const { ignoreRules } = project.settings;
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
@@ -189,87 +344,12 @@ export default async function DependencyProjectPage({
         Dependencies
       </Link>
 
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-start">
-        <RepoAvatar src={project.avatarUrl} name={project.name} className="size-12" />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="truncate text-xl font-semibold tracking-tight">{project.fullName}</h1>
-            {project.isPrivate ? (
-              <LockIcon className="size-4 text-muted-foreground" aria-label="Private repository" />
-            ) : null}
-            <a
-              href={`https://github.com/${project.fullName}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-muted-foreground hover:text-foreground"
-              aria-label={`${project.fullName} on GitHub`}
-              title="Open on GitHub"
-            >
-              <ExternalLinkIcon className="size-4" />
-            </a>
-            <Badge variant="outline">{updateModeLabel(project.settings.updateMode)}</Badge>
-            {project.tracked ? (
-              <Link href={repositorySettingsHref(project.fullName)}>
-                <Badge variant="secondary">Tracked</Badge>
-              </Link>
-            ) : null}
-          </div>
-          <dl className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            <div className="flex items-center gap-1">
-              <GitBranchIcon className="size-3.5" aria-hidden />
-              <dt className="sr-only">Default branch</dt>
-              <dd className="font-mono">{project.defaultBranch}</dd>
-            </div>
-            {packageManagers.length > 0 ? (
-              <div className="flex items-center gap-1">
-                <dt className="sr-only">Package managers</dt>
-                <dd>{packageManagers.map((pm) => PACKAGE_MANAGER_LABELS[pm]).join(", ")}</dd>
-              </div>
-            ) : null}
-            <div className="flex items-center gap-1">
-              <dt>{busy ? "Status" : "Checked"}</dt>
-              <dd>
-                {project.scanStatus === "SCANNING" ? (
-                  "Re-checking…"
-                ) : project.scanStatus === "QUEUED" ? (
-                  "Check queued…"
-                ) : project.lastScannedAt ? (
-                  <RelativeTime date={project.lastScannedAt} />
-                ) : (
-                  "never"
-                )}
-              </dd>
-            </div>
-            {project.nextScanAt && !busy ? (
-              <div className="flex items-center gap-1">
-                <dt>Next check</dt>
-                <dd>
-                  <RelativeTime date={project.nextScanAt} />
-                </dd>
-              </div>
-            ) : null}
-          </dl>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <CheckNowButton projectId={project.id} fullName={project.fullName} busy={busy} />
-        </div>
-      </header>
+      <ProjectHeader project={project} busy={busy} />
 
       <Suspense fallback={null}>
         <DepsWorkerBanner workerPromise={workerPromise} />
       </Suspense>
-      {project.scanStatus === "ERROR" ? (
-        <p
-          role="alert"
-          className="flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200"
-        >
-          <TriangleExclamationPointIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
-          <span>
-            <span className="font-medium">The last check failed.</span>{" "}
-            {project.scanError ?? "Try “Check now” again later."}
-          </span>
-        </p>
-      ) : null}
+      {project.scanStatus === "ERROR" ? <ScanErrorAlert scanError={project.scanError} /> : null}
       <Suspense fallback={<Skeleton className="h-14 w-full rounded-lg" />}>
         <ProjectAppStatusBanner appPromise={appPromise} prOwner={project.prOwner} fullName={project.fullName} />
       </Suspense>
@@ -314,56 +394,12 @@ export default async function DependencyProjectPage({
             Names may start and/or end with <code>*</code> (<code>@types/*</code>). A version range ignores only those
             versions.
           </p>
-          <IgnoreRulesEditor projectId={project.id} rules={ignoreRules} />
+          <IgnoreRulesEditor projectId={project.id} rules={project.settings.ignoreRules} />
         </div>
       </Section>
 
       <Section id="manifests" title="Manifests" description="Files found on the default branch at the last check.">
-        {project.manifests.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            {project.lastScannedAt ? "No supported manifest was found." : "Not checked yet."}
-          </p>
-        ) : (
-          <div className="overflow-x-auto rounded-md border">
-            <table className="w-full min-w-xl text-sm">
-              <thead className="text-left text-xs text-muted-foreground">
-                <tr className="border-b">
-                  <th className="px-3 py-2 font-medium">Path</th>
-                  <th className="p-2 font-medium">Package manager</th>
-                  <th className="p-2 font-medium">Lockfile</th>
-                  <th className="p-2 text-right font-medium">Dependencies</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {project.manifests.map((manifest) => (
-                  <tr key={manifest.id} className="align-top">
-                    <td className="px-3 py-2">
-                      <code className="font-mono text-xs">{manifest.path}</code>
-                      {manifest.warnings.map((warning) => (
-                        <span
-                          key={warning}
-                          className="mt-1 flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400"
-                        >
-                          <TriangleExclamationPointIcon className="mt-0.5 size-3 shrink-0" aria-hidden />
-                          {warning}
-                        </span>
-                      ))}
-                    </td>
-                    <td className="p-2 text-xs">{PACKAGE_MANAGER_LABELS[manifest.packageManager]}</td>
-                    <td className="p-2">
-                      {manifest.lockfilePath ? (
-                        <code className="font-mono text-xs">{manifest.lockfilePath}</code>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    <td className="p-2 text-right tabular-nums">{manifest.dependencyCount}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <ManifestsTable manifests={project.manifests} lastScannedAt={project.lastScannedAt} />
       </Section>
 
       <section className="rounded-lg border border-destructive/40 p-4 sm:p-5" aria-labelledby="danger-title">

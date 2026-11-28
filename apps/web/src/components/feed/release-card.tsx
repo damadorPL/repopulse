@@ -1,7 +1,6 @@
 "use client";
 
 import { ExternalLinkIcon } from "lucide-react";
-import { memo } from "react";
 
 import { cn } from "@/lib/utils";
 import type { FeedItem } from "@/server/queries/feed";
@@ -12,7 +11,48 @@ import { SemverBadge } from "./semver-badge";
 import { CommitSourceBadge, TagSourceBadge } from "./source-badge";
 import { TagPill } from "./tag-pill";
 
-export const ReleaseCard = memo(function ReleaseCard({
+function sourceNoun(source: FeedItem["source"]): string {
+  if (source === "TAG") return "tag";
+  if (source === "COMMIT") return "commit";
+  return "release";
+}
+
+function VersionComparisonBadge({ newerThanMine, isMyVersion }: { newerThanMine: boolean; isMyVersion: boolean }) {
+  if (newerThanMine) {
+    return (
+      <span
+        className="inline-flex items-center rounded-md border border-dashed px-1.5 py-0.5 text-[11px] text-muted-foreground"
+        title="Newer than the version you set as yours"
+      >
+        Newer than yours
+      </span>
+    );
+  }
+  if (isMyVersion) {
+    return (
+      <span className="inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] text-muted-foreground">
+        Your version
+      </span>
+    );
+  }
+  return null;
+}
+
+function ReleaseBadges({ item }: { item: FeedItem }) {
+  const showPrereleaseFlag = item.isPrerelease && item.semverType !== "PRERELEASE";
+
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+      <code className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs">{item.tagName}</code>
+      {item.source === "TAG" ? <TagSourceBadge /> : null}
+      {item.source === "COMMIT" ? <CommitSourceBadge /> : <SemverBadge type={item.semverType} />}
+      {showPrereleaseFlag ? <SemverBadge type="PRERELEASE" /> : null}
+      <VersionComparisonBadge newerThanMine={item.newerThanMine} isMyVersion={item.isMyVersion} />
+    </div>
+  );
+}
+
+export function ReleaseCard({
   item,
   isRead,
   isActive,
@@ -23,8 +63,6 @@ export const ReleaseCard = memo(function ReleaseCard({
   isActive: boolean;
   onOpen: (item: FeedItem) => void;
 }) {
-  const showPrereleaseFlag = item.isPrerelease && item.semverType !== "PRERELEASE";
-
   return (
     <article
       className={cn(
@@ -37,7 +75,7 @@ export const ReleaseCard = memo(function ReleaseCard({
         type="button"
         onClick={() => onOpen(item)}
         className="absolute inset-0 z-0 rounded-lg outline-hidden focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        aria-label={`Read ${item.source === "TAG" ? "tag" : item.source === "COMMIT" ? "commit" : "release"} notes for ${item.repository.fullName} ${item.tagName}${isRead ? "" : " (unread)"}`}
+        aria-label={`Read ${sourceNoun(item.source)} notes for ${item.repository.fullName} ${item.tagName}${isRead ? "" : " (unread)"}`}
       />
 
       <RepoAvatar
@@ -56,24 +94,7 @@ export const ReleaseCard = memo(function ReleaseCard({
           <RelativeTime date={item.publishedAt} />
         </div>
 
-        <div className="mt-1.5 flex flex-wrap items-center gap-2">
-          <code className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs">{item.tagName}</code>
-          {item.source === "TAG" ? <TagSourceBadge /> : null}
-          {item.source === "COMMIT" ? <CommitSourceBadge /> : <SemverBadge type={item.semverType} />}
-          {showPrereleaseFlag ? <SemverBadge type="PRERELEASE" /> : null}
-          {item.newerThanMine ? (
-            <span
-              className="inline-flex items-center rounded-md border border-dashed px-1.5 py-0.5 text-[11px] text-muted-foreground"
-              title="Newer than the version you set as yours"
-            >
-              Newer than yours
-            </span>
-          ) : item.isMyVersion ? (
-            <span className="inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] text-muted-foreground">
-              Your version
-            </span>
-          ) : null}
-        </div>
+        <ReleaseBadges item={item} />
 
         <h3
           className={cn(
@@ -115,4 +136,4 @@ export const ReleaseCard = memo(function ReleaseCard({
       </div>
     </article>
   );
-});
+}

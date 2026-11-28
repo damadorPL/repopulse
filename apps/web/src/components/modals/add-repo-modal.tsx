@@ -48,6 +48,122 @@ function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
+function describeAddedRepository(
+  data: { releasesCount: number; commitsCount: number; importingPaths: boolean },
+  tracksReleases: boolean,
+  trackMode: TrackModeValue,
+  tracksPaths: boolean,
+): string {
+  const parts: string[] = [];
+  if (tracksReleases) parts.push(`${plural(data.releasesCount, "release")} imported.`);
+  if (trackMode === "TAGS_AND_COMMITS") parts.push("Git tags without a release are imported in the background.");
+  if (tracksPaths) {
+    parts.push(
+      data.importingPaths
+        ? "Recent commits that change the watched paths are imported in the background."
+        : `${plural(data.commitsCount, "matching commit")} found.`,
+    );
+  }
+  return parts.join(" ");
+}
+
+function TrackingChoicesFieldset({
+  trackMode,
+  tracksPaths,
+  tracksAnything,
+  onChoose,
+}: {
+  trackMode: TrackModeValue;
+  tracksPaths: boolean;
+  tracksAnything: boolean;
+  onChoose: (key: TrackingChoice, checked: boolean) => void;
+}) {
+  return (
+    <fieldset className="grid gap-2" aria-describedby="add-repo-tracking-help">
+      <legend className="mb-2 text-sm font-medium">What to track</legend>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {TRACKING_CHOICES.map((choice) => {
+          const selected = choice.key === "PATHS" ? tracksPaths : trackMode === choice.key;
+          return (
+            <label
+              key={choice.key}
+              className={cn(
+                "relative grid cursor-pointer gap-0.5 rounded-md border p-2.5 pr-8 text-sm transition-colors has-focus-visible:ring-[3px] has-focus-visible:ring-ring/50",
+                selected ? "border-foreground/40 bg-secondary" : "hover:bg-accent",
+              )}
+            >
+              <input
+                type="checkbox"
+                name="add-repo-tracking"
+                value={choice.key}
+                checked={selected}
+                onChange={(event) => onChoose(choice.key, event.target.checked)}
+                className="sr-only"
+              />
+              <span
+                aria-hidden
+                className={cn(
+                  "absolute top-2.5 right-2.5 flex size-4 items-center justify-center rounded-[4px] border",
+                  selected ? "border-primary bg-primary text-primary-foreground" : "border-input",
+                )}
+              >
+                {selected ? <CheckIcon className="size-3" /> : null}
+              </span>
+              <span className="font-medium">{choice.label}</span>
+              <span className="text-xs text-muted-foreground">{choice.hint}</span>
+            </label>
+          );
+        })}
+      </div>
+      <p
+        id="add-repo-tracking-help"
+        className={cn("text-xs", tracksAnything ? "text-muted-foreground" : "text-destructive")}
+      >
+        {tracksAnything ? "Pick releases or releases + tags, files / folders, or both." : NOTHING_TRACKED_MESSAGE}
+      </p>
+    </fieldset>
+  );
+}
+
+function TagSelectorFieldset({
+  tags,
+  tagIds,
+  onToggle,
+}: {
+  tags: TagPill[];
+  tagIds: string[];
+  onToggle: (id: string) => void;
+}) {
+  if (tags.length === 0) return null;
+  const selectedTagIds = new Set(tagIds);
+
+  return (
+    <fieldset className="grid gap-2">
+      <legend className="mb-2 text-sm font-medium">Tags</legend>
+      <div className="flex flex-wrap gap-1.5">
+        {tags.map((tag) => {
+          const selected = selectedTagIds.has(tag.id);
+          return (
+            <button
+              key={tag.id}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => onToggle(tag.id)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors",
+                selected ? "border-foreground/40 bg-secondary font-medium" : "text-muted-foreground hover:bg-accent",
+              )}
+            >
+              <TagDot color={tag.colorHex} />
+              {tag.name}
+            </button>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
 /** "Add repository" dialog; `children` is the trigger element. `defaultRepo` prefills the repository field. */
 export function AddRepoModal({
   tags,
@@ -84,10 +200,6 @@ export function AddRepoModal({
     setTagIds([]);
     setError(null);
     setPathsError(null);
-  }
-
-  function isChosen(key: TrackingChoice): boolean {
-    return key === "PATHS" ? tracksPaths : trackMode === key;
   }
 
   /** "Releases only" and "Releases + tags" exclude each other; "Files / folders" combines with either. */
@@ -131,19 +243,9 @@ export function AddRepoModal({
         setError(result.error.message);
         return;
       }
-      const { fullName, repositoryId, releasesCount, commitsCount, importingPaths } = result.data;
-      const parts: string[] = [];
-      if (tracksReleases) parts.push(`${plural(releasesCount, "release")} imported.`);
-      if (trackMode === "TAGS_AND_COMMITS") parts.push("Git tags without a release are imported in the background.");
-      if (tracksPaths) {
-        parts.push(
-          importingPaths
-            ? "Recent commits that change the watched paths are imported in the background."
-            : `${plural(commitsCount, "matching commit")} found.`,
-        );
-      }
+      const { fullName, repositoryId } = result.data;
       toast.success(`Now tracking ${fullName}`, {
-        description: parts.join(" "),
+        description: describeAddedRepository(result.data, tracksReleases, trackMode, tracksPaths),
         action: { label: "View", onClick: () => router.push(feedHref({ repositoryId })) },
       });
       setOpen(false);
@@ -197,49 +299,12 @@ export function AddRepoModal({
             ) : null}
           </div>
 
-          <fieldset className="grid gap-2" aria-describedby="add-repo-tracking-help">
-            <legend className="mb-2 text-sm font-medium">What to track</legend>
-            <div className="grid gap-2 sm:grid-cols-3">
-              {TRACKING_CHOICES.map((choice) => {
-                const selected = isChosen(choice.key);
-                return (
-                  <label
-                    key={choice.key}
-                    className={cn(
-                      "relative grid cursor-pointer gap-0.5 rounded-md border p-2.5 pr-8 text-sm transition-colors has-focus-visible:ring-[3px] has-focus-visible:ring-ring/50",
-                      selected ? "border-foreground/40 bg-secondary" : "hover:bg-accent",
-                    )}
-                  >
-                    <input
-                      type="checkbox"
-                      name="add-repo-tracking"
-                      value={choice.key}
-                      checked={selected}
-                      onChange={(event) => choose(choice.key, event.target.checked)}
-                      className="sr-only"
-                    />
-                    <span
-                      aria-hidden
-                      className={cn(
-                        "absolute top-2.5 right-2.5 flex size-4 items-center justify-center rounded-[4px] border",
-                        selected ? "border-primary bg-primary text-primary-foreground" : "border-input",
-                      )}
-                    >
-                      {selected ? <CheckIcon className="size-3" /> : null}
-                    </span>
-                    <span className="font-medium">{choice.label}</span>
-                    <span className="text-xs text-muted-foreground">{choice.hint}</span>
-                  </label>
-                );
-              })}
-            </div>
-            <p
-              id="add-repo-tracking-help"
-              className={cn("text-xs", tracksAnything ? "text-muted-foreground" : "text-destructive")}
-            >
-              {tracksAnything ? "Pick releases or releases + tags, files / folders, or both." : NOTHING_TRACKED_MESSAGE}
-            </p>
-          </fieldset>
+          <TrackingChoicesFieldset
+            trackMode={trackMode}
+            tracksPaths={tracksPaths}
+            tracksAnything={tracksAnything}
+            onChoose={choose}
+          />
 
           {tracksPaths ? (
             <div className="grid gap-2">
@@ -275,36 +340,7 @@ export function AddRepoModal({
             </Label>
           ) : null}
 
-          {tags.length > 0 ? (
-            <fieldset className="grid gap-2">
-              <legend className="mb-2 text-sm font-medium">Tags</legend>
-              <div className="flex flex-wrap gap-1.5">
-                {(() => {
-                  const selectedTagIds = new Set(tagIds);
-                  return tags.map((tag) => {
-                    const selected = selectedTagIds.has(tag.id);
-                    return (
-                      <button
-                        key={tag.id}
-                        type="button"
-                        aria-pressed={selected}
-                        onClick={() => toggleTag(tag.id)}
-                        className={cn(
-                          "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors",
-                          selected
-                            ? "border-foreground/40 bg-secondary font-medium"
-                            : "text-muted-foreground hover:bg-accent",
-                        )}
-                      >
-                        <TagDot color={tag.colorHex} />
-                        {tag.name}
-                      </button>
-                    );
-                  });
-                })()}
-              </div>
-            </fieldset>
-          ) : null}
+          <TagSelectorFieldset tags={tags} tagIds={tagIds} onToggle={toggleTag} />
 
           <DialogFooter>
             <Button

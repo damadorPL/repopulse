@@ -11,7 +11,7 @@ import { ChangelogDrawer } from "@/components/reader/changelog-drawer";
 import { ChangelogMarkdown } from "@/components/reader/changelog-markdown";
 import { ReaderProvider } from "@/components/reader/reader-context";
 import { Button } from "@/components/ui/button";
-import { feedFiltersKey, feedHref, parseFeedFilters, parseReleaseParam } from "@/lib/feed-filters";
+import { feedFiltersKey, feedHref, parseFeedFilters, parseReleaseParam, type FeedFilters } from "@/lib/feed-filters";
 import {
   countUnread,
   getDashboardData,
@@ -20,10 +20,103 @@ import {
   getUserFeedContext,
   type FeedItem,
   type ReleaseDetail,
+  type TagPill,
+  type UserFeedContext,
 } from "@/server/queries/feed";
 import { requireUser } from "@/server/session";
 
 export const metadata: Metadata = { title: "Releases · RepoPulse" };
+
+async function resolveViewUnreadCount(
+  userId: string,
+  filters: FeedFilters,
+  context: UserFeedContext,
+  tag: UserFeedContext["tags"][number] | null,
+  repository: UserFeedContext["subscriptions"][number] | null,
+): Promise<number> {
+  const filtered = Boolean(filters.semverType || filters.searchQuery);
+  if (filtered || Boolean(filters.tagSlug && filters.repositoryId)) {
+    return countUnread(userId, filters, context.subscriptionVisibility);
+  }
+  if (!tag && !repository && (filters.tagSlug || filters.repositoryId)) {
+    return 0; // unknown tag / untracked repo
+  }
+  const dashboard = await getDashboardData(userId);
+  if (tag) return dashboard.tags.find((t) => t.id === tag.id)?.unreadCount ?? 0;
+  if (repository) {
+    return dashboard.unreadByRepository.find((r) => r.repositoryId === repository.repositoryId)?.unreadCount ?? 0;
+  }
+  return dashboard.totalUnread;
+}
+
+function feedHeading(
+  tag: { name: string } | null,
+  repository: { fullName: string } | null,
+  onlyUnread: boolean,
+): string {
+  if (tag) return tag.name;
+  if (repository) return repository.fullName;
+  return onlyUnread ? "Unread releases" : "All releases";
+}
+
+function feedSubtitle(viewUnread: number, repoCount: number): string {
+  const unreadText = viewUnread > 0 ? `${viewUnread} unread` : "All caught up";
+  if (repoCount === 0) return unreadText;
+  return `${unreadText} · ${repoCount} tracked repositor${repoCount === 1 ? "y" : "ies"}`;
+}
+
+function FeedEmptyState({
+  hasSubscriptions,
+  onlyUnread,
+  filtered,
+  hasScope,
+  tags,
+}: {
+  hasSubscriptions: boolean;
+  onlyUnread: boolean;
+  filtered: boolean;
+  hasScope: boolean;
+  tags: TagPill[];
+}) {
+  if (!hasSubscriptions) {
+    return (
+      <EmptyState
+        icon={<PlusIcon />}
+        title="Track your first repository"
+        description="Add a GitHub repository and its latest releases show up here, with changelogs and SemVer badges."
+        action={
+          <AddRepoModal tags={tags}>
+            <Button>
+              <PlusIcon />
+              Add repository
+            </Button>
+          </AddRepoModal>
+        }
+      />
+    );
+  }
+  if (onlyUnread && !filtered && !hasScope) {
+    return (
+      <EmptyState
+        icon={<InboxIcon />}
+        title="Inbox zero"
+        description="No unread releases. New ones appear here as they are published."
+      />
+    );
+  }
+  return (
+    <EmptyState
+      icon={<SearchXIcon />}
+      title="No releases match"
+      description="Try another filter, or clear them to see everything."
+      action={
+        <Button variant="outline" asChild>
+          <Link href={feedHref()}>Clear filters</Link>
+        </Button>
+      }
+    />
+  );
+}
 
 export default async function ReleaseFeedPage({ searchParams }: PageProps<"/">) {
   const params = await searchParams;
@@ -41,9 +134,8 @@ export default async function ReleaseFeedPage({ searchParams }: PageProps<"/">) 
     ? (context.subscriptions.find((s) => s.repositoryId === filters.repositoryId) ?? null)
     : null;
 
-  const heading = tag?.name ?? repository?.fullName ?? (filters.onlyUnread ? "Unread releases" : "All releases");
+  const heading = feedHeading(tag, repository, filters.onlyUnread);
   const filtered = Boolean(filters.semverType || filters.searchQuery);
-  const needsExactUnreadCount = filtered || Boolean(filters.tagSlug && filters.repositoryId);
   const [page, viewUnread] = await Promise.all([
     getReleaseFeed({
       userId: user.id,
@@ -51,18 +143,7 @@ export default async function ReleaseFeedPage({ searchParams }: PageProps<"/">) 
       subscriptions: context.subscriptionVisibility,
       repoContextById: context.repoContextById,
     }),
-    needsExactUnreadCount
-      ? countUnread(user.id, filters, context.subscriptionVisibility)
-      : !tag && !repository && (filters.tagSlug || filters.repositoryId)
-        ? Promise.resolve(0) // unknown tag / untracked repo
-        : getDashboardData(user.id).then((dashboard) =>
-            tag
-              ? (dashboard.tags.find((t) => t.id === tag.id)?.unreadCount ?? 0)
-              : repository
-                ? (dashboard.unreadByRepository.find((r) => r.repositoryId === repository.repositoryId)?.unreadCount ??
-                  0)
-                : dashboard.totalUnread,
-          ),
+    resolveViewUnreadCount(user.id, filters, context, tag, repository),
   ]);
   const key = feedFiltersKey(filters);
   const drawerItem = detail ? toDrawerItem(detail) : null;
@@ -77,10 +158,7 @@ export default async function ReleaseFeedPage({ searchParams }: PageProps<"/">) 
               {heading}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              {viewUnread > 0 ? `${viewUnread} unread` : "All caught up"}
-              {context.subscriptions.length > 0
-                ? ` · ${context.subscriptions.length} tracked repositor${context.subscriptions.length === 1 ? "y" : "ies"}`
-                : null}
+              {feedSubtitle(viewUnread, context.subscriptions.length)}
             </p>
           </div>
 
@@ -96,40 +174,13 @@ export default async function ReleaseFeedPage({ searchParams }: PageProps<"/">) 
             initialPage={page}
             query={key}
             emptyState={
-              context.subscriptions.length === 0 ? (
-                <EmptyState
-                  icon={<PlusIcon />}
-                  title="Track your first repository"
-                  description="Add a GitHub repository and its latest releases show up here, with changelogs and SemVer badges."
-                  action={
-                    <AddRepoModal
-                      tags={context.tags.map(({ id, name, slug, colorHex }) => ({ id, name, slug, colorHex }))}
-                    >
-                      <Button>
-                        <PlusIcon />
-                        Add repository
-                      </Button>
-                    </AddRepoModal>
-                  }
-                />
-              ) : filters.onlyUnread && !filtered && !tag && !repository ? (
-                <EmptyState
-                  icon={<InboxIcon />}
-                  title="Inbox zero"
-                  description="No unread releases. New ones appear here as they are published."
-                />
-              ) : (
-                <EmptyState
-                  icon={<SearchXIcon />}
-                  title="No releases match"
-                  description="Try another filter, or clear them to see everything."
-                  action={
-                    <Button variant="outline" asChild>
-                      <Link href={feedHref()}>Clear filters</Link>
-                    </Button>
-                  }
-                />
-              )
+              <FeedEmptyState
+                hasSubscriptions={context.subscriptions.length > 0}
+                onlyUnread={filters.onlyUnread}
+                filtered={filtered}
+                hasScope={Boolean(tag || repository)}
+                tags={context.tags.map(({ id, name, slug, colorHex }) => ({ id, name, slug, colorHex }))}
+              />
             }
           />
         </div>

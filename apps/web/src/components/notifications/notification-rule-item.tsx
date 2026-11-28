@@ -12,6 +12,7 @@ import { NotificationEventCheckboxes } from "@/components/notifications/notifica
 import { sendTestWithToast } from "@/components/notifications/send-test";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
   DialogClose,
@@ -36,7 +37,7 @@ export function NotificationRuleItem({ rule }: { rule: NotificationRuleView }) {
   const label = channelLabel(rule.channel);
   const [enabled, setOptimisticEnabled] = useOptimistic(rule.enabled);
   const [toggling, startToggle] = useTransition();
-  const [testing, setTesting] = useState(false);
+  const [testing, startTest] = useTransition();
 
   function toggle(next: boolean) {
     startToggle(async () => {
@@ -46,13 +47,10 @@ export function NotificationRuleItem({ rule }: { rule: NotificationRuleView }) {
     });
   }
 
-  async function test() {
-    setTesting(true);
-    try {
+  function test() {
+    startTest(async () => {
       await sendTestWithToast(rule.id, label);
-    } finally {
-      setTesting(false);
-    }
+    });
   }
 
   return (
@@ -104,7 +102,7 @@ export function NotificationRuleItem({ rule }: { rule: NotificationRuleView }) {
           title={enabled ? "Enabled" : "Disabled"}
         />
         <EditEventsButton rule={rule} label={label} />
-        <Button variant="outline" size="sm" onClick={() => void test()} disabled={testing}>
+        <Button variant="outline" size="sm" onClick={test} disabled={testing}>
           {testing ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <SendIcon />}
           Send Test
         </Button>
@@ -211,8 +209,11 @@ function DeleteRuleButton({ ruleId, label }: { ruleId: string; label: string }) 
   }
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !pending && setOpen(next)}>
-      <DialogTrigger asChild>
+    <ConfirmDialog
+      open={open}
+      onOpenChange={setOpen}
+      pending={pending}
+      trigger={
         <Button
           variant="ghost"
           size="icon-sm"
@@ -221,25 +222,12 @@ function DeleteRuleButton({ ruleId, label }: { ruleId: string; label: string }) 
         >
           <TrashIcon />
         </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Delete this {label} rule?</DialogTitle>
-          <DialogDescription>
-            New releases will no longer be sent to this destination. Notifications already on their way are dropped.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="outline" disabled={pending}>
-              Cancel
-            </Button>
-          </DialogClose>
-          <Button variant="destructive" onClick={remove} disabled={pending}>
-            {pending ? "Deleting…" : "Delete rule"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      }
+      title={`Delete this ${label} rule?`}
+      description="New releases will no longer be sent to this destination. Notifications already on their way are dropped."
+      confirmLabel="Delete rule"
+      pendingLabel="Deleting…"
+      onConfirm={remove}
+    />
   );
 }

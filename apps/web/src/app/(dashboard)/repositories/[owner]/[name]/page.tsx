@@ -32,13 +32,33 @@ import { formatVersionStatus } from "@/lib/version-compare";
 import { isDepsEnabled } from "@/server/deps-status";
 import { getDependencyProjectForRepository } from "@/server/queries/dependencies";
 import { getDashboardData, type SubscriptionVisibility } from "@/server/queries/feed";
-import { getRepositoryActivity, getRepositorySettings, parseRepoSegment } from "@/server/queries/repository-settings";
+import {
+  getRepositoryActivity,
+  getRepositorySettings,
+  parseRepoSegment,
+  type RepositorySettings,
+} from "@/server/queries/repository-settings";
 import { requireUser } from "@/server/session";
 
 const compactNumber = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 
 function isSnoozedUntil(snoozedUntil: Date | null): boolean {
   return snoozedUntil !== null && snoozedUntil.getTime() > Date.now();
+}
+
+function canonicalRepositoryHref(fullName: string, rawFrom: string | string[] | undefined): Route {
+  const from = Array.isArray(rawFrom) ? rawFrom[0] : rawFrom;
+  const [canonicalOwner = "", canonicalName = ""] = fullName.split("/");
+  const path = `/repositories/${encodeURIComponent(canonicalOwner)}/${encodeURIComponent(canonicalName)}`;
+  return (from ? `${path}?from=${encodeURIComponent(from)}` : path) as Route;
+}
+
+function activitySourcesFor(trackMode: RepositorySettings["trackMode"], trackPaths: boolean): ActivitySource[] {
+  return [
+    ...(trackMode !== "NONE" ? (["RELEASE"] as const) : []),
+    ...(trackMode === "TAGS_AND_COMMITS" ? (["TAG"] as const) : []),
+    ...(trackPaths ? (["COMMIT"] as const) : []),
+  ];
 }
 
 export async function generateMetadata({ params }: PageProps<"/repositories/[owner]/[name]">): Promise<Metadata> {
@@ -118,6 +138,118 @@ async function RepositoryDependenciesContent({
   return <RepositoryDependenciesCard subscriptionId={subscriptionId} fullName={fullName} project={dependencyProject} />;
 }
 
+function ActivitySkeleton() {
+  return (
+    <div className="space-y-4" aria-busy="true" aria-label="Loading repository activity">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Skeleton className="h-14 w-full" />
+        <Skeleton className="h-14 w-full" />
+        <Skeleton className="h-14 w-full" />
+        <Skeleton className="h-14 w-full" />
+      </div>
+      <Skeleton className="h-[106px] w-full max-w-[700px]" />
+    </div>
+  );
+}
+
+function RepositoryHeader({
+  settings,
+  unread,
+  snoozed,
+}: {
+  settings: RepositorySettings;
+  unread: number;
+  snoozed: boolean;
+}) {
+  const { repository: repo } = settings;
+
+  return (
+    <header className="flex flex-col gap-4 sm:flex-row sm:items-start">
+      <RepoAvatar src={repo.avatarUrl} name={repo.name} className="size-12" />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="truncate text-xl font-semibold tracking-tight">{repo.fullName}</h1>
+          <a
+            href={repo.htmlUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-muted-foreground hover:text-foreground"
+            aria-label={`${repo.fullName} on GitHub`}
+            title="Open on GitHub"
+          >
+            <ExternalLinkIcon className="size-4" />
+          </a>
+        </div>
+        <p
+          className={
+            repo.description ? "mt-1 text-sm text-muted-foreground" : "mt-1 text-sm text-muted-foreground/60 italic"
+          }
+        >
+          {repo.description || "No description"}
+        </p>
+        <dl className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <div className="flex items-center gap-1">
+            <dt className="sr-only">Stars</dt>
+            <StarIcon className="size-3.5" aria-hidden />
+            <dd className="tabular-nums">{compactNumber.format(repo.starsCount)}</dd>
+          </div>
+          {repo.pollStatus === "ERROR" ? (
+            <div className="flex items-center gap-1 text-amber-700 dark:text-amber-400">
+              <TriangleExclamationPointIcon className="size-3.5" aria-hidden />
+              <dt className="sr-only">Status</dt>
+              <dd>Last sync failed</dd>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1">
+              <dt>Synced</dt>
+              <dd>{repo.lastPolledAt ? <RelativeTime date={repo.lastPolledAt} /> : "never"}</dd>
+            </div>
+          )}
+          <div className="flex items-center gap-1">
+            <dt>Unread</dt>
+            <dd className={unread > 0 ? "font-medium text-unread tabular-nums" : "tabular-nums"}>
+              {unread > 0 ? <Link href={feedHref({ repositoryId: repo.id, onlyUnread: true })}>{unread}</Link> : 0}
+            </dd>
+          </div>
+          {settings.currentVersion ? (
+            <div className="flex items-center gap-1">
+              <dt>Your version</dt>
+              <dd>
+                <code className="font-mono text-foreground">{settings.currentVersion}</code>
+                {settings.versionStatus ? ` · ${formatVersionStatus(settings.versionStatus)}` : null}
+              </dd>
+            </div>
+          ) : null}
+          {snoozed ? (
+            <div className="flex items-center gap-1 text-amber-700 dark:text-amber-400">
+              <BellOffIcon className="size-3.5" aria-hidden />
+              <dt className="sr-only">Notifications</dt>
+              <dd>
+                Snoozed until <LocalDateTime date={settings.snoozedUntil!} />
+              </dd>
+            </div>
+          ) : null}
+        </dl>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <PinButton
+          subscriptionId={settings.subscriptionId}
+          fullName={repo.fullName}
+          isPinned={settings.isPinned}
+          withLabel
+        />
+        <SyncRepoButton repositoryId={repo.id} />
+        <Button variant="outline" size="sm" asChild>
+          <Link href={feedHref({ repositoryId: repo.id })}>
+            <RssIcon />
+            Open in feed
+          </Link>
+        </Button>
+      </div>
+    </header>
+  );
+}
+
 /**
  * Settings of one tracked repository (Slice 07): header, activity grid, tracking, tags,
  * notifications & feed, history and the danger zone. Addresses the signed-in user's own
@@ -135,21 +267,13 @@ export default async function RepositorySettingsPage({
   const backHref = repoListHrefFrom(query.from);
   // Canonical casing: /repositories/Vercel/Next.js → /repositories/vercel/next.js.
   if (`${parseRepoSegment(owner)}/${parseRepoSegment(name)}` !== repo.fullName) {
-    const from = Array.isArray(query.from) ? query.from[0] : query.from;
-    const [canonicalOwner = "", canonicalName = ""] = repo.fullName.split("/");
-    const path = `/repositories/${encodeURIComponent(canonicalOwner)}/${encodeURIComponent(canonicalName)}`;
-    redirect((from ? `${path}?from=${encodeURIComponent(from)}` : path) as Route);
+    redirect(canonicalRepositoryHref(repo.fullName, query.from));
   }
 
   const [dashboard, depsEnabled] = await Promise.all([getDashboardData(user.id), isDepsEnabled()]);
   const unread = dashboard.unreadByRepository.find((r) => r.repositoryId === repo.id)?.unreadCount ?? 0;
   const tracksReleases = settings.trackMode !== "NONE";
-  const sources: ActivitySource[] = [
-    ...(tracksReleases ? (["RELEASE"] as const) : []),
-    ...(settings.trackMode === "TAGS_AND_COMMITS" ? (["TAG"] as const) : []),
-    ...(settings.trackPaths ? (["COMMIT"] as const) : []),
-  ];
-  const snoozed = isSnoozedUntil(settings.snoozedUntil);
+  const sources = activitySourcesFor(settings.trackMode, settings.trackPaths);
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
@@ -161,89 +285,7 @@ export default async function RepositorySettingsPage({
         Tracked repositories
       </Link>
 
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-start">
-        <RepoAvatar src={repo.avatarUrl} name={repo.name} className="size-12" />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="truncate text-xl font-semibold tracking-tight">{repo.fullName}</h1>
-            <a
-              href={repo.htmlUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-muted-foreground hover:text-foreground"
-              aria-label={`${repo.fullName} on GitHub`}
-              title="Open on GitHub"
-            >
-              <ExternalLinkIcon className="size-4" />
-            </a>
-          </div>
-          <p
-            className={
-              repo.description ? "mt-1 text-sm text-muted-foreground" : "mt-1 text-sm text-muted-foreground/60 italic"
-            }
-          >
-            {repo.description || "No description"}
-          </p>
-          <dl className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            <div className="flex items-center gap-1">
-              <dt className="sr-only">Stars</dt>
-              <StarIcon className="size-3.5" aria-hidden />
-              <dd className="tabular-nums">{compactNumber.format(repo.starsCount)}</dd>
-            </div>
-            {repo.pollStatus === "ERROR" ? (
-              <div className="flex items-center gap-1 text-amber-700 dark:text-amber-400">
-                <TriangleExclamationPointIcon className="size-3.5" aria-hidden />
-                <dt className="sr-only">Status</dt>
-                <dd>Last sync failed</dd>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1">
-                <dt>Synced</dt>
-                <dd>{repo.lastPolledAt ? <RelativeTime date={repo.lastPolledAt} /> : "never"}</dd>
-              </div>
-            )}
-            <div className="flex items-center gap-1">
-              <dt>Unread</dt>
-              <dd className={unread > 0 ? "font-medium text-unread tabular-nums" : "tabular-nums"}>
-                {unread > 0 ? <Link href={feedHref({ repositoryId: repo.id, onlyUnread: true })}>{unread}</Link> : 0}
-              </dd>
-            </div>
-            {settings.currentVersion ? (
-              <div className="flex items-center gap-1">
-                <dt>Your version</dt>
-                <dd>
-                  <code className="font-mono text-foreground">{settings.currentVersion}</code>
-                  {settings.versionStatus ? ` · ${formatVersionStatus(settings.versionStatus)}` : null}
-                </dd>
-              </div>
-            ) : null}
-            {snoozed ? (
-              <div className="flex items-center gap-1 text-amber-700 dark:text-amber-400">
-                <BellOffIcon className="size-3.5" aria-hidden />
-                <dt className="sr-only">Notifications</dt>
-                <dd>
-                  Snoozed until <LocalDateTime date={settings.snoozedUntil!} />
-                </dd>
-              </div>
-            ) : null}
-          </dl>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <PinButton
-            subscriptionId={settings.subscriptionId}
-            fullName={repo.fullName}
-            isPinned={settings.isPinned}
-            withLabel
-          />
-          <SyncRepoButton repositoryId={repo.id} />
-          <Button variant="outline" size="sm" asChild>
-            <Link href={feedHref({ repositoryId: repo.id })}>
-              <RssIcon />
-              Open in feed
-            </Link>
-          </Button>
-        </div>
-      </header>
+      <RepositoryHeader settings={settings} unread={unread} snoozed={isSnoozedUntil(settings.snoozedUntil)} />
 
       {settings.note ? (
         <p className="rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-sm wrap-break-word whitespace-pre-wrap">
@@ -256,19 +298,7 @@ export default async function RepositorySettingsPage({
         title="Activity"
         description="Updates in your feed over the last year, by day in your time zone."
       >
-        <Suspense
-          fallback={
-            <div className="space-y-4" aria-busy="true" aria-label="Loading repository activity">
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <Skeleton className="h-14 w-full" />
-                <Skeleton className="h-14 w-full" />
-                <Skeleton className="h-14 w-full" />
-                <Skeleton className="h-14 w-full" />
-              </div>
-              <Skeleton className="h-[106px] w-full max-w-[700px]" />
-            </div>
-          }
-        >
+        <Suspense fallback={<ActivitySkeleton />}>
           <RepositoryActivityContent
             userId={user.id}
             repositoryId={repo.id}

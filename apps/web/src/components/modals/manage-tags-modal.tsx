@@ -1,7 +1,7 @@
 "use client";
 
 import { CheckIcon, PencilIcon, TrashIcon, XIcon } from "lucide-react";
-import { useEffect, useRef, useState, useTransition, type ReactNode, type SubmitEvent } from "react";
+import { useState, useTransition, type ReactNode, type SubmitEvent } from "react";
 import { toast } from "sonner";
 
 import { TagDot } from "@/components/feed/tag-pill";
@@ -20,6 +20,10 @@ import { DEFAULT_TAG_COLOR, isHexColor, TAG_COLOR_PRESETS, TAG_NAME_MAX_LENGTH }
 import { cn } from "@/lib/utils";
 import { createTagAction, deleteTagAction, updateTagAction } from "@/server/actions/tags";
 import type { SidebarTag } from "@/server/queries/feed";
+
+function focusOnMount(node: HTMLInputElement | null) {
+  node?.focus();
+}
 
 /** Create, rename, recolor and delete tags; `children` is the trigger element. */
 export function ManageTagsModal({ tags, children }: { tags: SidebarTag[]; children: ReactNode }) {
@@ -111,15 +115,10 @@ function ColorPicker({
 }
 
 function CreateTagForm() {
-  const inputRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
   const [color, setColor] = useState<string>(TAG_COLOR_PRESETS[0]);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
 
   function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -146,7 +145,7 @@ function CreateTagForm() {
               className="absolute top-1/2 left-3 size-2.5 -translate-y-1/2"
             />
             <Input
-              ref={inputRef}
+              ref={focusOnMount}
               id="new-tag-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -172,16 +171,11 @@ function CreateTagForm() {
 }
 
 function TagRow({ tag }: { tag: SidebarTag }) {
-  const editInputRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<"view" | "edit" | "confirm-delete">("view");
   const [name, setName] = useState(tag.name);
   const [color, setColor] = useState(tag.colorHex);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-
-  useEffect(() => {
-    if (mode === "edit") editInputRef.current?.focus();
-  }, [mode]);
 
   function save(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -219,7 +213,7 @@ function TagRow({ tag }: { tag: SidebarTag }) {
         <form onSubmit={save} className="grid gap-3">
           <div className="flex gap-2">
             <Input
-              ref={editInputRef}
+              ref={focusOnMount}
               value={name}
               onChange={(e) => setName(e.target.value)}
               maxLength={TAG_NAME_MAX_LENGTH}

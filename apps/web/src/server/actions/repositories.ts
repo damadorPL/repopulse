@@ -10,6 +10,7 @@ import {
 } from "@repopulse/github";
 import { RELEASE_BACKFILL_PRIORITY } from "@repopulse/queue";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { z } from "zod";
 
 import { getCurrentUserOrThrow } from "@/lib/auth";
@@ -105,7 +106,9 @@ async function queueHistoryBackfill(repositoryId: string, status: BackfillStatus
       data: { backfillStatus: "QUEUED" },
     });
   } catch (error) {
-    console.warn(`[addRepositoryAction] could not queue the history backfill of ${repositoryId}`, error);
+    after(() => {
+      console.warn(`[addRepositoryAction] could not queue the history backfill of ${repositoryId}`, error);
+    });
   }
 }
 

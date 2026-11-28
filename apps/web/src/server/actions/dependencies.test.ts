@@ -45,6 +45,7 @@ vi.mock("@/lib/auth", () => ({
   getCurrentUserOrThrow: vi.fn(async () => currentUser),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("next/server", () => ({ after: vi.fn((fn: () => void) => fn()) }));
 vi.mock("@repopulse/db", () => ({ prisma, decryptToken: vi.fn() }));
 vi.mock("bullmq", () => ({
   Queue: class {

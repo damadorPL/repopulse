@@ -39,6 +39,7 @@ import {
   type DepsUpdateQueue,
 } from "@repopulse/queue";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 
 import { getCurrentUserOrThrow } from "@/lib/auth";
 import { readIgnoreRules, sameIgnoreRule, type IgnoreRuleValue } from "@/lib/dependency-settings";
@@ -129,10 +130,12 @@ async function queueRecheck(projectId: string, userId: string, caller: string): 
     });
     return true;
   } catch (error) {
-    console.warn(
-      `[${caller}] could not queue a re-check of ${projectId}`,
-      error instanceof Error ? error.message : error,
-    );
+    after(() => {
+      console.warn(
+        `[${caller}] could not queue a re-check of ${projectId}`,
+        error instanceof Error ? error.message : error,
+      );
+    });
     return false;
   }
 }
@@ -344,10 +347,12 @@ async function fetchRepository(ref: RepoRefInput, userToken: string | undefined)
     const rateLimited = toRateLimitError(error);
     if (rateLimited) throw rateLimited;
     if (!isGitHubHttpError(error) || (error.status !== 404 && error.status !== 403)) {
-      console.warn(
-        `[addDependencyProjectsAction] could not read ${ref.owner}/${ref.name}`,
-        error instanceof Error ? error.message : error,
-      );
+      after(() => {
+        console.warn(
+          `[addDependencyProjectsAction] could not read ${ref.owner}/${ref.name}`,
+          error instanceof Error ? error.message : error,
+        );
+      });
       return { ok: false, message: `GitHub did not answer for ${ref.owner}/${ref.name}. Try again.` };
     }
   }
@@ -368,10 +373,12 @@ async function fetchRepository(ref: RepoRefInput, userToken: string | undefined)
   } catch (error) {
     const rateLimited = toRateLimitError(error);
     if (rateLimited) throw rateLimited;
-    console.warn(
-      `[addDependencyProjectsAction] App read of ${ref.owner}/${ref.name} failed`,
-      error instanceof Error ? error.message : error,
-    );
+    after(() => {
+      console.warn(
+        `[addDependencyProjectsAction] App read of ${ref.owner}/${ref.name} failed`,
+        error instanceof Error ? error.message : error,
+      );
+    });
     return { ok: false, message: notFound };
   }
 }
@@ -540,10 +547,12 @@ export async function addDependencyProjectsAction(
           await enqueueScan(project.projectId, "add", user.id);
         } catch (error) {
           scansQueued = false;
-          console.warn(
-            `[addDependencyProjectsAction] could not queue the first scan of ${project.projectId}`,
-            error instanceof Error ? error.message : error,
-          );
+          after(() => {
+            console.warn(
+              `[addDependencyProjectsAction] could not queue the first scan of ${project.projectId}`,
+              error instanceof Error ? error.message : error,
+            );
+          });
           queueFailures.push(project.projectId);
         }
       }),

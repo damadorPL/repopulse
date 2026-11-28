@@ -7,16 +7,7 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { removeSubscriptionAction } from "@/server/actions/repositories";
 
 /**
@@ -51,43 +42,33 @@ export function RemoveSubscriptionButton({
     });
   }
 
+  const trigger = withLabel ? (
+    <Button variant="destructive" size="sm">
+      <TrashIcon />
+      Stop tracking
+    </Button>
+  ) : (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className="text-muted-foreground hover:text-destructive"
+      aria-label={`Stop tracking ${fullName}`}
+    >
+      <TrashIcon />
+    </Button>
+  );
+
   return (
-    <Dialog open={open} onOpenChange={(next) => !pending && setOpen(next)}>
-      <DialogTrigger asChild>
-        {withLabel ? (
-          <Button variant="destructive" size="sm">
-            <TrashIcon />
-            Stop tracking
-          </Button>
-        ) : (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="text-muted-foreground hover:text-destructive"
-            aria-label={`Stop tracking ${fullName}`}
-          >
-            <TrashIcon />
-          </Button>
-        )}
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Stop tracking {fullName}?</DialogTitle>
-          <DialogDescription>
-            Its releases disappear from your feed and its tag assignments are removed. You can add it again any time.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="outline" disabled={pending}>
-              Cancel
-            </Button>
-          </DialogClose>
-          <Button variant="destructive" onClick={remove} disabled={pending}>
-            {pending ? "Removing…" : "Stop tracking"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <ConfirmDialog
+      open={open}
+      onOpenChange={setOpen}
+      pending={pending}
+      trigger={trigger}
+      title={`Stop tracking ${fullName}?`}
+      description="Its releases disappear from your feed and its tag assignments are removed. You can add it again any time."
+      confirmLabel="Stop tracking"
+      pendingLabel="Removing…"
+      onConfirm={remove}
+    />
   );
 }
